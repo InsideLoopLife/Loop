@@ -1,6 +1,6 @@
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { isAiFeatureEnabled, recordOpenAiUsageFromPayload } from "@/lib/ai/usage";
-import { currencyForVenue, isMarketOpenForVenue, knownVenueCodes, normaliseVenueCode, quoteUnitForVenue, yahooProviderSymbols, stooqProviderSymbols } from "@/lib/investments/market-venues";
+import { currencyForVenue, isMarketOpenForVenue, knownVenueCodes, marketSessionForVenue, normaliseVenueCode, quoteUnitForVenue, yahooProviderSymbols, stooqProviderSymbols } from "@/lib/investments/market-venues";
 
 export type InvestmentQuote = {
   price: number;
@@ -182,17 +182,33 @@ function assetNameFor(ticker: string, symbol: string) {
 async function yahooQuote(ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
   for (const symbol of yahooSymbols(ticker, exchange)) {
     try {
-      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
+      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
       const data = await response.json().catch(() => ({}));
       const result = data?.chart?.result?.[0];
       const meta = result?.meta || {};
-      const rawPrice = Number(meta.regularMarketPrice || meta.previousClose || 0);
-      if (!Number.isFinite(rawPrice) || rawPrice <= 0) continue;
       const ex = exchangeFromSymbol(symbol, exchange);
+      const session = marketSessionForVenue(ex, new Date(), symbol);
+      const preMarketPrice = Number(meta.preMarketPrice || 0);
+      const postMarketPrice = Number(meta.postMarketPrice || 0);
+      const regularMarketPrice = Number(meta.regularMarketPrice || 0);
+      const previousClose = Number(meta.previousClose || meta.chartPreviousClose || 0);
+      let rawPrice = regularMarketPrice || previousClose || 0;
+      let sourceLabel = "Yahoo delayed/EOD";
+      if (session.session === "pre" && Number.isFinite(preMarketPrice) && preMarketPrice > 0) {
+        rawPrice = preMarketPrice;
+        sourceLabel = "Yahoo pre-market delayed";
+      } else if (session.session === "after" && Number.isFinite(postMarketPrice) && postMarketPrice > 0) {
+        rawPrice = postMarketPrice;
+        sourceLabel = "Yahoo post-market delayed";
+      } else if (session.session === "closed" && Number.isFinite(regularMarketPrice) && regularMarketPrice > 0) {
+        sourceLabel = "Yahoo regular close/delayed";
+      }
+      if (!Number.isFinite(rawPrice) || rawPrice <= 0) continue;
       const normalised = normaliseMarketPrice(rawPrice, ex, symbol);
       const common = COMMON_INVESTMENTS[cleanTicker(ticker).replace(/\.L$/i, "")];
       const yahooFund = isYahooFundCode(symbol);
-      return { price: normalised.price, source: "Yahoo delayed/EOD", rawSymbol: symbol, assetName: meta.longName || meta.shortName || common?.assetName || assetNameFor(ticker, symbol), exchange: yahooFund ? "Yahoo Fund" : common?.exchange || ex || meta.exchangeName || "", currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit, assetType: yahooFund ? "fund" : common?.assetType || "share", annualAssetFeePercent: common?.annualAssetFeePercent ?? 0, sourceUrl: common?.sourceUrl || `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`, note: yahooFund ? "Yahoo Finance mutual-fund code. Price normally represents the fund/unit quote, not a stock-exchange pence quote." : "Delayed/end-of-day quote fallback. Confirm exchange/currency before relying on it." };
+      const sessionNote = session.isExtended ? `Using ${session.label} price; regular close remains separate for daily movement.` : session.session === "closed" ? "Market is closed; using latest regular/close quote from provider." : "Live/delayed quote from active regular session where available.";
+      return { price: normalised.price, source: sourceLabel, rawSymbol: symbol, assetName: meta.longName || meta.shortName || common?.assetName || assetNameFor(ticker, symbol), exchange: yahooFund ? "Yahoo Fund" : common?.exchange || ex || meta.exchangeName || "", currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit, assetType: yahooFund ? "fund" : common?.assetType || "share", annualAssetFeePercent: common?.annualAssetFeePercent ?? 0, sourceUrl: common?.sourceUrl || `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`, note: yahooFund ? "Yahoo Finance mutual-fund code. Price normally represents the fund/unit quote, not a stock-exchange pence quote." : sessionNote };
     } catch {}
   }
   return null;

@@ -71,6 +71,121 @@ const SUFFIX_TO_VENUE: Record<string, string> = Object.values(MARKET_VENUES).red
   return acc;
 }, {});
 
+
+export type MarketSessionState = {
+  session: "regular" | "pre" | "after" | "closed" | "weekend" | "daily";
+  label: string;
+  isMarketOpen: boolean;
+  isExtended: boolean;
+  localTimeLabel: string;
+  openLabel: string;
+  closeLabel: string;
+  nextStateLabel: string;
+  venue: MarketVenue | null;
+};
+
+type LocalSchedule = {
+  openHour: number;
+  openMinute: number;
+  closeHour: number;
+  closeMinute: number;
+  preOpenHour?: number;
+  preOpenMinute?: number;
+  afterCloseHour?: number;
+  afterCloseMinute?: number;
+};
+
+function two(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function localPartsFor(timezone: string, now: Date) {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(now);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
+  const weekday = get("weekday");
+  const hour = Number(get("hour"));
+  const minute = Number(get("minute"));
+  return {
+    weekday,
+    dayNumber: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday),
+    hour: Number.isFinite(hour) ? hour : 0,
+    minute: Number.isFinite(minute) ? minute : 0,
+    label: `${two(Number.isFinite(hour) ? hour : 0)}:${two(Number.isFinite(minute) ? minute : 0)} ${timezone}`,
+  };
+}
+
+function localMinutes(hour: number, minute = 0) {
+  return hour * 60 + minute;
+}
+
+function scheduleForVenue(venue: MarketVenue | null): LocalSchedule {
+  const code = venue?.venueCode || "";
+  if (["NASDAQ", "NYSE", "AMEX", "ARCX", "BATS", "OTCM", "PINX", "XTSE", "TSXV"].includes(code)) {
+    return { openHour: 9, openMinute: 30, closeHour: 16, closeMinute: 0, preOpenHour: 4, preOpenMinute: 0, afterCloseHour: 20, afterCloseMinute: 0 };
+  }
+  if (["LSE", "AIM"].includes(code)) return { openHour: 8, openMinute: 0, closeHour: 16, closeMinute: 30 };
+  if (code === "XFRA") return { openHour: 8, openMinute: 0, closeHour: 22, closeMinute: 0 };
+  if (["XETR", "XPAR", "XAMS", "XMIL", "XSWX", "XSTO", "XCSE", "XHEL", "XOSL", "XBRU", "XLIS", "XWBO", "XWAR"].includes(code)) {
+    return { openHour: 9, openMinute: 0, closeHour: 17, closeMinute: 30 };
+  }
+  if (code === "XHKG") return { openHour: 9, openMinute: 30, closeHour: 16, closeMinute: 10 };
+  if (code === "XSES") return { openHour: 9, openMinute: 0, closeHour: 17, closeMinute: 10 };
+  if (code === "XTKS") return { openHour: 9, openMinute: 0, closeHour: 15, closeMinute: 10 };
+  if (code === "XASX") return { openHour: 10, openMinute: 0, closeHour: 16, closeMinute: 10 };
+  if (code === "XNZE") return { openHour: 10, openMinute: 0, closeHour: 16, closeMinute: 50 };
+  if (code === "XJSE") return { openHour: 9, openMinute: 0, closeHour: 17, closeMinute: 0 };
+  if (code === "XMEX") return { openHour: 8, openMinute: 30, closeHour: 15, closeMinute: 0 };
+  if (code === "BVMF") return { openHour: 10, openMinute: 0, closeHour: 17, closeMinute: 10 };
+  return { openHour: 8, openMinute: 0, closeHour: 16, closeMinute: 30 };
+}
+
+function inWindow(minutesNow: number, start: number, end: number) {
+  if (start <= end) return minutesNow >= start && minutesNow <= end;
+  return minutesNow >= start || minutesNow <= end;
+}
+
+export function marketSessionForVenue(exchange?: string | null, now = new Date(), symbol?: string | null): MarketSessionState {
+  const venue = venueFor(exchange, symbol);
+  if (venue?.venueCode === "VANGUARD") {
+    return {
+      session: "daily",
+      label: "priced daily",
+      isMarketOpen: false,
+      isExtended: false,
+      localTimeLabel: localPartsFor(venue.timezone, now).label,
+      openLabel: "Daily NAV",
+      closeLabel: "Daily NAV",
+      nextStateLabel: "Next provider NAV update",
+      venue,
+    };
+  }
+
+  const timezone = venue?.timezone || "Europe/London";
+  const local = localPartsFor(timezone, now);
+  const isWeekend = local.dayNumber === 0 || local.dayNumber === 6;
+  const schedule = scheduleForVenue(venue);
+  const open = localMinutes(schedule.openHour, schedule.openMinute);
+  const close = localMinutes(schedule.closeHour, schedule.closeMinute);
+  const preOpen = schedule.preOpenHour !== undefined ? localMinutes(schedule.preOpenHour, schedule.preOpenMinute || 0) : null;
+  const afterClose = schedule.afterCloseHour !== undefined ? localMinutes(schedule.afterCloseHour, schedule.afterCloseMinute || 0) : null;
+  const minutesNow = localMinutes(local.hour, local.minute);
+  const openLabel = `${two(schedule.openHour)}:${two(schedule.openMinute)}`;
+  const closeLabel = `${two(schedule.closeHour)}:${two(schedule.closeMinute)}`;
+
+  if (isWeekend) return { session: "weekend", label: "closed", isMarketOpen: false, isExtended: false, localTimeLabel: local.label, openLabel, closeLabel, nextStateLabel: `Opens ${openLabel}`, venue };
+  if (inWindow(minutesNow, open, close)) return { session: "regular", label: "live market", isMarketOpen: true, isExtended: false, localTimeLabel: local.label, openLabel, closeLabel, nextStateLabel: `Closes ${closeLabel}`, venue };
+  if (preOpen !== null && inWindow(minutesNow, preOpen, open - 1)) return { session: "pre", label: "early market", isMarketOpen: true, isExtended: true, localTimeLabel: local.label, openLabel, closeLabel, nextStateLabel: `Opens ${openLabel}`, venue };
+  if (afterClose !== null && inWindow(minutesNow, close + 1, afterClose)) return { session: "after", label: "sunset market", isMarketOpen: true, isExtended: true, localTimeLabel: local.label, openLabel, closeLabel, nextStateLabel: `Extended closes ${two(schedule.afterCloseHour || 0)}:${two(schedule.afterCloseMinute || 0)}`, venue };
+  return { session: "closed", label: "closed", isMarketOpen: false, isExtended: false, localTimeLabel: local.label, openLabel, closeLabel, nextStateLabel: `Opens ${openLabel}`, venue };
+}
+
 export function knownVenueCodes() {
   return Object.keys(MARKET_VENUES).sort();
 }
@@ -113,18 +228,10 @@ export function priceScaleForVenue(exchange?: string | null, symbol?: string | n
 }
 
 export function isMarketOpenForVenue(exchange?: string | null, now = new Date(), symbol?: string | null) {
-  const day = now.getUTCDay();
-  if (day === 0 || day === 6) return false;
-  const venue = venueFor(exchange, symbol);
-  if (!venue) {
-    const minutesNow = now.getUTCHours() * 60 + now.getUTCMinutes();
-    return minutesNow >= EU_OPEN && minutesNow <= US_CLOSE;
-  }
-  if (venue.venueCode === "VANGUARD") return true;
-  const minutesNow = now.getUTCHours() * 60 + now.getUTCMinutes();
-  if (venue.openUtcMinutes <= venue.closeUtcMinutes) return minutesNow >= venue.openUtcMinutes && minutesNow <= venue.closeUtcMinutes;
-  // Some Asia/Pacific venues straddle midnight UTC.
-  return minutesNow >= venue.openUtcMinutes || minutesNow <= venue.closeUtcMinutes;
+  const session = marketSessionForVenue(exchange, now, symbol);
+  // Treat US/Canada extended sessions as update windows for realtime users.
+  // UK/EU and most international venues remain regular-hours only unless explicitly scheduled above.
+  return session.isMarketOpen;
 }
 
 export function yahooProviderSymbols(ticker: string, exchange?: string | null) {
