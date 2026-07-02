@@ -278,6 +278,73 @@ async function previousCloseGlobalPoint(
   return (data as GlobalPoint) || null;
 }
 
+async function createCoverageRequiredAlert(
+  supabase: SupabaseAdmin,
+  args: { ticker: string; exchange: string | null; holdings: Holding[]; reason: string; nowIso: string },
+) {
+  const ticker = normaliseSnapshotTicker(args.ticker);
+  const exchange = normaliseSnapshotExchange(args.exchange, ticker) || "";
+  const holdingIds = args.holdings.map((holding) => holding.id);
+  const userIds = Array.from(new Set(args.holdings.map((holding) => holding.user_id).filter(Boolean)));
+  const sample = args.holdings[0];
+  const requestQuery = exchange ? `${ticker} · ${exchange}` : ticker;
+  const progress = {
+    ticker_found: false,
+    investment_information_added: false,
+    document_fee_information_added: false,
+    starter_history_added: false,
+    current_step: "Market worker skipped deterministic quote lookup; admin coverage required",
+    worker_no_ai: true,
+    reason: args.reason,
+    holding_ids: holdingIds,
+    user_ids: userIds,
+  };
+
+  try {
+    const existing = await supabase
+      .from("loop_investment_ai_market_requests")
+      .select("id")
+      .eq("request_query", requestQuery)
+      .eq("exchange_hint", exchange || null)
+      .in("status", ["planned", "queued", "needs_review", "coverage_required", "in_progress"])
+      .limit(1)
+      .maybeSingle();
+
+    if (existing.data?.id) {
+      await supabase
+        .from("loop_investment_ai_market_requests")
+        .update({
+          status: "coverage_required",
+          progress,
+          match_confidence: 0,
+          updated_at: args.nowIso,
+          inferred_market_code: exchange || null,
+        } as any)
+        .eq("id", existing.data.id);
+      return existing.data.id as string;
+    }
+
+    const inserted = await supabase
+      .from("loop_investment_ai_market_requests")
+      .insert({
+        prompt: `Coverage required for ${requestQuery}. The market worker does not use AI/web-search. Add or map the market/listing in Admin → Investment coverage, then re-enable polling for affected holdings.`,
+        request_query: requestQuery,
+        exchange_hint: exchange || null,
+        inferred_market_code: exchange || null,
+        status: "coverage_required",
+        created_by: sample?.user_id || null,
+        match_confidence: 0,
+        progress,
+        updated_at: args.nowIso,
+      } as any)
+      .select("id")
+      .maybeSingle();
+    return inserted.data?.id || null;
+  } catch {
+    return null;
+  }
+}
+
 async function upsertGlobalPoint(
   supabase: SupabaseAdmin,
   args: {
@@ -443,11 +510,27 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
 
       if (!cachedPoint && (!quote || !Number.isFinite(Number(quote.price)) || Number(quote.price) <= 0)) {
         result.failed += dueHoldings.length;
-        result.failures.push({ ticker, exchange, reason: "quote_not_found" });
-        logger.warn(`[investment-price-job] quote not found ${ticker} ${exchange || ""}`);
+        result.failures.push({ ticker, exchange, reason: "coverage_required_quote_not_found" });
+        logger.warn(`[investment-price-job] coverage required ${ticker} ${exchange || ""}; AI/web-search is disabled in worker and polling is paused for affected holdings`);
+        const requestId = await createCoverageRequiredAlert(supabase, {
+          ticker,
+          exchange,
+          holdings: dueHoldings,
+          reason: "quote_not_found",
+          nowIso: startedAt,
+        });
         await supabase
           .from("investment_holdings")
-          .update({ last_price_check_at: startedAt, price_check_status: "quote_not_found", instrument_resolution_status: "needs_review", instrument_resolution_notes: "Quote was not found by the market worker", updated_at: startedAt } as any)
+          .update({
+            last_price_check_at: startedAt,
+            price_check_status: "coverage_required",
+            price_polling_enabled: false,
+            instrument_resolution_status: "coverage_required",
+            instrument_resolution_notes: requestId
+              ? `No deterministic quote found. Admin coverage request ${requestId} created; polling paused to avoid AI/web-search spend.`
+              : "No deterministic quote found. Admin coverage required; polling paused to avoid AI/web-search spend.",
+            updated_at: startedAt,
+          } as any)
           .in("id", dueHoldings.map((holding) => holding.id));
         continue;
       }

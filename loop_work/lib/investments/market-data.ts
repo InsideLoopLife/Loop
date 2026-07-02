@@ -66,6 +66,19 @@ export const COMMON_INVESTMENTS: Record<string, CommonTicker> = {
   "VANGUARD-LIFESTRATEGY-GLOBAL-80-ACC": { assetName: "Vanguard LifeStrategy® Global 80% Equity Fund - Accumulation", exchange: "Vanguard", symbol: "Vanguard LifeStrategy Global 80 Acc", sourceUrl: "https://www.vanguardinvestor.co.uk/investments/vanguard-lifestrategy-global-80-equity-fund-a-gbp-accumulation-shares/overview", assetType: "fund", annualAssetFeePercent: 0.20, aliases: ["lifestrategy global 80", "lifestrategy global 80 acc", "lifestrategy global 80 accumulation", "VL80AGA"] },
 };
 
+function envBool(name: string, fallback = false) {
+  const value = process.env[name];
+  if (value === undefined || value === null || value === "") return fallback;
+  const clean = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(clean)) return true;
+  if (["0", "false", "no", "n", "off"].includes(clean)) return false;
+  return fallback;
+}
+
+function marketWorkerProcess() {
+  return envBool("LOOP_MARKET_DATA_WORKER", false) || envBool("MARKET_DATA_WORKER_PROCESS", false);
+}
+
 export function cleanTicker(ticker: string) {
   return ticker.trim().toUpperCase().replace(/\s+/g, "");
 }
@@ -387,7 +400,13 @@ async function yahooSearchCandidates(query: string, exchange?: string | null): P
 }
 
 async function openAiInvestmentSearch(supabase: any, userId: string, query: string, exchange?: string | null): Promise<InvestmentQuote[]> {
-  const guard = isAiFeatureEnabled({ scope: "investment_market_search", requiresWebSearch: true });
+  // v28.36: OpenAI/web-search is never allowed from the Render market worker.
+  // Unknown instruments should become admin coverage tasks, not paid web-search calls.
+  if (marketWorkerProcess()) {
+    console.log(`[investment-ai] OpenAI market search blocked in market worker for ${query} ${exchange || ""}`);
+    return [];
+  }
+  const guard = isAiFeatureEnabled({ scope: "investment_market_search", requiresWebSearch: true, worker: false });
   if (!guard.allowed) {
     console.log(`[investment-ai] OpenAI market search skipped: ${guard.reason}`);
     return [];
@@ -492,14 +511,18 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
   if (yahoo) return yahoo;
   const stooq = await stooqQuote(symbol, exchange || glossary?.exchange);
   if (stooq) return stooq;
-  return glossary || (await openAiInvestmentSearch(supabase, userId, query, exchange))[0] || null;
+  // v28.36: do not fall back to AI from quote refresh paths. If no deterministic quote exists,
+  // the caller should mark the holding as coverage_required and notify admin.
+  return glossary || null;
 }
 
 export async function searchInvestments(supabase: any, userId: string, query: string, exchange?: string | null) {
   const quote = await fetchInvestmentQuote(supabase, userId, query, exchange);
   const local = candidateInvestments(query);
   const yahooSearch = await yahooSearchCandidates(query, exchange);
-  const ai = quote && quote.source !== "OpenAI investment search" ? [] : await openAiInvestmentSearch(supabase, userId, query, exchange);
+  const ai = envBool("LOOP_ENABLE_AI_MARKET_SEARCH", false) && envBool("LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP", false)
+    ? await openAiInvestmentSearch(supabase, userId, query, exchange)
+    : [];
   const merged = [quote, ...local, ...yahooSearch, ...ai].filter(Boolean) as InvestmentQuote[];
   const seen = new Set<string>();
   return merged.filter((item) => {

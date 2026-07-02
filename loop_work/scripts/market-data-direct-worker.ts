@@ -4,6 +4,33 @@ import { runSnapTradeProviderSnapshotJob } from "@/lib/snaptrade/sync";
 
 process.env.LOOP_MARKET_DATA_WORKER = process.env.LOOP_MARKET_DATA_WORKER || "true";
 
+// v28.36 safety: this Render worker must never spend on OpenAI/web-search.
+// It prices known/resolved instruments only. Unknowns are queued for admin coverage review.
+process.env.LOOP_AI_DISABLED = process.env.LOOP_AI_DISABLED || "true";
+process.env.MARKET_DATA_WORKER_AI_COVERAGE_ENABLED = process.env.MARKET_DATA_WORKER_AI_COVERAGE_ENABLED || "false";
+process.env.LOOP_ENABLE_AI_MARKET_SEARCH = process.env.LOOP_ENABLE_AI_MARKET_SEARCH || "false";
+process.env.LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP = process.env.LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP || "false";
+process.env.LOOP_ENABLE_AI_HOLDING_IMAGE_IMPORT = process.env.LOOP_ENABLE_AI_HOLDING_IMAGE_IMPORT || "false";
+
+function scrubWorkerAiSecrets() {
+  const aiKeys = [
+    "OPENAI_API_KEY",
+    "OPENAI_PREMIUM_API_KEY",
+    "OPENAI_SECURITY_API_KEY",
+    "OPENAI_RESEARCH_API_KEY",
+    "OPENAI_TOKEN",
+    "LOOP_OPENAI_API_KEY",
+  ];
+  const present = aiKeys.filter((key) => Boolean(process.env[key]));
+  for (const key of present) delete process.env[key];
+  if (present.length) {
+    console.warn(`[market-data-direct-worker] OpenAI env keys were present on the worker and have been ignored: ${present.join(", ")}`);
+  }
+  return present;
+}
+
+const scrubbedAiKeys = scrubWorkerAiSecrets();
+
 const DEFAULT_PRICE_INTERVAL_MINUTES = 1;
 const DEFAULT_SNAPTRADE_INTERVAL_MINUTES = 1;
 const DEFAULT_MAINTENANCE_INTERVAL_MINUTES = 60;
@@ -96,6 +123,7 @@ function requiredEnvReport() {
     aiMarketSearchEnabled: process.env.LOOP_ENABLE_AI_MARKET_SEARCH === "true",
     webSearchMarketLookupEnabled: process.env.LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP === "true",
     hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY || process.env.OPENAI_PREMIUM_API_KEY || process.env.OPENAI_RESEARCH_API_KEY),
+    scrubbedAiKeys,
   };
 }
 

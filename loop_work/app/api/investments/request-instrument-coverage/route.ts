@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     `Search query: ${query}`,
     exchange ? `User selected/review exchange: ${exchange}` : "No exchange selected.",
     investmentAccountId ? `Placeholder should appear in investment account: ${investmentAccountId}` : "No pot placeholder requested.",
-    "Find the correct ticker, instrument name, exchange/MIC, currency, quote source, logo/domain and whether it is a share, ETF or fund.",
+    "Admin coverage task: find the correct ticker, instrument name, exchange/MIC, currency, quote source, logo/domain and whether it is a share, ETF or fund. Do not call OpenAI/web-search automatically from the worker.",
     "Do not create a live user holding until the match is confirmed.",
   ].join("\n");
 
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
     investment_information_added: false,
     document_fee_information_added: false,
     starter_history_added: false,
-    current_step: "Queued for AI/admin research",
+    current_step: "Queued for admin coverage review",
     eta_minutes_min: 2,
     eta_minutes_max: 10,
     minimum_history: "1 month",
@@ -108,7 +108,7 @@ export async function POST(request: Request) {
     ok: true,
     id: data?.id || null,
     eta: "Usually 2–10 minutes",
-    message: "Coverage request queued. A placeholder has been placed in the pot where possible; LOOP will research the ticker, add document/fee data and pull at least one month of starter history.",
+    message: "Coverage request queued for admin review. A placeholder has been placed in the pot where possible; LOOP will not use paid AI/web-search from the worker.",
     progress,
   });
 }
