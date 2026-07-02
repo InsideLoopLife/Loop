@@ -1,0 +1,1028 @@
+diff -ruN /tmp/old/app/api/investments/history/route.ts /tmp/new/app/api/investments/history/route.ts
+--- /tmp/old/app/api/investments/history/route.ts	2026-07-01 14:30:04.363777665 +0000
++++ /tmp/new/app/api/investments/history/route.ts	2026-07-01 14:30:04.380286764 +0000
+@@ -12,6 +12,10 @@
+   price: number | null;
+   units: number | null;
+   value: number | null;
++  native_price?: number | null;
++  native_value?: number | null;
++  native_currency?: string | null;
++  fx_rate_to_gbp?: number | null;
+   source: string | null;
+   investment_holdings?: { investment_account_id?: string | null; asset_name?: string | null } | null;
+ };
+@@ -228,7 +232,7 @@
+ 
+   let query: any = supabase
+     .from("investment_price_snapshots")
+-    .select("holding_id, snapshot_at, snapshot_date, price, units, value, source, investment_holdings!inner(investment_account_id, asset_name)")
++    .select("holding_id, snapshot_at, snapshot_date, price, units, value, native_price, native_value, native_currency, fx_rate_to_gbp, source, investment_holdings!inner(investment_account_id, asset_name)")
+     .eq("user_id", user.id)
+     .gte("snapshot_at", since)
+     .order("snapshot_at", { ascending: true })
+@@ -247,8 +251,11 @@
+     const at = row.snapshot_at || row.snapshot_date || "";
+     if (!at) continue;
+     const item = byTime.get(at) || { at, priceTotal: 0, valueTotal: 0, count: 0, sources: new Set<string>() };
+-    item.priceTotal += Number(row.price || 0);
+-    item.valueTotal += Number(row.value || (Number(row.price || 0) * Number(row.units || 0)));
++    const fxRate = Number(row.fx_rate_to_gbp || 0) > 0 ? Number(row.fx_rate_to_gbp) : 1;
++    const gbpPrice = row.native_price !== undefined && row.native_price !== null ? Number(row.native_price || 0) * fxRate : Number(row.price || 0);
++    const gbpValue = row.native_value !== undefined && row.native_value !== null ? Number(row.native_value || 0) * fxRate : Number(row.value || (gbpPrice * Number(row.units || 0)));
++    item.priceTotal += gbpPrice;
++    item.valueTotal += gbpValue;
+     item.count += 1;
+     if (row.source) item.sources.add(row.source);
+     byTime.set(at, item);
+@@ -287,5 +294,5 @@
+ 
+   points = compactNearDuplicatePoints(points).map((point) => ({ ...point, label: labelFor(point.at, range) }));
+ 
+-  return NextResponse.json({ ok: true, range, mode: holdingId ? "holding" : "account", currentValue, points, entitlement, sourceNote: generated.length >= 4 ? `${entitlement.canUseRealtimePrices ? "Realtime tier enabled; this chart currently uses provider/Yahoo history where available" : "Generated from delayed Yahoo historical market data"} with GBP conversion, then anchored to the saved app value.` : "Using app price snapshots, cleaned for obvious pence/currency outliers, then anchored to the saved app value." });
++  return NextResponse.json({ ok: true, range, mode: holdingId ? "holding" : "account", currentValue, points, entitlement, sourceNote: generated.length >= 4 ? `${entitlement.canUseRealtimePrices ? "Realtime tier enabled; this chart currently uses provider/Yahoo history where available" : "Generated from delayed Yahoo historical market data"} with GBP conversion, then anchored to the saved app value.` : "Using native app price snapshots converted to GBP for display, cleaned for obvious pence/currency outliers, then anchored to the saved app value." });
+ }
+diff -ruN /tmp/old/db/v28_31_direct_worker_manual_purge.sql /tmp/new/db/v28_31_direct_worker_manual_purge.sql
+--- /tmp/old/db/v28_31_direct_worker_manual_purge.sql	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/new/db/v28_31_direct_worker_manual_purge.sql	2026-07-01 14:30:05.288873906 +0000
+@@ -0,0 +1,33 @@
++-- v28.31 - Direct market-data worker hardening for manual holdings and retention
++-- Safe to rerun after v28.30.
++
++-- Manual holdings added before price polling existed should be treated as refreshable
++-- when they have a ticker. SnapTrade/imported positions deliberately stay provider-led.
++update public.investment_holdings
++set price_polling_enabled = true,
++    updated_at = coalesce(updated_at, now())
++where ticker is not null
++  and coalesce(nullif(trim(ticker), ''), '') <> ''
++  and price_polling_enabled is null
++  and coalesce(import_source_type, '') <> 'snaptrade'
++  and coalesce(external_provider, '') <> 'snaptrade';
++
++-- Helps the worker find manually-entered and refresh-enabled holdings quickly.
++create index if not exists investment_holdings_market_worker_refresh_idx
++on public.investment_holdings(user_id, ticker, exchange, last_price_check_at)
++where ticker is not null
++  and coalesce(price_polling_enabled, true) = true;
++
++-- Settings used by the existing admin storage page / runner.
++insert into public.wealth_watch_settings(setting_key, setting_value, description)
++values
++  ('investment_snapshots_enabled', 'true', 'Whether LOOP automatically stores investment price/value chart points.'),
++  ('investment_global_raw_price_points', 'true', 'Store one global instrument quote point per ticker/exchange so duplicate user holdings reuse the same price.'),
++  ('investment_snapshots_realtime_users_only', 'false', 'When true, only realtime-entitled users get automatic investment chart point storage.'),
++  ('investment_realtime_minutes_between_points', '1', 'Minutes between points for realtime market-data users.'),
++  ('investment_plus_pro_minutes_between_points', '15', 'Minutes between points for Plus/Pro users.'),
++  ('investment_free_minutes_between_points', '30', 'Minutes between points for free/basic users.'),
++  ('investment_snapshots_retain_days', '365', 'How many holding-level chart points to retain.'),
++  ('investment_snapshots_max_points_per_holding', '5000', 'Maximum stored chart points to keep per holding after pruning.')
++on conflict (setting_key) do update
++set description = excluded.description;
+diff -ruN /tmp/old/db/v28_32_realtime_native_retention_policy.sql /tmp/new/db/v28_32_realtime_native_retention_policy.sql
+--- /tmp/old/db/v28_32_realtime_native_retention_policy.sql	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/new/db/v28_32_realtime_native_retention_policy.sql	2026-07-01 14:30:05.346932357 +0000
+@@ -0,0 +1,379 @@
++-- v28.32 - Native market snapshots and market-open anchored retention
++-- Safe to rerun after v28.31.
++
++-- Holding-level snapshots keep GBP compatibility fields, but native_* is the source quote.
++alter table if exists public.investment_holdings
++  add column if not exists native_exchange text;
++
++alter table if exists public.investment_price_snapshots
++  add column if not exists native_price numeric(18,8),
++  add column if not exists native_value numeric(18,4),
++  add column if not exists native_currency text,
++  add column if not exists fx_rate_to_gbp numeric(18,10),
++  add column if not exists fx_source text,
++  add column if not exists bucket_interval text not null default 'raw';
++
++-- Backfill legacy rows as GBP-native so older charts still survive compaction.
++update public.investment_price_snapshots
++set native_price = coalesce(native_price, price),
++    native_value = coalesce(native_value, value),
++    native_currency = coalesce(nullif(native_currency, ''), 'GBP'),
++    fx_rate_to_gbp = coalesce(fx_rate_to_gbp, 1),
++    fx_source = coalesce(nullif(fx_source, ''), 'legacy GBP-compatible snapshot')
++where native_price is null
++   or native_value is null
++   or native_currency is null
++   or fx_rate_to_gbp is null;
++
++-- SnapTrade/imported holdings with tickers should be eligible for market quote polling too.
++-- Provider sync still updates units/accounts; market polling updates the native quoted price history.
++update public.investment_holdings
++set price_polling_enabled = true,
++    updated_at = now()
++where ticker is not null
++  and coalesce(nullif(trim(ticker), ''), '') <> ''
++  and coalesce(record_status, 'active') <> 'archived'
++  and coalesce(price_polling_enabled, false) = false;
++
++-- Every tier can be refreshed every minute; product tiering can still be changed later by Admin settings.
++insert into public.wealth_watch_settings(setting_key, setting_value, description)
++values
++  ('investment_snapshots_enabled', 'true', 'Whether LOOP automatically stores investment price/value chart points.'),
++  ('investment_global_raw_price_points', 'true', 'Store one native quote point per ticker/exchange so duplicate holdings reuse the same price.'),
++  ('investment_snapshots_realtime_users_only', 'false', 'When true, only realtime-entitled users get automatic investment chart point storage.'),
++  ('investment_realtime_minutes_between_points', '1', 'Minutes between points for realtime market-data users.'),
++  ('investment_plus_pro_minutes_between_points', '1', 'Minutes between points for Plus/Pro users.'),
++  ('investment_free_minutes_between_points', '1', 'Minutes between points for free/basic users.'),
++  ('investment_retention_minute_days', '1', 'Keep raw minute-by-minute points for this many days.'),
++  ('investment_retention_intraday_bucket_minutes', '15', 'After the raw minute window, keep one point every N market-open-anchored minutes. 15 means :00/:15/:30/:45 style buckets.'),
++  ('investment_retention_intraday_days', '7', 'Keep intraday bucket points until this many days old.'),
++  ('investment_retention_hourly_days', '30', 'After intraday buckets, keep one hourly point until this many days old.'),
++  ('investment_retention_weekly_after_years', '5', 'After this many years, compact daily points to one weekly point.'),
++  ('investment_snapshots_retain_days', '36500', 'Legacy cap only; v28.32 keeps old history compacted instead of deleting it by age.'),
++  ('investment_snapshots_max_points_per_holding', '200000', 'Legacy emergency cap only; retention should compact points before this is needed.')
++on conflict (setting_key) do update
++set setting_value = excluded.setting_value,
++    description = excluded.description;
++
++create or replace function public.loop_investment_market_timezone(p_exchange text)
++returns text
++language sql
++immutable
++set search_path = public
++as $$
++  select case
++    when upper(coalesce(p_exchange, '')) in ('NASDAQ','NYSE','AMEX','XNAS','XNYS','XASE','US') then 'America/New_York'
++    when upper(coalesce(p_exchange, '')) in ('LSE','XLON','XLSE','LON') then 'Europe/London'
++    else 'UTC'
++  end;
++$$;
++
++create or replace function public.loop_investment_market_open_anchor(p_exchange text, p_at timestamptz)
++returns timestamptz
++language plpgsql
++stable
++set search_path = public
++as $$
++declare
++  tz text := public.loop_investment_market_timezone(p_exchange);
++  local_day date := (p_at at time zone public.loop_investment_market_timezone(p_exchange))::date;
++  open_time time;
++  local_open timestamp;
++begin
++  open_time := case
++    when upper(coalesce(p_exchange, '')) in ('NASDAQ','NYSE','AMEX','XNAS','XNYS','XASE','US') then time '09:30'
++    when upper(coalesce(p_exchange, '')) in ('LSE','XLON','XLSE','LON') then time '08:00'
++    else time '09:00'
++  end;
++  local_open := local_day + open_time;
++  return local_open at time zone tz;
++end;
++$$;
++
++create index if not exists investment_price_snapshots_retention_idx
++  on public.investment_price_snapshots(holding_id, snapshot_at desc, bucket_interval);
++
++create index if not exists investment_instrument_price_points_retention_idx
++  on public.investment_instrument_price_points(ticker, exchange_code, point_at desc, bucket_interval);
++
++create or replace function public.loop_admin_compact_investment_instrument_price_points()
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  minute_days int := coalesce((select setting_value::int from public.wealth_watch_settings where setting_key = 'investment_retention_minute_days'), 1);
++  intraday_bucket_minutes int := coalesce((select setting_value::int from public.wealth_watch_settings where setting_key = 'investment_retention_intraday_bucket_minutes'), 15);
++  intraday_days int := coalesce((select setting_value::int from public.wealth_watch_settings where setting_key = 'investment_retention_intraday_days'), 7);
++  hourly_days int := coalesce((select setting_value::int from public.wealth_watch_settings where setting_key = 'investment_retention_hourly_days'), 30);
++  weekly_after_years int := coalesce((select setting_value::int from public.wealth_watch_settings where setting_key = 'investment_retention_weekly_after_years'), 5);
++  deleted_intraday int := 0;
++  deleted_hourly int := 0;
++  deleted_daily int := 0;
++  deleted_weekly int := 0;
++begin
++  intraday_bucket_minutes := greatest(1, least(intraday_bucket_minutes, 60));
++  minute_days := greatest(1, minute_days);
++  intraday_days := greatest(minute_days + 1, intraday_days);
++  hourly_days := greatest(intraday_days + 1, hourly_days);
++  weekly_after_years := greatest(1, weekly_after_years);
++
++  -- >1d to <=7d: keep one point per 15-minute bucket anchored to that market's open.
++  with ranked as (
++    select id,
++           row_number() over (
++             partition by ticker,
++                          exchange_code,
++                          (point_at at time zone public.loop_investment_market_timezone(exchange_code))::date,
++                          floor(extract(epoch from (point_at - public.loop_investment_market_open_anchor(exchange_code, point_at))) / (intraday_bucket_minutes * 60))
++             order by point_at desc, created_at desc
++           ) as rn
++    from public.investment_instrument_price_points
++    where point_at < now() - make_interval(days => minute_days)
++      and point_at >= now() - make_interval(days => intraday_days)
++  ), deleted as (
++    delete from public.investment_instrument_price_points p
++    using ranked r
++    where p.id = r.id and r.rn > 1
++    returning p.id
++  ) select count(*) into deleted_intraday from deleted;
++
++  update public.investment_instrument_price_points
++  set bucket_interval = intraday_bucket_minutes::text || 'm'
++  where point_at < now() - make_interval(days => minute_days)
++    and point_at >= now() - make_interval(days => intraday_days)
++    and bucket_interval <> intraday_bucket_minutes::text || 'm';
++
++  -- >7d to <=30d: keep one point per market-open-anchored hour.
++  with ranked as (
++    select id,
++           row_number() over (
++             partition by ticker,
++                          exchange_code,
++                          (point_at at time zone public.loop_investment_market_timezone(exchange_code))::date,
++                          floor(extract(epoch from (point_at - public.loop_investment_market_open_anchor(exchange_code, point_at))) / (60 * 60))
++             order by point_at desc, created_at desc
++           ) as rn
++    from public.investment_instrument_price_points
++    where point_at < now() - make_interval(days => intraday_days)
++      and point_at >= now() - make_interval(days => hourly_days)
++  ), deleted as (
++    delete from public.investment_instrument_price_points p
++    using ranked r
++    where p.id = r.id and r.rn > 1
++    returning p.id
++  ) select count(*) into deleted_hourly from deleted;
++
++  update public.investment_instrument_price_points
++  set bucket_interval = '1h'
++  where point_at < now() - make_interval(days => intraday_days)
++    and point_at >= now() - make_interval(days => hourly_days)
++    and bucket_interval <> '1h';
++
++  -- >30d to <5y: keep one daily close/latest point per local market day.
++  with ranked as (
++    select id,
++           row_number() over (
++             partition by ticker,
++                          exchange_code,
++                          (point_at at time zone public.loop_investment_market_timezone(exchange_code))::date
++             order by point_at desc, created_at desc
++           ) as rn
++    from public.investment_instrument_price_points
++    where point_at < now() - make_interval(days => hourly_days)
++      and point_at >= now() - make_interval(years => weekly_after_years)
++  ), deleted as (
++    delete from public.investment_instrument_price_points p
++    using ranked r
++    where p.id = r.id and r.rn > 1
++    returning p.id
++  ) select count(*) into deleted_daily from deleted;
++
++  update public.investment_instrument_price_points
++  set bucket_interval = '1d'
++  where point_at < now() - make_interval(days => hourly_days)
++    and point_at >= now() - make_interval(years => weekly_after_years)
++    and bucket_interval <> '1d';
++
++  -- 5y+: keep one point per local market week; do not delete the whole history.
++  with ranked as (
++    select id,
++           row_number() over (
++             partition by ticker,
++                          exchange_code,
++                          date_trunc('week', point_at at time zone public.loop_investment_market_timezone(exchange_code))::date
++             order by point_at desc, created_at desc
++           ) as rn
++    from public.investment_instrument_price_points
++    where point_at < now() - make_interval(years => weekly_after_years)
++  ), deleted as (
++    delete from public.investment_instrument_price_points p
++    using ranked r
++    where p.id = r.id and r.rn > 1
++    returning p.id
++  ) select count(*) into deleted_weekly from deleted;
++
++  update public.investment_instrument_price_points
++  set bucket_interval = '1w'
++  where point_at < now() - make_interval(years => weekly_after_years)
++    and bucket_interval <> '1w';
++
++  return jsonb_build_object(
++    'ok', true,
++    'policy', 'raw minute points for 1 day; 15m market-open buckets to 7 days; 1h to 30 days; 1d to 5 years; 1w after 5 years',
++    'minute_days', minute_days,
++    'intraday_bucket_minutes', intraday_bucket_minutes,
++    'intraday_days', intraday_days,
++    'hourly_days', hourly_days,
++    'weekly_after_years', weekly_after_years,
++    'deleted_intraday_duplicates', deleted_intraday,
++    'deleted_hourly_duplicates', deleted_hourly,
++    'deleted_daily_duplicates', deleted_daily,
++    'deleted_weekly_duplicates', deleted_weekly
++  );
++end;
++$$;
++
++create or replace function public.loop_admin_prune_investment_price_snapshots()
++returns jsonb
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  minute_days int := coalesce((select setting_value::int from public.wealth_watch_settings where setting_key = 'investment_retention_minute_days'), 1);
++  intraday_bucket_minutes int := coalesce((select setting_value::int from public.wealth_watch_settings where setting_key = 'investment_retention_intraday_bucket_minutes'), 15);
++  intraday_days int := coalesce((select setting_value::int from public.wealth_watch_settings where setting_key = 'investment_retention_intraday_days'), 7);
++  hourly_days int := coalesce((select setting_value::int from public.wealth_watch_settings where setting_key = 'investment_retention_hourly_days'), 30);
++  weekly_after_years int := coalesce((select setting_value::int from public.wealth_watch_settings where setting_key = 'investment_retention_weekly_after_years'), 5);
++  deleted_intraday int := 0;
++  deleted_hourly int := 0;
++  deleted_daily int := 0;
++  deleted_weekly int := 0;
++begin
++  intraday_bucket_minutes := greatest(1, least(intraday_bucket_minutes, 60));
++  minute_days := greatest(1, minute_days);
++  intraday_days := greatest(minute_days + 1, intraday_days);
++  hourly_days := greatest(intraday_days + 1, hourly_days);
++  weekly_after_years := greatest(1, weekly_after_years);
++
++  -- >1d to <=7d: keep one point per 15-minute bucket anchored to that market's open.
++  with ranked as (
++    select s.id,
++           row_number() over (
++             partition by s.holding_id,
++                          (s.snapshot_at at time zone public.loop_investment_market_timezone(coalesce(h.exchange, h.native_exchange, '')))::date,
++                          floor(extract(epoch from (s.snapshot_at - public.loop_investment_market_open_anchor(coalesce(h.exchange, h.native_exchange, ''), s.snapshot_at))) / (intraday_bucket_minutes * 60))
++             order by s.snapshot_at desc, s.created_at desc
++           ) as rn
++    from public.investment_price_snapshots s
++    left join public.investment_holdings h on h.id = s.holding_id
++    where s.snapshot_at < now() - make_interval(days => minute_days)
++      and s.snapshot_at >= now() - make_interval(days => intraday_days)
++  ), deleted as (
++    delete from public.investment_price_snapshots s
++    using ranked r
++    where s.id = r.id and r.rn > 1
++    returning s.id
++  ) select count(*) into deleted_intraday from deleted;
++
++  update public.investment_price_snapshots s
++  set bucket_interval = intraday_bucket_minutes::text || 'm'
++  where s.snapshot_at < now() - make_interval(days => minute_days)
++    and s.snapshot_at >= now() - make_interval(days => intraday_days)
++    and s.bucket_interval <> intraday_bucket_minutes::text || 'm';
++
++  -- >7d to <=30d: keep one point per market-open-anchored hour.
++  with ranked as (
++    select s.id,
++           row_number() over (
++             partition by s.holding_id,
++                          (s.snapshot_at at time zone public.loop_investment_market_timezone(coalesce(h.exchange, h.native_exchange, '')))::date,
++                          floor(extract(epoch from (s.snapshot_at - public.loop_investment_market_open_anchor(coalesce(h.exchange, h.native_exchange, ''), s.snapshot_at))) / (60 * 60))
++             order by s.snapshot_at desc, s.created_at desc
++           ) as rn
++    from public.investment_price_snapshots s
++    left join public.investment_holdings h on h.id = s.holding_id
++    where s.snapshot_at < now() - make_interval(days => intraday_days)
++      and s.snapshot_at >= now() - make_interval(days => hourly_days)
++  ), deleted as (
++    delete from public.investment_price_snapshots s
++    using ranked r
++    where s.id = r.id and r.rn > 1
++    returning s.id
++  ) select count(*) into deleted_hourly from deleted;
++
++  update public.investment_price_snapshots s
++  set bucket_interval = '1h'
++  where s.snapshot_at < now() - make_interval(days => intraday_days)
++    and s.snapshot_at >= now() - make_interval(days => hourly_days)
++    and s.bucket_interval <> '1h';
++
++  -- >30d to <5y: keep one daily point per local market day.
++  with ranked as (
++    select s.id,
++           row_number() over (
++             partition by s.holding_id,
++                          (s.snapshot_at at time zone public.loop_investment_market_timezone(coalesce(h.exchange, h.native_exchange, '')))::date
++             order by s.snapshot_at desc, s.created_at desc
++           ) as rn
++    from public.investment_price_snapshots s
++    left join public.investment_holdings h on h.id = s.holding_id
++    where s.snapshot_at < now() - make_interval(days => hourly_days)
++      and s.snapshot_at >= now() - make_interval(years => weekly_after_years)
++  ), deleted as (
++    delete from public.investment_price_snapshots s
++    using ranked r
++    where s.id = r.id and r.rn > 1
++    returning s.id
++  ) select count(*) into deleted_daily from deleted;
++
++  update public.investment_price_snapshots s
++  set bucket_interval = '1d'
++  where s.snapshot_at < now() - make_interval(days => hourly_days)
++    and s.snapshot_at >= now() - make_interval(years => weekly_after_years)
++    and s.bucket_interval <> '1d';
++
++  -- 5y+: keep one point per local market week; no age-based delete.
++  with ranked as (
++    select s.id,
++           row_number() over (
++             partition by s.holding_id,
++                          date_trunc('week', s.snapshot_at at time zone public.loop_investment_market_timezone(coalesce(h.exchange, h.native_exchange, '')))::date
++             order by s.snapshot_at desc, s.created_at desc
++           ) as rn
++    from public.investment_price_snapshots s
++    left join public.investment_holdings h on h.id = s.holding_id
++    where s.snapshot_at < now() - make_interval(years => weekly_after_years)
++  ), deleted as (
++    delete from public.investment_price_snapshots s
++    using ranked r
++    where s.id = r.id and r.rn > 1
++    returning s.id
++  ) select count(*) into deleted_weekly from deleted;
++
++  update public.investment_price_snapshots s
++  set bucket_interval = '1w'
++  where s.snapshot_at < now() - make_interval(years => weekly_after_years)
++    and s.bucket_interval <> '1w';
++
++  return jsonb_build_object(
++    'ok', true,
++    'policy', 'raw minute points for 1 day; 15m market-open buckets to 7 days; 1h to 30 days; 1d to 5 years; 1w after 5 years',
++    'minute_days', minute_days,
++    'intraday_bucket_minutes', intraday_bucket_minutes,
++    'intraday_days', intraday_days,
++    'hourly_days', hourly_days,
++    'weekly_after_years', weekly_after_years,
++    'deleted_intraday_duplicates', deleted_intraday,
++    'deleted_hourly_duplicates', deleted_hourly,
++    'deleted_daily_duplicates', deleted_daily,
++    'deleted_weekly_duplicates', deleted_weekly,
++    'deleted_by_age', 0,
++    'deleted_by_cap', 0
++  );
++end;
++$$;
++
++notify pgrst, 'reload schema';
+diff -ruN /tmp/old/lib/investments/price-snapshot-runner.ts /tmp/new/lib/investments/price-snapshot-runner.ts
+--- /tmp/old/lib/investments/price-snapshot-runner.ts	2026-07-01 14:30:04.430705353 +0000
++++ /tmp/new/lib/investments/price-snapshot-runner.ts	2026-07-01 14:30:04.446976796 +0000
+@@ -12,6 +12,8 @@
+   units: number | null;
+   price_polling_enabled: boolean | null;
+   last_price_check_at?: string | null;
++  import_source_type?: string | null;
++  external_provider?: string | null;
+ };
+ 
+ type UserProfileRow = {
+@@ -29,6 +31,12 @@
+   force?: boolean;
+   now?: Date;
+   logger?: Pick<Console, "log" | "warn" | "error">;
++  /**
++   * When false, skip retention/compaction inside the price loop.
++   * The direct Render worker runs maintenance on its own slower interval so
++   * 1-minute price polling does not rank/delete large tables every minute.
++   */
++  prune?: boolean;
+ };
+ 
+ type RunnerResult = {
+@@ -68,8 +76,8 @@
+   const tier = String(profile?.market_data_tier_override || profile?.market_data_tier || profile?.payment_tier_override || profile?.payment_tier || "free").toLowerCase();
+   const realtime = investmentDataEntitlementForProfile((profile || {}) as any).canUseRealtimePrices || tier === "realtime" || tier === "pro_realtime" || profile?.market_data_realtime_enabled === true;
+   if (realtime) return Math.max(1, settings.realtimeMinutes);
+-  if (["plus", "pro", "premium"].includes(tier)) return Math.max(5, settings.plusProMinutes);
+-  return Math.max(10, settings.freeMinutes);
++  if (["plus", "pro", "premium"].includes(tier)) return Math.max(1, settings.plusProMinutes);
++  return Math.max(1, settings.freeMinutes);
+ }
+ 
+ async function getRecentHoldingIds(supabase: ReturnType<typeof createAdminClient>, sinceIso: string) {
+@@ -179,7 +187,7 @@
+   try {
+     const { data: holdings, error } = await supabase
+       .from("investment_holdings")
+-      .select("id, user_id, ticker, exchange, units, price_polling_enabled, last_price_check_at")
++      .select("id, user_id, ticker, exchange, units, price_polling_enabled, last_price_check_at, import_source_type, external_provider")
+       .not("ticker", "is", null)
+       .order("ticker")
+       .returns<Holding[]>();
+@@ -270,9 +278,10 @@
+       }
+ 
+       const nativeCurrency = cachedPoint
+-        ? String(cachedPoint.native_currency || "GBP")
+-        : String(quote!.priceQuoteUnit || "").toLowerCase() === "gbx" ? "GBX" : quote!.currency || currencyForExchange(quote!.exchange || exchange);
+-      const converted = cachedPoint ? { gbpPrice: Number(cachedPoint.price_gbp || 0), fxSource: "global price point" } : await quotePriceToGbp(Number(quote!.price || 0), nativeCurrency);
++        ? String(cachedPoint.native_currency || "GBP").toUpperCase()
++        : String(quote!.priceQuoteUnit || "").toLowerCase() === "gbx" ? "GBX" : String(quote!.currency || currencyForExchange(quote!.exchange || exchange)).toUpperCase();
++      const nativePrice = cachedPoint ? Number(cachedPoint.native_price || 0) : Number(quote!.price || 0);
++      const converted = cachedPoint ? { gbpPrice: Number(cachedPoint.price_gbp || 0), fxRate: nativePrice > 0 ? Number(cachedPoint.price_gbp || 0) / nativePrice : 1, fxSource: "global price point" } : await quotePriceToGbp(nativePrice, nativeCurrency);
+       const pointSource = cachedPoint ? `${cachedPoint.source || "global price point"}; reused` : `${quote!.source}; ${converted.fxSource}`;
+ 
+       if (!cachedPoint && settings.globalRawPricePoints) {
+@@ -295,15 +304,25 @@
+ 
+       const rows = dueHoldings.map((holding) => {
+         const units = Number(holding.units || 0);
++        const nativeValue = units * Number(nativePrice || 0);
++        const gbpValue = nativeValue * Number((converted as any).fxRate || 1);
+         return {
+           user_id: holding.user_id,
+           holding_id: holding.id,
++          // Backwards-compatible GBP fields used by existing totals/charts.
+           price: converted.gbpPrice,
+           units,
+-          value: units * Number(converted.gbpPrice),
++          value: gbpValue,
++          // Native market quote fields are the source-of-truth for refreshed points.
++          native_price: nativePrice,
++          native_value: nativeValue,
++          native_currency: nativeCurrency,
++          fx_rate_to_gbp: Number((converted as any).fxRate || 1),
++          fx_source: (converted as any).fxSource || null,
+           snapshot_date: snapshotDate,
+           snapshot_at: now.toISOString(),
+           source: pointSource,
++          bucket_interval: "raw",
+         };
+       });
+ 
+@@ -324,7 +343,7 @@
+           latest_price: converted.gbpPrice,
+           latest_price_date: snapshotDate,
+           currency: "GBP",
+-          native_latest_price: cachedPoint ? Number(cachedPoint.native_price || converted.gbpPrice) : quote!.price,
++          native_latest_price: nativePrice,
+           native_currency: nativeCurrency,
+           native_exchange: cachedPoint ? exchange : quote!.exchange || exchange,
+           source_url: cachedPoint ? `market-data:${cachedPoint.source || "global"}:${ticker}` : quote!.sourceUrl || `market-data:${quote!.source}:${quote!.rawSymbol}`,
+@@ -340,24 +359,12 @@
+       }
+     }
+ 
+-    const compactGlobal = await supabase.rpc("loop_admin_compact_investment_instrument_price_points").catch((error: any) => ({ data: null, error }));
+-    if (compactGlobal.error) result.failures.push({ ticker: "global-prune", exchange: null, reason: compactGlobal.error.message });
+-
+-    const prune = await supabase.rpc("loop_admin_prune_investment_price_snapshots").catch((error: any) => ({ data: null, error }));
+-    if (prune.error) {
+-      const cutoff = new Date(now.getTime() - settings.retainDays * 24 * 60 * 60 * 1000).toISOString();
+-      const { count, error: pruneError } = await supabase
+-        .from("investment_price_snapshots")
+-        .delete({ count: "exact" })
+-        .lt("snapshot_at", cutoff);
+-      if (pruneError) {
+-        result.failures.push({ ticker: "prune", exchange: null, reason: pruneError.message });
+-      } else {
+-        result.pruned += count || 0;
+-      }
++    if (options.prune !== false) {
++      const maintenance = await runInvestmentSnapshotMaintenance(supabase, { logger, now });
++      result.pruned += maintenance.pruned;
++      for (const failure of maintenance.failures) result.failures.push(failure);
+     } else {
+-      const data: any = prune.data || {};
+-      result.pruned += Number(data.deleted_by_age || 0) + Number(data.deleted_by_cap || 0);
++      logger.log(`[investment-price-job] retention maintenance skipped for this run; worker maintenance handles it separately`);
+     }
+   } catch (caught) {
+     result.ok = false;
+@@ -371,3 +378,61 @@
+   logger.log(`[investment-price-job] done inserted=${result.inserted} checked=${result.checked} failed=${result.failed}`);
+   return result;
+ }
++
++
++export async function runInvestmentSnapshotMaintenance(
++  supabase: ReturnType<typeof createAdminClient>,
++  options: { now?: Date; logger?: Pick<Console, "log" | "warn" | "error"> } = {},
++): Promise<{ ok: boolean; pruned: number; global: any; snapshots: any; failures: Array<{ ticker: string; exchange: string | null; reason: string }> }> {
++  const logger = options.logger || console;
++  const now = options.now || new Date();
++  const settings = await loadInvestmentSnapshotSettings(supabase);
++  const failures: Array<{ ticker: string; exchange: string | null; reason: string }> = [];
++  let pruned = 0;
++
++  logger.log(`[investment-maintenance] start ${now.toISOString()}`);
++
++  let compactGlobal: { data: any; error: any };
++  try {
++    compactGlobal = await supabase.rpc("loop_admin_compact_investment_instrument_price_points") as any;
++  } catch (error: any) {
++    compactGlobal = { data: null, error };
++  }
++  if (compactGlobal.error) {
++    failures.push({ ticker: "global-prune", exchange: null, reason: compactGlobal.error.message || String(compactGlobal.error) });
++    logger.warn(`[investment-maintenance] global point compaction failed: ${compactGlobal.error.message || compactGlobal.error}`);
++  }
++
++  let prune: { data: any; error: any };
++  try {
++    prune = await supabase.rpc("loop_admin_prune_investment_price_snapshots") as any;
++  } catch (error: any) {
++    prune = { data: null, error };
++  }
++
++  if (prune.error) {
++    const cutoff = new Date(now.getTime() - settings.retainDays * 24 * 60 * 60 * 1000).toISOString();
++    const { count, error: pruneError } = await supabase
++      .from("investment_price_snapshots")
++      .delete({ count: "exact" })
++      .lt("snapshot_at", cutoff);
++    if (pruneError) {
++      failures.push({ ticker: "prune", exchange: null, reason: pruneError.message });
++      logger.warn(`[investment-maintenance] snapshot prune failed: ${pruneError.message}`);
++    } else {
++      pruned += count || 0;
++    }
++  } else {
++    const data: any = prune.data || {};
++    pruned += Number(data.deleted_by_age || 0) + Number(data.deleted_by_cap || 0);
++  }
++
++  logger.log(`[investment-maintenance] done pruned=${pruned} failures=${failures.length}`);
++  return {
++    ok: failures.length === 0,
++    pruned,
++    global: compactGlobal.data || null,
++    snapshots: prune.data || null,
++    failures,
++  };
++}
+diff -ruN /tmp/old/lib/investments/snapshot-settings.ts /tmp/new/lib/investments/snapshot-settings.ts
+--- /tmp/old/lib/investments/snapshot-settings.ts	2026-07-01 14:30:04.505794228 +0000
++++ /tmp/new/lib/investments/snapshot-settings.ts	2026-07-01 14:30:04.523735332 +0000
+@@ -21,8 +21,8 @@
+   realtimeUsersOnly: false,
+   globalRawPricePoints: true,
+   realtimeMinutes: 1,
+-  plusProMinutes: 15,
+-  freeMinutes: 30,
++  plusProMinutes: 1,
++  freeMinutes: 1,
+   manualRefreshUsesLatestGlobal: true,
+ };
+ 
+@@ -63,8 +63,8 @@
+       realtimeUsersOnly: asBoolean(map.get("investment_snapshots_realtime_users_only"), defaultInvestmentSnapshotSettings.realtimeUsersOnly),
+       globalRawPricePoints: asBoolean(map.get("investment_global_raw_price_points"), defaultInvestmentSnapshotSettings.globalRawPricePoints),
+       realtimeMinutes: Math.max(1, asNumber(map.get("investment_realtime_minutes_between_points"), defaultInvestmentSnapshotSettings.realtimeMinutes)),
+-      plusProMinutes: Math.max(5, asNumber(map.get("investment_plus_pro_minutes_between_points"), defaultInvestmentSnapshotSettings.plusProMinutes)),
+-      freeMinutes: Math.max(10, asNumber(map.get("investment_free_minutes_between_points"), defaultInvestmentSnapshotSettings.freeMinutes)),
++      plusProMinutes: Math.max(1, asNumber(map.get("investment_plus_pro_minutes_between_points"), defaultInvestmentSnapshotSettings.plusProMinutes)),
++      freeMinutes: Math.max(1, asNumber(map.get("investment_free_minutes_between_points"), defaultInvestmentSnapshotSettings.freeMinutes)),
+       manualRefreshUsesLatestGlobal: asBoolean(map.get("investment_manual_refresh_uses_latest_global"), defaultInvestmentSnapshotSettings.manualRefreshUsesLatestGlobal),
+     };
+   } catch {
+diff -ruN /tmp/old/lib/snaptrade/sync.ts /tmp/new/lib/snaptrade/sync.ts
+--- /tmp/old/lib/snaptrade/sync.ts	2026-07-01 14:30:04.976024608 +0000
++++ /tmp/new/lib/snaptrade/sync.ts	2026-07-01 14:30:04.995173614 +0000
+@@ -1,6 +1,7 @@
+ import { createClient } from "@/lib/supabase/server";
+ import { decryptSecret } from "@/lib/security/secrets";
+ import { loopSnapTradeUserId, snapTradeRequest } from "@/lib/snaptrade/client";
++import { quotePriceToGbp } from "@/lib/investments/fx";
+ 
+ export type SnapTradeAccountPreview = {
+   externalAccountId: string;
+@@ -384,25 +385,38 @@
+     latestPrice: number;
+     value: number;
+     source: string;
++    currency?: string | null;
+     snapshotAt?: Date;
+   },
+ ) {
+   const units = Number(args.units || 0);
+-  const value = Number(args.value || 0);
+-  const price = Number(args.latestPrice || (units ? value / units : value));
+-  if (!args.holdingId || !Number.isFinite(value) || value <= 0) return;
++  const nativeValue = Number(args.value || 0);
++  const nativePrice = Number(args.latestPrice || (units ? nativeValue / units : nativeValue));
++  const nativeCurrency = String(args.currency || "GBP").trim().toUpperCase() || "GBP";
++  if (!args.holdingId || !Number.isFinite(nativeValue) || nativeValue <= 0) return;
+   const snapshotAt = args.snapshotAt || new Date();
++  const converted = await quotePriceToGbp(Number.isFinite(nativePrice) && nativePrice > 0 ? nativePrice : nativeValue, nativeCurrency).catch(() => ({ gbpPrice: nativePrice || nativeValue, fxRate: 1, fxSource: "provider native fallback" }));
++  const fxRate = Number((converted as any).fxRate || 1);
++  const gbpPrice = Number((converted as any).gbpPrice || nativePrice || nativeValue);
+   await supabase
+     .from("investment_price_snapshots")
+     .insert({
+       user_id: args.appUserId,
+       holding_id: args.holdingId,
+-      price: Number.isFinite(price) && price > 0 ? price : value,
++      // Backwards-compatible GBP fields for existing totals/charts.
++      price: gbpPrice,
+       units: Number.isFinite(units) && units > 0 ? units : 1,
+-      value,
++      value: Number.isFinite(units) && units > 0 ? units * gbpPrice : nativeValue * fxRate,
++      // Native provider/market fields retained for audit and front-end GBP conversion.
++      native_price: Number.isFinite(nativePrice) && nativePrice > 0 ? nativePrice : nativeValue,
++      native_value: nativeValue,
++      native_currency: nativeCurrency,
++      fx_rate_to_gbp: fxRate,
++      fx_source: (converted as any).fxSource || null,
+       snapshot_date: snapshotAt.toISOString().slice(0, 10),
+       snapshot_at: snapshotAt.toISOString(),
+       source: args.source,
++      bucket_interval: "raw",
+     })
+     .then(
+       () => null,
+@@ -1565,7 +1579,7 @@
+         latest_price: position.latestPrice,
+         latest_price_date: new Date().toISOString().slice(0, 10),
+         currency: position.currency || account.currency || "GBP",
+-        price_polling_enabled: false,
++        price_polling_enabled: Boolean(position.ticker),
+         source_url: null,
+         notes: position.raw?.synthetic
+           ? "Imported from SnapTrade account-level value because the provider did not return position-level holdings yet. Refresh this account later to replace this placeholder with real positions."
+@@ -1604,6 +1618,7 @@
+         units: Number(position.units || 0),
+         latestPrice: Number(position.latestPrice || 0),
+         value: Number(position.value || 0),
++        currency: position.currency || account.currency || "GBP",
+         source: `snaptrade:${account.raw?.loop_position_fetch_source || "positions"}`,
+       });
+       await saveProviderPurchaseLots(supabase, {
+diff -ruN /tmp/old/package.json /tmp/new/package.json
+--- /tmp/old/package.json	2026-07-01 14:30:04.123516265 +0000
++++ /tmp/new/package.json	2026-07-01 14:30:04.151570405 +0000
+@@ -7,9 +7,11 @@
+     "build": "next build",
+     "start": "next start",
+     "lint": "eslint .",
+-    "worker:investment-prices": "node scripts/investment-price-worker.mjs",
++    "worker:investment-prices": "tsx -r tsconfig-paths/register scripts/market-data-direct-worker.ts",
+     "dev:webpack": "next dev",
+-    "worker:market-data": "node scripts/investment-price-worker.mjs"
++    "worker:market-data": "tsx -r tsconfig-paths/register scripts/market-data-direct-worker.ts",
++    "worker:market-data-http": "node scripts/investment-price-worker.mjs",
++    "worker:investment-prices-http": "node scripts/investment-price-worker.mjs"
+   },
+   "dependencies": {
+     "@supabase/ssr": "0.12.0",
+@@ -21,6 +23,8 @@
+     "react": "19.2.7",
+     "react-dom": "19.2.7",
+     "recharts": "3.8.1",
++    "tsconfig-paths": "^4.2.0",
++    "tsx": "^4.22.4",
+     "zod": "4.4.3"
+   },
+   "devDependencies": {
+diff -ruN /tmp/old/scripts/market-data-direct-worker.ts /tmp/new/scripts/market-data-direct-worker.ts
+--- /tmp/old/scripts/market-data-direct-worker.ts	1970-01-01 00:00:00.000000000 +0000
++++ /tmp/new/scripts/market-data-direct-worker.ts	2026-07-01 14:30:04.286639499 +0000
+@@ -0,0 +1,250 @@
++import { createAdminClient } from "@/lib/supabase/admin";
++import { runInvestmentPriceSnapshotJob, runInvestmentSnapshotMaintenance } from "@/lib/investments/price-snapshot-runner";
++import { runSnapTradeProviderSnapshotJob } from "@/lib/snaptrade/sync";
++
++const DEFAULT_PRICE_INTERVAL_MINUTES = 1;
++const DEFAULT_SNAPTRADE_INTERVAL_MINUTES = 1;
++const DEFAULT_MAINTENANCE_INTERVAL_MINUTES = 60;
++
++type WorkerState = {
++  pricesRunning: boolean;
++  snapTradeRunning: boolean;
++  maintenanceRunning: boolean;
++  lastPriceRunAt: string | null;
++  lastSnapTradeRunAt: string | null;
++  lastMaintenanceRunAt: string | null;
++  timers: NodeJS.Timeout[];
++  shuttingDown: boolean;
++};
++
++function asPositiveInt(value: unknown, fallback: number, min = 1, max = 1440) {
++  const parsed = Number.parseInt(String(value ?? ""), 10);
++  if (!Number.isFinite(parsed)) return fallback;
++  return Math.max(min, Math.min(max, parsed));
++}
++
++function asBool(value: unknown, fallback: boolean) {
++  if (value === undefined || value === null || value === "") return fallback;
++  const clean = String(value).trim().toLowerCase();
++  if (["1", "true", "yes", "y", "on"].includes(clean)) return true;
++  if (["0", "false", "no", "n", "off"].includes(clean)) return false;
++  return fallback;
++}
++
++const priceIntervalMinutes = asPositiveInt(
++  process.env.MARKET_DATA_WORKER_PRICE_INTERVAL_MINUTES || process.env.INVESTMENT_PRICE_WORKER_INTERVAL_MINUTES,
++  DEFAULT_PRICE_INTERVAL_MINUTES,
++);
++const snapTradeIntervalMinutes = asPositiveInt(
++  process.env.MARKET_DATA_WORKER_SNAPTRADE_INTERVAL_MINUTES || process.env.SNAPTRADE_POSITION_WORKER_INTERVAL_MINUTES,
++  DEFAULT_SNAPTRADE_INTERVAL_MINUTES,
++);
++const maintenanceIntervalMinutes = asPositiveInt(
++  process.env.MARKET_DATA_WORKER_MAINTENANCE_INTERVAL_MINUTES || process.env.INVESTMENT_MAINTENANCE_WORKER_INTERVAL_MINUTES,
++  DEFAULT_MAINTENANCE_INTERVAL_MINUTES,
++  15,
++  1440,
++);
++const snapTradeMaxUsers = asPositiveInt(
++  process.env.MARKET_DATA_WORKER_MAX_USERS || process.env.SNAPTRADE_POSITION_WORKER_MAX_USERS,
++  50,
++  1,
++  250,
++);
++const snapTradeRealtimeOnly = asBool(
++  process.env.MARKET_DATA_WORKER_SNAPTRADE_REALTIME_ONLY || process.env.SNAPTRADE_POSITION_WORKER_REALTIME_ONLY,
++  true,
++);
++const runOnStart = asBool(process.env.MARKET_DATA_WORKER_RUN_ON_START, true);
++const priceForce = asBool(
++  process.env.MARKET_DATA_WORKER_FORCE_PRICE || process.env.INVESTMENT_PRICE_WORKER_FORCE,
++  false,
++);
++const workerDisabled = asBool(process.env.MARKET_DATA_WORKER_DISABLED, false);
++const pricesEnabled = asBool(process.env.MARKET_DATA_WORKER_PRICES_ENABLED, true);
++const snapTradeEnabled = asBool(process.env.MARKET_DATA_WORKER_SNAPTRADE_ENABLED, true);
++const maintenanceEnabled = asBool(process.env.MARKET_DATA_WORKER_MAINTENANCE_ENABLED, true);
++const runMaintenanceOnStart = asBool(process.env.MARKET_DATA_WORKER_RUN_MAINTENANCE_ON_START, false);
++
++const state: WorkerState = {
++  pricesRunning: false,
++  snapTradeRunning: false,
++  maintenanceRunning: false,
++  lastPriceRunAt: null,
++  lastSnapTradeRunAt: null,
++  lastMaintenanceRunAt: null,
++  timers: [],
++  shuttingDown: false,
++};
++
++function requiredEnvReport() {
++  return {
++    hasSupabaseUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
++    hasSupabaseAdminKey: Boolean(
++      process.env.SUPABASE_SECRET_KEY ||
++      process.env.SUPABASE_SERVICE_ROLE_KEY ||
++      process.env.SUPABASE_SERVICE_KEY ||
++      process.env.SUPABASE_ADMIN_KEY ||
++      process.env.SUPABASE_SERVICE_ROLE,
++    ),
++    hasAppEncryptionKey: Boolean(process.env.APP_ENCRYPTION_KEY),
++    hasSnapTradeClientId: Boolean(process.env.SNAPTRADE_CLIENT_ID || process.env.SNAPTRADE_CLIENTID),
++    hasSnapTradeConsumerKey: Boolean(process.env.SNAPTRADE_CONSUMER_KEY || process.env.SNAPTRADE_CONSUMERKEY),
++  };
++}
++
++async function runPrices(reason = "schedule") {
++  if (!pricesEnabled) {
++    console.log(`[market-data-direct-worker] prices disabled; reason=${reason}`);
++    return;
++  }
++  if (state.pricesRunning) {
++    console.log(`[market-data-direct-worker] prices skipped; previous run still active reason=${reason}`);
++    return;
++  }
++  state.pricesRunning = true;
++  const startedAt = new Date().toISOString();
++  console.log(`[market-data-direct-worker] ${startedAt} start investment prices reason=${reason}`);
++  try {
++    const result = await runInvestmentPriceSnapshotJob({
++      force: priceForce,
++      logger: console,
++      prune: false,
++    });
++    state.lastPriceRunAt = new Date().toISOString();
++    console.log(`[market-data-direct-worker] success investment prices`, result);
++  } catch (error) {
++    console.error(`[market-data-direct-worker] investment prices failed`, error);
++  } finally {
++    state.pricesRunning = false;
++  }
++}
++
++async function runSnapTrade(reason = "schedule") {
++  if (!snapTradeEnabled) {
++    console.log(`[market-data-direct-worker] SnapTrade disabled; reason=${reason}`);
++    return;
++  }
++  if (state.snapTradeRunning) {
++    console.log(`[market-data-direct-worker] SnapTrade skipped; previous run still active reason=${reason}`);
++    return;
++  }
++  state.snapTradeRunning = true;
++  const startedAt = new Date().toISOString();
++  console.log(`[market-data-direct-worker] ${startedAt} start SnapTrade positions reason=${reason}`);
++  try {
++    const supabase = createAdminClient();
++    const result = await runSnapTradeProviderSnapshotJob({
++      supabase,
++      realtimeOnly: snapTradeRealtimeOnly,
++      maxUsers: snapTradeMaxUsers,
++    });
++    state.lastSnapTradeRunAt = new Date().toISOString();
++    console.log(`[market-data-direct-worker] success SnapTrade positions`, result);
++  } catch (error) {
++    console.error(`[market-data-direct-worker] SnapTrade positions failed`, error);
++  } finally {
++    state.snapTradeRunning = false;
++  }
++}
++
++async function runMaintenance(reason = "schedule") {
++  if (!maintenanceEnabled) {
++    console.log(`[market-data-direct-worker] maintenance disabled; reason=${reason}`);
++    return;
++  }
++  if (state.maintenanceRunning) {
++    console.log(`[market-data-direct-worker] maintenance skipped; previous run still active reason=${reason}`);
++    return;
++  }
++  state.maintenanceRunning = true;
++  const startedAt = new Date().toISOString();
++  console.log(`[market-data-direct-worker] ${startedAt} start investment retention maintenance reason=${reason}`);
++  try {
++    const supabase = createAdminClient();
++    const result = await runInvestmentSnapshotMaintenance(supabase, { logger: console });
++    state.lastMaintenanceRunAt = new Date().toISOString();
++    console.log(`[market-data-direct-worker] success investment retention maintenance`, result);
++  } catch (error) {
++    console.error(`[market-data-direct-worker] investment retention maintenance failed`, error);
++  } finally {
++    state.maintenanceRunning = false;
++  }
++}
++
++function schedule(name: string, intervalMinutes: number, fn: (reason: string) => Promise<void>) {
++  const ms = intervalMinutes * 60 * 1000;
++  console.log(`[market-data-direct-worker] scheduling ${name} every ${intervalMinutes} minute(s)`);
++  const timer = setInterval(() => {
++    if (state.shuttingDown) return;
++    void fn("schedule");
++  }, ms);
++  state.timers.push(timer);
++}
++
++function shutdown(signal: string) {
++  console.log(`[market-data-direct-worker] ${signal} received; stopping timers and exiting.`);
++  state.shuttingDown = true;
++  for (const timer of state.timers) clearInterval(timer);
++  // Give active promise logs a brief chance to flush; Render will hard-stop if needed.
++  setTimeout(() => process.exit(0), 750).unref();
++}
++
++function start() {
++  console.log("[market-data-direct-worker] boot", {
++    mode: "direct-supabase",
++    priceIntervalMinutes,
++    snapTradeIntervalMinutes,
++    maintenanceIntervalMinutes,
++    snapTradeMaxUsers,
++    snapTradeRealtimeOnly,
++    runOnStart,
++    priceForce,
++    workerDisabled,
++    pricesEnabled,
++    snapTradeEnabled,
++    maintenanceEnabled,
++    runMaintenanceOnStart,
++    ...requiredEnvReport(),
++  });
++
++  if (workerDisabled) {
++    console.log("[market-data-direct-worker] disabled by MARKET_DATA_WORKER_DISABLED=true");
++    return;
++  }
++
++  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
++    console.error("[market-data-direct-worker] Missing NEXT_PUBLIC_SUPABASE_URL.");
++    process.exitCode = 1;
++    return;
++  }
++
++  if (!requiredEnvReport().hasSupabaseAdminKey) {
++    console.error("[market-data-direct-worker] Missing SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY. Direct mode needs a server-side Supabase key.");
++    process.exitCode = 1;
++    return;
++  }
++
++  if (runOnStart) {
++    void runPrices("startup");
++    void runSnapTrade("startup");
++  }
++  if (runMaintenanceOnStart) {
++    void runMaintenance("startup");
++  }
++
++  schedule("investment prices", priceIntervalMinutes, runPrices);
++  schedule("SnapTrade positions", snapTradeIntervalMinutes, runSnapTrade);
++  schedule("investment retention maintenance", maintenanceIntervalMinutes, runMaintenance);
++}
++
++process.on("SIGTERM", () => shutdown("SIGTERM"));
++process.on("SIGINT", () => shutdown("SIGINT"));
++process.on("uncaughtException", (error) => {
++  console.error("[market-data-direct-worker] uncaught exception", error);
++});
++process.on("unhandledRejection", (reason) => {
++  console.error("[market-data-direct-worker] unhandled rejection", reason);
++});
++
++start();
