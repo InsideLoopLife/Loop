@@ -53,7 +53,7 @@ const snapTradeMaxUsers = asPositiveInt(
 );
 const snapTradeRealtimeOnly = asBool(
   process.env.MARKET_DATA_WORKER_SNAPTRADE_REALTIME_ONLY || process.env.SNAPTRADE_POSITION_WORKER_REALTIME_ONLY,
-  true,
+  false,
 );
 const runOnStart = asBool(process.env.MARKET_DATA_WORKER_RUN_ON_START, true);
 const priceForce = asBool(

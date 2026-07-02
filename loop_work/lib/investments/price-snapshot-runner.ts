@@ -1,8 +1,11 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchInvestmentQuote, isRoughMarketOpen } from "@/lib/investments/market-data";
+import { fetchInvestmentQuote, isRoughMarketOpen, normaliseExchangeCode } from "@/lib/investments/market-data";
 import { currencyForExchange, quotePriceToGbp } from "@/lib/investments/fx";
 import { loadInvestmentSnapshotSettings } from "@/lib/investments/snapshot-settings";
 import { investmentDataEntitlementForProfile } from "@/lib/wealth/user-tiers";
+import { quoteUnitForVenue, venueFor } from "@/lib/investments/market-venues";
+
+type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 
 type Holding = {
   id: string;
@@ -10,10 +13,17 @@ type Holding = {
   ticker: string | null;
   exchange: string | null;
   units: number | null;
+  average_buy_price?: number | null;
+  latest_price?: number | null;
   price_polling_enabled: boolean | null;
   last_price_check_at?: string | null;
   import_source_type?: string | null;
   external_provider?: string | null;
+  asset_name?: string | null;
+  asset_kind?: string | null;
+  isin?: string | null;
+  listing_id?: string | null;
+  instrument_id?: string | null;
 };
 
 type UserProfileRow = {
@@ -31,11 +41,6 @@ type RunnerOptions = {
   force?: boolean;
   now?: Date;
   logger?: Pick<Console, "log" | "warn" | "error">;
-  /**
-   * When false, skip retention/compaction inside the price loop.
-   * The direct Render worker runs maintenance on its own slower interval so
-   * 1-minute price polling does not rank/delete large tables every minute.
-   */
   prune?: boolean;
 };
 
@@ -55,98 +60,274 @@ type RunnerResult = {
   failures: Array<{ ticker: string; exchange: string | null; reason: string }>;
 };
 
+type CatalogueLink = {
+  instrumentId: string | null;
+  listingId: string | null;
+  ticker: string;
+  exchange: string | null;
+  venueCode: string | null;
+};
+
+type GlobalPoint = {
+  id?: string | null;
+  listing_id?: string | null;
+  instrument_id?: string | null;
+  ticker?: string | null;
+  exchange_code?: string | null;
+  price_gbp?: number | null;
+  gbp_price?: number | null;
+  native_price?: number | null;
+  native_currency?: string | null;
+  quote_unit?: string | null;
+  source?: string | null;
+  point_at?: string | null;
+  observed_at?: string | null;
+  price_minute?: string | null;
+  fx_rate_to_gbp?: number | null;
+};
+
 function normaliseSnapshotTicker(ticker: string | null | undefined) {
   return String(ticker || "").trim().toUpperCase().replace(/\.UK$/i, ".L");
 }
 
 function normaliseSnapshotExchange(exchange: string | null | undefined, ticker?: string | null) {
-  const ex = String(exchange || "").trim().toUpperCase();
-  if (["XLON", "XLSE", "LON", "LSE"].includes(ex) || String(ticker || "").toUpperCase().endsWith(".L")) return "LSE";
-  if (["XNAS", "XNCM", "XNGS", "NMS", "NGM", "NAS", "NASDAQGS", "NASDAQ"].includes(ex)) return "NASDAQ";
-  if (["XNYS", "NYQ", "NYSE"].includes(ex)) return "NYSE";
-  if (["XASE", "ASE", "AMEX", "NYSEAMERICAN"].includes(ex)) return "AMEX";
-  return ex || null;
+  return normaliseExchangeCode(exchange, ticker) || null;
 }
 
-function keyFor(holding: Holding) {
-  return `${normaliseSnapshotTicker(holding.ticker)}|${normaliseSnapshotExchange(holding.exchange, holding.ticker) || ""}`;
+function keyFor(ticker: string | null | undefined, exchange: string | null | undefined) {
+  return `${normaliseSnapshotTicker(ticker)}|${normaliseSnapshotExchange(exchange, ticker) || ""}`;
+}
+
+function floorMinuteIso(date: Date) {
+  const d = new Date(date.getTime());
+  d.setUTCSeconds(0, 0);
+  return d.toISOString();
 }
 
 function userCadenceMinutes(profile: UserProfileRow | undefined, settings: Awaited<ReturnType<typeof loadInvestmentSnapshotSettings>>) {
   const tier = String(profile?.market_data_tier_override || profile?.market_data_tier || profile?.payment_tier_override || profile?.payment_tier || "free").toLowerCase();
-  const realtime = investmentDataEntitlementForProfile((profile || {}) as any).canUseRealtimePrices || tier === "realtime" || tier === "pro_realtime" || profile?.market_data_realtime_enabled === true;
+  const realtime = investmentDataEntitlementForProfile((profile || {}) as any).canUseRealtimePrices || tier === "realtime" || tier === "pro_realtime" || tier === "enterprise" || profile?.market_data_realtime_enabled === true;
   if (realtime) return Math.max(1, settings.realtimeMinutes);
-  if (["plus", "pro", "premium"].includes(tier)) return Math.max(1, settings.plusProMinutes);
+  if (["plus", "pro", "premium", "go"].includes(tier)) return Math.max(1, settings.plusProMinutes);
   return Math.max(1, settings.freeMinutes);
 }
 
-async function getRecentHoldingIds(supabase: ReturnType<typeof createAdminClient>, sinceIso: string) {
-  const recent = new Set<string>();
-  let from = 0;
-  const pageSize = 1000;
-  for (;;) {
-    const { data, error } = await supabase
-      .from("investment_price_snapshots")
-      .select("holding_id")
-      .gte("snapshot_at", sinceIso)
-      .range(from, from + pageSize - 1);
-    if (error) throw error;
-    (data || []).forEach((row) => row.holding_id && recent.add(row.holding_id));
-    if (!data || data.length < pageSize) break;
-    from += pageSize;
-  }
-  return recent;
+function isDue(holding: Holding, profile: UserProfileRow | undefined, settings: Awaited<ReturnType<typeof loadInvestmentSnapshotSettings>>, now: Date, force?: boolean) {
+  if (force) return true;
+  const cadence = userCadenceMinutes(profile, settings);
+  const last = holding.last_price_check_at ? Date.parse(holding.last_price_check_at) : 0;
+  if (!Number.isFinite(last) || last <= 0) return true;
+  return now.getTime() - last >= cadence * 60 * 1000;
 }
 
-async function latestGlobalPricePoint(supabase: ReturnType<typeof createAdminClient>, ticker: string, exchange: string | null, sinceIso: string) {
+function pointGbp(point: GlobalPoint | null | undefined) {
+  return Number(point?.gbp_price ?? point?.price_gbp ?? 0);
+}
+
+function pointAt(point: GlobalPoint | null | undefined) {
+  return String(point?.point_at || point?.observed_at || point?.price_minute || "");
+}
+
+async function ensureCatalogueForGroup(
+  supabase: SupabaseAdmin,
+  args: { ticker: string; exchange: string | null; sample: Holding; nowIso: string },
+): Promise<CatalogueLink> {
+  const ticker = normaliseSnapshotTicker(args.ticker);
+  const exchange = normaliseSnapshotExchange(args.exchange, ticker);
+  const venue = venueFor(exchange, ticker);
+  const venueCode = venue?.venueCode || exchange || null;
+  const assetName = args.sample.asset_name || ticker;
+  const assetKind = args.sample.asset_kind || "share";
+  const isin = args.sample.isin || null;
+
+  let instrumentId = args.sample.instrument_id || null;
+  let listingId = args.sample.listing_id || null;
+
+  if (!instrumentId) {
+    const { data, error } = await supabase
+      .from("investment_instruments")
+      .upsert({
+        ticker,
+        exchange_code: venueCode || "",
+        exchange_name: venue?.name || venueCode || "",
+        asset_name: assetName,
+        asset_kind: assetKind,
+        canonical_symbol: ticker,
+        canonical_name: assetName,
+        isin,
+        currency_code: currencyForExchange(venueCode),
+        quote_unit: quoteUnitForVenue(venueCode),
+        coverage_status: "active",
+        resolution_status: "resolved",
+        confidence: 90,
+        updated_at: args.nowIso,
+        last_seen_at: args.nowIso,
+      } as any, { onConflict: "ticker,exchange_code" })
+      .select("id")
+      .maybeSingle();
+    if (!error) instrumentId = data?.id || null;
+  }
+
+  if (!listingId) {
+    const { data, error } = await supabase
+      .from("investment_instrument_listings")
+      .upsert({
+        instrument_id: instrumentId,
+        symbol: ticker,
+        display_symbol: ticker,
+        broker_symbol: args.sample.ticker || ticker,
+        broker_market_code: args.sample.exchange || venueCode,
+        venue_code: venueCode || "UNKNOWN",
+        venue_mic: venue?.mic || venueCode || null,
+        operating_mic: venue?.mic || venueCode || null,
+        data_provider: "market_worker",
+        data_provider_symbol: ticker,
+        data_provider_exchange: venueCode || "",
+        quote_currency: currencyForExchange(venueCode),
+        price_currency: currencyForExchange(venueCode),
+        price_scale: venue?.priceScale ?? 1,
+        timezone: venue?.timezone || null,
+        market_open_time: null,
+        market_close_time: null,
+        active: true,
+        resolution_status: "resolved",
+        last_seen_at: args.nowIso,
+        updated_at: args.nowIso,
+      } as any, { onConflict: "data_provider,symbol,venue_code" })
+      .select("id")
+      .maybeSingle();
+    if (!error) listingId = data?.id || null;
+  }
+
+  if (listingId || instrumentId) {
+    await supabase
+      .from("investment_instrument_aliases")
+      .upsert({
+        listing_id: listingId,
+        instrument_id: instrumentId,
+        alias_source: args.sample.import_source_type || args.sample.external_provider || "manual",
+        alias_symbol: args.sample.ticker || ticker,
+        alias_market_code: args.sample.exchange || venueCode || null,
+        alias_isin: isin,
+        confidence: 0.95,
+        active: true,
+      } as any, { onConflict: "alias_source,alias_symbol,alias_market_code" })
+      .select("id")
+      .maybeSingle();
+
+    await supabase
+      .from("investment_holdings")
+      .update({
+        instrument_id: instrumentId,
+        listing_id: listingId,
+        instrument_resolution_status: "resolved",
+        instrument_resolution_notes: venueCode ? `Linked to ${ticker} · ${venueCode}` : `Linked to ${ticker}`,
+        updated_at: args.nowIso,
+      } as any)
+      .in("id", [args.sample.id]);
+  }
+
+  return { instrumentId, listingId, ticker, exchange, venueCode };
+}
+
+async function latestGlobalPricePoint(
+  supabase: SupabaseAdmin,
+  args: { listingId?: string | null; ticker: string; exchange: string | null; sinceIso: string },
+): Promise<GlobalPoint | null> {
+  const select = "id,listing_id,instrument_id,ticker,exchange_code,price_gbp,gbp_price,native_price,native_currency,quote_unit,source,point_at,observed_at,price_minute,fx_rate_to_gbp";
+  if (args.listingId) {
+    const { data } = await supabase
+      .from("investment_instrument_price_points")
+      .select(select)
+      .eq("listing_id", args.listingId)
+      .gte("point_at", args.sinceIso)
+      .order("point_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) return data as GlobalPoint;
+  }
+
   const { data } = await supabase
     .from("investment_instrument_price_points")
-    .select("price_gbp,native_price,native_currency,quote_unit,source,point_at")
-    .eq("ticker", ticker)
-    .eq("exchange_code", exchange || "")
-    .gte("point_at", sinceIso)
+    .select(select)
+    .eq("ticker", args.ticker)
+    .eq("exchange_code", args.exchange || "")
+    .gte("point_at", args.sinceIso)
     .order("point_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  return data || null;
+  return (data as GlobalPoint) || null;
 }
 
-async function upsertInstrumentAndGlobalPoint(supabase: ReturnType<typeof createAdminClient>, args: { ticker: string; exchange: string | null; assetName?: string | null; assetKind?: string | null; isin?: string | null; priceGbp: number; nativePrice: number; nativeCurrency: string; quoteUnit: string; source: string; sourceUrl?: string | null; confidence?: number | null; pointAt: string; }) {
-  const exchangeCode = args.exchange || "";
-  const { data: instrument } = await supabase
-    .from("investment_instruments")
-    .upsert({
-      ticker: args.ticker,
-      exchange_code: exchangeCode,
-      exchange_name: exchangeCode,
-      isin: args.isin || null,
-      asset_name: args.assetName || args.ticker,
-      asset_kind: args.assetKind || "share",
-      currency_code: "GBP",
-      quote_unit: args.quoteUnit || "gbp",
-      source_url: args.sourceUrl || null,
-      coverage_status: "active",
-      confidence: args.confidence ?? 80,
-      updated_at: args.pointAt,
-    }, { onConflict: "ticker,exchange_code" })
-    .select("id")
-    .maybeSingle();
+async function previousCloseGlobalPoint(
+  supabase: SupabaseAdmin,
+  args: { listingId?: string | null; ticker: string; exchange: string | null; snapshotDate: string },
+): Promise<GlobalPoint | null> {
+  const select = "id,listing_id,instrument_id,ticker,exchange_code,price_gbp,gbp_price,native_price,native_currency,quote_unit,source,point_at,observed_at,price_minute,fx_rate_to_gbp";
+  let query = supabase
+    .from("investment_instrument_price_points")
+    .select(select)
+    .lt("point_date", args.snapshotDate)
+    .order("point_at", { ascending: false })
+    .limit(1);
 
-  await supabase.from("investment_instrument_price_points").insert({
-    instrument_id: instrument?.id || null,
-    ticker: args.ticker,
+  if (args.listingId) query = query.eq("listing_id", args.listingId);
+  else query = query.eq("ticker", args.ticker).eq("exchange_code", args.exchange || "");
+
+  const { data } = await query.maybeSingle();
+  return (data as GlobalPoint) || null;
+}
+
+async function upsertGlobalPoint(
+  supabase: SupabaseAdmin,
+  args: {
+    link: CatalogueLink;
+    assetName?: string | null;
+    assetKind?: string | null;
+    isin?: string | null;
+    priceGbp: number;
+    nativePrice: number;
+    nativeCurrency: string;
+    quoteUnit: string;
+    fxRateToGbp: number;
+    source: string;
+    sourceUrl?: string | null;
+    confidence?: number | null;
+    pointAt: string;
+    pointMinute: string;
+  },
+) {
+  const exchangeCode = args.link.venueCode || args.link.exchange || "";
+  const row = {
+    listing_id: args.link.listingId,
+    instrument_id: args.link.instrumentId,
+    ticker: args.link.ticker,
     exchange_code: exchangeCode,
     price_gbp: args.priceGbp,
+    gbp_price: args.priceGbp,
     native_price: args.nativePrice,
     native_currency: args.nativeCurrency,
-    quote_unit: args.quoteUnit || "gbp",
+    quote_unit: args.quoteUnit,
+    fx_rate_to_gbp: args.fxRateToGbp,
     point_at: args.pointAt,
+    observed_at: args.pointAt,
+    price_minute: args.pointMinute,
     point_date: args.pointAt.slice(0, 10),
     source: args.source,
     source_url: args.sourceUrl || null,
-    source_confidence: args.confidence ?? 80,
+    source_confidence: args.confidence ?? 85,
+    quality: "live",
     bucket_interval: "raw",
-  } as any);
+  } as any;
+
+  if (args.link.listingId) {
+    await supabase
+      .from("investment_instrument_price_points")
+      .upsert(row, { onConflict: "listing_id,price_minute" });
+    return;
+  }
+
+  await supabase.from("investment_instrument_price_points").insert(row);
 }
 
 export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {}): Promise<RunnerResult> {
@@ -154,8 +335,8 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
   const supabase = createAdminClient();
   const now = options.now || new Date();
   const startedAt = now.toISOString();
+  const pointMinute = floorMinuteIso(now);
   const settings = await loadInvestmentSnapshotSettings(supabase);
-  const since = new Date(now.getTime() - settings.minMinutesBetweenPoints * 60 * 1000).toISOString();
   const snapshotDate = now.toISOString().slice(0, 10);
 
   const result: RunnerResult = {
@@ -177,7 +358,6 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
   logger.log(`[investment-price-job] start ${startedAt}`);
 
   if (!settings.enabled && !options.force) {
-    result.ok = true;
     result.skippedDisabled = 1;
     result.finishedAt = new Date().toISOString();
     logger.log(`[investment-price-job] skipped: investment snapshot storage disabled`);
@@ -187,8 +367,9 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
   try {
     const { data: holdings, error } = await supabase
       .from("investment_holdings")
-      .select("id, user_id, ticker, exchange, units, price_polling_enabled, last_price_check_at, import_source_type, external_provider")
+      .select("id, user_id, ticker, exchange, units, average_buy_price, latest_price, price_polling_enabled, last_price_check_at, import_source_type, external_provider, asset_name, asset_kind, isin, listing_id, instrument_id")
       .not("ticker", "is", null)
+      .neq("record_status", "archived")
       .order("ticker")
       .returns<Holding[]>();
 
@@ -207,19 +388,19 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
 
     if (settings.realtimeUsersOnly && !options.force && activeHoldings.length) {
       const realtimeUsers = new Set((profiles || [])
-        .filter((profile: any) => investmentDataEntitlementForProfile(profile).canUseRealtimePrices)
+        .filter((profile: any) => investmentDataEntitlementForProfile(profile).canUseRealtimePrices || profile.market_data_realtime_enabled === true)
         .map((profile: any) => profile.user_id));
       const before = activeHoldings.length;
       activeHoldings = activeHoldings.filter((holding) => realtimeUsers.has(holding.user_id));
       result.skippedDisabled += before - activeHoldings.length;
     }
+
     result.holdings = activeHoldings.length;
     logger.log(`[investment-price-job] loaded ${activeHoldings.length} polling-enabled holdings`);
 
-    const recentHoldingIds = options.force ? new Set<string>() : await getRecentHoldingIds(supabase, new Date(now.getTime() - Math.max(settings.freeMinutes, settings.plusProMinutes, settings.realtimeMinutes) * 60 * 1000).toISOString());
     const groups = new Map<string, Holding[]>();
     activeHoldings.forEach((holding) => {
-      const key = keyFor(holding);
+      const key = keyFor(holding.ticker, holding.exchange);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(holding);
     });
@@ -230,22 +411,15 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
       const first = groupHoldings[0];
       const ticker = normaliseSnapshotTicker(first.ticker);
       const exchange = normaliseSnapshotExchange(first.exchange, first.ticker);
+      const venue = venueFor(exchange, ticker);
 
-      if (!options.force && settings.marketHoursOnly && !isRoughMarketOpen(exchange, now)) {
+      if (!options.force && settings.marketHoursOnly && !isRoughMarketOpen(exchange, now, ticker)) {
         result.skippedClosed += groupHoldings.length;
         logger.log(`[investment-price-job] skip closed ${groupKey}`);
         continue;
       }
 
-      const dueHoldings = groupHoldings.filter((holding) => {
-        if (options.force) return true;
-        const cadence = userCadenceMinutes(profileByUser.get(holding.user_id), settings);
-        const recentCutoff = new Date(now.getTime() - cadence * 60 * 1000).toISOString();
-        // Fast path: if the broad recent set does not contain the holding, it is definitely due.
-        if (!recentHoldingIds.has(holding.id)) return true;
-        // Conservative path: holdings in the broad recent set are skipped until their own cadence expires.
-        return String((holding as any).last_price_check_at || "") < recentCutoff;
-      });
+      const dueHoldings = groupHoldings.filter((holding) => isDue(holding, profileByUser.get(holding.user_id), settings, now, options.force));
       if (!dueHoldings.length) {
         result.skippedRecent += groupHoldings.length;
         logger.log(`[investment-price-job] skip recent ${groupKey}`);
@@ -255,9 +429,10 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
       result.checked += dueHoldings.length;
       logger.log(`[investment-price-job] fetching ${ticker} ${exchange || ""} for ${dueHoldings.length} holding(s)`);
 
+      const link = await ensureCatalogueForGroup(supabase, { ticker, exchange, sample: first, nowIso: startedAt });
       const fastestCadence = Math.min(...dueHoldings.map((holding) => userCadenceMinutes(profileByUser.get(holding.user_id), settings)));
       const globalSince = new Date(now.getTime() - fastestCadence * 60 * 1000).toISOString();
-      const cachedPoint = settings.globalRawPricePoints && !options.force ? await latestGlobalPricePoint(supabase, ticker, exchange, globalSince) : null;
+      const cachedPoint = settings.globalRawPricePoints && !options.force ? await latestGlobalPricePoint(supabase, { listingId: link.listingId, ticker, exchange, sinceIso: globalSince }) : null;
 
       const quote = cachedPoint
         ? null
@@ -272,35 +447,48 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
         logger.warn(`[investment-price-job] quote not found ${ticker} ${exchange || ""}`);
         await supabase
           .from("investment_holdings")
-          .update({ last_price_check_at: now.toISOString(), price_check_status: "quote_not_found", updated_at: now.toISOString() })
+          .update({ last_price_check_at: startedAt, price_check_status: "quote_not_found", instrument_resolution_status: "needs_review", instrument_resolution_notes: "Quote was not found by the market worker", updated_at: startedAt } as any)
           .in("id", dueHoldings.map((holding) => holding.id));
         continue;
       }
 
       const nativeCurrency = cachedPoint
-        ? String(cachedPoint.native_currency || "GBP").toUpperCase()
+        ? String(cachedPoint.native_currency || currencyForExchange(exchange)).toUpperCase()
         : String(quote!.priceQuoteUnit || "").toLowerCase() === "gbx" ? "GBX" : String(quote!.currency || currencyForExchange(quote!.exchange || exchange)).toUpperCase();
       const nativePrice = cachedPoint ? Number(cachedPoint.native_price || 0) : Number(quote!.price || 0);
-      const converted = cachedPoint ? { gbpPrice: Number(cachedPoint.price_gbp || 0), fxRate: nativePrice > 0 ? Number(cachedPoint.price_gbp || 0) / nativePrice : 1, fxSource: "global price point" } : await quotePriceToGbp(nativePrice, nativeCurrency);
+      const converted = cachedPoint
+        ? { gbpPrice: pointGbp(cachedPoint), fxRate: nativePrice > 0 ? pointGbp(cachedPoint) / nativePrice : Number(cachedPoint.fx_rate_to_gbp || 1), fxSource: "global price point" }
+        : await quotePriceToGbp(nativePrice, nativeCurrency);
+      const quoteUnit = cachedPoint?.quote_unit || quote?.priceQuoteUnit || quoteUnitForVenue(exchange, nativeCurrency, ticker);
       const pointSource = cachedPoint ? `${cachedPoint.source || "global price point"}; reused` : `${quote!.source}; ${converted.fxSource}`;
 
       if (!cachedPoint && settings.globalRawPricePoints) {
-        await upsertInstrumentAndGlobalPoint(supabase, {
-          ticker,
-          exchange,
-          assetName: quote!.assetName || ticker,
-          assetKind: quote!.assetType || "share",
-          isin: quote!.isin || null,
+        await upsertGlobalPoint(supabase, {
+          link,
+          assetName: quote!.assetName || first.asset_name || ticker,
+          assetKind: quote!.assetType || first.asset_kind || "share",
+          isin: quote!.isin || first.isin || null,
           priceGbp: Number(converted.gbpPrice),
           nativePrice: Number(quote!.price || 0),
           nativeCurrency,
-          quoteUnit: quote!.priceQuoteUnit || (nativeCurrency === "GBX" ? "gbx" : nativeCurrency.toLowerCase()),
+          quoteUnit,
+          fxRateToGbp: Number((converted as any).fxRate || 1),
           source: `${quote!.source}; ${converted.fxSource}`,
           sourceUrl: quote!.sourceUrl || null,
           confidence: 85,
-          pointAt: now.toISOString(),
+          pointAt: startedAt,
+          pointMinute,
         });
       }
+
+      const previousClose = await previousCloseGlobalPoint(supabase, { listingId: link.listingId, ticker, exchange, snapshotDate });
+      const previousCloseGbp = pointGbp(previousClose);
+      const previousCloseNative = Number(previousClose?.native_price || 0);
+      const previousCloseAt = pointAt(previousClose) || null;
+      const dayChangeGbp = previousCloseGbp > 0 ? Number(converted.gbpPrice) - previousCloseGbp : null;
+      const dayChangePercent = previousCloseGbp > 0 ? (Number(converted.gbpPrice) - previousCloseGbp) / previousCloseGbp * 100 : null;
+      const dayChangeNative = previousCloseNative > 0 ? nativePrice - previousCloseNative : null;
+      const dayChangeNativePercent = previousCloseNative > 0 ? (nativePrice - previousCloseNative) / previousCloseNative * 100 : null;
 
       const rows = dueHoldings.map((holding) => {
         const units = Number(holding.units || 0);
@@ -309,24 +497,32 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
         return {
           user_id: holding.user_id,
           holding_id: holding.id,
-          // Backwards-compatible GBP fields used by existing totals/charts.
+          instrument_id: link.instrumentId,
+          listing_id: link.listingId,
           price: converted.gbpPrice,
           units,
           value: gbpValue,
-          // Native market quote fields are the source-of-truth for refreshed points.
           native_price: nativePrice,
           native_value: nativeValue,
           native_currency: nativeCurrency,
           fx_rate_to_gbp: Number((converted as any).fxRate || 1),
           fx_source: (converted as any).fxSource || null,
+          previous_close_price_gbp: previousCloseGbp || null,
+          previous_close_native_price: previousCloseNative || null,
+          previous_close_at: previousCloseAt,
+          day_change_gbp: dayChangeGbp,
+          day_change_percent: dayChangePercent,
+          day_change_native: dayChangeNative,
+          day_change_native_percent: dayChangeNativePercent,
           snapshot_date: snapshotDate,
-          snapshot_at: now.toISOString(),
+          snapshot_at: startedAt,
+          snapshot_minute: pointMinute,
           source: pointSource,
           bucket_interval: "raw",
-        };
+        } as any;
       });
 
-      const insert = await supabase.from("investment_price_snapshots").insert(rows);
+      const insert = await supabase.from("investment_price_snapshots").upsert(rows, { onConflict: "user_id,holding_id,snapshot_minute" });
       if (insert.error) {
         result.failed += dueHoldings.length;
         result.failures.push({ ticker, exchange, reason: insert.error.message });
@@ -335,22 +531,36 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
       }
 
       result.inserted += rows.length;
-      logger.log(`[investment-price-job] inserted ${rows.length} snapshot(s) for ${ticker} @ ${converted.gbpPrice} GBP (${cachedPoint ? "cached" : quote!.price} ${nativeCurrency})`);
+      logger.log(`[investment-price-job] inserted ${rows.length} snapshot(s) for ${ticker} @ ${converted.gbpPrice} GBP (${cachedPoint ? "cached" : quote!.price} ${nativeCurrency}) cadence=${fastestCadence}m listing=${link.listingId || "legacy"}`);
 
       const update = await supabase
         .from("investment_holdings")
         .update({
+          instrument_id: link.instrumentId,
+          listing_id: link.listingId,
+          instrument_resolution_status: "resolved",
+          instrument_resolution_notes: venue?.name ? `Priced from ${venue.name}` : `Priced from ${exchange || "market data"}`,
           latest_price: converted.gbpPrice,
           latest_price_date: snapshotDate,
           currency: "GBP",
           native_latest_price: nativePrice,
           native_currency: nativeCurrency,
-          native_exchange: cachedPoint ? exchange : quote!.exchange || exchange,
+          native_exchange: link.venueCode || exchange,
+          latest_fx_rate_to_gbp: Number((converted as any).fxRate || 1),
+          latest_fx_source: (converted as any).fxSource || null,
+          previous_close_price_gbp: previousCloseGbp || null,
+          previous_close_native_price: previousCloseNative || null,
+          previous_close_native_currency: previousClose?.native_currency || nativeCurrency,
+          previous_close_at: previousCloseAt,
+          day_change_gbp: dayChangeGbp,
+          day_change_percent: dayChangePercent,
+          day_change_native: dayChangeNative,
+          day_change_native_percent: dayChangeNativePercent,
           source_url: cachedPoint ? `market-data:${cachedPoint.source || "global"}:${ticker}` : quote!.sourceUrl || `market-data:${quote!.source}:${quote!.rawSymbol}`,
-          last_price_check_at: now.toISOString(),
+          last_price_check_at: startedAt,
           price_check_status: "ok",
-          updated_at: now.toISOString(),
-        })
+          updated_at: startedAt,
+        } as any)
         .in("id", dueHoldings.map((holding) => holding.id));
 
       if (update.error) {
@@ -379,9 +589,8 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
   return result;
 }
 
-
 export async function runInvestmentSnapshotMaintenance(
-  supabase: ReturnType<typeof createAdminClient>,
+  supabase: SupabaseAdmin,
   options: { now?: Date; logger?: Pick<Console, "log" | "warn" | "error"> } = {},
 ): Promise<{ ok: boolean; pruned: number; global: any; snapshots: any; failures: Array<{ ticker: string; exchange: string | null; reason: string }> }> {
   const logger = options.logger || console;
@@ -424,7 +633,7 @@ export async function runInvestmentSnapshotMaintenance(
     }
   } else {
     const data: any = prune.data || {};
-    pruned += Number(data.deleted_by_age || 0) + Number(data.deleted_by_cap || 0);
+    pruned += Number(data.deleted_by_age || 0) + Number(data.deleted_by_cap || 0) + Number(data.deleted || 0);
   }
 
   logger.log(`[investment-maintenance] done pruned=${pruned} failures=${failures.length}`);

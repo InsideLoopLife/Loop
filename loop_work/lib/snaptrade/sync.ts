@@ -1583,7 +1583,7 @@ export async function importSnapTradeAccountsForUser(
         source_url: null,
         notes: position.raw?.synthetic
           ? "Imported from SnapTrade account-level value because the provider did not return position-level holdings yet. Refresh this account later to replace this placeholder with real positions."
-          : "Imported from SnapTrade. Provider values are refreshed by SnapTrade sync, not manual quote refresh.",
+          : "Imported from SnapTrade. Units/provider metadata are refreshed by SnapTrade; live prices are refreshed by the market worker when the ticker/exchange is mapped.",
         external_provider: "snaptrade",
         external_account_id: account.externalAccountId,
         external_position_id: position.externalPositionId,

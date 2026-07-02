@@ -1,4 +1,5 @@
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { currencyForVenue, isMarketOpenForVenue, normaliseVenueCode, quoteUnitForVenue, yahooProviderSymbols, stooqProviderSymbols } from "@/lib/investments/market-venues";
 
 export type InvestmentQuote = {
   price: number;
@@ -17,13 +18,8 @@ export type InvestmentQuote = {
   logoDomain?: string | null;
 };
 
-function normaliseExchangeCode(exchange?: string | null) {
-  const ex = String(exchange || "").trim().toUpperCase();
-  if (["XNAS", "XNCM", "XNGS", "NMS", "NGM", "NAS", "NASDAQGS", "NASDAQ"].includes(ex)) return "NASDAQ";
-  if (["XNYS", "NYQ", "NYSE"].includes(ex)) return "NYSE";
-  if (["XASE", "ASE", "AMEX", "NYSEAMERICAN"].includes(ex)) return "AMEX";
-  if (["LON", "XLON", "XLSE", "LSE"].includes(ex)) return "LSE";
-  return ex;
+export function normaliseExchangeCode(exchange?: string | null, symbol?: string | null) {
+  return normaliseVenueCode(exchange, symbol);
 }
 
 type CommonTicker = {
@@ -135,58 +131,33 @@ export function candidateInvestments(query: string) {
 }
 
 function providerSymbols(ticker: string, exchange?: string | null) {
-  const t = cleanTicker(ticker);
-  const ex = normaliseExchangeCode(exchange);
-  if (!t) return [];
-  if (t.includes(".") && !t.includes(" ")) return [t];
-  if (ex === "LSE") return [`${t}.L`, t];
-  if (["NASDAQ", "NYSE", "AMEX", "US"].includes(ex)) return [t];
-  const common = COMMON_INVESTMENTS[t];
-  if (common?.exchange === "LSE") return [`${t}.L`, t];
-  if (common?.exchange && common.exchange !== "LSE") return [t, `${t}.L`];
-  return [t, `${t}.L`];
+  const fromYahoo = yahooProviderSymbols(ticker, exchange);
+  const fromStooq = stooqProviderSymbols(ticker, exchange).map((symbol) => symbol.toUpperCase());
+  return Array.from(new Set([...fromYahoo, ...fromStooq, cleanTicker(ticker)]));
 }
 
 function yahooSymbols(ticker: string, exchange?: string | null) {
   const clean = cleanTicker(ticker);
   if (isYahooFundCode(clean)) return [clean];
-  const t = clean.replace(/\.L$/i, "");
-  const ex = normaliseExchangeCode(exchange);
-  if (!t || t.includes(" ")) return [];
-  if (ex === "LSE" || ticker.toUpperCase().endsWith(".L")) return [`${t}.L`];
-  if (["NASDAQ", "NYSE", "AMEX", "US"].includes(ex)) return [t];
-  const common = COMMON_INVESTMENTS[t];
-  if (common?.exchange === "LSE") return [`${t}.L`, t];
-  if (common?.exchange && common.exchange !== "LSE") return [t, `${t}.L`];
-  return [t, `${t}.L`];
+  return yahooProviderSymbols(ticker, exchange);
 }
 
 function stooqSymbols(ticker: string, exchange?: string | null) {
-  const t = cleanTicker(ticker).toLowerCase().replace(/\.l$/i, "");
-  const ex = normaliseExchangeCode(exchange);
-  if (!t || t.includes(" ")) return [];
-  if (ex === "LSE" || ticker.toUpperCase().endsWith(".L")) return [`${t}.uk`];
-  if (["NASDAQ", "NYSE", "AMEX", "US"].includes(ex)) return [`${t}.us`, t];
-  const common = COMMON_INVESTMENTS[t.toUpperCase()];
-  if (common?.exchange === "LSE") return [`${t}.uk`, `${t}.us`, t];
-  if (common?.exchange && common.exchange !== "LSE") return [`${t}.us`, t, `${t}.uk`];
-  return [`${t}.us`, t, `${t}.uk`];
+  return stooqProviderSymbols(ticker, exchange);
 }
 
 export function exchangeFromSymbol(symbol: string, exchange?: string | null) {
-  const ex = normaliseExchangeCode(exchange);
+  const ex = normaliseExchangeCode(exchange, symbol);
   if (isYahooFundCode(symbol)) return "Yahoo Fund";
   if (ex) return ex;
-  if (symbol.toUpperCase().endsWith(".L") || symbol.toLowerCase().endsWith(".uk")) return "LSE";
-  if (symbol.toLowerCase().endsWith(".us")) return "US";
-  return "";
+  return normaliseExchangeCode(null, symbol) || "";
 }
 
 export function normaliseMarketPrice(rawPrice: number, exchange?: string | null, symbol?: string | null) {
-  if (symbol && isYahooFundCode(symbol)) return { price: rawPrice, priceQuoteUnit: "gbp", currency: "GBP" };
-  const isUk = normaliseExchangeCode(exchange) === "LSE" || String(symbol || "").toUpperCase().endsWith(".L") || String(symbol || "").toLowerCase().endsWith(".uk");
-  if (isUk) return { price: rawPrice, priceQuoteUnit: "gbx", currency: "GBX" };
-  return { price: rawPrice, priceQuoteUnit: "usd", currency: "USD" };
+  const ex = normaliseExchangeCode(exchange, symbol);
+  const currency = currencyForVenue(ex, undefined, symbol);
+  const priceQuoteUnit = quoteUnitForVenue(ex, undefined, symbol);
+  return { price: rawPrice, priceQuoteUnit, currency };
 }
 
 function assetNameFor(ticker: string, symbol: string) {
@@ -527,13 +498,6 @@ export async function searchInvestments(supabase: any, userId: string, query: st
   }).slice(0, 10);
 }
 
-export function isRoughMarketOpen(exchange?: string | null, now = new Date()) {
-  const day = now.getUTCDay();
-  if (day === 0 || day === 6) return false;
-  const minutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  const ex = normaliseExchangeCode(exchange);
-  if (ex === "LSE") return minutes >= 8 * 60 && minutes <= 16 * 60 + 45;
-  if (["NASDAQ", "NYSE", "AMEX", "US"].includes(ex)) return minutes >= 14 * 60 + 20 && minutes <= 21 * 60 + 10;
-  // Unknown/global holdings are allowed only during a broad weekday window.
-  return minutes >= 8 * 60 && minutes <= 21 * 60 + 10;
+export function isRoughMarketOpen(exchange?: string | null, now = new Date(), symbol?: string | null) {
+  return isMarketOpenForVenue(exchange, now, symbol);
 }

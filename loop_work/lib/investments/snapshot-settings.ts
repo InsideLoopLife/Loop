@@ -21,8 +21,8 @@ export const defaultInvestmentSnapshotSettings: InvestmentSnapshotSettings = {
   realtimeUsersOnly: false,
   globalRawPricePoints: true,
   realtimeMinutes: 1,
-  plusProMinutes: 1,
-  freeMinutes: 1,
+  plusProMinutes: 10,
+  freeMinutes: 30,
   manualRefreshUsesLatestGlobal: true,
 };
 
