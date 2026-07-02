@@ -1,4 +1,6 @@
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { isAiFeatureEnabled, recordOpenAiUsageFromPayload } from "@/lib/ai/usage";
+import { currencyForVenue, isMarketOpenForVenue, knownVenueCodes, normaliseVenueCode, quoteUnitForVenue, yahooProviderSymbols, stooqProviderSymbols } from "@/lib/investments/market-venues";
 
 export type InvestmentQuote = {
   price: number;
@@ -17,13 +19,8 @@ export type InvestmentQuote = {
   logoDomain?: string | null;
 };
 
-function normaliseExchangeCode(exchange?: string | null) {
-  const ex = String(exchange || "").trim().toUpperCase();
-  if (["XNAS", "XNCM", "XNGS", "NMS", "NGM", "NAS", "NASDAQGS", "NASDAQ"].includes(ex)) return "NASDAQ";
-  if (["XNYS", "NYQ", "NYSE"].includes(ex)) return "NYSE";
-  if (["XASE", "ASE", "AMEX", "NYSEAMERICAN"].includes(ex)) return "AMEX";
-  if (["LON", "XLON", "XLSE", "LSE"].includes(ex)) return "LSE";
-  return ex;
+export function normaliseExchangeCode(exchange?: string | null, symbol?: string | null) {
+  return normaliseVenueCode(exchange, symbol);
 }
 
 type CommonTicker = {
@@ -68,6 +65,19 @@ export const COMMON_INVESTMENTS: Record<string, CommonTicker> = {
   "VANGUARD-LIFESTRATEGY-100": { assetName: "Vanguard LifeStrategy® 100% Equity Fund - Accumulation", exchange: "Vanguard", symbol: "Vanguard LifeStrategy 100 Acc", sourceUrl: "https://www.vanguardinvestor.co.uk/investments/vanguard-lifestrategy-100-equity-fund-accumulation-shares/overview", assetType: "fund", annualAssetFeePercent: 0.20, aliases: ["lifestrategy 100", "vanguard lifestrategy 100", "vanguard lifestrategy", "lifestrategy 100 acc", "lifestrategy 100 accumulation", "VGLS100A"] },
   "VANGUARD-LIFESTRATEGY-GLOBAL-80-ACC": { assetName: "Vanguard LifeStrategy® Global 80% Equity Fund - Accumulation", exchange: "Vanguard", symbol: "Vanguard LifeStrategy Global 80 Acc", sourceUrl: "https://www.vanguardinvestor.co.uk/investments/vanguard-lifestrategy-global-80-equity-fund-a-gbp-accumulation-shares/overview", assetType: "fund", annualAssetFeePercent: 0.20, aliases: ["lifestrategy global 80", "lifestrategy global 80 acc", "lifestrategy global 80 accumulation", "VL80AGA"] },
 };
+
+function envBool(name: string, fallback = false) {
+  const value = process.env[name];
+  if (value === undefined || value === null || value === "") return fallback;
+  const clean = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(clean)) return true;
+  if (["0", "false", "no", "n", "off"].includes(clean)) return false;
+  return fallback;
+}
+
+function marketWorkerProcess() {
+  return envBool("LOOP_MARKET_DATA_WORKER", false) || envBool("MARKET_DATA_WORKER_PROCESS", false);
+}
 
 export function cleanTicker(ticker: string) {
   return ticker.trim().toUpperCase().replace(/\s+/g, "");
@@ -135,58 +145,33 @@ export function candidateInvestments(query: string) {
 }
 
 function providerSymbols(ticker: string, exchange?: string | null) {
-  const t = cleanTicker(ticker);
-  const ex = normaliseExchangeCode(exchange);
-  if (!t) return [];
-  if (t.includes(".") && !t.includes(" ")) return [t];
-  if (ex === "LSE") return [`${t}.L`, t];
-  if (["NASDAQ", "NYSE", "AMEX", "US"].includes(ex)) return [t];
-  const common = COMMON_INVESTMENTS[t];
-  if (common?.exchange === "LSE") return [`${t}.L`, t];
-  if (common?.exchange && common.exchange !== "LSE") return [t, `${t}.L`];
-  return [t, `${t}.L`];
+  const fromYahoo = yahooProviderSymbols(ticker, exchange);
+  const fromStooq = stooqProviderSymbols(ticker, exchange).map((symbol) => symbol.toUpperCase());
+  return Array.from(new Set([...fromYahoo, ...fromStooq, cleanTicker(ticker)]));
 }
 
 function yahooSymbols(ticker: string, exchange?: string | null) {
   const clean = cleanTicker(ticker);
   if (isYahooFundCode(clean)) return [clean];
-  const t = clean.replace(/\.L$/i, "");
-  const ex = normaliseExchangeCode(exchange);
-  if (!t || t.includes(" ")) return [];
-  if (ex === "LSE" || ticker.toUpperCase().endsWith(".L")) return [`${t}.L`];
-  if (["NASDAQ", "NYSE", "AMEX", "US"].includes(ex)) return [t];
-  const common = COMMON_INVESTMENTS[t];
-  if (common?.exchange === "LSE") return [`${t}.L`, t];
-  if (common?.exchange && common.exchange !== "LSE") return [t, `${t}.L`];
-  return [t, `${t}.L`];
+  return yahooProviderSymbols(ticker, exchange);
 }
 
 function stooqSymbols(ticker: string, exchange?: string | null) {
-  const t = cleanTicker(ticker).toLowerCase().replace(/\.l$/i, "");
-  const ex = normaliseExchangeCode(exchange);
-  if (!t || t.includes(" ")) return [];
-  if (ex === "LSE" || ticker.toUpperCase().endsWith(".L")) return [`${t}.uk`];
-  if (["NASDAQ", "NYSE", "AMEX", "US"].includes(ex)) return [`${t}.us`, t];
-  const common = COMMON_INVESTMENTS[t.toUpperCase()];
-  if (common?.exchange === "LSE") return [`${t}.uk`, `${t}.us`, t];
-  if (common?.exchange && common.exchange !== "LSE") return [`${t}.us`, t, `${t}.uk`];
-  return [`${t}.us`, t, `${t}.uk`];
+  return stooqProviderSymbols(ticker, exchange);
 }
 
 export function exchangeFromSymbol(symbol: string, exchange?: string | null) {
-  const ex = normaliseExchangeCode(exchange);
+  const ex = normaliseExchangeCode(exchange, symbol);
   if (isYahooFundCode(symbol)) return "Yahoo Fund";
   if (ex) return ex;
-  if (symbol.toUpperCase().endsWith(".L") || symbol.toLowerCase().endsWith(".uk")) return "LSE";
-  if (symbol.toLowerCase().endsWith(".us")) return "US";
-  return "";
+  return normaliseExchangeCode(null, symbol) || "";
 }
 
 export function normaliseMarketPrice(rawPrice: number, exchange?: string | null, symbol?: string | null) {
-  if (symbol && isYahooFundCode(symbol)) return { price: rawPrice, priceQuoteUnit: "gbp", currency: "GBP" };
-  const isUk = normaliseExchangeCode(exchange) === "LSE" || String(symbol || "").toUpperCase().endsWith(".L") || String(symbol || "").toLowerCase().endsWith(".uk");
-  if (isUk) return { price: rawPrice, priceQuoteUnit: "gbx", currency: "GBX" };
-  return { price: rawPrice, priceQuoteUnit: "usd", currency: "USD" };
+  const ex = normaliseExchangeCode(exchange, symbol);
+  const currency = currencyForVenue(ex, undefined, symbol);
+  const priceQuoteUnit = quoteUnitForVenue(ex, undefined, symbol);
+  return { price: rawPrice, priceQuoteUnit, currency };
 }
 
 function assetNameFor(ticker: string, symbol: string) {
@@ -374,12 +359,8 @@ function quoteTypeToAssetKind(value: string | undefined | null): InvestmentQuote
 
 function exchangeFromYahooSearch(item: any) {
   const symbol = String(item?.symbol || "").toUpperCase();
-  const exchange = String(item?.exchange || item?.exchDisp || "").toUpperCase();
-  if (symbol.endsWith(".L") || exchange === "LSE" || exchange.includes("LONDON")) return "LSE";
-  if (["NMS", "NGM", "NASDAQ"].includes(exchange) || exchange.includes("NASDAQ")) return "NASDAQ";
-  if (exchange.includes("NYSE") || exchange === "NYQ") return "NYSE";
-  if (exchange.includes("AMEX") || exchange === "ASE") return "AMEX";
-  return exchange || "Review";
+  const exchange = String(item?.exchange || item?.exchDisp || item?.exchangeName || "").toUpperCase();
+  return normaliseExchangeCode(exchange, symbol) || "Review";
 }
 
 async function yahooSearchCandidates(query: string, exchange?: string | null): Promise<InvestmentQuote[]> {
@@ -419,19 +400,40 @@ async function yahooSearchCandidates(query: string, exchange?: string | null): P
 }
 
 async function openAiInvestmentSearch(supabase: any, userId: string, query: string, exchange?: string | null): Promise<InvestmentQuote[]> {
+  // v28.36: OpenAI/web-search is never allowed from the Render market worker.
+  // Unknown instruments should become admin coverage tasks, not paid web-search calls.
+  if (marketWorkerProcess()) {
+    console.log(`[investment-ai] OpenAI market search blocked in market worker for ${query} ${exchange || ""}`);
+    return [];
+  }
+  const guard = isAiFeatureEnabled({ scope: "investment_market_search", requiresWebSearch: true, worker: false });
+  if (!guard.allowed) {
+    console.log(`[investment-ai] OpenAI market search skipped: ${guard.reason}`);
+    return [];
+  }
+
   const secret = await getActiveIntegrationSecret(supabase, userId, "openai");
   if (!secret?.value) return [];
+  const model = process.env.LOOP_INVESTMENT_AI_MODEL || process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini";
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret.value}` },
       body: JSON.stringify({
-        model: process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini",
+        model,
         tools: [{ type: "web_search_preview" }],
-        input: `Find likely investment instruments or provider funds matching: "${query}". Exchange if known: "${exchange || "unknown"}". Return JSON array only. Each item: {"rawSymbol":"", "assetName":"", "exchange":"LSE|NASDAQ|NYSE|Vanguard|Other", "assetType":"share|etf|fund|crypto|other", "price":0, "price_quote_unit":"gbx|gbp|usd|eur", "currency":"GBP|USD|EUR", "isin":null, "annualAssetFeePercent":0, "sourceUrl":null, "note":"", "confidence":0}. For UK/LSE quoted shares/ETFs use GBX and pence if returning a display price; mark true exchange-traded funds as assetType etf, not share. For provider funds/OEICs such as Vanguard LifeStrategy or funds identified by an ISIN, do not return LSE unless it is genuinely exchange-traded; return exchange Vanguard/Provider, price_quote_unit gbp for GBP NAV, and fee/OCF where found; price can be 0 if not reliably available.`,
+        input: `Find likely investment instruments or provider funds matching: "${query}". Exchange if known: "${exchange || "unknown"}". Search globally, not only UK/US. Return JSON array only. Each item: {"rawSymbol":"", "assetName":"", "exchange":"MIC/venue code such as LSE,NASDAQ,NYSE,AMEX,OTCM,PINX,XETR,XFRA,XPAR,XAMS,XMIL,XSWX,XTSE,XSTO,XCSE,XHEL,XOSL,XHKG,XTKS,XASX or Provider", "assetType":"share|etf|fund|crypto|other", "price":0, "price_quote_unit":"gbx|gbp|usd|eur|chf|cad|aud|jpy|hkd", "currency":"GBP|GBX|USD|EUR|CHF|CAD|AUD|JPY|HKD", "isin":null, "annualAssetFeePercent":0, "sourceUrl":null, "note":"", "confidence":0}. Known venue codes in LOOP include ${knownVenueCodes().join(", ")}. For LSE shares/ETFs use GBX/pence; for XETR/XFRA/XPAR/XAMS/XMIL use EUR; for OTCM/PINX/NASDAQ/NYSE use USD. Do not force European listings into LSE/GBX. For provider funds/OEICs such as Vanguard LifeStrategy or funds identified by an ISIN, do not return LSE unless genuinely exchange-traded; return exchange VANGUARD/Provider, price_quote_unit gbp for GBP NAV, and fee/OCF where found; price can be 0 if not reliably available.`,
       }),
     });
     const payload = await response.json().catch(() => ({}));
+    await recordOpenAiUsageFromPayload(supabase, payload, {
+      model,
+      scope: "investment_market_search",
+      component: "investment_quote_lookup",
+      userId,
+      usedWebSearch: true,
+      metadata: { query, exchange, ok: response.ok, status: response.status },
+    });
     if (!response.ok) return [];
     const text = String(payload.output_text || payload.output?.flatMap?.((item: { content?: { text?: string }[] }) => item.content?.map((c) => c.text) || []).join("\n") || "");
     const parsed = safeJsonFromText(text);
@@ -465,7 +467,7 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
   const query = tickerOrQuery.trim();
   if (!query) return null;
   const requestedExchange = normaliseExchangeCode(exchange);
-  const wantsExchangeTraded = Boolean(requestedExchange && ["LSE", "NASDAQ", "NYSE", "AMEX", "US"].includes(requestedExchange));
+  const wantsExchangeTraded = Boolean(requestedExchange && !["VANGUARD", "YAHOO FUND", "FUND", "PROVIDER", "REVIEW"].includes(requestedExchange));
   const glossary = candidateInvestments(query).find((item) => !(wantsExchangeTraded && item.assetType === "fund")) || candidateInvestments(query)[0];
   const symbol = glossary?.rawSymbol || query;
   const secret = await getActiveIntegrationSecret(supabase, userId, ["alpha_vantage", "financial_modeling_prep", "fmp"]);
@@ -509,14 +511,18 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
   if (yahoo) return yahoo;
   const stooq = await stooqQuote(symbol, exchange || glossary?.exchange);
   if (stooq) return stooq;
-  return glossary || (await openAiInvestmentSearch(supabase, userId, query, exchange))[0] || null;
+  // v28.36: do not fall back to AI from quote refresh paths. If no deterministic quote exists,
+  // the caller should mark the holding as coverage_required and notify admin.
+  return glossary || null;
 }
 
 export async function searchInvestments(supabase: any, userId: string, query: string, exchange?: string | null) {
   const quote = await fetchInvestmentQuote(supabase, userId, query, exchange);
   const local = candidateInvestments(query);
   const yahooSearch = await yahooSearchCandidates(query, exchange);
-  const ai = quote && quote.source !== "OpenAI investment search" ? [] : await openAiInvestmentSearch(supabase, userId, query, exchange);
+  const ai = envBool("LOOP_ENABLE_AI_MARKET_SEARCH", false) && envBool("LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP", false)
+    ? await openAiInvestmentSearch(supabase, userId, query, exchange)
+    : [];
   const merged = [quote, ...local, ...yahooSearch, ...ai].filter(Boolean) as InvestmentQuote[];
   const seen = new Set<string>();
   return merged.filter((item) => {
@@ -527,13 +533,6 @@ export async function searchInvestments(supabase: any, userId: string, query: st
   }).slice(0, 10);
 }
 
-export function isRoughMarketOpen(exchange?: string | null, now = new Date()) {
-  const day = now.getUTCDay();
-  if (day === 0 || day === 6) return false;
-  const minutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  const ex = normaliseExchangeCode(exchange);
-  if (ex === "LSE") return minutes >= 8 * 60 && minutes <= 16 * 60 + 45;
-  if (["NASDAQ", "NYSE", "AMEX", "US"].includes(ex)) return minutes >= 14 * 60 + 20 && minutes <= 21 * 60 + 10;
-  // Unknown/global holdings are allowed only during a broad weekday window.
-  return minutes >= 8 * 60 && minutes <= 21 * 60 + 10;
+export function isRoughMarketOpen(exchange?: string | null, now = new Date(), symbol?: string | null) {
+  return isMarketOpenForVenue(exchange, now, symbol);
 }

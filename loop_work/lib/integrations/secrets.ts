@@ -8,6 +8,11 @@ type SecretRow = {
   secret_value?: string | null;
 };
 
+function isMarketWorkerProcess() {
+  const value = String(process.env.LOOP_MARKET_DATA_WORKER || process.env.MARKET_DATA_WORKER_PROCESS || "").trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(value);
+}
+
 function providerAliases(provider: string) {
   const key = provider.trim().toLowerCase();
   if (key === "openai" || key === "open_ai" || key === "open ai") {
@@ -19,6 +24,7 @@ function providerAliases(provider: string) {
 function envFallbackForProvider(provider: string) {
   const key = provider.trim().toLowerCase();
   if (key === "openai" || key === "open_ai" || key === "open ai") {
+    if (isMarketWorkerProcess()) return null;
     const value = process.env.OPENAI_API_KEY || process.env.OPENAI_TOKEN || process.env.LOOP_OPENAI_API_KEY;
     return value ? { provider: "openai", value } : null;
   }
@@ -31,6 +37,9 @@ export async function getActiveIntegrationSecret(
   providers: string | string[],
 ) {
   const providerList = Array.isArray(providers) ? providers : [providers];
+  if (isMarketWorkerProcess() && providerList.some((provider) => ["openai", "open_ai", "open ai"].includes(String(provider).trim().toLowerCase()))) {
+    return null;
+  }
   const aliases = Array.from(new Set(providerList.flatMap(providerAliases)));
 
   const { data, error } = await supabase

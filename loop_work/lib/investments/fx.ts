@@ -1,3 +1,5 @@
+import { currencyForVenue, normaliseVenueCode } from "@/lib/investments/market-venues";
+
 export type FxResult = {
   rate: number;
   source: string;
@@ -8,25 +10,28 @@ const FALLBACK_TO_GBP: Record<string, number> = {
   GBX: 0.01,
   USD: 0.79,
   EUR: 0.85,
+  CHF: 0.89,
+  CAD: 0.58,
+  AUD: 0.52,
+  NZD: 0.47,
+  JPY: 0.005,
+  HKD: 0.10,
+  SGD: 0.59,
+  SEK: 0.073,
+  NOK: 0.073,
+  DKK: 0.114,
+  PLN: 0.20,
+  ZAR: 0.043,
+  BRL: 0.15,
+  MXN: 0.043,
 };
 
 export function normaliseExchangeCode(exchange?: string | null) {
-  const ex = String(exchange || "").trim().toUpperCase();
-  if (["NMS", "NGM", "NAS", "NASDAQGS", "NASDAQ"].includes(ex)) return "NASDAQ";
-  if (["NYQ", "NYSE"].includes(ex)) return "NYSE";
-  if (["ASE", "AMEX", "NYSEAMERICAN"].includes(ex)) return "AMEX";
-  if (["LON", "XLON", "LSE"].includes(ex)) return "LSE";
-  return ex;
+  return normaliseVenueCode(exchange);
 }
 
 export function currencyForExchange(exchange?: string | null, fallback?: string | null) {
-  const ex = normaliseExchangeCode(exchange);
-  const fb = String(fallback || "").trim().toUpperCase();
-  if (ex === "LSE") return "GBX";
-  if (ex === "YAHOO FUND" || ex === "VANGUARD") return "GBP";
-  if (["NASDAQ", "NYSE", "AMEX", "US"].includes(ex)) return "USD";
-  if (["GBP", "USD", "EUR"].includes(fb)) return fb;
-  return "GBP";
+  return currencyForVenue(exchange, fallback);
 }
 
 export async function fxToGbp(currency?: string | null): Promise<FxResult> {
