@@ -2,6 +2,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { runInvestmentPriceSnapshotJob, runInvestmentSnapshotMaintenance } from "@/lib/investments/price-snapshot-runner";
 import { runSnapTradeProviderSnapshotJob } from "@/lib/snaptrade/sync";
 
+process.env.LOOP_MARKET_DATA_WORKER = process.env.LOOP_MARKET_DATA_WORKER || "true";
+
 const DEFAULT_PRICE_INTERVAL_MINUTES = 1;
 const DEFAULT_SNAPTRADE_INTERVAL_MINUTES = 1;
 const DEFAULT_MAINTENANCE_INTERVAL_MINUTES = 60;
@@ -90,6 +92,10 @@ function requiredEnvReport() {
     hasAppEncryptionKey: Boolean(process.env.APP_ENCRYPTION_KEY),
     hasSnapTradeClientId: Boolean(process.env.SNAPTRADE_CLIENT_ID || process.env.SNAPTRADE_CLIENTID),
     hasSnapTradeConsumerKey: Boolean(process.env.SNAPTRADE_CONSUMER_KEY || process.env.SNAPTRADE_CONSUMERKEY),
+    aiCoverageEnabled: process.env.MARKET_DATA_WORKER_AI_COVERAGE_ENABLED === "true",
+    aiMarketSearchEnabled: process.env.LOOP_ENABLE_AI_MARKET_SEARCH === "true",
+    webSearchMarketLookupEnabled: process.env.LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP === "true",
+    hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY || process.env.OPENAI_PREMIUM_API_KEY || process.env.OPENAI_RESEARCH_API_KEY),
   };
 }
 

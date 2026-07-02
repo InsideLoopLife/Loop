@@ -1,5 +1,6 @@
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
-import { currencyForVenue, isMarketOpenForVenue, normaliseVenueCode, quoteUnitForVenue, yahooProviderSymbols, stooqProviderSymbols } from "@/lib/investments/market-venues";
+import { isAiFeatureEnabled, recordOpenAiUsageFromPayload } from "@/lib/ai/usage";
+import { currencyForVenue, isMarketOpenForVenue, knownVenueCodes, normaliseVenueCode, quoteUnitForVenue, yahooProviderSymbols, stooqProviderSymbols } from "@/lib/investments/market-venues";
 
 export type InvestmentQuote = {
   price: number;
@@ -345,12 +346,8 @@ function quoteTypeToAssetKind(value: string | undefined | null): InvestmentQuote
 
 function exchangeFromYahooSearch(item: any) {
   const symbol = String(item?.symbol || "").toUpperCase();
-  const exchange = String(item?.exchange || item?.exchDisp || "").toUpperCase();
-  if (symbol.endsWith(".L") || exchange === "LSE" || exchange.includes("LONDON")) return "LSE";
-  if (["NMS", "NGM", "NASDAQ"].includes(exchange) || exchange.includes("NASDAQ")) return "NASDAQ";
-  if (exchange.includes("NYSE") || exchange === "NYQ") return "NYSE";
-  if (exchange.includes("AMEX") || exchange === "ASE") return "AMEX";
-  return exchange || "Review";
+  const exchange = String(item?.exchange || item?.exchDisp || item?.exchangeName || "").toUpperCase();
+  return normaliseExchangeCode(exchange, symbol) || "Review";
 }
 
 async function yahooSearchCandidates(query: string, exchange?: string | null): Promise<InvestmentQuote[]> {
@@ -390,19 +387,34 @@ async function yahooSearchCandidates(query: string, exchange?: string | null): P
 }
 
 async function openAiInvestmentSearch(supabase: any, userId: string, query: string, exchange?: string | null): Promise<InvestmentQuote[]> {
+  const guard = isAiFeatureEnabled({ scope: "investment_market_search", requiresWebSearch: true });
+  if (!guard.allowed) {
+    console.log(`[investment-ai] OpenAI market search skipped: ${guard.reason}`);
+    return [];
+  }
+
   const secret = await getActiveIntegrationSecret(supabase, userId, "openai");
   if (!secret?.value) return [];
+  const model = process.env.LOOP_INVESTMENT_AI_MODEL || process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini";
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret.value}` },
       body: JSON.stringify({
-        model: process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini",
+        model,
         tools: [{ type: "web_search_preview" }],
-        input: `Find likely investment instruments or provider funds matching: "${query}". Exchange if known: "${exchange || "unknown"}". Return JSON array only. Each item: {"rawSymbol":"", "assetName":"", "exchange":"LSE|NASDAQ|NYSE|Vanguard|Other", "assetType":"share|etf|fund|crypto|other", "price":0, "price_quote_unit":"gbx|gbp|usd|eur", "currency":"GBP|USD|EUR", "isin":null, "annualAssetFeePercent":0, "sourceUrl":null, "note":"", "confidence":0}. For UK/LSE quoted shares/ETFs use GBX and pence if returning a display price; mark true exchange-traded funds as assetType etf, not share. For provider funds/OEICs such as Vanguard LifeStrategy or funds identified by an ISIN, do not return LSE unless it is genuinely exchange-traded; return exchange Vanguard/Provider, price_quote_unit gbp for GBP NAV, and fee/OCF where found; price can be 0 if not reliably available.`,
+        input: `Find likely investment instruments or provider funds matching: "${query}". Exchange if known: "${exchange || "unknown"}". Search globally, not only UK/US. Return JSON array only. Each item: {"rawSymbol":"", "assetName":"", "exchange":"MIC/venue code such as LSE,NASDAQ,NYSE,AMEX,OTCM,PINX,XETR,XFRA,XPAR,XAMS,XMIL,XSWX,XTSE,XSTO,XCSE,XHEL,XOSL,XHKG,XTKS,XASX or Provider", "assetType":"share|etf|fund|crypto|other", "price":0, "price_quote_unit":"gbx|gbp|usd|eur|chf|cad|aud|jpy|hkd", "currency":"GBP|GBX|USD|EUR|CHF|CAD|AUD|JPY|HKD", "isin":null, "annualAssetFeePercent":0, "sourceUrl":null, "note":"", "confidence":0}. Known venue codes in LOOP include ${knownVenueCodes().join(", ")}. For LSE shares/ETFs use GBX/pence; for XETR/XFRA/XPAR/XAMS/XMIL use EUR; for OTCM/PINX/NASDAQ/NYSE use USD. Do not force European listings into LSE/GBX. For provider funds/OEICs such as Vanguard LifeStrategy or funds identified by an ISIN, do not return LSE unless genuinely exchange-traded; return exchange VANGUARD/Provider, price_quote_unit gbp for GBP NAV, and fee/OCF where found; price can be 0 if not reliably available.`,
       }),
     });
     const payload = await response.json().catch(() => ({}));
+    await recordOpenAiUsageFromPayload(supabase, payload, {
+      model,
+      scope: "investment_market_search",
+      component: "investment_quote_lookup",
+      userId,
+      usedWebSearch: true,
+      metadata: { query, exchange, ok: response.ok, status: response.status },
+    });
     if (!response.ok) return [];
     const text = String(payload.output_text || payload.output?.flatMap?.((item: { content?: { text?: string }[] }) => item.content?.map((c) => c.text) || []).join("\n") || "");
     const parsed = safeJsonFromText(text);
@@ -436,7 +448,7 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
   const query = tickerOrQuery.trim();
   if (!query) return null;
   const requestedExchange = normaliseExchangeCode(exchange);
-  const wantsExchangeTraded = Boolean(requestedExchange && ["LSE", "NASDAQ", "NYSE", "AMEX", "US"].includes(requestedExchange));
+  const wantsExchangeTraded = Boolean(requestedExchange && !["VANGUARD", "YAHOO FUND", "FUND", "PROVIDER", "REVIEW"].includes(requestedExchange));
   const glossary = candidateInvestments(query).find((item) => !(wantsExchangeTraded && item.assetType === "fund")) || candidateInvestments(query)[0];
   const symbol = glossary?.rawSymbol || query;
   const secret = await getActiveIntegrationSecret(supabase, userId, ["alpha_vantage", "financial_modeling_prep", "fmp"]);

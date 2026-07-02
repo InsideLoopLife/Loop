@@ -12,6 +12,18 @@ const FALLBACK_TO_GBP: Record<string, number> = {
   EUR: 0.85,
   CHF: 0.89,
   CAD: 0.58,
+  AUD: 0.52,
+  NZD: 0.47,
+  JPY: 0.005,
+  HKD: 0.10,
+  SGD: 0.59,
+  SEK: 0.073,
+  NOK: 0.073,
+  DKK: 0.114,
+  PLN: 0.20,
+  ZAR: 0.043,
+  BRL: 0.15,
+  MXN: 0.043,
 };
 
 export function normaliseExchangeCode(exchange?: string | null) {

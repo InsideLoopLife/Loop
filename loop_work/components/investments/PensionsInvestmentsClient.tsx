@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Brain,
   ChevronDown,
@@ -476,13 +477,18 @@ function normalisedExchange(exchange?: string | null) {
   if (["NMS", "NGM", "NAS", "NASDAQGS", "NASDAQ", "XNAS", "XNCM", "XNGS", "NCM"].includes(ex)) return "NASDAQ";
   if (["NYQ", "NYSE", "XNYS"].includes(ex)) return "NYSE";
   if (["ASE", "AMEX", "NYSEAMERICAN", "XASE"].includes(ex)) return "AMEX";
-  if (["LON", "XLON", "LSE", "XLSE"].includes(ex)) return "LSE";
-  if (["OTCM", "OTC"].includes(ex)) return "OTCM";
+  if (["LON", "XLON", "LSE", "XLSE", "LDN"].includes(ex)) return "LSE";
+  if (["OTCM", "OTC", "OOTC"].includes(ex)) return "OTCM";
   if (["PINX", "PINK", "OTCPK"].includes(ex)) return "PINX";
-  if (["XETR", "ETR", "XETRA"].includes(ex)) return "XETR";
-  if (["XFRA", "FRA", "FRANKFURT"].includes(ex)) return "XFRA";
-  if (["XPAR", "PAR", "EPA"].includes(ex)) return "XPAR";
-  if (["ARCX", "XARC", "BATS", "BATS-US"].includes(ex)) return "US";
+  if (["XETR", "ETR", "XETRA", "IBIS", "DE"].includes(ex)) return "XETR";
+  if (["XFRA", "FRA", "FRANKFURT", "F"].includes(ex)) return "XFRA";
+  if (["XPAR", "PAR", "EPA", "PA"].includes(ex)) return "XPAR";
+  if (["XAMS", "AMS", "AS"].includes(ex)) return "XAMS";
+  if (["XMIL", "MIL", "MI"].includes(ex)) return "XMIL";
+  if (["XSWX", "SWX", "SW"].includes(ex)) return "XSWX";
+  if (["XTSE", "TSE", "TO", "TSX"].includes(ex)) return "XTSE";
+  if (["ARCX", "XARC", "NYSEARCA", "ARCA"].includes(ex)) return "ARCX";
+  if (["BATS", "BATS-US", "CBOE", "EDGX", "BZX"].includes(ex)) return "BATS";
   return ex;
 }
 function exchangeLabel(exchange?: string | null) {
@@ -492,11 +498,14 @@ function exchangeLabel(exchange?: string | null) {
 function marketCurrencyFor(exchange?: string | null, fallback?: string | null) {
   const ex = normalisedExchange(exchange);
   const fb = String(fallback || "").toUpperCase();
-  if (ex === "LSE") return "GBX";
-  if (["NASDAQ", "NYSE", "AMEX", "US", "OTCM", "PINX"].includes(ex)) return "USD";
-  if (["XETR", "XFRA", "XPAR", "XAMS", "XMIL"].includes(ex)) return "EUR";
+  if (ex === "LSE" || ex === "AIM") return "GBX";
+  if (["NASDAQ", "NYSE", "AMEX", "US", "OTCM", "PINX", "ARCX", "BATS"].includes(ex)) return "USD";
+  if (["XETR", "XFRA", "XPAR", "XAMS", "XMIL", "XBRU", "XLIS", "XHEL", "XWBO"].includes(ex)) return "EUR";
   if (ex === "XSWX") return "CHF";
-  if (ex === "XTSE") return "CAD";
+  if (ex === "XTSE" || ex === "TSXV") return "CAD";
+  if (ex === "XASX") return "AUD";
+  if (ex === "XHKG") return "HKD";
+  if (ex === "XTKS") return "JPY";
   if (fb) return fb;
   return "GBP";
 }
@@ -1265,7 +1274,8 @@ function HoldingCard({
   const plReliable = !isProviderImportedHolding(holding) || hasVerifiedProviderCostBasis(holding);
   const providerResult = Number(holding.imported_result_value);
   const dayMove = dayMovementFromSnapshots([holding], snapshots);
-  const fallbackPl = Number.isFinite(providerResult) && Math.abs(providerResult) >= 0.01 ? providerResult : dayMove.has ? dayMove.change : 0;
+  const storedDayChange = Number(holding.day_change_gbp);
+  const fallbackPl = Number.isFinite(storedDayChange) && Math.abs(storedDayChange) >= 0.01 ? storedDayChange * Number(holding.units || 0) : Number.isFinite(providerResult) && Math.abs(providerResult) >= 0.01 ? providerResult : dayMove.has ? dayMove.change : 0;
   const hasFallbackPl = !plReliable && Math.abs(fallbackPl) >= 0.01;
   return (
     <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-5">
@@ -1313,7 +1323,7 @@ function HoldingCard({
                 const original = originalCostSummary(holding, lots);
                 return (
                   <p className="mt-1 text-xs font-semibold text-slate-500">
-                    Original cost: {original.cost > 0 ? formatMoney(original.cost) : "not supplied"} · {original.source}
+                    {isProviderImportedHolding(holding) && !hasVerifiedProviderCostBasis(holding) ? "Cost basis not supplied by provider · daily movement uses previous close" : `Original cost: ${original.cost > 0 ? formatMoney(original.cost) : "not supplied"} · ${original.source}`}
                   </p>
                 );
               })()}
@@ -2735,7 +2745,7 @@ function AddInvestmentHoldingForm({
           : [];
       const confident = candidates
         .map((candidate: QuoteCandidate) => ({ ...candidate, confidence: tokenOverlapConfidence(candidate, searchQuery) }))
-        .filter((candidate: QuoteCandidate) => Number(candidate.confidence || 0) >= 50);
+        .filter((candidate: QuoteCandidate) => Number(candidate.confidence || 0) >= 25 || /search|openai|yahoo/i.test(String(candidate.source || "")));
       setMatches(confident);
       setQuoteNote(
         payload.note ||
@@ -2858,6 +2868,18 @@ function AddInvestmentHoldingForm({
             )}{" "}
             Search
           </button>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-[220px_1fr] sm:items-center">
+          <label className="block">
+            <span className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Optional market / venue</span>
+            <input
+              value={exchange}
+              onChange={(event) => setExchange(event.target.value.toUpperCase())}
+              className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black uppercase outline-none ring-orange-500 transition focus:ring-2"
+              placeholder="e.g. LSE, XETR, XFRA, XPAR, NASDAQ, PINX"
+            />
+          </label>
+          <p className="text-xs font-bold text-slate-500">Leave blank to search all markets. LOOP can return global venues and queue unknown tickers for AI/admin coverage instead of forcing them into the UK/US list.</p>
         </div>
         {matches.length ? (
           <div className="mt-4 space-y-2">
@@ -5074,6 +5096,17 @@ export function PensionsInvestmentsClient({
       maxTrackedSymbols: 25,
       reason: "No tier profile was loaded yet.",
     } satisfies InvestmentDataEntitlement);
+
+  const router = useRouter();
+  useEffect(() => {
+    if (area !== "investments") return;
+    const cadenceLabel = String(dataTier.refreshCadence || "").toLowerCase();
+    const intervalMs = dataTier.canUseRealtimePrices || cadenceLabel.includes("minute") ? 60_000 : 5 * 60_000;
+    const timer = window.setInterval(() => {
+      router.refresh();
+    }, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [area, dataTier.canUseRealtimePrices, dataTier.refreshCadence, router]);
 
   function toggleInvestmentAccountCollapse(id: string) {
     setCollapsedInvestmentAccountIds((current) => {
