@@ -264,18 +264,26 @@ async function previousCloseGlobalPoint(
   args: { listingId?: string | null; ticker: string; exchange: string | null; snapshotDate: string },
 ): Promise<GlobalPoint | null> {
   const select = "id,listing_id,instrument_id,ticker,exchange_code,price_gbp,gbp_price,native_price,native_currency,quote_unit,source,point_at,observed_at,price_minute,fx_rate_to_gbp";
-  let query = supabase
-    .from("investment_instrument_price_points")
-    .select(select)
-    .lt("point_date", args.snapshotDate)
-    .order("point_at", { ascending: false })
-    .limit(1);
+  const todayStartIso = `${args.snapshotDate}T00:00:00.000Z`;
 
-  if (args.listingId) query = query.eq("listing_id", args.listingId);
-  else query = query.eq("ticker", args.ticker).eq("exchange_code", args.exchange || "");
+  const base = () => {
+    let query = supabase
+      .from("investment_instrument_price_points")
+      .select(select)
+      .order("point_at", { ascending: false })
+      .limit(1);
+    if (args.listingId) query = query.eq("listing_id", args.listingId);
+    else query = query.eq("ticker", args.ticker).eq("exchange_code", args.exchange || "");
+    return query;
+  };
 
-  const { data } = await query.maybeSingle();
-  return (data as GlobalPoint) || null;
+  // Prefer the last stored point from a prior trading date. Some older rows were missing point_date,
+  // so fall back to point_at before today's UTC start instead of returning no previous close.
+  const byDate = await base().lt("point_date", args.snapshotDate).maybeSingle();
+  if (byDate.data) return byDate.data as GlobalPoint;
+
+  const byTime = await base().lt("point_at", todayStartIso).maybeSingle();
+  return (byTime.data as GlobalPoint) || null;
 }
 
 async function createCoverageRequiredAlert(
