@@ -19,9 +19,9 @@ function minutes(hour: number, minute = 0) {
 }
 
 const US_OPEN = minutes(13, 30);
-const US_CLOSE = minutes(21, 10);
+const US_CLOSE = minutes(21, 0);
 const EU_OPEN = minutes(7, 0);
-const EU_CLOSE = minutes(16, 45);
+const EU_CLOSE = minutes(16, 30);
 
 export const MARKET_VENUES: Record<string, MarketVenue> = {
   LSE: { venueCode: "LSE", aliases: ["XLON", "XLSE", "LON", "LSE", "LDN", "LONDON"], mic: "XLON", name: "London Stock Exchange", countryCode: "GB", currency: "GBX", quoteUnit: "gbx", priceScale: 0.01, timezone: "Europe/London", openUtcMinutes: EU_OPEN, closeUtcMinutes: EU_CLOSE, yahooSuffix: ".L", stooqSuffix: ".uk" },
