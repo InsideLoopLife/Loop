@@ -1,6 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runInvestmentPriceSnapshotJob, runInvestmentSnapshotMaintenance } from "@/lib/investments/price-snapshot-runner";
-import { runSnapTradeProviderSnapshotJob } from "@/lib/snaptrade/sync";
 
 process.env.LOOP_MARKET_DATA_WORKER = process.env.LOOP_MARKET_DATA_WORKER || "true";
 
@@ -167,8 +166,17 @@ async function runSnapTrade(reason = "schedule") {
   const startedAt = new Date().toISOString();
   console.log(`[market-data-direct-worker] ${startedAt} start SnapTrade positions reason=${reason}`);
   try {
+    const syncModule = await import("@/lib/snaptrade/sync").catch((error) => {
+      console.error("[market-data-direct-worker] SnapTrade sync module unavailable; investment prices will keep running", error);
+      return null;
+    });
+    if (!syncModule?.runSnapTradeProviderSnapshotJob) {
+      state.lastSnapTradeRunAt = new Date().toISOString();
+      console.warn("[market-data-direct-worker] SnapTrade positions skipped because @/lib/snaptrade/sync is not available in this deploy.");
+      return;
+    }
     const supabase = createAdminClient();
-    const result = await runSnapTradeProviderSnapshotJob({
+    const result = await syncModule.runSnapTradeProviderSnapshotJob({
       supabase,
       realtimeOnly: snapTradeRealtimeOnly,
       maxUsers: snapTradeMaxUsers,
