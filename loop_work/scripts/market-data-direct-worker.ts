@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runInvestmentPriceSnapshotJob, runInvestmentSnapshotMaintenance } from "@/lib/investments/price-snapshot-runner";
 
@@ -11,7 +13,7 @@ process.env.LOOP_ENABLE_AI_MARKET_SEARCH = process.env.LOOP_ENABLE_AI_MARKET_SEA
 process.env.LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP = process.env.LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP || "false";
 process.env.LOOP_ENABLE_AI_HOLDING_IMAGE_IMPORT = process.env.LOOP_ENABLE_AI_HOLDING_IMAGE_IMPORT || "false";
 
-function scrubWorkerAiSecrets() {
+function scrubWorkerAiSecrets(): string[] {
   const aiKeys = [
     "OPENAI_API_KEY",
     "OPENAI_PREMIUM_API_KEY",
@@ -20,8 +22,11 @@ function scrubWorkerAiSecrets() {
     "OPENAI_TOKEN",
     "LOOP_OPENAI_API_KEY",
   ];
-  const present = aiKeys.filter((key) => Boolean(process.env[key]));
-  for (const key of present) delete process.env[key];
+  const env = process.env as Record<string, string | undefined>;
+  const present = aiKeys.filter((key) => Boolean(env[key]));
+  for (const key of present) {
+    delete env[key];
+  }
   if (present.length) {
     console.warn(`[market-data-direct-worker] OpenAI env keys were present on the worker and have been ignored: ${present.join(", ")}`);
   }
@@ -45,13 +50,13 @@ type WorkerState = {
   shuttingDown: boolean;
 };
 
-function asPositiveInt(value: unknown, fallback: number, min = 1, max = 1440) {
+function asPositiveInt(value: unknown, fallback: number, min = 1, max = 1440): number {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
 }
 
-function asBool(value: unknown, fallback: boolean) {
+function asBool(value: unknown, fallback: boolean): boolean {
   if (value === undefined || value === null || value === "") return fallback;
   const clean = String(value).trim().toLowerCase();
   if (["1", "true", "yes", "y", "on"].includes(clean)) return true;
@@ -126,7 +131,7 @@ function requiredEnvReport() {
   };
 }
 
-async function runPrices(reason = "schedule") {
+async function runPrices(reason = "schedule"): Promise<void> {
   if (!pricesEnabled) {
     console.log(`[market-data-direct-worker] prices disabled; reason=${reason}`);
     return;
@@ -153,7 +158,7 @@ async function runPrices(reason = "schedule") {
   }
 }
 
-async function runSnapTrade(reason = "schedule") {
+async function runSnapTrade(reason = "schedule"): Promise<void> {
   if (!snapTradeEnabled) {
     console.log(`[market-data-direct-worker] SnapTrade disabled; reason=${reason}`);
     return;
@@ -166,10 +171,12 @@ async function runSnapTrade(reason = "schedule") {
   const startedAt = new Date().toISOString();
   console.log(`[market-data-direct-worker] ${startedAt} start SnapTrade positions reason=${reason}`);
   try {
-    const syncModule = await import("@/lib/snaptrade/sync").catch((error) => {
+    // @ts-ignore - Dynamic import may not resolve in strict frontend tsconfig contexts
+    const syncModule = await import("@/lib/snaptrade/sync").catch((error: unknown) => {
       console.error("[market-data-direct-worker] SnapTrade sync module unavailable; investment prices will keep running", error);
       return null;
-    });
+    }) as Record<string, any> | null;
+    
     if (!syncModule?.runSnapTradeProviderSnapshotJob) {
       state.lastSnapTradeRunAt = new Date().toISOString();
       console.warn("[market-data-direct-worker] SnapTrade positions skipped because @/lib/snaptrade/sync is not available in this deploy.");
@@ -190,7 +197,7 @@ async function runSnapTrade(reason = "schedule") {
   }
 }
 
-async function runMaintenance(reason = "schedule") {
+async function runMaintenance(reason = "schedule"): Promise<void> {
   if (!maintenanceEnabled) {
     console.log(`[market-data-direct-worker] maintenance disabled; reason=${reason}`);
     return;
@@ -214,7 +221,7 @@ async function runMaintenance(reason = "schedule") {
   }
 }
 
-function schedule(name: string, intervalMinutes: number, fn: (reason: string) => Promise<void>) {
+function schedule(name: string, intervalMinutes: number, fn: (reason: string) => Promise<void>): void {
   const ms = intervalMinutes * 60 * 1000;
   console.log(`[market-data-direct-worker] scheduling ${name} every ${intervalMinutes} minute(s)`);
   const timer = setInterval(() => {
@@ -224,15 +231,20 @@ function schedule(name: string, intervalMinutes: number, fn: (reason: string) =>
   state.timers.push(timer);
 }
 
-function shutdown(signal: string) {
+function shutdown(signal: string): void {
   console.log(`[market-data-direct-worker] ${signal} received; stopping timers and exiting.`);
   state.shuttingDown = true;
-  for (const timer of state.timers) clearInterval(timer);
-  // Give active promise logs a brief chance to flush; Render will hard-stop if needed.
-  setTimeout(() => process.exit(0), 750).unref();
+  for (const timer of state.timers) {
+    clearInterval(timer);
+  }
+  
+  const exitTimer = setTimeout(() => process.exit(0), 750);
+  if (typeof exitTimer === "object" && "unref" in exitTimer && typeof exitTimer.unref === "function") {
+    exitTimer.unref();
+  }
 }
 
-function start() {
+function start(): void {
   console.log("[market-data-direct-worker] boot", {
     mode: "direct-supabase",
     priceIntervalMinutes,
@@ -282,10 +294,10 @@ function start() {
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("uncaughtException", (error) => {
+process.on("uncaughtException", (error: unknown) => {
   console.error("[market-data-direct-worker] uncaught exception", error);
 });
-process.on("unhandledRejection", (reason) => {
+process.on("unhandledRejection", (reason: unknown) => {
   console.error("[market-data-direct-worker] unhandled rejection", reason);
 });
 
