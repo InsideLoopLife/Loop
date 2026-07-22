@@ -43,6 +43,9 @@ type WorkerState = {
   pricesRunning: boolean;
   snapTradeRunning: boolean;
   maintenanceRunning: boolean;
+  pricesRunningSince: number | null;
+  snapTradeRunningSince: number | null;
+  maintenanceRunningSince: number | null;
   lastPriceRunAt: string | null;
   lastSnapTradeRunAt: string | null;
   lastMaintenanceRunAt: string | null;
@@ -99,16 +102,44 @@ const snapTradeEnabled = asBool(process.env.MARKET_DATA_WORKER_SNAPTRADE_ENABLED
 const maintenanceEnabled = asBool(process.env.MARKET_DATA_WORKER_MAINTENANCE_ENABLED, true);
 const runMaintenanceOnStart = asBool(process.env.MARKET_DATA_WORKER_RUN_MAINTENANCE_ON_START, false);
 
+// Watchdog: runInvestmentPriceSnapshotJob() now has its own internal time
+// budget (JOB_TIME_BUDGET_MS in price-snapshot-runner.ts) and every external
+// call it makes has a timeout (see http.ts), so a run should never actually
+// hang. This is a second, outer layer of defence: if a run's "running" flag
+// is ever still set past this window anyway, force-clear it so the schedule
+// can recover instead of silently skipping forever.
+const RUN_WATCHDOG_MS = asPositiveIntMs(process.env.MARKET_DATA_WORKER_WATCHDOG_MS, 5 * 60_000, 30_000, 3_600_000);
+
+function asPositiveIntMs(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
 const state: WorkerState = {
   pricesRunning: false,
   snapTradeRunning: false,
   maintenanceRunning: false,
+  pricesRunningSince: null,
+  snapTradeRunningSince: null,
+  maintenanceRunningSince: null,
   lastPriceRunAt: null,
   lastSnapTradeRunAt: null,
   lastMaintenanceRunAt: null,
   timers: [],
   shuttingDown: false,
 };
+
+function watchdogClearedStaleRun(label: string, runningSinceKey: "pricesRunningSince" | "snapTradeRunningSince" | "maintenanceRunningSince", runningFlagKey: "pricesRunning" | "snapTradeRunning" | "maintenanceRunning"): boolean {
+  const runningSince = state[runningSinceKey];
+  if (!runningSince) return false;
+  const stuckForMs = Date.now() - runningSince;
+  if (stuckForMs < RUN_WATCHDOG_MS) return false;
+  console.error(`[market-data-direct-worker] watchdog: ${label} has been "running" for ${Math.round(stuckForMs / 1000)}s (> ${Math.round(RUN_WATCHDOG_MS / 1000)}s); force-clearing the lock so scheduling can recover. This should not happen given the internal job/quote timeouts and is worth investigating if it does.`);
+  (state[runningFlagKey] as boolean) = false;
+  state[runningSinceKey] = null;
+  return true;
+}
 
 function requiredEnvReport() {
   return {
@@ -136,11 +167,13 @@ async function runPrices(reason = "schedule"): Promise<void> {
     console.log(`[market-data-direct-worker] prices disabled; reason=${reason}`);
     return;
   }
+  watchdogClearedStaleRun("investment prices", "pricesRunningSince", "pricesRunning");
   if (state.pricesRunning) {
     console.log(`[market-data-direct-worker] prices skipped; previous run still active reason=${reason}`);
     return;
   }
   state.pricesRunning = true;
+  state.pricesRunningSince = Date.now();
   const startedAt = new Date().toISOString();
   console.log(`[market-data-direct-worker] ${startedAt} start investment prices reason=${reason}`);
   try {
@@ -155,6 +188,7 @@ async function runPrices(reason = "schedule"): Promise<void> {
     console.error(`[market-data-direct-worker] investment prices failed`, error);
   } finally {
     state.pricesRunning = false;
+    state.pricesRunningSince = null;
   }
 }
 
@@ -163,11 +197,13 @@ async function runSnapTrade(reason = "schedule"): Promise<void> {
     console.log(`[market-data-direct-worker] SnapTrade disabled; reason=${reason}`);
     return;
   }
+  watchdogClearedStaleRun("SnapTrade positions", "snapTradeRunningSince", "snapTradeRunning");
   if (state.snapTradeRunning) {
     console.log(`[market-data-direct-worker] SnapTrade skipped; previous run still active reason=${reason}`);
     return;
   }
   state.snapTradeRunning = true;
+  state.snapTradeRunningSince = Date.now();
   const startedAt = new Date().toISOString();
   console.log(`[market-data-direct-worker] ${startedAt} start SnapTrade positions reason=${reason}`);
   try {
@@ -194,6 +230,7 @@ async function runSnapTrade(reason = "schedule"): Promise<void> {
     console.error(`[market-data-direct-worker] SnapTrade positions failed`, error);
   } finally {
     state.snapTradeRunning = false;
+    state.snapTradeRunningSince = null;
   }
 }
 
@@ -202,11 +239,13 @@ async function runMaintenance(reason = "schedule"): Promise<void> {
     console.log(`[market-data-direct-worker] maintenance disabled; reason=${reason}`);
     return;
   }
+  watchdogClearedStaleRun("investment retention maintenance", "maintenanceRunningSince", "maintenanceRunning");
   if (state.maintenanceRunning) {
     console.log(`[market-data-direct-worker] maintenance skipped; previous run still active reason=${reason}`);
     return;
   }
   state.maintenanceRunning = true;
+  state.maintenanceRunningSince = Date.now();
   const startedAt = new Date().toISOString();
   console.log(`[market-data-direct-worker] ${startedAt} start investment retention maintenance reason=${reason}`);
   try {
@@ -218,6 +257,7 @@ async function runMaintenance(reason = "schedule"): Promise<void> {
     console.error(`[market-data-direct-worker] investment retention maintenance failed`, error);
   } finally {
     state.maintenanceRunning = false;
+    state.maintenanceRunningSince = null;
   }
 }
 

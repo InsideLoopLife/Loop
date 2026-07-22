@@ -238,15 +238,32 @@ async function yahooQuote(ticker: string, exchange?: string | null): Promise<Inv
 // need Yahoo/Stooq at all.
 const ALPACA_US_VENUES = new Set(["NASDAQ", "NYSE", "AMEX", "ARCX", "BATS"]);
 
+// Resolves a provider credential from the per-user integration_secrets table
+// first, falling back to a shared, worker-wide env var if the user hasn't
+// supplied their own key. This is what lets a single Render env var (e.g. set
+// on the market-data worker service) act as a "house" key covering every
+// user, rather than requiring every individual user to add their own -
+// useful for Alpaca/Finnhub/Twelve Data where you likely just want one
+// account's key powering the whole worker rather than per-user credentials.
+async function resolveProviderCredential(supabase: any, userId: string, provider: string, envVarNames: string[]): Promise<string | null> {
+  const secret = await getActiveIntegrationSecret(supabase, userId, provider);
+  if (secret?.value) return secret.value;
+  for (const name of envVarNames) {
+    const value = process.env[name];
+    if (value) return value;
+  }
+  return null;
+}
+
 async function alpacaQuote(supabase: any, userId: string, ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
   const ex = normaliseExchangeCode(exchange, ticker);
   if (ex && !ALPACA_US_VENUES.has(ex)) return null; // Alpaca only covers US-listed securities.
 
-  const [keyId, secretKey] = await Promise.all([
-    getActiveIntegrationSecret(supabase, userId, "alpaca_key_id"),
-    getActiveIntegrationSecret(supabase, userId, "alpaca_secret_key"),
+  const [keyIdValue, secretKeyValue] = await Promise.all([
+    resolveProviderCredential(supabase, userId, "alpaca_key_id", ["ALPACA_KEY_ID", "alpaca_key_id", "APCA_API_KEY_ID"]),
+    resolveProviderCredential(supabase, userId, "alpaca_secret_key", ["ALPACA_SECRET_KEY", "alpaca_secret_key", "APCA_API_SECRET_KEY"]),
   ]);
-  if (!keyId?.value || !secretKey?.value) return null;
+  if (!keyIdValue || !secretKeyValue) return null;
 
   const symbol = cleanTicker(ticker).replace(/\.L$/i, "").replace(/\.[A-Z]+$/i, "");
   if (!symbol || !ex) return null; // don't guess a US venue for an ambiguous/unknown exchange
@@ -255,8 +272,8 @@ async function alpacaQuote(supabase: any, userId: string, ticker: string, exchan
     const response = await fetchWithTimeout(`https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/trades/latest`, {
       cache: "no-store",
       headers: {
-        "APCA-API-KEY-ID": keyId.value,
-        "APCA-API-SECRET-KEY": secretKey.value,
+        "APCA-API-KEY-ID": keyIdValue,
+        "APCA-API-SECRET-KEY": secretKeyValue,
       },
     });
     if (!response.ok) return null; // e.g. 403/422 for a symbol Alpaca doesn't carry
@@ -284,11 +301,11 @@ async function alpacaQuote(supabase: any, userId: string, ticker: string, exchan
 }
 
 async function finnhubQuote(supabase: any, userId: string, ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
-  const secret = await getActiveIntegrationSecret(supabase, userId, "finnhub");
-  if (!secret?.value) return null;
+  const apiKey = await resolveProviderCredential(supabase, userId, "finnhub", ["FINNHUB_API_KEY", "finnhub_api_key"]);
+  if (!apiKey) return null;
   for (const symbol of yahooSymbols(ticker, exchange)) {
     try {
-      const response = await fetchWithTimeout(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(secret.value)}`, { cache: "no-store" });
+      const response = await fetchWithTimeout(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(apiKey)}`, { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       const rawPrice = Number(data?.c || 0);
       if (!Number.isFinite(rawPrice) || rawPrice <= 0) continue;
@@ -307,11 +324,11 @@ async function finnhubQuote(supabase: any, userId: string, ticker: string, excha
 // tiers (50+ venues), so it's a good fallback once Finnhub/Alpha Vantage are
 // exhausted or don't cover a given international listing.
 async function twelveDataQuote(supabase: any, userId: string, ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
-  const secret = await getActiveIntegrationSecret(supabase, userId, "twelve_data");
-  if (!secret?.value) return null;
+  const apiKey = await resolveProviderCredential(supabase, userId, "twelve_data", ["TWELVE_DATA_API_KEY", "twelve_data_api_key"]);
+  if (!apiKey) return null;
   const clean = cleanTicker(ticker).replace(/\.L$/i, "").replace(/\.[A-Z]+$/i, "");
   try {
-    const response = await fetchWithTimeout(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(clean)}&apikey=${encodeURIComponent(secret.value)}`, { cache: "no-store" });
+    const response = await fetchWithTimeout(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(clean)}&apikey=${encodeURIComponent(apiKey)}`, { cache: "no-store" });
     const data = await response.json().catch(() => ({}));
     const rawPrice = Number(data?.price || 0);
     if (!Number.isFinite(rawPrice) || rawPrice <= 0) return null;
