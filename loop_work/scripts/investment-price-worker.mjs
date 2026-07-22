@@ -33,11 +33,24 @@ const runOnStart = asBool(process.env.MARKET_DATA_WORKER_RUN_ON_START, true);
 const priceForce = asBool(process.env.MARKET_DATA_WORKER_FORCE_PRICE || process.env.INVESTMENT_PRICE_WORKER_FORCE, false);
 const workerDisabled = asBool(process.env.MARKET_DATA_WORKER_DISABLED, false);
 
+// Timeout for the worker's own call into the Next.js app. Even with the
+// tiered/timeout-guarded quote fetching added in market-data.ts, this is a
+// second layer of defence: if the app-side request itself hangs (proxy issue,
+// DB stall, etc.) the worker must not wait forever.
+const CRON_CALL_TIMEOUT_MS = asPositiveInt(process.env.MARKET_DATA_WORKER_CALL_TIMEOUT_MS, 90_000, 5_000, 600_000);
+
+// Watchdog: if a run's "running" flag is somehow still set after this long
+// (e.g. an unhandled hang that slipped past the timeout above), force-clear it
+// so scheduling can recover instead of skipping forever.
+const RUN_WATCHDOG_MS = asPositiveInt(process.env.MARKET_DATA_WORKER_WATCHDOG_MS, 5 * 60_000, 30_000, 3_600_000);
+
 const state = {
   pricesRunning: false,
   snapTradeRunning: false,
   lastPriceRunAt: null,
   lastSnapTradeRunAt: null,
+  pricesRunningSince: null,
+  snapTradeRunningSince: null,
 };
 
 function buildUrl(path, params = {}) {
@@ -58,6 +71,7 @@ async function callCronEndpoint(label, url) {
       "x-cron-secret": cronSecret,
       "user-agent": "InsideLoopMarketDataWorker/1.0",
     },
+    signal: AbortSignal.timeout(CRON_CALL_TIMEOUT_MS),
   });
   const text = await response.text();
   let payload;
@@ -75,12 +89,25 @@ async function callCronEndpoint(label, url) {
   return payload;
 }
 
+function watchdogClearedStaleRun(label, runningSinceKey, runningFlagKey) {
+  const runningSince = state[runningSinceKey];
+  if (!runningSince) return false;
+  const stuckForMs = Date.now() - runningSince;
+  if (stuckForMs < RUN_WATCHDOG_MS) return false;
+  console.error(`[market-data-worker] watchdog: ${label} has been "running" for ${Math.round(stuckForMs / 1000)}s (> ${Math.round(RUN_WATCHDOG_MS / 1000)}s); force-clearing the lock so scheduling can recover. This indicates a hang that slipped past the request timeout and should be investigated.`);
+  state[runningFlagKey] = false;
+  state[runningSinceKey] = null;
+  return true;
+}
+
 async function runPrices(reason = "schedule") {
+  watchdogClearedStaleRun("investment prices", "pricesRunningSince", "pricesRunning");
   if (state.pricesRunning) {
     console.log(`[market-data-worker] prices skipped; previous run still active reason=${reason}`);
     return;
   }
   state.pricesRunning = true;
+  state.pricesRunningSince = Date.now();
   try {
     const url = buildUrl("/api/cron/investment-price-snapshots", priceForce ? { force: "1" } : {});
     await callCronEndpoint(`investment-prices reason=${reason}`, url);
@@ -89,15 +116,18 @@ async function runPrices(reason = "schedule") {
     console.error(`[market-data-worker] investment prices failed`, error?.payload || error);
   } finally {
     state.pricesRunning = false;
+    state.pricesRunningSince = null;
   }
 }
 
 async function runSnapTrade(reason = "schedule") {
+  watchdogClearedStaleRun("SnapTrade positions", "snapTradeRunningSince", "snapTradeRunning");
   if (state.snapTradeRunning) {
     console.log(`[market-data-worker] SnapTrade skipped; previous run still active reason=${reason}`);
     return;
   }
   state.snapTradeRunning = true;
+  state.snapTradeRunningSince = Date.now();
   try {
     const url = buildUrl("/api/cron/snaptrade-position-snapshots", {
       realtimeOnly: snapTradeRealtimeOnly ? "true" : "false",
@@ -109,6 +139,7 @@ async function runSnapTrade(reason = "schedule") {
     console.error(`[market-data-worker] SnapTrade positions failed`, error?.payload || error);
   } finally {
     state.snapTradeRunning = false;
+    state.snapTradeRunningSince = null;
   }
 }
 

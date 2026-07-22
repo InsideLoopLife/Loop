@@ -5,6 +5,16 @@ import { loadInvestmentSnapshotSettings } from "@/lib/investments/snapshot-setti
 import { investmentDataEntitlementForProfile } from "@/lib/wealth/user-tiers";
 import { quoteUnitForVenue, venueFor } from "@/lib/investments/market-venues";
 
+// How many ticker/exchange groups to fetch concurrently. Higher = faster runs
+// but more simultaneous outbound calls to Yahoo/Stooq/Finnhub/etc; keep this
+// modest to avoid tripping per-provider rate limits.
+const GROUP_CONCURRENCY = Math.max(1, Number.parseInt(process.env.MARKET_DATA_GROUP_CONCURRENCY || "", 10) || 6);
+
+// Hard wall-clock cap for a single job run. Any groups not reached in time are
+// simply left for the next scheduled tick instead of letting one run bleed
+// into (and block) the next. See the dispatch loop below for how this is used.
+const JOB_TIME_BUDGET_MS = Math.max(10000, Number.parseInt(process.env.MARKET_DATA_JOB_BUDGET_MS || "", 10) || 45000);
+
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 
 type Holding = {
@@ -482,23 +492,24 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
     result.groups = groups.size;
     logger.log(`[investment-price-job] distinct ticker/exchange groups: ${groups.size}`);
 
-    for (const [groupKey, groupHoldings] of groups.entries()) {
+    async function processGroup(groupKey: string, groupHoldings: Holding[]): Promise<void> {
       const first = groupHoldings[0];
       const ticker = normaliseSnapshotTicker(first.ticker);
       const exchange = normaliseSnapshotExchange(first.exchange, first.ticker);
       const venue = venueFor(exchange, ticker);
+      const groupStartedAt = Date.now();
 
       if (!options.force && settings.marketHoursOnly && !isRoughMarketOpen(exchange, now, ticker)) {
         result.skippedClosed += groupHoldings.length;
         logger.log(`[investment-price-job] skip closed ${groupKey}`);
-        continue;
+        return;
       }
 
       const dueHoldings = groupHoldings.filter((holding) => isDue(holding, profileByUser.get(holding.user_id), settings, now, options.force));
       if (!dueHoldings.length) {
         result.skippedRecent += groupHoldings.length;
         logger.log(`[investment-price-job] skip recent ${groupKey}`);
-        continue;
+        return;
       }
 
       result.checked += dueHoldings.length;
@@ -540,7 +551,7 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
             updated_at: startedAt,
           } as any)
           .in("id", dueHoldings.map((holding) => holding.id));
-        continue;
+        return;
       }
 
       const nativeCurrency = cachedPoint
@@ -618,7 +629,7 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
         result.failed += dueHoldings.length;
         result.failures.push({ ticker, exchange, reason: insert.error.message });
         logger.error(`[investment-price-job] insert failed ${ticker}: ${insert.error.message}`);
-        continue;
+        return;
       }
 
       result.inserted += rows.length;
@@ -658,6 +669,43 @@ export async function runInvestmentPriceSnapshotJob(options: RunnerOptions = {})
         result.failures.push({ ticker, exchange, reason: `holding_update_failed: ${update.error.message}` });
         logger.warn(`[investment-price-job] holding update failed ${ticker}: ${update.error.message}`);
       }
+
+      logger.log(`[investment-price-job] group ${groupKey} took ${Date.now() - groupStartedAt}ms`);
+    }
+
+    // Groups used to be processed strictly one-at-a-time with `await` inside a
+    // single for-loop. That meant one slow/hung ticker (see http.ts comments)
+    // blocked every other ticker behind it in the same run. We now process
+    // groups in small concurrent batches, and cap the whole job with a wall-clock
+    // budget so a run can never bleed past its schedule and stack up with the
+    // next tick. Any groups not reached before the budget runs out are simply
+    // picked up on the next scheduled run (their last_price_check_at is
+    // untouched, so `isDue` will still consider them due).
+    const jobStartedAtMs = Date.now();
+    const groupEntries = Array.from(groups.entries());
+    let deferredByBudget = 0;
+
+    for (let i = 0; i < groupEntries.length; i += GROUP_CONCURRENCY) {
+      if (Date.now() - jobStartedAtMs > JOB_TIME_BUDGET_MS) {
+        deferredByBudget += groupEntries.length - i;
+        logger.warn(`[investment-price-job] time budget of ${JOB_TIME_BUDGET_MS}ms reached; deferring remaining ${groupEntries.length - i} group(s) to the next scheduled run`);
+        break;
+      }
+      const batch = groupEntries.slice(i, i + GROUP_CONCURRENCY);
+      await Promise.all(
+        batch.map(([groupKey, groupHoldings]) =>
+          processGroup(groupKey, groupHoldings).catch((caught) => {
+            const message = caught instanceof Error ? caught.message : String(caught);
+            logger.error(`[investment-price-job] group ${groupKey} failed unexpectedly: ${message}`);
+            result.failed += groupHoldings.length;
+            result.failures.push({ ticker: groupKey, exchange: null, reason: message });
+          }),
+        ),
+      );
+    }
+
+    if (deferredByBudget > 0) {
+      result.failures.push({ ticker: "job-budget", exchange: null, reason: `${deferredByBudget} holding group(s) deferred to next run due to time budget` });
     }
 
     if (options.prune !== false) {

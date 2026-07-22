@@ -1,6 +1,15 @@
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { isAiFeatureEnabled, recordOpenAiUsageFromPayload } from "@/lib/ai/usage";
 import { currencyForVenue, isMarketOpenForVenue, knownVenueCodes, marketSessionForVenue, normaliseVenueCode, quoteUnitForVenue, yahooProviderSymbols, stooqProviderSymbols } from "@/lib/investments/market-venues";
+import { fetchWithTimeout, runTiered } from "@/lib/investments/http";
+
+// Per-quote overall budget: the sum of every provider tier we try for a single
+// ticker is capped at this, regardless of how many tiers are configured. This
+// keeps one hard-to-price holding from eating a large slice of a worker run.
+const QUOTE_RESOLUTION_BUDGET_MS = Math.max(
+  4000,
+  Number.parseInt(process.env.MARKET_DATA_QUOTE_BUDGET_MS || "", 10) || 12000,
+);
 
 export type InvestmentQuote = {
   price: number;
@@ -182,7 +191,7 @@ function assetNameFor(ticker: string, symbol: string) {
 async function yahooQuote(ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
   for (const symbol of yahooSymbols(ticker, exchange)) {
     try {
-      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
+      const response = await fetchWithTimeout(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
       const data = await response.json().catch(() => ({}));
       const result = data?.chart?.result?.[0];
       const meta = result?.meta || {};
@@ -214,10 +223,111 @@ async function yahooQuote(ticker: string, exchange?: string | null): Promise<Inv
   return null;
 }
 
+// Finnhub: free tier is ~60 calls/min per key (vs Alpha Vantage's ~5/min), so it
+// sits ahead of Alpha Vantage in the tier order below when a user has a key.
+// Symbol format overlaps with Yahoo's exchange-suffix convention for most of the
+// venues this app already supports (.L, .DE, .PA, etc.), so we reuse yahooSymbols()
+// for candidates. Venues without a matching Finnhub listing will simply fall
+// through to the next tier.
+// Alpaca: covers only US-listed equities/ETFs, but the free "Basic" plan gives
+// genuinely real-time trades from the IEX feed (not delayed like Yahoo/Stooq),
+// with a far higher and more predictable rate limit than the other free
+// providers here, and it's an officially supported/documented endpoint rather
+// than scraping an unofficial page (which is why Yahoo intermittently breaks
+// or rate-limits). For US tickers this should usually resolve before we ever
+// need Yahoo/Stooq at all.
+const ALPACA_US_VENUES = new Set(["NASDAQ", "NYSE", "AMEX", "ARCX", "BATS"]);
+
+async function alpacaQuote(supabase: any, userId: string, ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
+  const ex = normaliseExchangeCode(exchange, ticker);
+  if (ex && !ALPACA_US_VENUES.has(ex)) return null; // Alpaca only covers US-listed securities.
+
+  const [keyId, secretKey] = await Promise.all([
+    getActiveIntegrationSecret(supabase, userId, "alpaca_key_id"),
+    getActiveIntegrationSecret(supabase, userId, "alpaca_secret_key"),
+  ]);
+  if (!keyId?.value || !secretKey?.value) return null;
+
+  const symbol = cleanTicker(ticker).replace(/\.L$/i, "").replace(/\.[A-Z]+$/i, "");
+  if (!symbol || !ex) return null; // don't guess a US venue for an ambiguous/unknown exchange
+
+  try {
+    const response = await fetchWithTimeout(`https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/trades/latest`, {
+      cache: "no-store",
+      headers: {
+        "APCA-API-KEY-ID": keyId.value,
+        "APCA-API-SECRET-KEY": secretKey.value,
+      },
+    });
+    if (!response.ok) return null; // e.g. 403/422 for a symbol Alpaca doesn't carry
+    const data = await response.json().catch(() => ({}));
+    const rawPrice = Number(data?.trade?.p || 0);
+    if (!Number.isFinite(rawPrice) || rawPrice <= 0) return null;
+    const normalised = normaliseMarketPrice(rawPrice, ex, symbol);
+    const common = COMMON_INVESTMENTS[symbol];
+    return {
+      price: normalised.price,
+      source: "Alpaca (IEX free feed)",
+      rawSymbol: symbol,
+      assetName: common?.assetName || assetNameFor(ticker, symbol),
+      exchange: common?.exchange || ex,
+      currency: normalised.currency,
+      priceQuoteUnit: normalised.priceQuoteUnit,
+      assetType: common?.assetType || "share",
+      annualAssetFeePercent: common?.annualAssetFeePercent ?? 0,
+      sourceUrl: common?.sourceUrl || `https://alpaca.markets/`,
+      note: "Real-time last trade from Alpaca's free IEX feed (single-exchange volume, not full consolidated tape - fine for portfolio tracking).",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function finnhubQuote(supabase: any, userId: string, ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
+  const secret = await getActiveIntegrationSecret(supabase, userId, "finnhub");
+  if (!secret?.value) return null;
+  for (const symbol of yahooSymbols(ticker, exchange)) {
+    try {
+      const response = await fetchWithTimeout(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(secret.value)}`, { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      const rawPrice = Number(data?.c || 0);
+      if (!Number.isFinite(rawPrice) || rawPrice <= 0) continue;
+      const ex = exchangeFromSymbol(symbol, exchange);
+      const normalised = normaliseMarketPrice(rawPrice, ex, symbol);
+      const common = COMMON_INVESTMENTS[cleanTicker(ticker).replace(/\.L$/i, "")];
+      return { price: normalised.price, source: "Finnhub", rawSymbol: symbol, assetName: common?.assetName || assetNameFor(ticker, symbol), exchange: common?.exchange || ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit, assetType: common?.assetType || "share", annualAssetFeePercent: common?.annualAssetFeePercent ?? 0, sourceUrl: common?.sourceUrl || `https://finnhub.io/quote/${encodeURIComponent(symbol)}`, note: "Real-time/near-real-time quote from Finnhub." };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+// Twelve Data: 800 calls/day free per key, widest exchange coverage of the free
+// tiers (50+ venues), so it's a good fallback once Finnhub/Alpha Vantage are
+// exhausted or don't cover a given international listing.
+async function twelveDataQuote(supabase: any, userId: string, ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
+  const secret = await getActiveIntegrationSecret(supabase, userId, "twelve_data");
+  if (!secret?.value) return null;
+  const clean = cleanTicker(ticker).replace(/\.L$/i, "").replace(/\.[A-Z]+$/i, "");
+  try {
+    const response = await fetchWithTimeout(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(clean)}&apikey=${encodeURIComponent(secret.value)}`, { cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    const rawPrice = Number(data?.price || 0);
+    if (!Number.isFinite(rawPrice) || rawPrice <= 0) return null;
+    const ex = exchangeFromSymbol(clean, exchange);
+    const normalised = normaliseMarketPrice(rawPrice, ex, clean);
+    const common = COMMON_INVESTMENTS[clean];
+    return { price: normalised.price, source: "Twelve Data", rawSymbol: clean, assetName: common?.assetName || assetNameFor(ticker, clean), exchange: common?.exchange || ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit, assetType: common?.assetType || "share", annualAssetFeePercent: common?.annualAssetFeePercent ?? 0, sourceUrl: common?.sourceUrl || null, note: "Quote from Twelve Data (up to 4-hour delay on the free tier)." };
+  } catch {
+    return null;
+  }
+}
+
 async function stooqQuote(ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
   for (const symbol of stooqSymbols(ticker, exchange)) {
     try {
-      const response = await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`, { cache: "no-store" });
+      const response = await fetchWithTimeout(`https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`, { cache: "no-store" });
       const csv = await response.text();
       const values = csv.trim().split(/\r?\n/)[1]?.split(",") || [];
       if (!values.length || /N\/D/i.test(values.join(""))) continue;
@@ -328,7 +438,7 @@ async function providerFundQuoteFromSource(glossary: InvestmentQuote | undefined
   const reviewed = reviewedKey ? REVIEWED_PROVIDER_FUND_QUOTES[reviewedKey] : null;
   for (const url of providerFundSourceUrls(glossary)) {
     try {
-      const response = await fetch(url, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
+      const response = await fetchWithTimeout(url, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
       const html = await response.text();
       const parsed = extractProviderFundPriceAndFee(html, glossary);
       if (!parsed.price) continue;
@@ -383,7 +493,7 @@ async function yahooSearchCandidates(query: string, exchange?: string | null): P
   const q = query.trim();
   if (!q || q.length < 2) return [];
   try {
-    const response = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
+    const response = await fetchWithTimeout(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
     const data = await response.json().catch(() => ({}));
     const quotes = Array.isArray(data?.quotes) ? data.quotes : [];
     const requestedExchange = String(exchange || "").toUpperCase();
@@ -479,6 +589,61 @@ async function openAiInvestmentSearch(supabase: any, userId: string, query: stri
   }
 }
 
+async function alphaVantageQuote(secretValue: string, symbolCandidates: string[], exchange: string | null | undefined, glossary: InvestmentQuote | undefined, query: string): Promise<InvestmentQuote | null> {
+  for (const candidate of symbolCandidates) {
+    try {
+      const response = await fetchWithTimeout(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(candidate)}&apikey=${encodeURIComponent(secretValue)}`, { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      const q = data["Global Quote"] || {};
+      const rawPrice = Number(q["05. price"] || 0);
+      if (rawPrice > 0) {
+        const ex = exchangeFromSymbol(candidate, exchange);
+        const normalised = normaliseMarketPrice(rawPrice, ex, candidate);
+        return { ...glossary, price: normalised.price, source: "Alpha Vantage", rawSymbol: q["01. symbol"] || candidate, assetName: glossary?.assetName || assetNameFor(query, candidate), exchange: ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit };
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+async function fmpQuote(secretValue: string, symbolCandidates: string[], exchange: string | null | undefined, glossary: InvestmentQuote | undefined, query: string): Promise<InvestmentQuote | null> {
+  for (const candidate of symbolCandidates) {
+    try {
+      const response = await fetchWithTimeout(`https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(candidate)}&apikey=${encodeURIComponent(secretValue)}`, { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      const first = Array.isArray(data) ? data[0] : data?.[0] || data;
+      const rawPrice = Number(first?.price || 0);
+      if (rawPrice > 0) {
+        const ex = exchangeFromSymbol(candidate, exchange);
+        const normalised = normaliseMarketPrice(rawPrice, ex, candidate);
+        return { ...glossary, price: normalised.price, source: "Financial Modeling Prep", rawSymbol: first?.symbol || candidate, assetName: first?.name || glossary?.assetName || assetNameFor(query, candidate), exchange: ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit };
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+/**
+ * Tiered quote resolution.
+ *
+ * Order (fastest/most-reliable-per-key first, no-key-required fallbacks last):
+ *   1. Provider fund page   - only for provider funds/OEICs (Vanguard etc.), not exchange-traded
+ *   2. Alpaca               - US-listed only; genuinely real-time (IEX feed), generous limits, official API
+ *   3. Finnhub              - ~60 calls/min free tier, best free real-time-ish coverage for non-US venues
+ *   4. Alpha Vantage        - reliable but tight ~5 calls/min free tier
+ *   5. Twelve Data          - 800 calls/day free, widest free exchange coverage
+ *   6. Financial Modeling Prep
+ *   7. Yahoo Finance        - no key required, unofficial/can rate-limit or break
+ *   8. Stooq                - no key required, delayed EOD-ish data, last resort
+ *
+ * Every tier is wrapped in a timeout (via fetchWithTimeout) and the whole chain
+ * is capped by QUOTE_RESOLUTION_BUDGET_MS, so a ticker with no good coverage
+ * fails fast into `coverage_required` instead of stalling the run.
+ */
 export async function fetchInvestmentQuote(supabase: any, userId: string, tickerOrQuery: string, exchange?: string | null): Promise<InvestmentQuote | null> {
   const query = tickerOrQuery.trim();
   if (!query) return null;
@@ -486,49 +651,40 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
   const wantsExchangeTraded = Boolean(requestedExchange && !["VANGUARD", "YAHOO FUND", "FUND", "PROVIDER", "REVIEW"].includes(requestedExchange));
   const glossary = candidateInvestments(query).find((item) => !(wantsExchangeTraded && item.assetType === "fund")) || candidateInvestments(query)[0];
   const symbol = glossary?.rawSymbol || query;
-  const secret = await getActiveIntegrationSecret(supabase, userId, ["alpha_vantage", "financial_modeling_prep", "fmp"]);
+  const symbolCandidates = providerSymbols(symbol, exchange || glossary?.exchange);
 
-  const providerFund = wantsExchangeTraded ? null : await providerFundQuoteFromSource(glossary);
-  if (providerFund) return providerFund;
+  const [avSecret, fmpSecret] = await Promise.all([
+    getActiveIntegrationSecret(supabase, userId, "alpha_vantage"),
+    getActiveIntegrationSecret(supabase, userId, ["financial_modeling_prep", "fmp"]),
+  ]);
 
-  if (secret?.value && secret.provider === "alpha_vantage") {
-    for (const candidate of providerSymbols(symbol, exchange || glossary?.exchange)) {
-      try {
-        const response = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(candidate)}&apikey=${encodeURIComponent(secret.value)}`, { cache: "no-store" });
-        const data = await response.json().catch(() => ({}));
-        const q = data["Global Quote"] || {};
-        const rawPrice = Number(q["05. price"] || 0);
-        if (rawPrice > 0) {
-          const ex = exchangeFromSymbol(candidate, exchange || glossary?.exchange);
-          const normalised = normaliseMarketPrice(rawPrice, ex, candidate);
-          return { ...glossary, price: normalised.price, source: "Alpha Vantage", rawSymbol: q["01. symbol"] || candidate, assetName: glossary?.assetName || assetNameFor(query, candidate), exchange: ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit };
+  const { result } = await runTiered<InvestmentQuote>(
+    [
+      { name: "provider_fund_page", run: () => (wantsExchangeTraded ? Promise.resolve(null) : providerFundQuoteFromSource(glossary)) },
+      { name: "alpaca", run: () => alpacaQuote(supabase, userId, symbol, exchange || glossary?.exchange) },
+      { name: "finnhub", run: () => finnhubQuote(supabase, userId, symbol, exchange || glossary?.exchange) },
+      { name: "alpha_vantage", run: () => (avSecret?.value ? alphaVantageQuote(avSecret.value, symbolCandidates, exchange || glossary?.exchange, glossary, query) : Promise.resolve(null)) },
+      { name: "twelve_data", run: () => twelveDataQuote(supabase, userId, symbol, exchange || glossary?.exchange) },
+      { name: "financial_modeling_prep", run: () => (fmpSecret?.value ? fmpQuote(fmpSecret.value, symbolCandidates, exchange || glossary?.exchange, glossary, query) : Promise.resolve(null)) },
+      { name: "yahoo", run: () => yahooQuote(symbol, exchange || glossary?.exchange) },
+      { name: "stooq", run: () => stooqQuote(symbol, exchange || glossary?.exchange) },
+    ],
+    {
+      overallBudgetMs: QUOTE_RESOLUTION_BUDGET_MS,
+      onTierResult: (name, ok, ms, error) => {
+        if (ok) {
+          console.log(`[investment-quote] ${symbol} resolved via ${name} in ${ms}ms`);
+        } else if (error) {
+          console.warn(`[investment-quote] ${symbol} tier ${name} failed after ${ms}ms: ${error instanceof Error ? error.message : String(error)}`);
         }
-      } catch {}
-    }
-  }
+      },
+    },
+  );
 
-  if (secret?.value) {
-    for (const candidate of providerSymbols(symbol, exchange || glossary?.exchange)) {
-      try {
-        const response = await fetch(`https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(candidate)}&apikey=${encodeURIComponent(secret.value)}`, { cache: "no-store" });
-        const data = await response.json().catch(() => ({}));
-        const first = Array.isArray(data) ? data[0] : data?.[0] || data;
-        const rawPrice = Number(first?.price || 0);
-        if (rawPrice > 0) {
-          const ex = exchangeFromSymbol(candidate, exchange || glossary?.exchange);
-          const normalised = normaliseMarketPrice(rawPrice, ex, candidate);
-          return { ...glossary, price: normalised.price, source: "Financial Modeling Prep", rawSymbol: first?.symbol || candidate, assetName: first?.name || glossary?.assetName || assetNameFor(query, candidate), exchange: ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit };
-        }
-      } catch {}
-    }
-  }
-
-  const yahoo = await yahooQuote(symbol, exchange || glossary?.exchange);
-  if (yahoo) return yahoo;
-  const stooq = await stooqQuote(symbol, exchange || glossary?.exchange);
-  if (stooq) return stooq;
-  // v28.36: do not fall back to AI from quote refresh paths. If no deterministic quote exists,
-  // the caller should mark the holding as coverage_required and notify admin.
+  if (result) return result;
+  // No deterministic quote from any tier. The caller marks the holding as
+  // coverage_required rather than us silently falling back to AI/web-search
+  // (that path is intentionally disabled from the worker - see v28.36 notes).
   return glossary || null;
 }
 

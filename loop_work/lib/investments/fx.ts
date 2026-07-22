@@ -1,4 +1,5 @@
 import { currencyForVenue, normaliseVenueCode } from "@/lib/investments/market-venues";
+import { fetchWithTimeout } from "@/lib/investments/http";
 
 export type FxResult = {
   rate: number;
@@ -40,7 +41,7 @@ export async function fxToGbp(currency?: string | null): Promise<FxResult> {
   if (code === "GBX") return { rate: 0.01, source: "GBX pence to GBP" };
 
   try {
-    const response = await fetch(`https://api.frankfurter.app/latest?from=${encodeURIComponent(code)}&to=GBP`, { cache: "no-store" });
+    const response = await fetchWithTimeout(`https://api.frankfurter.app/latest?from=${encodeURIComponent(code)}&to=GBP`, { cache: "no-store" }, 5000);
     const data = await response.json().catch(() => ({}));
     const rate = Number(data?.rates?.GBP || 0);
     if (response.ok && Number.isFinite(rate) && rate > 0) return { rate, source: "Frankfurter FX" };
