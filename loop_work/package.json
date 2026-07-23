@@ -1,6 +1,6 @@
 {
   "name": "life-tracker-web-responsive",
-  "version": "0.23.0",
+  "version": "0.25.0",
   "private": true,
   "scripts": {
     "dev": "next dev --turbo",
@@ -11,12 +11,26 @@
     "dev:webpack": "next dev",
     "worker:market-data": "tsx -r tsconfig-paths/register scripts/market-data-direct-worker.ts",
     "worker:market-data-http": "node scripts/investment-price-worker.mjs",
-    "worker:investment-prices-http": "node scripts/investment-price-worker.mjs"
+    "worker:investment-prices-http": "node scripts/investment-price-worker.mjs",
+    "worker:pension-provider-refresh": "tsx -r tsconfig-paths/register scripts/pension-provider-refresh-worker.ts",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm run lint && npm run build",
+    "worker:all": "npm run worker:market-data",
+    "watch:savings-rates": "node scripts/run-savings-rate-watch.mjs",
+    "worker:savings-rates": "node scripts/savings-rate-watch-worker.mjs",
+    "refresh:pension-performance": "node scripts/run-pension-performance-refresh.mjs",
+    "cron:run-endpoint": "node scripts/run-loop-cron-endpoint.mjs",
+    "cron:financial-briefing": "node scripts/run-daily-financial-briefing.mjs",
+    "check:boundaries": "node scripts/check-domain-boundaries.mjs",
+    "check:architecture": "npm run check:boundaries",
+    "cron:fees": "tsx -r tsconfig-paths/register cron-fees.ts"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.0",
     "@supabase/supabase-js": "2.108.1",
+    "dotenv": "^16.4.5",
     "lucide-react": "1.17.0",
+    "openai": "^4.68.0",
     "next": "16.2.9",
     "node-cron": "^3.0.3",
     "qrcode": "1.5.4",

@@ -1,78 +1,42 @@
-## Latest update
+# Minimal push — pension fee/ISIN cron only
 
-### v28.14 — Admin form accessibility + Supabase admin-key detection
-- Fixed low-contrast house/mortgage modal forms by using solid panels and stronger label/input colour.
-- Added placeholders/helper copy to valuation and mortgage/rate forms.
-- Updated Supabase admin-key detection to accept both service-role JWTs and newer `sb_secret_...` keys.
-- House admin now renders in safe read mode instead of hard-blocking the whole page when the server admin key is missing/invalid.
+You're still local, so this is just the 6 files that are new or changed for
+this feature — not your whole app. Everything else stays as-is in GitHub.
 
-# v27.65 Food Log SQL Fix 2
+## Where each file goes (relative to your project folder — the one with
+## package.json, lib/, app/, scripts/ already in it)
 
-This fixes the v27.64 error:
-
-```txt
-ERROR: 42601: VALUES lists must all be the same length
-LINE 379: 'allergen_validation',
+```
+cron-fees.ts                                     -> project root (next to package.json)
+lib/investments/pension-fee-refresher.ts         -> new file
+package.json                                     -> replaces yours (only openai, dotenv,
+                                                     and a cron:fees script were added —
+                                                     nothing else in it was touched)
+render.cron-only.yaml                            -> replaces yours (your existing cron
+                                                     blocks are untouched, one new block added)
+db/v28_99_provider_fund_glossary_create.sql      -> new file (history only — you already ran this)
+db/v28_99b_provider_fund_glossary_patch.sql      -> new file (history only — you already ran this)
 ```
 
-The allergen policy seed row was missing one boolean value.  
-This file also avoids expression-based `ON CONFLICT` for the serving-size seed rows.
+The two `db/*.sql` files aren't required for anything to *run* — you already
+executed both against Supabase directly. They're here purely so the repo has
+a record of how the table reached its current shape, for whenever this does
+get pushed for real.
 
-## Run this
+## To get this working locally right now
 
-```sql
--- db/v27_65_food_log_sql_fix_2.sql
-```
+1. Drop these 6 files into place as above.
+2. `npm install` (picks up `openai` and `dotenv`).
+3. Add to `.env.local`: `OPENAI_API_KEY=...` (Supabase URL/service key you
+   should already have set for the rest of the app).
+4. Run it: `npm run cron:fees`
+   - First run against an empty/sparse `provider_fund_glossary` will mostly
+     log "nothing to backfill" / "all fees up to date" — that's expected.
+5. When you're ready to actually commit: `git add cron-fees.ts lib/investments/pension-fee-refresher.ts package.json render.cron-only.yaml db/v28_99_provider_fund_glossary_create.sql db/v28_99b_provider_fund_glossary_patch.sql`
+   then commit and push.
 
-## Verify
+## Not needed yet (until you deploy)
 
-```sql
-select * from public.app_v2765_healthcheck();
-```
-
-## Test
-
-```sql
-select public.app_food_serving_options_for_query('red bull sugarfree');
-select public.app_food_serving_options_for_query('hype sauce');
-select public.app_food_log_drink_volume_required('drink', 'drink_product', null, null);
-```
-
-
-## v27.91.2 SQL hotfix
-Run `db/v27_91_2_savings_match_view_hotfix.sql` before rerunning `db/v27_91_savings_typeahead_deals.sql` if Supabase complains about changing the savings match view column order.
-
-## v28.10 note
-
-Adds `/admin/future-integrations` for LOOP Inbox / Email-to-LOOP provider setup, DNS checklist and product launch tasks. Run `db/v28_10_loop_inbox_postmark_admin_checklist.sql` after v28.08 and v28.09.
-
-## v28.13 update
-
-Adds Admin > House for provider-light mortgage catalogue refresh, user-reported mortgage deal quality loop, admin-domain nav pages for Investments / House / Savings, and UPRN/EPC/council-tax setup guidance.
-
-Run:
-
-```sql
-db/v28_13_ai_mortgage_catalogue_admin_reorg.sql
-```
-
-### v28.17 — Property move planner + mortgage comparison hardening
-- Better listing title, council-tax band, EPC and image extraction for saved moving-home searches.
-- Moving-home cards now show image, score, price/mortgage/running costs and a More details comparison modal.
-- Mortgage deals now have search/filter and selectable comparison with adjustable term and optional absorbed costs.
-- Archived moving-home searches are queued for deletion after 14 days via `/api/cron/property-archive-cleanup`.
-- Run `db/v28_17_property_move_confidence_mortgage_compare.sql` after v28.16.
-
-## V28.18 - Investment pie organiser, pensions, cash and ISA tracking
-
-Adds manual pie mapping for provider-imported holdings, pension pot settings, DB pension rule-source handling, provider cash/ISA fields and SnapTrade purchase-lot capture where the broker exposes lot/transaction data. Run `db/v28_18_investment_pie_pension_cash_isa_logic.sql` after the v28.17 migration.
-
-## v28.20 - Property move council tax/running-cost polish
-
-Run after v28.19.1:
-
-```sql
-db/v28_20_property_move_council_tax_running_costs.sql
-```
-
-This improves moving-home URL ingestion, council-tax band/source confidence, map fallback, primary/second-property assumptions and the clickable mortgage-payment range.
+`render.cron-only.yaml` and the actual Render Cron Job setup only matter once
+you're ready to schedule this on a server — no need to touch Render while
+you're still testing locally.
