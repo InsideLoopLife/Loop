@@ -60,19 +60,39 @@ async function fetchLandGPrice(url: string, isin: string): Promise<{ price: numb
   }
   const html = await res.text();
 
-  const rowMatches = [...html.matchAll(/<div[^>]*class="FundRibbonPrices-row shareclass-row"[^>]*style="([^"]*)"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi)];
+  // Match on data-shareclass-id (a stable, unique marker) rather than the
+  // full literal class string, then pull style/content out of each matched
+  // tag separately. This avoids breaking if attribute order or extra
+  // classes differ between fund pages.
+  const rowMatches = [...html.matchAll(/<div\b[^>]*data-shareclass-id="[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi)];
   if (rowMatches.length === 0) {
-    console.warn(`[Price Refresher] L&G page fetched OK for ${isin} but no FundRibbonPrices-row blocks found — page markup may have changed.`);
+    // Diagnostic: tell us whether the widget is simply absent from the raw
+    // server response (would mean it's client-rendered, and we'd need a
+    // different approach entirely) versus present but not matching our
+    // pattern (a fixable regex issue).
+    const hasRibbonMarker = html.includes("FundRibbonPrices");
+    console.warn(
+      `[Price Refresher] L&G page fetched OK for ${isin} (${html.length} bytes) but no share-class rows found. ` +
+      `"FundRibbonPrices" substring present in raw HTML: ${hasRibbonMarker}.`,
+    );
     return null;
   }
 
-  const visibleRow = rowMatches.find((row) => /display:\s*block/i.test(row[1]));
-  if (!visibleRow) {
+  let visibleContent: string | null = null;
+  for (const match of rowMatches) {
+    const openTag = match[0].slice(0, match[0].indexOf(">") + 1);
+    const styleMatch = openTag.match(/style="([^"]*)"/i);
+    if (styleMatch && /display:\s*block/i.test(styleMatch[1])) {
+      visibleContent = match[1];
+      break;
+    }
+  }
+  if (!visibleContent) {
     console.warn(`[Price Refresher] L&G page fetched OK for ${isin} but no visible (display:block) price row found among ${rowMatches.length} share class row(s).`);
     return null;
   }
 
-  const strongValues = [...visibleRow[2].matchAll(/<strong>([^<]*)<\/strong>/gi)].map((m) => m[1].trim());
+  const strongValues = [...visibleContent.matchAll(/<strong>([^<]*)<\/strong>/gi)].map((m) => m[1].trim());
   const priceText = strongValues[0] || "";
   const asOfText = strongValues[1] || "";
 
