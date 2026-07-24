@@ -1,28 +1,15 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const THROTTLE_MS = 500;
-const LANDG_DIRECTORY_URL = "https://fundcentres.landg.com/en/uk/workplace-employer/fund-centre/";
+// The bare "/fund-centre/" root returns a generic landing page with no fund
+// listing at all. The full sitewide directory of every fund's ISIN + URL
+// only renders as a sidebar on an actual fund page, so we anchor on one
+// known-working page rather than the root.
+const LANDG_DIRECTORY_URL = "https://fundcentres.landg.com/en/uk/workplace-employer/fund-centre/Multi-Asset-Fund/";
 const MAX_PRICE_JUMP_FRACTION = 0.5; // reject a single-day move bigger than this without flagging
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Strips HTML tags down to plain text for regex-based extraction. This is a
- * pragmatic first pass — if L&G's markup changes shape, the more robust fix
- * is to swap this for a proper HTML parser (e.g. cheerio) once we've seen a
- * real raw-HTML sample from a live run and can target actual DOM structure
- * rather than positional text matching.
- */
-function htmlToText(html: string) {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function penceTextToGbp(priceText: string): number | null {
@@ -42,42 +29,59 @@ function penceTextToGbp(priceText: string): number | null {
  */
 async function resolveLandGUrlByIsin(isin: string): Promise<string | null> {
   const res = await fetch(LANDG_DIRECTORY_URL, { headers: { "User-Agent": "Mozilla/5.0" } });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    console.warn(`[Price Refresher] L&G directory fetch failed (${res.status}) while resolving ${isin}.`);
+    return null;
+  }
   const html = await res.text();
   const hrefMatch = html.match(new RegExp(`href="([^"]*isin_code=${isin}[^"]*)"`, "i"));
-  if (!hrefMatch) return null;
+  if (!hrefMatch) {
+    console.warn(`[Price Refresher] L&G directory fetched OK but no href found for ISIN ${isin} — directory page shape may have changed.`);
+    return null;
+  }
   const href = hrefMatch[1].startsWith("http") ? hrefMatch[1] : `https://fundcentres.landg.com${hrefMatch[1]}`;
   return href;
 }
 
 /**
  * Fetches an L&G fund-centre page and extracts the price for the specific
- * share class matching `isin`. L&G's pages list several share classes per
- * fund family, so we anchor on the ISIN's position in the directory link
- * order and take the price at the same position in the "Prices" section.
- * This is a positional heuristic, not a guaranteed structural match — if it
- * can't find a plausible price near the ISIN, it returns null rather than
- * guessing, so a bad match doesn't silently write a wrong price.
+ * share class matching `isin`. L&G's pages render every share class in the
+ * fund family as its own row (FundRibbonPrices-row); only the one matching
+ * the requested ?isin_code= is marked visible (style="display: block"),
+ * every sibling share class is display: none. That visibility flag — not
+ * text position — is what tells us which price belongs to this fund, so we
+ * match on it directly rather than guessing from surrounding text order.
  */
 async function fetchLandGPrice(url: string, isin: string): Promise<{ price: number; asOf: string } | null> {
   const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
-  if (!res.ok) return null;
-  const text = htmlToText(await res.text());
+  if (!res.ok) {
+    console.warn(`[Price Refresher] L&G fund page fetch failed (${res.status}) for ${isin} at ${url}.`);
+    return null;
+  }
+  const html = await res.text();
 
-  // Find every "Price X.XXp ... As at DD Mon YYYY" occurrence in document order.
-  const priceBlocks = [...text.matchAll(/Price\s*([\d,]+\.\d+)\s*p[^A]*As at\s*([\d]{1,2}\s+\w+\s+\d{4})/gi)];
-  if (priceBlocks.length === 0) return null;
+  const rowMatches = [...html.matchAll(/<div[^>]*class="FundRibbonPrices-row shareclass-row"[^>]*style="([^"]*)"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi)];
+  if (rowMatches.length === 0) {
+    console.warn(`[Price Refresher] L&G page fetched OK for ${isin} but no FundRibbonPrices-row blocks found — page markup may have changed.`);
+    return null;
+  }
 
-  // Find every isin_code reference in the same document, in order, to align
-  // position with the price blocks above.
-  const isinOrder = [...text.matchAll(/isin_code=([A-Z0-9]{4,12})/g)].map((m) => m[1]);
-  const position = isinOrder.indexOf(isin);
-  const block = position >= 0 && position < priceBlocks.length ? priceBlocks[position] : priceBlocks[0];
-  if (!block) return null;
+  const visibleRow = rowMatches.find((row) => /display:\s*block/i.test(row[1]));
+  if (!visibleRow) {
+    console.warn(`[Price Refresher] L&G page fetched OK for ${isin} but no visible (display:block) price row found among ${rowMatches.length} share class row(s).`);
+    return null;
+  }
 
-  const price = penceTextToGbp(`${block[1]}p`);
-  if (price === null) return null;
-  return { price, asOf: block[2] };
+  const strongValues = [...visibleRow[2].matchAll(/<strong>([^<]*)<\/strong>/gi)].map((m) => m[1].trim());
+  const priceText = strongValues[0] || "";
+  const asOfText = strongValues[1] || "";
+
+  const price = penceTextToGbp(priceText.endsWith("p") ? priceText : `${priceText}p`);
+  if (price === null) {
+    console.warn(`[Price Refresher] L&G page found the visible row for ${isin} but couldn't parse a price from "${priceText}".`);
+    return null;
+  }
+  return { price, asOf: asOfText || new Date().toISOString().slice(0, 10) };
 }
 
 /**
