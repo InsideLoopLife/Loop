@@ -6,6 +6,7 @@ dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 import { runStaleFeeVerification, backfillMissingIsins } from "./lib/investments/pension-fee-refresher";
+import { refreshPensionFundPrices } from "./lib/investments/pension-price-refresher";
 
 async function runAllJobs() {
   console.log("Starting scheduled background jobs...");
@@ -28,6 +29,16 @@ async function runAllJobs() {
     if (feeRes.ok === false) hadFailure = true;
   } catch (err) {
     console.error("Fee verification crashed:", err);
+    hadFailure = true;
+  }
+
+  console.log("--- Running Price Refresh ---");
+  try {
+    const priceRes = await refreshPensionFundPrices();
+    console.log("Price refresh finished:", priceRes);
+    if (priceRes.ok === false) hadFailure = true;
+  } catch (err) {
+    console.error("Price refresh crashed:", err);
     hadFailure = true;
   }
 
