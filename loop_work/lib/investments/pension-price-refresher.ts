@@ -34,7 +34,13 @@ async function resolveLandGUrlByIsin(isin: string): Promise<string | null> {
     return null;
   }
   const html = await res.text();
-  const hrefMatch = html.match(new RegExp(`href="([^"]*isin_code=${isin}[^"]*)"`, "i"));
+  // Require an actual fund-centre path in the match, not just any link that
+  // happens to carry ?isin_code=<isin> — some in-page links are relative,
+  // query-only hrefs (e.g. "?isin_code=XXXX" with no path at all, meant to
+  // combine with the current page's own path), and naively prepending the
+  // domain to one of those produces a broken URL that just hits the
+  // homepage instead of a real fund page.
+  const hrefMatch = html.match(new RegExp(`href="([^"]*\\/fund-centre\\/[^"]*isin_code=${isin}[^"]*)"`, "i"));
   if (!hrefMatch) {
     console.warn(`[Price Refresher] L&G directory fetched OK but no href found for ISIN ${isin} — directory page shape may have changed.`);
     return null;
