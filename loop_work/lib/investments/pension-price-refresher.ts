@@ -88,7 +88,13 @@ async function fetchLandGPrice(url: string, isin: string): Promise<{ price: numb
     }
   }
   if (!visibleContent) {
-    console.warn(`[Price Refresher] L&G page fetched OK for ${isin} but no visible (display:block) price row found among ${rowMatches.length} share class row(s).`);
+    const styles = rowMatches.map((match) => {
+      const openTag = match[0].slice(0, match[0].indexOf(">") + 1);
+      return openTag.match(/style="([^"]*)"/i)?.[1] ?? "(no style attr)";
+    });
+    console.warn(
+      `[Price Refresher] L&G page fetched OK for ${isin} but no visible (display:block) price row found among ${rowMatches.length} share class row(s). Styles seen: ${JSON.stringify(styles)}. URL used: ${url}`,
+    );
     return null;
   }
 
@@ -181,6 +187,7 @@ export async function refreshPensionFundPrices() {
         // Self-heal: re-resolve from L&G's own directory if that failed.
         if (!result) {
           const resolvedUrl = await resolveLandGUrlByIsin(isin);
+          console.log(`[Price Refresher] Resolved URL for ${isin}: ${resolvedUrl ?? "none"}`);
           if (resolvedUrl) {
             result = await fetchLandGPrice(resolvedUrl, isin);
             if (result) {
