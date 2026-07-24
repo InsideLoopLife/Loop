@@ -1,15 +1,6 @@
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { isAiFeatureEnabled, recordOpenAiUsageFromPayload } from "@/lib/ai/usage";
 import { currencyForVenue, isMarketOpenForVenue, knownVenueCodes, marketSessionForVenue, normaliseVenueCode, quoteUnitForVenue, yahooProviderSymbols, stooqProviderSymbols } from "@/lib/investments/market-venues";
-import { fetchWithTimeout, runTiered } from "@/lib/investments/http";
-
-// Per-quote overall budget: the sum of every provider tier we try for a single
-// ticker is capped at this, regardless of how many tiers are configured. This
-// keeps one hard-to-price holding from eating a large slice of a worker run.
-const QUOTE_RESOLUTION_BUDGET_MS = Math.max(
-  4000,
-  Number.parseInt(process.env.MARKET_DATA_QUOTE_BUDGET_MS || "", 10) || 12000,
-);
 
 export type InvestmentQuote = {
   price: number;
@@ -26,6 +17,10 @@ export type InvestmentQuote = {
   annualAssetFeePercent?: number | null;
   confidence?: number | null;
   logoDomain?: string | null;
+  previousClose?: number | null;
+  previousCloseCurrency?: string | null;
+  previousCloseQuoteUnit?: string | null;
+  previousCloseAt?: string | null;
 };
 
 export function normaliseExchangeCode(exchange?: string | null, symbol?: string | null) {
@@ -74,6 +69,92 @@ export const COMMON_INVESTMENTS: Record<string, CommonTicker> = {
   "VANGUARD-LIFESTRATEGY-100": { assetName: "Vanguard LifeStrategy® 100% Equity Fund - Accumulation", exchange: "Vanguard", symbol: "Vanguard LifeStrategy 100 Acc", sourceUrl: "https://www.vanguardinvestor.co.uk/investments/vanguard-lifestrategy-100-equity-fund-accumulation-shares/overview", assetType: "fund", annualAssetFeePercent: 0.20, aliases: ["lifestrategy 100", "vanguard lifestrategy 100", "vanguard lifestrategy", "lifestrategy 100 acc", "lifestrategy 100 accumulation", "VGLS100A"] },
   "VANGUARD-LIFESTRATEGY-GLOBAL-80-ACC": { assetName: "Vanguard LifeStrategy® Global 80% Equity Fund - Accumulation", exchange: "Vanguard", symbol: "Vanguard LifeStrategy Global 80 Acc", sourceUrl: "https://www.vanguardinvestor.co.uk/investments/vanguard-lifestrategy-global-80-equity-fund-a-gbp-accumulation-shares/overview", assetType: "fund", annualAssetFeePercent: 0.20, aliases: ["lifestrategy global 80", "lifestrategy global 80 acc", "lifestrategy global 80 accumulation", "VL80AGA"] },
 };
+
+// --- ISIN-FIRST RESOLUTION LAYER ---
+
+export type AssetResolution = {
+  quoteSymbol: string | null;
+  provider: "yahoo" | "isin_lookup" | "native" | null;
+  isFund: boolean;
+};
+
+const BROKER_WRAPPER_EXCHANGES = new Set([
+  "MONEYBOX",
+  "MONEYBOX FUND",
+  "HARGREAVES LANSDOWN",
+  "AJ BELL",
+  "VANGUARD",
+  "VANGUARD UK",
+  "INTERACTIVE INVESTOR",
+  "FREETRADE",
+  "FIDELITY",
+  "FIDELITY INTERNATIONAL",
+]);
+
+const ISIN_TO_YAHOO_MAP: Record<string, string> = {
+  "GB00BJS8SJ34": "0P000125KV.L", // Fidelity Index World Fund P Acc
+  "GB00B5BFJG71": "0P0000XUDF.L", // iShares Env & Low Carbon Real Estate Index Fund
+  "GB00B84DSH94": "0P0000W38W.L", // L&G Corporate Bond ESG Fund
+  "GB00B4PQW151": "0P0000TKZO.L", // Vanguard LifeStrategy 80% Equity Fund Acc
+};
+
+/**
+ * Resolves a usable market quote symbol by prioritizing ISINs when retail brokers 
+ * poison the exchange field, or when internal glossary names are passed.
+ */
+export function resolveHoldingMarketSymbol(holding: {
+  ticker?: string | null;
+  exchange?: string | null;
+  native_exchange?: string | null;
+  isin?: string | null;
+  asset_name?: string | null;
+}): AssetResolution {
+  const ticker = (holding.ticker || "").trim().toUpperCase();
+  const exchange = (holding.exchange || holding.native_exchange || "").trim().toUpperCase();
+
+  // 1. Check if the ticker matches an item in our COMMON_INVESTMENTS glossary that has an ISIN
+  const cleanKey = cleanTicker(ticker).replace(/\.L$/i, "");
+  const glossaryItem = COMMON_INVESTMENTS[cleanKey] || Object.values(COMMON_INVESTMENTS).find(
+    (item) => item.symbol.toUpperCase() === ticker || item.isin === ticker
+  );
+
+  // 2. Grab the ISIN from explicit input, the glossary, or see if the ticker itself is an ISIN
+  const isin = (holding.isin || glossaryItem?.isin || "").trim().toUpperCase();
+  const looksLikeIsin = /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/i.test(ticker);
+  const isPoisonedBrokerExchange = BROKER_WRAPPER_EXCHANGES.has(exchange);
+
+  // 3. ISIN PRIORITY: Map ISINs directly to Yahoo Fund codes (e.g. GB00B4PQW151 -> 0P0000TKZO.L)
+  const targetIsin = isin || (looksLikeIsin ? ticker : "");
+  if (targetIsin && ISIN_TO_YAHOO_MAP[targetIsin]) {
+    return {
+      quoteSymbol: ISIN_TO_YAHOO_MAP[targetIsin],
+      provider: "yahoo",
+      isFund: true,
+    };
+  }
+
+  if (targetIsin) {
+    return {
+      quoteSymbol: `ISIN:${targetIsin}`,
+      provider: "isin_lookup",
+      isFund: true,
+    };
+  }
+
+  // 4. STANDARD EQUITIES: If it has a standard ticker and a real exchange
+  if (ticker && !isPoisonedBrokerExchange && !looksLikeIsin) {
+    const suffix = ["LSE", "LON", "XLON"].includes(exchange) && !ticker.includes(".") ? ".L" : "";
+    return {
+      quoteSymbol: `${ticker}${suffix}`,
+      provider: "yahoo",
+      isFund: false,
+    };
+  }
+
+  return { quoteSymbol: null, provider: null, isFund: false };
+}
+
+// -----------------------------------
 
 function envBool(name: string, fallback = false) {
   const value = process.env[name];
@@ -140,7 +221,7 @@ export function candidateInvestments(query: string) {
       rawSymbol: item.symbol || key,
       assetName: item.assetName,
       exchange: item.exchange,
-      currency: item.exchange === "LSE" || item.exchange === "Vanguard" ? "GBP" : "USD",
+      currency: item.exchange === "LSE" ? "GBX" : item.exchange === "Vanguard" ? "GBP" : "USD",
       priceQuoteUnit: item.exchange === "LSE" ? "gbx" : item.exchange === "Vanguard" ? "gbp" : "usd",
       sourceUrl: item.sourceUrl || null,
       note: item.assetType === "fund" ? "Provider fund candidate. Add latest unit price/current value from the provider portal if no live quote exists." : "Known instrument candidate. Price can be checked where market data is available.",
@@ -191,7 +272,7 @@ function assetNameFor(ticker: string, symbol: string) {
 async function yahooQuote(ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
   for (const symbol of yahooSymbols(ticker, exchange)) {
     try {
-      const response = await fetchWithTimeout(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
+      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
       const data = await response.json().catch(() => ({}));
       const result = data?.chart?.result?.[0];
       const meta = result?.meta || {};
@@ -214,137 +295,36 @@ async function yahooQuote(ticker: string, exchange?: string | null): Promise<Inv
       }
       if (!Number.isFinite(rawPrice) || rawPrice <= 0) continue;
       const normalised = normaliseMarketPrice(rawPrice, ex, symbol);
+      const previousNormalised = Number.isFinite(previousClose) && previousClose > 0 ? normaliseMarketPrice(previousClose, ex, symbol) : null;
       const common = COMMON_INVESTMENTS[cleanTicker(ticker).replace(/\.L$/i, "")];
       const yahooFund = isYahooFundCode(symbol);
       const sessionNote = session.isExtended ? `Using ${session.label} price; regular close remains separate for daily movement.` : session.session === "closed" ? "Market is closed; using latest regular/close quote from provider." : "Live/delayed quote from active regular session where available.";
-      return { price: normalised.price, source: sourceLabel, rawSymbol: symbol, assetName: meta.longName || meta.shortName || common?.assetName || assetNameFor(ticker, symbol), exchange: yahooFund ? "Yahoo Fund" : common?.exchange || ex || meta.exchangeName || "", currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit, assetType: yahooFund ? "fund" : common?.assetType || "share", annualAssetFeePercent: common?.annualAssetFeePercent ?? 0, sourceUrl: common?.sourceUrl || `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`, note: yahooFund ? "Yahoo Finance mutual-fund code. Price normally represents the fund/unit quote, not a stock-exchange pence quote." : sessionNote };
+      return {
+        price: normalised.price,
+        source: sourceLabel,
+        rawSymbol: symbol,
+        assetName: meta.longName || meta.shortName || common?.assetName || assetNameFor(ticker, symbol),
+        exchange: yahooFund ? "Yahoo Fund" : common?.exchange || ex || meta.exchangeName || "",
+        currency: normalised.currency,
+        priceQuoteUnit: normalised.priceQuoteUnit,
+        assetType: yahooFund ? "fund" : common?.assetType || "share",
+        annualAssetFeePercent: common?.annualAssetFeePercent ?? 0,
+        sourceUrl: common?.sourceUrl || `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`,
+        note: yahooFund ? "Yahoo Finance mutual-fund code. Price normally represents the fund/unit quote, not a stock-exchange pence quote." : sessionNote,
+        previousClose: previousNormalised?.price || null,
+        previousCloseCurrency: previousNormalised?.currency || null,
+        previousCloseQuoteUnit: previousNormalised?.priceQuoteUnit || null,
+        previousCloseAt: meta.regularMarketTime ? new Date(Number(meta.regularMarketTime) * 1000).toISOString() : null,
+      };
     } catch {}
   }
   return null;
 }
 
-// Finnhub: free tier is ~60 calls/min per key (vs Alpha Vantage's ~5/min), so it
-// sits ahead of Alpha Vantage in the tier order below when a user has a key.
-// Symbol format overlaps with Yahoo's exchange-suffix convention for most of the
-// venues this app already supports (.L, .DE, .PA, etc.), so we reuse yahooSymbols()
-// for candidates. Venues without a matching Finnhub listing will simply fall
-// through to the next tier.
-// Alpaca: covers only US-listed equities/ETFs, but the free "Basic" plan gives
-// genuinely real-time trades from the IEX feed (not delayed like Yahoo/Stooq),
-// with a far higher and more predictable rate limit than the other free
-// providers here, and it's an officially supported/documented endpoint rather
-// than scraping an unofficial page (which is why Yahoo intermittently breaks
-// or rate-limits). For US tickers this should usually resolve before we ever
-// need Yahoo/Stooq at all.
-const ALPACA_US_VENUES = new Set(["NASDAQ", "NYSE", "AMEX", "ARCX", "BATS"]);
-
-// Resolves a provider credential from the per-user integration_secrets table
-// first, falling back to a shared, worker-wide env var if the user hasn't
-// supplied their own key. This is what lets a single Render env var (e.g. set
-// on the market-data worker service) act as a "house" key covering every
-// user, rather than requiring every individual user to add their own -
-// useful for Alpaca/Finnhub/Twelve Data where you likely just want one
-// account's key powering the whole worker rather than per-user credentials.
-async function resolveProviderCredential(supabase: any, userId: string, provider: string, envVarNames: string[]): Promise<string | null> {
-  const secret = await getActiveIntegrationSecret(supabase, userId, provider);
-  if (secret?.value) return secret.value;
-  for (const name of envVarNames) {
-    const value = process.env[name];
-    if (value) return value;
-  }
-  return null;
-}
-
-async function alpacaQuote(supabase: any, userId: string, ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
-  const ex = normaliseExchangeCode(exchange, ticker);
-  if (ex && !ALPACA_US_VENUES.has(ex)) return null; // Alpaca only covers US-listed securities.
-
-  const [keyIdValue, secretKeyValue] = await Promise.all([
-    resolveProviderCredential(supabase, userId, "alpaca_key_id", ["ALPACA_KEY_ID", "alpaca_key_id", "APCA_API_KEY_ID"]),
-    resolveProviderCredential(supabase, userId, "alpaca_secret_key", ["ALPACA_SECRET_KEY", "alpaca_secret_key", "APCA_API_SECRET_KEY"]),
-  ]);
-  if (!keyIdValue || !secretKeyValue) return null;
-
-  const symbol = cleanTicker(ticker).replace(/\.L$/i, "").replace(/\.[A-Z]+$/i, "");
-  if (!symbol || !ex) return null; // don't guess a US venue for an ambiguous/unknown exchange
-
-  try {
-    const response = await fetchWithTimeout(`https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/trades/latest`, {
-      cache: "no-store",
-      headers: {
-        "APCA-API-KEY-ID": keyIdValue,
-        "APCA-API-SECRET-KEY": secretKeyValue,
-      },
-    });
-    if (!response.ok) return null; // e.g. 403/422 for a symbol Alpaca doesn't carry
-    const data = await response.json().catch(() => ({}));
-    const rawPrice = Number(data?.trade?.p || 0);
-    if (!Number.isFinite(rawPrice) || rawPrice <= 0) return null;
-    const normalised = normaliseMarketPrice(rawPrice, ex, symbol);
-    const common = COMMON_INVESTMENTS[symbol];
-    return {
-      price: normalised.price,
-      source: "Alpaca (IEX free feed)",
-      rawSymbol: symbol,
-      assetName: common?.assetName || assetNameFor(ticker, symbol),
-      exchange: common?.exchange || ex,
-      currency: normalised.currency,
-      priceQuoteUnit: normalised.priceQuoteUnit,
-      assetType: common?.assetType || "share",
-      annualAssetFeePercent: common?.annualAssetFeePercent ?? 0,
-      sourceUrl: common?.sourceUrl || `https://alpaca.markets/`,
-      note: "Real-time last trade from Alpaca's free IEX feed (single-exchange volume, not full consolidated tape - fine for portfolio tracking).",
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function finnhubQuote(supabase: any, userId: string, ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
-  const apiKey = await resolveProviderCredential(supabase, userId, "finnhub", ["FINNHUB_API_KEY", "finnhub_api_key"]);
-  if (!apiKey) return null;
-  for (const symbol of yahooSymbols(ticker, exchange)) {
-    try {
-      const response = await fetchWithTimeout(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(apiKey)}`, { cache: "no-store" });
-      const data = await response.json().catch(() => ({}));
-      const rawPrice = Number(data?.c || 0);
-      if (!Number.isFinite(rawPrice) || rawPrice <= 0) continue;
-      const ex = exchangeFromSymbol(symbol, exchange);
-      const normalised = normaliseMarketPrice(rawPrice, ex, symbol);
-      const common = COMMON_INVESTMENTS[cleanTicker(ticker).replace(/\.L$/i, "")];
-      return { price: normalised.price, source: "Finnhub", rawSymbol: symbol, assetName: common?.assetName || assetNameFor(ticker, symbol), exchange: common?.exchange || ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit, assetType: common?.assetType || "share", annualAssetFeePercent: common?.annualAssetFeePercent ?? 0, sourceUrl: common?.sourceUrl || `https://finnhub.io/quote/${encodeURIComponent(symbol)}`, note: "Real-time/near-real-time quote from Finnhub." };
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-// Twelve Data: 800 calls/day free per key, widest exchange coverage of the free
-// tiers (50+ venues), so it's a good fallback once Finnhub/Alpha Vantage are
-// exhausted or don't cover a given international listing.
-async function twelveDataQuote(supabase: any, userId: string, ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
-  const apiKey = await resolveProviderCredential(supabase, userId, "twelve_data", ["TWELVE_DATA_API_KEY", "twelve_data_api_key"]);
-  if (!apiKey) return null;
-  const clean = cleanTicker(ticker).replace(/\.L$/i, "").replace(/\.[A-Z]+$/i, "");
-  try {
-    const response = await fetchWithTimeout(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(clean)}&apikey=${encodeURIComponent(apiKey)}`, { cache: "no-store" });
-    const data = await response.json().catch(() => ({}));
-    const rawPrice = Number(data?.price || 0);
-    if (!Number.isFinite(rawPrice) || rawPrice <= 0) return null;
-    const ex = exchangeFromSymbol(clean, exchange);
-    const normalised = normaliseMarketPrice(rawPrice, ex, clean);
-    const common = COMMON_INVESTMENTS[clean];
-    return { price: normalised.price, source: "Twelve Data", rawSymbol: clean, assetName: common?.assetName || assetNameFor(ticker, clean), exchange: common?.exchange || ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit, assetType: common?.assetType || "share", annualAssetFeePercent: common?.annualAssetFeePercent ?? 0, sourceUrl: common?.sourceUrl || null, note: "Quote from Twelve Data (up to 4-hour delay on the free tier)." };
-  } catch {
-    return null;
-  }
-}
-
 async function stooqQuote(ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
   for (const symbol of stooqSymbols(ticker, exchange)) {
     try {
-      const response = await fetchWithTimeout(`https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`, { cache: "no-store" });
+      const response = await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`, { cache: "no-store" });
       const csv = await response.text();
       const values = csv.trim().split(/\r?\n/)[1]?.split(",") || [];
       if (!values.length || /N\/D/i.test(values.join(""))) continue;
@@ -404,8 +384,6 @@ function htmlToReadableText(html: string) {
 function boundedFundPrice(glossary: InvestmentQuote | undefined | null, price: number | null) {
   if (!price || !Number.isFinite(price) || price <= 0) return null;
   const key = providerFundKey(glossary);
-  // The Vanguard LifeStrategy 80 accumulation NAV is a GBP OEIC unit price, not an LSE penny share quote.
-  // Reject tiny extracted values such as 143.48p / £1.4348 from unrelated tables or bad market matches.
   if (key === "GB00B4PQW151" && (price < 100 || price > 1000)) return null;
   return price;
 }
@@ -455,10 +433,21 @@ async function providerFundQuoteFromSource(glossary: InvestmentQuote | undefined
   const reviewed = reviewedKey ? REVIEWED_PROVIDER_FUND_QUOTES[reviewedKey] : null;
   for (const url of providerFundSourceUrls(glossary)) {
     try {
-      const response = await fetchWithTimeout(url, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
+      const response = await fetch(url, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
       const html = await response.text();
       const parsed = extractProviderFundPriceAndFee(html, glossary);
       if (!parsed.price) continue;
+      // Guard against pulling a neighbouring share class's price off a page
+      // that lists several related funds (e.g. a 20/40/60/80/100% LifeStrategy
+      // comparison table) — the regex matchers above don't verify proximity
+      // to this specific fund's name/ISIN, so a wrong-but-plausible-looking
+      // number can otherwise slip through the generic bounds check.
+      if (reviewed && Math.abs(parsed.price - reviewed.price) / reviewed.price > 0.15) {
+        console.warn(
+          `[provider-fund-quote] rejected ${url}: parsed £${parsed.price} differs from reviewed reference £${reviewed.price} (${reviewedKey}) by more than 15% — likely picked up a neighbouring fund's price from a comparison table.`,
+        );
+        continue;
+      }
       return {
         ...glossary,
         price: parsed.price,
@@ -490,7 +479,6 @@ async function providerFundQuoteFromSource(glossary: InvestmentQuote | undefined
   return null;
 }
 
-
 function quoteTypeToAssetKind(value: string | undefined | null): InvestmentQuote["assetType"] {
   const type = String(value || "").toUpperCase();
   if (type === "ETF") return "etf";
@@ -510,7 +498,7 @@ async function yahooSearchCandidates(query: string, exchange?: string | null): P
   const q = query.trim();
   if (!q || q.length < 2) return [];
   try {
-    const response = await fetchWithTimeout(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
+    const response = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
     const data = await response.json().catch(() => ({}));
     const quotes = Array.isArray(data?.quotes) ? data.quotes : [];
     const requestedExchange = String(exchange || "").toUpperCase();
@@ -543,8 +531,6 @@ async function yahooSearchCandidates(query: string, exchange?: string | null): P
 }
 
 async function openAiInvestmentSearch(supabase: any, userId: string, query: string, exchange?: string | null): Promise<InvestmentQuote[]> {
-  // v28.36: OpenAI/web-search is never allowed from the Render market worker.
-  // Unknown instruments should become admin coverage tasks, not paid web-search calls.
   if (marketWorkerProcess()) {
     console.log(`[investment-ai] OpenAI market search blocked in market worker for ${query} ${exchange || ""}`);
     return [];
@@ -606,102 +592,69 @@ async function openAiInvestmentSearch(supabase: any, userId: string, query: stri
   }
 }
 
-async function alphaVantageQuote(secretValue: string, symbolCandidates: string[], exchange: string | null | undefined, glossary: InvestmentQuote | undefined, query: string): Promise<InvestmentQuote | null> {
-  for (const candidate of symbolCandidates) {
-    try {
-      const response = await fetchWithTimeout(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(candidate)}&apikey=${encodeURIComponent(secretValue)}`, { cache: "no-store" });
-      const data = await response.json().catch(() => ({}));
-      const q = data["Global Quote"] || {};
-      const rawPrice = Number(q["05. price"] || 0);
-      if (rawPrice > 0) {
-        const ex = exchangeFromSymbol(candidate, exchange);
-        const normalised = normaliseMarketPrice(rawPrice, ex, candidate);
-        return { ...glossary, price: normalised.price, source: "Alpha Vantage", rawSymbol: q["01. symbol"] || candidate, assetName: glossary?.assetName || assetNameFor(query, candidate), exchange: ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit };
-      }
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-async function fmpQuote(secretValue: string, symbolCandidates: string[], exchange: string | null | undefined, glossary: InvestmentQuote | undefined, query: string): Promise<InvestmentQuote | null> {
-  for (const candidate of symbolCandidates) {
-    try {
-      const response = await fetchWithTimeout(`https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(candidate)}&apikey=${encodeURIComponent(secretValue)}`, { cache: "no-store" });
-      const data = await response.json().catch(() => ({}));
-      const first = Array.isArray(data) ? data[0] : data?.[0] || data;
-      const rawPrice = Number(first?.price || 0);
-      if (rawPrice > 0) {
-        const ex = exchangeFromSymbol(candidate, exchange);
-        const normalised = normaliseMarketPrice(rawPrice, ex, candidate);
-        return { ...glossary, price: normalised.price, source: "Financial Modeling Prep", rawSymbol: first?.symbol || candidate, assetName: first?.name || glossary?.assetName || assetNameFor(query, candidate), exchange: ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit };
-      }
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-/**
- * Tiered quote resolution.
- *
- * Order (fastest/most-reliable-per-key first, no-key-required fallbacks last):
- *   1. Provider fund page   - only for provider funds/OEICs (Vanguard etc.), not exchange-traded
- *   2. Alpaca               - US-listed only; genuinely real-time (IEX feed), generous limits, official API
- *   3. Finnhub              - ~60 calls/min free tier, best free real-time-ish coverage for non-US venues
- *   4. Alpha Vantage        - reliable but tight ~5 calls/min free tier
- *   5. Twelve Data          - 800 calls/day free, widest free exchange coverage
- *   6. Financial Modeling Prep
- *   7. Yahoo Finance        - no key required, unofficial/can rate-limit or break
- *   8. Stooq                - no key required, delayed EOD-ish data, last resort
- *
- * Every tier is wrapped in a timeout (via fetchWithTimeout) and the whole chain
- * is capped by QUOTE_RESOLUTION_BUDGET_MS, so a ticker with no good coverage
- * fails fast into `coverage_required` instead of stalling the run.
- */
 export async function fetchInvestmentQuote(supabase: any, userId: string, tickerOrQuery: string, exchange?: string | null): Promise<InvestmentQuote | null> {
   const query = tickerOrQuery.trim();
   if (!query) return null;
+
+  // --- ISIN-FIRST INTERCEPTION ---
+  // If the query is an ISIN or passes an exchange like "MONEYBOX FUND", resolve to real Yahoo symbol
+  const resolution = resolveHoldingMarketSymbol({
+    ticker: query,
+    exchange: exchange,
+    isin: /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/i.test(query) ? query : undefined,
+  });
+
+  // If we found a mapped live Yahoo code (e.g., 0P000125KV.L for GB00BJS8SJ34), use it instead!
+  const effectiveQuery = resolution.quoteSymbol && resolution.provider === "yahoo"
+    ? resolution.quoteSymbol
+    : query;
+  // -------------------------------
+
   const requestedExchange = normaliseExchangeCode(exchange);
   const wantsExchangeTraded = Boolean(requestedExchange && !["VANGUARD", "YAHOO FUND", "FUND", "PROVIDER", "REVIEW"].includes(requestedExchange));
-  const glossary = candidateInvestments(query).find((item) => !(wantsExchangeTraded && item.assetType === "fund")) || candidateInvestments(query)[0];
-  const symbol = glossary?.rawSymbol || query;
-  const symbolCandidates = providerSymbols(symbol, exchange || glossary?.exchange);
+  const glossary = candidateInvestments(effectiveQuery).find((item) => !(wantsExchangeTraded && item.assetType === "fund")) || candidateInvestments(effectiveQuery)[0];
+  const symbol = glossary?.rawSymbol || effectiveQuery;
+  const secret = await getActiveIntegrationSecret(supabase, userId, ["alpha_vantage", "financial_modeling_prep", "fmp"]);
 
-  const [avSecret, fmpSecret] = await Promise.all([
-    getActiveIntegrationSecret(supabase, userId, "alpha_vantage"),
-    getActiveIntegrationSecret(supabase, userId, ["financial_modeling_prep", "fmp"]),
-  ]);
+  const providerFund = wantsExchangeTraded ? null : await providerFundQuoteFromSource(glossary);
+  if (providerFund) return providerFund;
 
-  const { result } = await runTiered<InvestmentQuote>(
-    [
-      { name: "provider_fund_page", run: () => (wantsExchangeTraded ? Promise.resolve(null) : providerFundQuoteFromSource(glossary)) },
-      { name: "alpaca", run: () => alpacaQuote(supabase, userId, symbol, exchange || glossary?.exchange) },
-      { name: "finnhub", run: () => finnhubQuote(supabase, userId, symbol, exchange || glossary?.exchange) },
-      { name: "alpha_vantage", run: () => (avSecret?.value ? alphaVantageQuote(avSecret.value, symbolCandidates, exchange || glossary?.exchange, glossary, query) : Promise.resolve(null)) },
-      { name: "twelve_data", run: () => twelveDataQuote(supabase, userId, symbol, exchange || glossary?.exchange) },
-      { name: "financial_modeling_prep", run: () => (fmpSecret?.value ? fmpQuote(fmpSecret.value, symbolCandidates, exchange || glossary?.exchange, glossary, query) : Promise.resolve(null)) },
-      { name: "yahoo", run: () => yahooQuote(symbol, exchange || glossary?.exchange) },
-      { name: "stooq", run: () => stooqQuote(symbol, exchange || glossary?.exchange) },
-    ],
-    {
-      overallBudgetMs: QUOTE_RESOLUTION_BUDGET_MS,
-      onTierResult: (name, ok, ms, error) => {
-        if (ok) {
-          console.log(`[investment-quote] ${symbol} resolved via ${name} in ${ms}ms`);
-        } else if (error) {
-          console.warn(`[investment-quote] ${symbol} tier ${name} failed after ${ms}ms: ${error instanceof Error ? error.message : String(error)}`);
+  if (secret?.value && secret.provider === "alpha_vantage") {
+    for (const candidate of providerSymbols(symbol, exchange || glossary?.exchange)) {
+      try {
+        const response = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(candidate)}&apikey=${encodeURIComponent(secret.value)}`, { cache: "no-store" });
+        const data = await response.json().catch(() => ({}));
+        const q = data["Global Quote"] || {};
+        const rawPrice = Number(q["05. price"] || 0);
+        if (rawPrice > 0) {
+          const ex = exchangeFromSymbol(candidate, exchange || glossary?.exchange);
+          const normalised = normaliseMarketPrice(rawPrice, ex, candidate);
+          return { ...glossary, price: normalised.price, source: "Alpha Vantage", rawSymbol: q["01. symbol"] || candidate, assetName: glossary?.assetName || assetNameFor(effectiveQuery, candidate), exchange: ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit };
         }
-      },
-    },
-  );
+      } catch {}
+    }
+  }
 
-  if (result) return result;
-  // No deterministic quote from any tier. The caller marks the holding as
-  // coverage_required rather than us silently falling back to AI/web-search
-  // (that path is intentionally disabled from the worker - see v28.36 notes).
+  if (secret?.value) {
+    for (const candidate of providerSymbols(symbol, exchange || glossary?.exchange)) {
+      try {
+        const response = await fetch(`https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(candidate)}&apikey=${encodeURIComponent(secret.value)}`, { cache: "no-store" });
+        const data = await response.json().catch(() => ({}));
+        const first = Array.isArray(data) ? data[0] : data?.[0] || data;
+        const rawPrice = Number(first?.price || 0);
+        if (rawPrice > 0) {
+          const ex = exchangeFromSymbol(candidate, exchange || glossary?.exchange);
+          const normalised = normaliseMarketPrice(rawPrice, ex, candidate);
+          return { ...glossary, price: normalised.price, source: "Financial Modeling Prep", rawSymbol: first?.symbol || candidate, assetName: first?.name || glossary?.assetName || assetNameFor(effectiveQuery, candidate), exchange: ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit };
+        }
+      } catch {}
+    }
+  }
+
+  const yahoo = await yahooQuote(symbol, exchange || glossary?.exchange);
+  if (yahoo) return yahoo;
+  const stooq = await stooqQuote(symbol, exchange || glossary?.exchange);
+  if (stooq) return stooq;
   return glossary || null;
 }
 
