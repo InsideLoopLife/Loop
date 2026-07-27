@@ -22,13 +22,49 @@ function penceTextToGbp(priceText: string): number | null {
 }
 
 /**
- * Finds the correct L&G fund-centre URL for a given ISIN by searching their
- * own fund directory listing, rather than trusting a possibly-stale stored
- * URL. This IS the "self-healing" step: L&G's directory embeds every fund's
- * current URL against its ISIN on one page, so re-resolving from there stays
- * inside L&G's own trusted domain rather than falling back to a web search.
+ * Converts a fund's display name into L&G's URL slug format. Confirmed
+ * against a real example: "L&G PMC HSBC Islamic Global Equity Index Fund 3"
+ * -> core name "HSBC Islamic Global Equity Index Fund" -> slug
+ * "HSBC-Islamic-Global-Equity-Index-Fund", which is genuinely L&G's own URL
+ * for that fund. This is deterministic and doesn't depend on scraping a
+ * sidebar link correctly, unlike the directory-search fallback below.
  */
-async function resolveLandGUrlByIsin(isin: string): Promise<string | null> {
+function slugifyLandGFundName(internalFundName: string): string {
+  let name = internalFundName.replace(/^L&G PMC\s+/i, "").trim();
+  name = name.replace(/\s+(G\d+|\d+)$/i, "").trim(); // drop trailing share-class suffix (e.g. "3", "G17")
+  return name.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+async function urlHasRealFundPage(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    if (!res.ok) return false;
+    const html = await res.text();
+    return html.includes("data-fund-id") && html.includes("FundRibbonPrices");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Finds the correct L&G fund-centre URL for a given ISIN. Tries, in order:
+ * 1. A name-derived slug (deterministic, confirmed accurate against a real
+ *    example — see slugifyLandGFundName above).
+ * 2. Searching L&G's own directory sidebar for a matching href. This is a
+ *    known-fragile fallback: the directory has previously been found to
+ *    contain a mislabeled link (an ISIN mapped to the wrong fund family's
+ *    URL), which silently produced a wrong price with no error at all. Only
+ *    used if the name-derived slug doesn't resolve to a real page.
+ * 3. The anchor page itself, for the edge case where the ISIN belongs to
+ *    the anchor fund's own family (a fund doesn't link to itself).
+ */
+async function resolveLandGUrlByIsin(isin: string, fundName: string): Promise<string | null> {
+  const nameSlugUrl = `https://fundcentres.landg.com/en/uk/workplace-employer/fund-centre/${slugifyLandGFundName(fundName)}/?isin_code=${isin}`;
+  if (await urlHasRealFundPage(nameSlugUrl)) {
+    return nameSlugUrl;
+  }
+  console.warn(`[Price Refresher] Name-derived slug didn't resolve for "${fundName}" (${nameSlugUrl}), falling back to directory search.`);
+
   const res = await fetch(LANDG_DIRECTORY_URL, { headers: { "User-Agent": "Mozilla/5.0" } });
   if (!res.ok) {
     console.warn(`[Price Refresher] L&G directory fetch failed (${res.status}) while resolving ${isin}.`);
@@ -43,19 +79,17 @@ async function resolveLandGUrlByIsin(isin: string): Promise<string | null> {
   // homepage instead of a real fund page.
   const hrefMatch = html.match(new RegExp(`href="([^"]*\\/fund-centre\\/[^"]*isin_code=${isin}[^"]*)"`, "i"));
   if (hrefMatch) {
-    return hrefMatch[1].startsWith("http") ? hrefMatch[1] : `https://fundcentres.landg.com${hrefMatch[1]}`;
+    const directoryUrl = hrefMatch[1].startsWith("http") ? hrefMatch[1] : `https://fundcentres.landg.com${hrefMatch[1]}`;
+    console.warn(`[Price Refresher] Using directory-search fallback URL for ${isin}: ${directoryUrl}. This path has previously produced a wrong price silently — verify the first result manually.`);
+    return directoryUrl;
   }
   // A fund doesn't link to itself as a directory entry (you don't need a
   // link to the page you're already on) — so if the ISIN belongs to the
   // anchor page's own fund family, this is expected to fail. Try the
   // anchor URL directly with this ISIN as a last resort before giving up.
   const selfUrl = `${LANDG_DIRECTORY_URL}?isin_code=${isin}`;
-  const selfCheck = await fetch(selfUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
-  if (selfCheck.ok) {
-    const selfHtml = await selfCheck.text();
-    if (selfHtml.includes(`data-fund-id`) && selfHtml.includes("FundRibbonPrices")) {
-      return selfUrl;
-    }
+  if (await urlHasRealFundPage(selfUrl)) {
+    return selfUrl;
   }
   console.warn(`[Price Refresher] L&G directory fetched OK but no href found for ISIN ${isin} — directory page shape may have changed.`);
   return null;
@@ -76,6 +110,10 @@ async function fetchLandGPrice(browser: Browser, url: string, isin: string): Pro
     const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
     if (!response || !response.ok()) {
       console.warn(`[Price Refresher] L&G fund page navigation failed (${response?.status() ?? "no response"}) for ${isin} at ${url}.`);
+      return null;
+    }
+    if (!page.url().includes(`isin_code=${isin}`)) {
+      console.warn(`[Price Refresher] L&G page for ${isin} redirected away from the requested ISIN (landed on ${page.url()}) — treating as unresolved rather than trusting whatever loaded.`);
       return null;
     }
 
@@ -191,7 +229,7 @@ export async function refreshPensionFundPrices() {
           }
           // Self-heal: re-resolve from L&G's own directory if that failed.
           if (!result) {
-            const resolvedUrl = await resolveLandGUrlByIsin(isin);
+            const resolvedUrl = await resolveLandGUrlByIsin(isin, fund.internal_fund_name);
             console.log(`[Price Refresher] Resolved URL for ${isin}: ${resolvedUrl ?? "none"}`);
             if (resolvedUrl) {
               result = await fetchLandGPrice(browser, resolvedUrl, isin);
