@@ -111,9 +111,9 @@ services:
   - type: cron
     name: loop-pension-fee-and-isin-refresh
     runtime: node
-    plan: starter
+    plan: standard
     schedule: "0 2 * * *"
-    buildCommand: npm ci
+    buildCommand: npm ci && npx playwright install --with-deps chromium
     startCommand: npm run cron:fees
     envVars:
       - key: NEXT_PUBLIC_SUPABASE_URL

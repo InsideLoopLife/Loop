@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { chromium, type Browser } from "playwright";
 
 const THROTTLE_MS = 500;
 // The bare "/fund-centre/" root returns a generic landing page with no fund
@@ -41,79 +42,70 @@ async function resolveLandGUrlByIsin(isin: string): Promise<string | null> {
   // domain to one of those produces a broken URL that just hits the
   // homepage instead of a real fund page.
   const hrefMatch = html.match(new RegExp(`href="([^"]*\\/fund-centre\\/[^"]*isin_code=${isin}[^"]*)"`, "i"));
-  if (!hrefMatch) {
-    console.warn(`[Price Refresher] L&G directory fetched OK but no href found for ISIN ${isin} — directory page shape may have changed.`);
-    return null;
+  if (hrefMatch) {
+    return hrefMatch[1].startsWith("http") ? hrefMatch[1] : `https://fundcentres.landg.com${hrefMatch[1]}`;
   }
-  const href = hrefMatch[1].startsWith("http") ? hrefMatch[1] : `https://fundcentres.landg.com${hrefMatch[1]}`;
-  return href;
+  // A fund doesn't link to itself as a directory entry (you don't need a
+  // link to the page you're already on) — so if the ISIN belongs to the
+  // anchor page's own fund family, this is expected to fail. Try the
+  // anchor URL directly with this ISIN as a last resort before giving up.
+  const selfUrl = `${LANDG_DIRECTORY_URL}?isin_code=${isin}`;
+  const selfCheck = await fetch(selfUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
+  if (selfCheck.ok) {
+    const selfHtml = await selfCheck.text();
+    if (selfHtml.includes(`data-fund-id`) && selfHtml.includes("FundRibbonPrices")) {
+      return selfUrl;
+    }
+  }
+  console.warn(`[Price Refresher] L&G directory fetched OK but no href found for ISIN ${isin} — directory page shape may have changed.`);
+  return null;
 }
 
 /**
- * Fetches an L&G fund-centre page and extracts the price for the specific
- * share class matching `isin`. L&G's pages render every share class in the
- * fund family as its own row (FundRibbonPrices-row); only the one matching
- * the requested ?isin_code= is marked visible (style="display: block"),
- * every sibling share class is display: none. That visibility flag — not
- * text position — is what tells us which price belongs to this fund, so we
- * match on it directly rather than guessing from surrounding text order.
+ * Fetches an L&G fund-centre page with a real headless browser and reads
+ * the price from whichever share-class row is actually rendered visible —
+ * using Playwright's :visible pseudo-class, which reflects true computed
+ * visibility regardless of how a given page marks it (inline style, a CSS
+ * class, or something else). Earlier regex-based attempts against raw HTML
+ * broke because different L&G fund pages encode "which row is active"
+ * inconsistently; reading real rendered state sidesteps that entirely.
  */
-async function fetchLandGPrice(url: string, isin: string): Promise<{ price: number; asOf: string } | null> {
-  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
-  if (!res.ok) {
-    console.warn(`[Price Refresher] L&G fund page fetch failed (${res.status}) for ${isin} at ${url}.`);
-    return null;
-  }
-  const html = await res.text();
-
-  // Match on data-shareclass-id (a stable, unique marker) rather than the
-  // full literal class string, then pull style/content out of each matched
-  // tag separately. This avoids breaking if attribute order or extra
-  // classes differ between fund pages.
-  const rowMatches = [...html.matchAll(/<div\b[^>]*data-shareclass-id="[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi)];
-  if (rowMatches.length === 0) {
-    // Diagnostic: tell us whether the widget is simply absent from the raw
-    // server response (would mean it's client-rendered, and we'd need a
-    // different approach entirely) versus present but not matching our
-    // pattern (a fixable regex issue).
-    const hasRibbonMarker = html.includes("FundRibbonPrices");
-    console.warn(
-      `[Price Refresher] L&G page fetched OK for ${isin} (${html.length} bytes) but no share-class rows found. ` +
-      `"FundRibbonPrices" substring present in raw HTML: ${hasRibbonMarker}.`,
-    );
-    return null;
-  }
-
-  let visibleContent: string | null = null;
-  for (const match of rowMatches) {
-    const openTag = match[0].slice(0, match[0].indexOf(">") + 1);
-    const styleMatch = openTag.match(/style="([^"]*)"/i);
-    if (styleMatch && /display:\s*block/i.test(styleMatch[1])) {
-      visibleContent = match[1];
-      break;
+async function fetchLandGPrice(browser: Browser, url: string, isin: string): Promise<{ price: number; asOf: string } | null> {
+  const page = await browser.newPage({ userAgent: "Mozilla/5.0" });
+  try {
+    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+    if (!response || !response.ok()) {
+      console.warn(`[Price Refresher] L&G fund page navigation failed (${response?.status() ?? "no response"}) for ${isin} at ${url}.`);
+      return null;
     }
-  }
-  if (!visibleContent) {
-    const styles = rowMatches.map((match) => {
-      const openTag = match[0].slice(0, match[0].indexOf(">") + 1);
-      return openTag.match(/style="([^"]*)"/i)?.[1] ?? "(no style attr)";
-    });
-    console.warn(
-      `[Price Refresher] L&G page fetched OK for ${isin} but no visible (display:block) price row found among ${rowMatches.length} share class row(s). Styles seen: ${JSON.stringify(styles)}. URL used: ${url}`,
-    );
-    return null;
-  }
 
-  const strongValues = [...visibleContent.matchAll(/<strong>([^<]*)<\/strong>/gi)].map((m) => m[1].trim());
-  const priceText = strongValues[0] || "";
-  const asOfText = strongValues[1] || "";
+    const visibleRow = page.locator(".FundRibbonPrices-row.shareclass-row:visible").first();
+    const rowCount = await page.locator(".FundRibbonPrices-row.shareclass-row").count();
+    if (rowCount === 0) {
+      console.warn(`[Price Refresher] L&G page loaded for ${isin} but no share-class rows found in rendered DOM — page structure may have changed.`);
+      return null;
+    }
+    if ((await visibleRow.count()) === 0) {
+      console.warn(`[Price Refresher] L&G page loaded for ${isin} but no row was rendered visible among ${rowCount} share class row(s).`);
+      return null;
+    }
 
-  const price = penceTextToGbp(priceText.endsWith("p") ? priceText : `${priceText}p`);
-  if (price === null) {
-    console.warn(`[Price Refresher] L&G page found the visible row for ${isin} but couldn't parse a price from "${priceText}".`);
+    const strongValues = await visibleRow.locator("strong").allTextContents();
+    const priceText = (strongValues[0] || "").trim();
+    const asOfText = (strongValues[1] || "").trim();
+
+    const price = penceTextToGbp(priceText.endsWith("p") ? priceText : `${priceText}p`);
+    if (price === null) {
+      console.warn(`[Price Refresher] L&G page found the visible row for ${isin} but couldn't parse a price from "${priceText}".`);
+      return null;
+    }
+    return { price, asOf: asOfText || new Date().toISOString().slice(0, 10) };
+  } catch (err) {
+    console.warn(`[Price Refresher] Playwright navigation/extraction error for ${isin} at ${url}:`, err);
     return null;
+  } finally {
+    await page.close();
   }
-  return { price, asOf: asOfText || new Date().toISOString().slice(0, 10) };
 }
 
 /**
@@ -178,82 +170,92 @@ export async function refreshPensionFundPrices() {
   let flaggedCount = 0;
   let noSourceCount = 0;
 
-  for (const fund of funds) {
-    const isin = fund.underlying_isin as string;
-    const previousPrice = fund.unit_price !== null ? Number(fund.unit_price) : null;
-    let result: { price: number; asOf: string } | null = null;
-    let sourceUsed = "none";
+  // One browser for the whole run rather than per-fund — launching Chromium
+  // is the expensive part, reusing it across funds keeps this fast and
+  // keeps memory bounded to one instance instead of several concurrent ones.
+  const needsBrowser = funds.some((f) => f.provider_id === "legal-general");
+  const browser = needsBrowser ? await chromium.launch({ headless: true }) : null;
 
-    try {
-      if (fund.provider_id === "legal-general") {
-        // Try the stored URL first if it already targets this ISIN.
-        if (fund.source_url && fund.source_url.includes(`isin_code=${isin}`)) {
-          result = await fetchLandGPrice(fund.source_url, isin);
-        }
-        // Self-heal: re-resolve from L&G's own directory if that failed.
-        if (!result) {
-          const resolvedUrl = await resolveLandGUrlByIsin(isin);
-          console.log(`[Price Refresher] Resolved URL for ${isin}: ${resolvedUrl ?? "none"}`);
-          if (resolvedUrl) {
-            result = await fetchLandGPrice(resolvedUrl, isin);
-            if (result) {
-              await supabase.from("provider_fund_glossary").update({ source_url: resolvedUrl }).eq("id", fund.id);
+  try {
+    for (const fund of funds) {
+      const isin = fund.underlying_isin as string;
+      const previousPrice = fund.unit_price !== null ? Number(fund.unit_price) : null;
+      let result: { price: number; asOf: string } | null = null;
+      let sourceUsed = "none";
+
+      try {
+        if (fund.provider_id === "legal-general" && browser) {
+          // Try the stored URL first if it already targets this ISIN.
+          if (fund.source_url && fund.source_url.includes(`isin_code=${isin}`)) {
+            result = await fetchLandGPrice(browser, fund.source_url, isin);
+          }
+          // Self-heal: re-resolve from L&G's own directory if that failed.
+          if (!result) {
+            const resolvedUrl = await resolveLandGUrlByIsin(isin);
+            console.log(`[Price Refresher] Resolved URL for ${isin}: ${resolvedUrl ?? "none"}`);
+            if (resolvedUrl) {
+              result = await fetchLandGPrice(browser, resolvedUrl, isin);
+              if (result) {
+                await supabase.from("provider_fund_glossary").update({ source_url: resolvedUrl }).eq("id", fund.id);
+              }
             }
           }
+          sourceUsed = "landg_fund_centre";
+        } else {
+          result = await fetchYahooPriceByIsin(isin);
+          sourceUsed = "yahoo_finance";
         }
-        sourceUsed = "landg_fund_centre";
-      } else {
-        result = await fetchYahooPriceByIsin(isin);
-        sourceUsed = "yahoo_finance";
+      } catch (err) {
+        console.warn(`[Price Refresher] Fetch failed for ${fund.internal_fund_name}:`, err);
       }
-    } catch (err) {
-      console.warn(`[Price Refresher] Fetch failed for ${fund.internal_fund_name}:`, err);
-    }
 
-    const nowIso = new Date().toISOString();
+      const nowIso = new Date().toISOString();
 
-    if (!result) {
-      noSourceCount++;
-      await supabase
-        .from("provider_fund_glossary")
-        .update({ notes: `${fund.notes ? fund.notes + " | " : ""}No automated price source found as of ${nowIso.slice(0, 10)} (manual_required).` })
-        .eq("id", fund.id);
-      console.warn(`[Price Refresher] No price source for ${fund.internal_fund_name} (${isin}) — marked manual_required.`);
+      if (!result) {
+        noSourceCount++;
+        await supabase
+          .from("provider_fund_glossary")
+          .update({ notes: `${fund.notes ? fund.notes + " | " : ""}No automated price source found as of ${nowIso.slice(0, 10)} (manual_required).` })
+          .eq("id", fund.id);
+        console.warn(`[Price Refresher] No price source for ${fund.internal_fund_name} (${isin}) — marked manual_required.`);
+        await sleep(THROTTLE_MS);
+        continue;
+      }
+
+      const verdict = priceChangeIsPlausible(previousPrice, result.price);
+
+      await supabase.from("provider_fund_price_change_log").insert({
+        glossary_id: fund.id,
+        fund_name: fund.internal_fund_name,
+        previous_price: previousPrice,
+        proposed_price: result.price,
+        source: sourceUsed,
+        applied: verdict.ok,
+        reason: verdict.reason,
+      });
+
+      if (verdict.ok) {
+        await supabase
+          .from("provider_fund_glossary")
+          .update({ unit_price: result.price, updated_at: nowIso })
+          .eq("id", fund.id);
+
+        await supabase
+          .from("pension_funds")
+          .update({ unit_price: result.price, price_as_of_date: result.asOf, updated_at: nowIso })
+          .eq("glossary_id", fund.id);
+
+        console.log(`[Price Refresher] Updated ${fund.internal_fund_name}: ${previousPrice ?? "—"} -> ${result.price} (${sourceUsed}, as of ${result.asOf})`);
+        updatedCount++;
+      } else {
+        console.warn(`[Price Refresher] Flagged for review, not applied: ${fund.internal_fund_name} — ${verdict.reason}`);
+        flaggedCount++;
+      }
+
       await sleep(THROTTLE_MS);
-      continue;
     }
-
-    const verdict = priceChangeIsPlausible(previousPrice, result.price);
-
-    await supabase.from("provider_fund_price_change_log").insert({
-      glossary_id: fund.id,
-      fund_name: fund.internal_fund_name,
-      previous_price: previousPrice,
-      proposed_price: result.price,
-      source: sourceUsed,
-      applied: verdict.ok,
-      reason: verdict.reason,
-    });
-
-    if (verdict.ok) {
-      await supabase
-        .from("provider_fund_glossary")
-        .update({ unit_price: result.price, updated_at: nowIso })
-        .eq("id", fund.id);
-
-      await supabase
-        .from("pension_funds")
-        .update({ unit_price: result.price, price_as_of_date: result.asOf, updated_at: nowIso })
-        .eq("glossary_id", fund.id);
-
-      console.log(`[Price Refresher] Updated ${fund.internal_fund_name}: ${previousPrice ?? "—"} -> ${result.price} (${sourceUsed}, as of ${result.asOf})`);
-      updatedCount++;
-    } else {
-      console.warn(`[Price Refresher] Flagged for review, not applied: ${fund.internal_fund_name} — ${verdict.reason}`);
-      flaggedCount++;
-    }
-
-    await sleep(THROTTLE_MS);
+  } finally {
+    if (browser) await browser.close();
   }
 
   return { ok: true, updated: updatedCount, flaggedForReview: flaggedCount, noSource: noSourceCount };

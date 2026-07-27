@@ -31,6 +31,7 @@
     "dotenv": "^16.4.5",
     "lucide-react": "1.17.0",
     "openai": "^4.68.0",
+    "playwright": "^1.48.0",
     "next": "16.2.9",
     "node-cron": "^3.0.3",
     "qrcode": "1.5.4",
@@ -54,9 +55,9 @@
     "typescript": "6.0.3"
   },
   "overrides": {
-  "postcss": "8.5.15",
-  "openai": {
-    "zod": "$zod"
-  }
+    "postcss": "8.5.15",
+    "openai": {
+      "zod": "$zod"
+    }
   }
 }
