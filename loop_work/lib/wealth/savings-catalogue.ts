@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { normaliseProviderSlug } from "@/lib/wealth/provider-normalise";
-import { fetchSourceText, parseSavingsDealFromSource } from "@/lib/wealth/source-ingestion";
+import { fetchSourceText, parseSavingsDealsFromSource } from "@/lib/wealth/source-ingestion";
 
 export type SavingsCatalogueRefreshOptions = {
   runKey?: string;
@@ -47,51 +48,131 @@ export async function refreshSavingsCatalogueFromSources(supabase: any, options:
     checked += 1;
     try {
       const fetched = await fetchSourceText(source.source_url);
-      const parsed = parseSavingsDealFromSource({
+      const parsedDeals = parseSavingsDealsFromSource({
         providerName: source.provider_name,
         productName: source.product_hint || undefined,
         sourceUrl: fetched.url,
         text: fetched.text,
       });
-      const row = {
-        provider_slug: parsed.providerSlug || normaliseProviderSlug(source.provider_name),
-        provider_name: parsed.providerName || source.provider_name,
-        product_name: parsed.productName || source.product_hint || `${source.provider_name} savings product`,
-        account_type: parsed.accountType || "easy_access",
-        gross_aer: parsed.grossAer,
-        requires_existing_customer: parsed.requiresExistingCustomer,
-        eligible_provider_slug: parsed.requiresExistingCustomer ? (parsed.providerSlug || source.provider_slug) : null,
-        eligibility_note: parsed.eligibilityNote,
-        source_url: fetched.url,
-        source_name: new URL(fetched.url).hostname,
-        detected_by: "ai_source_catalogue",
-        confidence: parsed.confidence,
-        status: parsed.confidence >= publishThreshold ? "active" : "needs_review",
-        ai_summary: parsed.summary,
-        admin_notes: parsed.confidence >= publishThreshold ? "Auto-published from seeded source because extraction confidence met threshold." : "AI/source extraction needs admin review before users see it.",
-        last_checked_at: now,
-        updated_at: now,
-      } as Record<string, any>;
-      const existing = await supabase
+
+      let sourceWrites = 0;
+      const seenDealIds = new Set<string>();
+      for (const parsed of parsedDeals) {
+        const row = {
+          provider_slug: parsed.providerSlug || normaliseProviderSlug(parsed.providerName || source.provider_name),
+          provider_name: parsed.providerName || source.provider_name,
+          product_name: parsed.productName || source.product_hint || `${source.provider_name} savings product`,
+          account_type: parsed.accountType || "easy_access",
+          gross_aer: parsed.grossAer,
+          bonus_rate: parsed.bonusRate ?? null,
+          minimum_balance: parsed.minimumBalance ?? null,
+          maximum_balance: parsed.maximumBalance ?? null,
+          monthly_max_deposit: parsed.monthlyMaxDeposit ?? null,
+          access_type: parsed.accessType ?? null,
+          withdrawal_rules: parsed.withdrawalRules ?? null,
+          notice_period_days: parsed.noticePeriodDays ?? null,
+          term_length_months: parsed.termLengthMonths ?? null,
+          rate_type: parsed.rateType ?? null,
+          requires_existing_customer: parsed.requiresExistingCustomer,
+          eligible_provider_slug: parsed.requiresExistingCustomer ? (parsed.providerSlug || source.provider_slug) : null,
+          eligibility_note: parsed.eligibilityNote,
+          source_url: fetched.url,
+          source_name: new URL(fetched.url).hostname,
+          detected_by: parsedDeals.length > 1 ? "rate_table_source_catalogue" : "ai_source_catalogue",
+          confidence: parsed.confidence,
+          status: parsed.confidence >= publishThreshold ? "active" : "needs_review",
+          ai_summary: parsed.summary,
+          admin_notes: parsed.confidence >= publishThreshold ? "Auto-published from seeded source because extraction confidence met threshold." : "AI/source extraction needs admin review before users see it.",
+          source_payload: { parsed, parsedDealCount: parsedDeals.length, sourceId: source.id, sourceKind: source.source_kind, productHint: source.product_hint || null },
+          canonical_source: String(source.id),
+          source_product_id: `${parsed.providerSlug || source.provider_slug || normaliseProviderSlug(source.provider_name)}:${String(parsed.productName || source.product_hint || "savings-product").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
+          provider_product_code: null,
+          last_seen_at: now,
+          last_verified_at: now,
+          verification_status: parsed.confidence >= publishThreshold ? "AUTO_VERIFIED" : "REVIEW_REQUIRED",
+          lifecycle_status: parsed.confidence >= publishThreshold ? "ACTIVE" : "DATA_REVIEW",
+          missing_observation_count: 0,
+          raw_payload_hash: createHash("sha256").update(JSON.stringify({ parsed, sourceUrl: fetched.url })).digest("hex"),
+          last_checked_at: now,
+          updated_at: now,
+        } as Record<string, any>;
+        const existing = await supabase
+          .from("savings_rate_deals")
+          .select("id,status")
+          .eq("provider_slug", row.provider_slug)
+          .eq("product_name", row.product_name)
+          .eq("source_url", row.source_url)
+          .maybeSingle();
+        if (existing.error) throw new Error(existing.error.message);
+        const write = existing.data?.id
+          ? await supabase.from("savings_rate_deals").update(row).eq("id", existing.data.id).select("id").single()
+          : await supabase.from("savings_rate_deals").insert(row).select("id").single();
+        if (write.error) throw new Error(write.error.message);
+        if (write.data?.id) {
+          seenDealIds.add(String(write.data.id));
+          await supabase.from("savings_rate_deal_versions").insert({
+            savings_rate_deal_id: write.data.id,
+            lifecycle_status: row.lifecycle_status,
+            verification_status: row.verification_status,
+            gross_aer: row.gross_aer,
+            product_payload: row.source_payload,
+            source_url: row.source_url,
+            source_published_at: row.source_published_at || null,
+            effective_from: now,
+            raw_payload_hash: row.raw_payload_hash,
+          });
+        }
+        if (existing.data?.id) updated += 1;
+        else inserted += 1;
+        sourceWrites += 1;
+        detail.push({ source_id: source.id, deal_id: write.data?.id, provider: row.provider_name, confidence: parsed.confidence, status: row.status, lifecycle_status: row.lifecycle_status, product: row.product_name, rate: row.gross_aer });
+      }
+
+      // One missing observation only moves a product into review. Three consecutive misses
+      // are required before it is treated as withdrawn, preserving what users previously saw.
+      const sourceUrls = Array.from(new Set([source.source_url, fetched.url].filter(Boolean)));
+      const { data: sourceDealRows, error: sourceDealError } = await supabase
         .from("savings_rate_deals")
-        .select("id,status")
-        .eq("provider_slug", row.provider_slug)
-        .eq("product_name", row.product_name)
-        .eq("source_url", row.source_url)
-        .maybeSingle();
-      if (existing.error) throw new Error(existing.error.message);
-      const write = existing.data?.id
-        ? await supabase.from("savings_rate_deals").update(row).eq("id", existing.data.id).select("id").single()
-        : await supabase.from("savings_rate_deals").insert(row).select("id").single();
-      if (write.error) throw new Error(write.error.message);
-      if (existing.data?.id) updated += 1;
-      else inserted += 1;
-      detail.push({ source_id: source.id, deal_id: write.data?.id, provider: source.provider_name, confidence: parsed.confidence, status: row.status, product: row.product_name });
-      await supabase.from("savings_rate_sources").update({ last_checked_at: now, last_success_at: now, last_error: null, updated_at: now }).eq("id", source.id);
+        .select("id,status,lifecycle_status,missing_observation_count,gross_aer,source_payload,source_url,verification_status")
+        .in("source_url", sourceUrls);
+      if (sourceDealError) throw new Error(sourceDealError.message);
+      for (const existingDeal of sourceDealRows || []) {
+        if (seenDealIds.has(String(existingDeal.id))) continue;
+        const missingCount = Number(existingDeal.missing_observation_count || 0) + 1;
+        const withdrawn = missingCount >= 3;
+        const lifecycleStatus = withdrawn ? "WITHDRAWN" : "PENDING_WITHDRAWAL";
+        const missingWrite = await supabase.from("savings_rate_deals").update({
+          missing_observation_count: missingCount,
+          lifecycle_status: lifecycleStatus,
+          status: withdrawn ? "expired" : existingDeal.status,
+          effective_to: withdrawn ? now : null,
+          updated_at: now,
+        }).eq("id", existingDeal.id);
+        if (missingWrite.error) throw new Error(missingWrite.error.message);
+        await supabase.from("savings_rate_deal_versions").insert({
+          savings_rate_deal_id: existingDeal.id,
+          lifecycle_status: lifecycleStatus,
+          verification_status: existingDeal.verification_status || "UNVERIFIED",
+          gross_aer: existingDeal.gross_aer,
+          product_payload: { ...(existingDeal.source_payload || {}), missingObservationCount: missingCount },
+          source_url: existingDeal.source_url,
+          effective_from: now,
+          effective_to: withdrawn ? now : null,
+        });
+        detail.push({ source_id: source.id, deal_id: existingDeal.id, lifecycle_status: lifecycleStatus, missing_observation_count: missingCount });
+      }
+      const sourceUpdate = await supabase.from("savings_rate_sources").update({ last_checked_at: now, last_success_at: now, last_error: null, updated_at: now, last_result_payload: { parsed_deals: parsedDeals.length, writes: sourceWrites } }).eq("id", source.id);
+      if (sourceUpdate.error && /last_result_payload/i.test(sourceUpdate.error.message || "")) {
+        const retry = await supabase.from("savings_rate_sources").update({ last_checked_at: now, last_success_at: now, last_error: null, updated_at: now }).eq("id", source.id);
+        if (retry.error) throw new Error(retry.error.message);
+      } else if (sourceUpdate.error) {
+        throw new Error(sourceUpdate.error.message);
+      }
     } catch (error: any) {
       failed += 1;
       detail.push({ source_id: source.id, provider: source.provider_name, source_url: source.source_url, error: error?.message || "Source refresh failed" });
-      await supabase.from("savings_rate_sources").update({ last_checked_at: now, last_error: error?.message || "Source refresh failed", updated_at: now }).eq("id", source.id);
+      const failUpdate = await supabase.from("savings_rate_sources").update({ last_checked_at: now, last_error: error?.message || "Source refresh failed", updated_at: now }).eq("id", source.id);
+      if (failUpdate.error) detail.push({ source_id: source.id, provider: source.provider_name, update_error: failUpdate.error.message });
     }
   }
 

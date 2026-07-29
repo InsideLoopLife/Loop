@@ -51,7 +51,7 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
   const hasSavingsWatch = createFeatureCache(supabase, "savings_rate_watch");
 
   try {
-    const [{ data: accounts, error: accountsError }, { data: deals, error: dealsError }, { data: relationships }] = await Promise.all([
+    const [{ data: accounts, error: accountsError }, { data: deals, error: dealsError }, { data: relationships }, { data: enabledProfiles }] = await Promise.all([
       supabase
         .from("financial_accounts")
         .select("id, user_id, name, provider, provider_slug, account_type, current_balance, interest_rate, monthly_top_up_amount, savings_watch_enabled")
@@ -60,7 +60,7 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
         .limit(limit),
       supabase
         .from("savings_rate_deals")
-        .select("id, provider_slug, provider_name, product_name, account_type, gross_aer, bonus_rate, requires_existing_customer, eligible_provider_slug, eligibility_note, source_url, status, last_checked_at, confidence")
+        .select("id, provider_slug, provider_name, product_name, account_type, gross_aer, bonus_rate, minimum_balance, maximum_balance, monthly_max_deposit, requires_existing_customer, eligible_provider_slug, eligibility_note, access_type, withdrawal_rules, notice_period_days, term_length_months, rate_type, source_url, status, last_checked_at, confidence")
         .eq("status", "active")
         .order("gross_aer", { ascending: false })
         .limit(500),
@@ -68,11 +68,16 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
         .from("user_financial_provider_relationships")
         .select("user_id, provider_slug, provider_name, relationship_type, is_active")
         .eq("is_active", true),
+      supabase
+        .from("app_user_profiles")
+        .select("user_id, wealth_has_savings")
+        .eq("wealth_has_savings", true),
     ]);
 
     if (accountsError) throw new Error(accountsError.message);
     if (dealsError) throw new Error(dealsError.message);
 
+    const enabledSavingsUsers = new Set((enabledProfiles || []).map((row: any) => String(row.user_id)));
     const relationshipsByUser = new Map<string, Set<string>>();
     for (const rel of relationships || []) {
       const set = relationshipsByUser.get(rel.user_id) || new Set<string>();
@@ -81,6 +86,7 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
     }
 
     for (const account of accounts || []) {
+      if (!enabledSavingsUsers.has(String(account.user_id))) continue;
       if (account.savings_watch_enabled === false) continue;
       if (options.respectTier !== false && !(await hasSavingsWatch(account.user_id))) {
         skippedNoTier += 1;
@@ -110,7 +116,8 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
         const estimatedGain = annualBase * (delta / 100);
         const recommendationKind = deal.provider_slug === account.provider_slug ? "existing_provider_better_rate" : "market_better_rate";
         const eligibilityStatus = needsExisting ? "eligible_existing" : "eligible_open_market";
-        const reason = `${deal.provider_name || deal.provider_slug} is showing ${suggestedRate.toFixed(2)}% vs this account at ${currentRate.toFixed(2)}%. ${needsExisting ? "Included because you have marked the required provider as held." : "Included because it appears open-market rather than existing-customer only."}`;
+        const accessBits = [deal.access_type ? String(deal.access_type).replaceAll("_", " ") : null, deal.notice_period_days ? `${deal.notice_period_days} days notice` : null, deal.term_length_months ? `${deal.term_length_months} month term` : null, deal.withdrawal_rules ? String(deal.withdrawal_rules).slice(0, 140) : null].filter(Boolean).join(" · ");
+        const reason = `${deal.provider_name || deal.provider_slug} is showing ${suggestedRate.toFixed(2)}% vs this account at ${currentRate.toFixed(2)}%. ${needsExisting ? "Included because you have marked the required provider as held." : "Included because it appears open-market rather than existing-customer only."}${accessBits ? ` Access: ${accessBits}.` : ""}`;
 
         const { error } = await supabase.from("savings_rate_recommendations").upsert({
           user_id: account.user_id,
@@ -128,9 +135,25 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
           estimated_annual_gain: estimatedGain,
           source_url: deal.source_url,
           reason,
+          action_summary: accessBits ? `Review ${deal.provider_name || deal.provider_slug} ${deal.product_name || "savings product"}: ${accessBits}` : `Review ${deal.provider_name || deal.provider_slug} ${deal.product_name || "savings product"}.`,
+          suitability_payload: { accessBits, needsExisting, eligibleProvider, accountType: account.account_type, dealAccountType: deal.account_type },
           status: "new",
           updated_at: now,
-          payload: { monthlyTopUp, annualBase, eligibilityNote: deal.eligibility_note, confidence: deal.confidence, lastCheckedAt: deal.last_checked_at },
+          payload: {
+            monthlyTopUp,
+            annualBase,
+            eligibilityNote: deal.eligibility_note,
+            confidence: deal.confidence,
+            lastCheckedAt: deal.last_checked_at,
+            accessType: deal.access_type,
+            withdrawalRules: deal.withdrawal_rules,
+            noticePeriodDays: deal.notice_period_days,
+            termLengthMonths: deal.term_length_months,
+            rateType: deal.rate_type,
+            minimumBalance: deal.minimum_balance,
+            maximumBalance: deal.maximum_balance,
+            monthlyMaxDeposit: deal.monthly_max_deposit,
+          },
         }, { onConflict: "user_id,financial_account_id,savings_rate_deal_id" });
 
         if (!error) {
@@ -152,13 +175,42 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
 }
 
 export async function expireStaleSavingsDeals(supabase: any, staleDays: number, triggeredBy?: string | null) {
+  const now = new Date().toISOString();
   const threshold = new Date(Date.now() - Math.max(1, staleDays) * 24 * 60 * 60 * 1000).toISOString();
-  const { data, error } = await supabase
+  const { data: staleRows, error: readError } = await supabase
     .from("savings_rate_deals")
-    .update({ status: "expired", updated_at: new Date().toISOString(), admin_notes: `Auto-expired by wealth watch because last_checked_at was before ${threshold}. Triggered by ${triggeredBy || "system"}.` })
-    .eq("status", "active")
-    .or(`last_checked_at.is.null,last_checked_at.lt.${threshold}`)
-    .select("id");
-  if (error) throw new Error(error.message);
-  return { expired: data?.length || 0, threshold };
+    .select("id,status,lifecycle_status,missing_observation_count,gross_aer,source_payload,source_url,verification_status")
+    .in("status", ["active", "needs_review"])
+    .or(`last_checked_at.is.null,last_checked_at.lt.${threshold}`);
+  if (readError) throw new Error(readError.message);
+
+  let pending = 0;
+  let withdrawn = 0;
+  for (const deal of staleRows || []) {
+    const missingCount = Number(deal.missing_observation_count || 0) + 1;
+    const shouldWithdraw = missingCount >= 3;
+    const lifecycleStatus = shouldWithdraw ? "WITHDRAWN" : "PENDING_WITHDRAWAL";
+    const { error } = await supabase.from("savings_rate_deals").update({
+      status: shouldWithdraw ? "expired" : deal.status,
+      lifecycle_status: lifecycleStatus,
+      missing_observation_count: missingCount,
+      effective_to: shouldWithdraw ? now : null,
+      updated_at: now,
+      admin_notes: `${shouldWithdraw ? "Withdrawn" : "Pending withdrawal"} after ${missingCount} missing/stale observation(s). Last-check threshold ${threshold}. Triggered by ${triggeredBy || "system"}.`,
+    }).eq("id", deal.id);
+    if (error) throw new Error(error.message);
+    await supabase.from("savings_rate_deal_versions").insert({
+      savings_rate_deal_id: deal.id,
+      lifecycle_status: lifecycleStatus,
+      verification_status: deal.verification_status || "UNVERIFIED",
+      gross_aer: deal.gross_aer,
+      product_payload: { ...(deal.source_payload || {}), missingObservationCount: missingCount, staleThreshold: threshold },
+      source_url: deal.source_url,
+      effective_from: now,
+      effective_to: shouldWithdraw ? now : null,
+    });
+    if (shouldWithdraw) withdrawn += 1;
+    else pending += 1;
+  }
+  return { pending_withdrawal: pending, withdrawn, threshold };
 }

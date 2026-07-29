@@ -1,0 +1,17 @@
+{
+  "name": "insideloop-stage2-beta-security",
+  "version": "2.0.0-stage2",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.mount.example.js",
+    "check": "node --check src/*.js src/routes/*.js src/middleware/*.js src/services/*.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0"
+  }
+}

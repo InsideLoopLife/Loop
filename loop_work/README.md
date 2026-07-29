@@ -1,78 +1,98 @@
-# Files to add to git — drop into `loop_work/` at these exact paths
+## Latest update
 
-**Update (after your first push):** your codebase already relocated
-`app/investments/actions.ts` → `lib/investments/actions.ts` — confirmed
-on GitHub, and your Moneybox fix survived that move intact. All six
-files below that import from it have been corrected to
-`@/lib/investments/actions`. The stray old-path file is removed from
-this package; don't add it back.
+### v28.84 — User-chosen navigation and account modal
+- Restored Financial Flow to the primary Wealth navigation.
+- Restored the Wealth / Health switch in both side and top navigation.
+- Replaced the clipped sidebar Account flyout with a full viewport modal.
+- Added a one-time signed-in choice between side and top navigation.
+- Added the permanent layout control to Account → Personal.
+- Added cross-device choice tracking through `ui_navigation_layout_chosen_at`.
 
-Also added: `scripts/market-data-direct-worker.ts` — this still had the
-old broken `@/lib/supabase/admin` import on GitHub after your last push
-(your local `requireFromWorker` fix hadn't made it in yet).
+# v27.65 Food Log SQL Fix 2
 
-Everything in this folder mirrors your repo's `loop_work/` structure.
-Copy each file to the matching path, overwriting where one already
-exists, then `git add`, commit, and push.
+This fixes the v27.64 error:
 
-## Replace these existing files
-```
-app/accounts/page.tsx
-app/api/investments/history/route.ts
-components/account/AccountJobsPanel.tsx
-components/household/PersonCalendarPlanner.tsx
-components/income/IncomeTrackerClient.tsx
-components/investments/AmplifiedInvestmentsDashboard.tsx
-components/investments/PensionsInvestmentsClient.tsx
-components/lifestyle/FamilyPlanningClient.tsx
-components/lifestyle/LifestyleClient.tsx
-components/mortgage/MortgagePlannerClient.tsx
-lib/investments/market-data.ts
-lib/investments/pension-contribution-runner.ts
-scripts/market-data-direct-worker.ts
+```txt
+ERROR: 42601: VALUES lists must all be the same length
+LINE 379: 'allergen_validation',
 ```
 
-## Add these new files
-```
-components/household/PayEventWizard.tsx
-components/investments/AddInvestmentAccountWizard.tsx
-components/investments/AddInvestmentHoldingWizard.tsx
-components/investments/AddPensionAccountWizard.tsx
-components/investments/AddPensionFundWizard.tsx
-components/lifestyle/BillWizard.tsx
-components/lifestyle/FamilyPlanningWizards.tsx
-components/lifestyle/MealWizard.tsx
-components/mortgage/HomeWizard.tsx
-components/mortgage/MortgageWizard.tsx
-components/mortgage/MoveQueryWizard.tsx
-components/mortgage/ValuationWizard.tsx
-components/savings/SavingsAccountWizard.tsx
-components/ui/CollapsibleSection.tsx
+The allergen policy seed row was missing one boolean value.  
+This file also avoids expression-based `ON CONFLICT` for the serving-size seed rows.
+
+## Run this
+
+```sql
+-- db/v27_65_food_log_sql_fix_2.sql
 ```
 
-All 27 files pass an esbuild syntax check. Not a full `tsc`/build — run
-that before deploying. Your editor was showing 3 problems across
-`actions.ts`/`pension-contribution-runner.ts` before this fix — the
-import-path issue accounts for at least part of that; if anything's
-still flagged after this update, send over the exact Problems panel
-text and I'll chase it down precisely rather than guess.
+## Verify
 
-## Deliberately NOT included, and why
+```sql
+select * from public.app_v2765_healthcheck();
+```
 
-**Childcare overhaul files** (`ChildCostWizard.tsx`, `childcareRegistry.ts`,
-etc.) — checked, and your codebase already has these, byte-for-byte.
-Nothing to do there.
+## Test
 
-**`app/investments/page.tsx`** — the version I'd patched earlier (for a
-pension chart data-fetch) is now well out of sync with your current
-file. Rather than overwrite your newer work with my stale copy, I dropped
-it. Nothing currently reads the prop it used to feed, so nothing is lost
-by skipping it.
+```sql
+select public.app_food_serving_options_for_query('red bull sugarfree');
+select public.app_food_serving_options_for_query('hype sauce');
+select public.app_food_log_drink_volume_required('drink', 'drink_product', null, null);
+```
 
-**`components/investments/PensionPerformanceOverview.tsx`** — the pension
-overview redesign I built earlier assumed a simpler page structure. Your
-codebase has since grown a proper "Pension live view" (`pension-command`
-experience) that looks like it already covers similar ground — including
-my old version risked conflicting with or regressing that. Worth a quick
-look together before deciding if anything from the old component is still
-worth pulling in.
+
+## v27.91.2 SQL hotfix
+Run `db/v27_91_2_savings_match_view_hotfix.sql` before rerunning `db/v27_91_savings_typeahead_deals.sql` if Supabase complains about changing the savings match view column order.
+
+## v28.10 note
+
+Adds `/admin/future-integrations` for LOOP Inbox / Email-to-LOOP provider setup, DNS checklist and product launch tasks. Run `db/v28_10_loop_inbox_postmark_admin_checklist.sql` after v28.08 and v28.09.
+
+## v28.13 update
+
+Adds Admin > House for provider-light mortgage catalogue refresh, user-reported mortgage deal quality loop, admin-domain nav pages for Investments / House / Savings, and UPRN/EPC/council-tax setup guidance.
+
+Run:
+
+```sql
+db/v28_13_ai_mortgage_catalogue_admin_reorg.sql
+```
+
+### v28.17 — Property move planner + mortgage comparison hardening
+- Better listing title, council-tax band, EPC and image extraction for saved moving-home searches.
+- Moving-home cards now show image, score, price/mortgage/running costs and a More details comparison modal.
+- Mortgage deals now have search/filter and selectable comparison with adjustable term and optional absorbed costs.
+- Archived moving-home searches are queued for deletion after 14 days via `/api/cron/property-archive-cleanup`.
+- Run `db/v28_17_property_move_confidence_mortgage_compare.sql` after v28.16.
+
+## V28.18 - Investment pie organiser, pensions, cash and ISA tracking
+
+Adds manual pie mapping for provider-imported holdings, pension pot settings, DB pension rule-source handling, provider cash/ISA fields and SnapTrade purchase-lot capture where the broker exposes lot/transaction data. Run `db/v28_18_investment_pie_pension_cash_isa_logic.sql` after the v28.17 migration.
+
+## v28.20 - Property move council tax/running-cost polish
+
+Run after v28.19.1:
+
+```sql
+db/v28_20_property_move_council_tax_running_costs.sql
+```
+
+This improves moving-home URL ingestion, council-tax band/source confidence, map fallback, primary/second-property assumptions and the clickable mortgage-payment range.
+
+
+## Latest update
+
+See `UPDATE_V28_89_PORTFOLIO_UI_HISTORY_INTERACTION.md` for the current portfolio layout, period-history, diversification and cost-basis interaction update.
+
+## v28.92 code boundaries
+
+The application now has non-breaking domain modules under `domains/` for
+Identity/Account, Wealth, Health and shared Market data. Platform concerns such
+as database clients, permissions and worker boundaries live under `platform/`.
+Existing routes and database tables remain unchanged.
+
+See `docs/CODE_DOMAIN_BOUNDARIES_V28_92.md` and run:
+
+```bash
+npm run check:boundaries
+```

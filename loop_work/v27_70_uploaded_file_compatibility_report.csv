@@ -1,0 +1,4 @@
+file,products,has_import_cards,has_source_snapshots,has_serving_options,has_source_allergens,source_urls,price_values,main_image_urls,image_harvest_mode,alcohol_products,ingredient_texts,allergen_contains_rows,allergen_may_rows
+loop_aldi_food_drink_import_csvs.zip,156,True,True,True,True,156,154,0,fetch_from_aldi_source_page,20,156,0,0
+loop_lidl_food_drink_import_csvs.zip,75,True,True,True,True,75,36,0,fetch_from_source_page,18,75,23,13
+loop_tesco_food_drink_import_csvs.zip,48,True,True,True,True,48,48,0,fetch_from_source_page,0,12,6,1

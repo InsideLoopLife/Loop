@@ -1,0 +1,2 @@
+provider_name,product_name,product_type,rate_aer,rate_type,min_monthly,max_monthly,max_balance,term_months,access_type,fscs_covered,requires_current_account,requires_switch,requires_direct_debits,requires_min_monthly_pay_in,min_monthly_pay_in,new_customers_only,eligibility_notes,opening_url,source_url,status
+Example Bank,Example Regular Saver,regular_saver,5.00,variable,1,200,,12,restricted,true,true,false,false,false,,false,Example only - replace with verified deal,,,draft

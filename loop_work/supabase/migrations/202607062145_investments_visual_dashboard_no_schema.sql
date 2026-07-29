@@ -1,0 +1,2 @@
+-- LOOP v28.61 investments visual dashboard
+-- No schema changes. Safe no-op migration for release tracking.

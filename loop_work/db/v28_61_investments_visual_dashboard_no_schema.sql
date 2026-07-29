@@ -1,0 +1,9 @@
+-- LOOP v28.61 investments visual dashboard
+-- No database schema changes are required for this UI pass.
+-- The dashboard uses existing tables:
+--   investment_accounts
+--   investment_holdings
+--   investment_price_snapshots
+--   investment_purchase_lots
+-- Make sure v28.60 has already been run so price snapshots, previous-close seeding,
+-- pension contribution schedules, NI top-up modelling, and reinvestment lots exist.

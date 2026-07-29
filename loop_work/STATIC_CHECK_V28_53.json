@@ -1,0 +1,12 @@
+{
+  "release": "v28.53",
+  "npm_ci": "passed",
+  "changed_file_imports": "passed",
+  "worker_dynamic_import": "passed - no @/lib dynamic import module error",
+  "next_build_compile": "passed",
+  "next_build_typescript_stage": "timed_out_in_sandbox",
+  "notes": [
+    "Run db/v28_53_infra_market_loopwatch_repair.sql before retesting Supabase logs.",
+    "Optional storage hardening is separate to avoid breaking public avatar URLs without visual testing."
+  ]
+}

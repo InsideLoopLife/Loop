@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { requireAdminAccess, createBestAdminClient } from "@/lib/admin/access";
 import { describeSupabaseAdminKey } from "@/lib/supabase/admin";
 import { writeAdminAuditEvent } from "@/lib/admin/audit";
+import { runInvestmentPriceSnapshotJob, backfillMoneyboxHoldingIsins, repairImplausibleDayChanges } from "@/lib/investments/price-snapshot-runner";
+import { runPensionProviderRefresh } from "@/lib/investments/pension-provider-refresh";
+import { runPensionContributionProjection } from "@/lib/investments/pension-contribution-runner";
+import { runRegularInvestmentReinvestmentProjection } from "@/lib/investments/regular-investment-runner";
 
 function adminClient() {
   const supabase = createBestAdminClient();
@@ -63,4 +67,53 @@ export async function pruneInvestmentSnapshotsNow() {
   }
   await writeAdminAuditEvent({ actionKey: "investment_snapshots_prune_manual", entityKind: "investment_price_snapshots", afterPayload: { user_snapshots: data, global_points: global.data, global_error: global.error?.message }, severity: "warning" });
   revalidatePath("/admin/investment-storage");
+}
+
+
+export async function repairImplausibleDayChangesNow() {
+  const access = await requireAdminAccess();
+  const supabase = adminClient();
+  const result = await repairImplausibleDayChanges(supabase, { thresholdPercent: 20, logger: console });
+  await writeAdminAuditEvent({
+    actionKey: "investment_day_change_repair_manual",
+    entityKind: "investment_holdings",
+    afterPayload: result,
+    severity: "info",
+  });
+  revalidatePath("/admin/investment-storage");
+  revalidatePath("/investments");
+  return result;
+}
+
+export async function backfillMoneyboxIsinsNow() {
+  const access = await requireAdminAccess();
+  const supabase = adminClient();
+  const result = await backfillMoneyboxHoldingIsins(supabase, { logger: console });
+  await writeAdminAuditEvent({
+    actionKey: "moneybox_isin_backfill_manual",
+    entityKind: "investment_holdings",
+    afterPayload: result,
+    severity: "info",
+  });
+  revalidatePath("/admin/investment-storage");
+  revalidatePath("/investments");
+  return result;
+}
+
+export async function runFullInvestmentPensionSyncNow() {
+  const access = await requireAdminAccess();
+  const supabase = adminClient();
+  const priceSnapshots = await runInvestmentPriceSnapshotJob({ force: true, prune: true, logger: console });
+  const pensionProviderRefresh = await runPensionProviderRefresh(supabase, { logger: console });
+  const pensionContributions = await runPensionContributionProjection(supabase, { force: false, lookbackMonths: 3, logger: console });
+  const investmentReinvestments = await runRegularInvestmentReinvestmentProjection(supabase, { force: false, lookbackMonths: 2, logger: console });
+  await writeAdminAuditEvent({
+    actionKey: "investment_pension_full_sync_manual",
+    entityKind: "wealth_investments",
+    afterPayload: { priceSnapshots, pensionProviderRefresh, pensionContributions, investmentReinvestments },
+    severity: "info",
+  });
+  revalidatePath("/admin/investment-storage");
+  revalidatePath("/investments");
+  return { priceSnapshots, pensionProviderRefresh, pensionContributions, investmentReinvestments };
 }

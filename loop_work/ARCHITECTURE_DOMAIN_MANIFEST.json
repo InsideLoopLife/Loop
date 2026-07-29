@@ -1,0 +1,42 @@
+{
+  "version": "28.92",
+  "databaseMigrationRequired": false,
+  "domains": {
+    "identity": [
+      "auth",
+      "household",
+      "entitlements",
+      "profile",
+      "sharing",
+      "account"
+    ],
+    "wealth": [
+      "financial-flow",
+      "investments",
+      "house",
+      "access"
+    ],
+    "health": [
+      "nutrition",
+      "lifestyle",
+      "access"
+    ],
+    "market": [
+      "prices"
+    ]
+  },
+  "platform": [
+    "database",
+    "permissions",
+    "workers",
+    "audit",
+    "cross-domain"
+  ],
+  "compatibilityAdapters": [
+    "lib/supabase/server.ts",
+    "lib/supabase/client.ts",
+    "lib/supabase/admin.ts",
+    "lib/auth/household-context.ts",
+    "lib/features/user-feature-access.ts"
+  ]
+}

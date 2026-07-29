@@ -1,0 +1,8 @@
+{
+  "version": "28.79",
+  "changed_typecheck": "passed",
+  "worker_node_syntax": "passed",
+  "pure_logic_smoke_test": "passed",
+  "next_webpack_compile": "compiled_with_existing_supabase_edge_warning_then_full_build_exceeded_execution_window",
+  "migration": "supabase/migrations/202607101430_savings_intelligence_interest_pots_flow.sql"
+}

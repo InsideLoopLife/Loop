@@ -58,6 +58,7 @@ type PensionFund = {
   price_as_of_date: string;
   fee_source_url: string | null;
   notes: string | null;
+  glossary_id: string | null;
 };
 type InvestmentAccount = {
   id: string;
@@ -213,7 +214,7 @@ export default async function InvestmentsPage() {
   const [peopleResult, pensionAccountsResult, pensionFundsResult, investmentAccountsResult, investmentAccountOwnersResult, investmentPieSettingsResult, investmentHoldingsResult, investmentLotsResult, dbPensionSchemesResult, dbPensionEventsResult, payEventsResult, profileResult, snapTradeConnectionResult] = await Promise.all([
     supabase.from("people").select("id, name, relationship, avatar_url, linked_user_id").eq("user_id", dataOwnerUserId).order("relationship").returns<Person[]>(),
     supabase.from("pension_accounts").select("id, person_id, label, provider, pension_type, contribution_method, employee_contribution_percent, employer_contribution_percent, employer_ni_topup_percent, employer_ni_topup_enabled, fixed_monthly_contribution, annual_platform_fee_percent, fixed_monthly_fee, current_value, value_as_of_date, source_url, contribution_frequency, contribution_day, contribution_paused, contribution_started_on, contribution_ended_on, valuation_mode, notes").eq("user_id", dataOwnerUserId).order("created_at", { ascending: false }).returns<PensionAccount[]>(),
-    supabase.from("pension_funds").select("id, pension_account_id, fund_name, fund_code, group_label, target_allocation_percent, monthly_contribution_percent, contribution_active, current_value, units, unit_price, annual_fund_fee_percent, price_as_of_date, fee_source_url, notes").eq("user_id", dataOwnerUserId).order("created_at", { ascending: true }).returns<PensionFund[]>(),
+    supabase.from("pension_funds").select("id, pension_account_id, fund_name, fund_code, group_label, target_allocation_percent, monthly_contribution_percent, contribution_active, current_value, units, unit_price, annual_fund_fee_percent, price_as_of_date, fee_source_url, notes, glossary_id").eq("user_id", dataOwnerUserId).order("created_at", { ascending: true }).returns<PensionFund[]>(),
     supabase.from("investment_accounts").select("id, person_id, label, provider, account_type, annual_platform_fee_percent, fixed_monthly_fee, notes, external_provider, external_account_id, external_connection_id, external_account_raw, provider_import_enabled, provider_cash_value, provider_investable_cash_value, provider_dividend_cash_value, provider_cash_source, provider_isa_subscribed_amount, provider_isa_remaining_amount, provider_isa_allowance_year, sync_status, last_provider_sync_at").eq("user_id", dataOwnerUserId).neq("record_status", "archived").order("created_at", { ascending: false }).returns<InvestmentAccount[]>(),
     supabase.from("investment_account_owners").select("investment_account_id, person_id").eq("user_id", dataOwnerUserId).returns<InvestmentAccountOwner[]>(),
     supabase.from("investment_pie_settings").select("id, investment_account_id, group_label, monthly_reinvest_amount, reinvest_frequency, expected_dividend_yield_percent, auto_reinvest_dividends, notes").eq("user_id", dataOwnerUserId).returns<InvestmentPieSetting[]>(),
@@ -243,6 +244,32 @@ export default async function InvestmentsPage() {
     .limit(100)
     .returns<InvestmentCoveragePlaceholder[]>();
 
+  // "Since last price check" badges on the pension overview: only real,
+  // logged price changes for funds resolved against the provider glossary —
+  // never fabricated. Funds without a glossary_id, or without an applied
+  // change yet, simply show "no data yet" in the UI rather than a number.
+  const pensionGlossaryIds = Array.from(
+    new Set((pensionFundsResult.data ?? []).map((fund) => fund.glossary_id).filter((id): id is string => Boolean(id))),
+  );
+  let pensionFundPriceChanges: Record<string, { previousPrice: number; proposedPrice: number; checkedAt: string }> = {};
+  if (pensionGlossaryIds.length > 0) {
+    const { data: priceChangeLogData } = await supabase
+      .from("provider_fund_price_change_log")
+      .select("glossary_id, previous_price, proposed_price, checked_at")
+      .in("glossary_id", pensionGlossaryIds)
+      .eq("applied", true)
+      .order("checked_at", { ascending: false });
+    for (const row of priceChangeLogData ?? []) {
+      // Rows are ordered newest-first; keep only the first (latest) one seen per glossary_id.
+      if (!row.glossary_id || pensionFundPriceChanges[row.glossary_id]) continue;
+      pensionFundPriceChanges[row.glossary_id] = {
+        previousPrice: Number(row.previous_price),
+        proposedPrice: Number(row.proposed_price),
+        checkedAt: row.checked_at,
+      };
+    }
+  }
+
   return (
     <>
       <Nav />
@@ -250,6 +277,7 @@ export default async function InvestmentsPage() {
         people={peopleResult.data ?? []}
         pensionAccounts={pensionAccountsResult.data ?? []}
         pensionFunds={pensionFundsResult.data ?? []}
+        pensionFundPriceChanges={pensionFundPriceChanges}
         investmentAccounts={investmentAccountsResult.data ?? []}
         investmentAccountOwners={investmentAccountOwnersResult.data ?? []}
         investmentPieSettings={investmentPieSettingsResult.data ?? []}

@@ -9,7 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createBestAdminClient, getAdminAccess } from "@/lib/admin/access";
 import { loadInvestmentSnapshotSettings } from "@/lib/investments/snapshot-settings";
 import { aiGuardrailEnvSummary } from "@/lib/ai/usage";
-import { pruneInvestmentSnapshotsNow, saveInvestmentSnapshotSettings } from "./actions";
+import { pruneInvestmentSnapshotsNow, saveInvestmentSnapshotSettings, runFullInvestmentPensionSyncNow, backfillMoneyboxIsinsNow, repairImplausibleDayChangesNow } from "./actions";
 
 function inputClass() {
   return "mt-1 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 placeholder:text-slate-400 outline-none ring-orange-500 transition focus:border-orange-400 focus:ring-2";
@@ -136,12 +136,23 @@ export default async function InvestmentStorageAdminPage() {
   }
 
   const supabase = createBestAdminClient() || await createClient();
-  const [settings, usage, recent, aiUsage] = await Promise.all([
+  const [settings, usage, recent, aiUsage, lastSyncAudit] = await Promise.all([
     loadInvestmentSnapshotSettings(supabase),
     getStorageUsage(supabase),
     getRecentPricePoints(supabase),
     getAiUsageSummary(supabase),
+    supabase
+      .from("loop_admin_audit_events")
+      .select("action_key, after_payload, created_at")
+      .in("action_key", ["investment_pension_full_sync_manual", "investment_day_change_repair_manual", "moneybox_isin_backfill_manual"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
+  const lastSyncNotes: string[] = [
+    ...(lastSyncAudit.data?.after_payload?.pensionContributions?.notes || []),
+    ...(lastSyncAudit.data?.after_payload?.investmentReinvestments?.notes || []),
+  ];
   const aiEnv = aiGuardrailEnvSummary();
 
   const manualVsStored = settings.enabled
@@ -152,6 +163,17 @@ export default async function InvestmentStorageAdminPage() {
     <>
       <AutoRefreshClient intervalMs={30000} />
       <main className="mx-auto w-[95vw] max-w-none space-y-8 px-4 py-8 md:px-6">
+      {lastSyncNotes.length ? (
+        <section className="rounded-[2rem] border border-amber-200 bg-amber-50 p-6">
+          <p className="text-xs font-black uppercase tracking-wide text-amber-700">Last sync — things that need attention</p>
+          <p className="mt-1 text-sm font-semibold text-amber-800">From {new Date(lastSyncAudit.data?.created_at || Date.now()).toLocaleString("en-GB")}. If a pension or investment isn't updating as expected, the reason is usually spelled out here.</p>
+          <ul className="mt-3 space-y-2">
+            {lastSyncNotes.map((note, index) => (
+              <li key={index} className="rounded-2xl border border-amber-200 bg-white p-3 text-sm font-semibold text-amber-900">{note}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <section className="relative overflow-hidden rounded-[2.5rem] bg-slate-950 p-7 text-white shadow-[0_30px_120px_-70px_rgba(15,23,42,.9)]">
         <div className="relative flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div>
@@ -180,6 +202,36 @@ export default async function InvestmentStorageAdminPage() {
         <StatCard title="AI estimated cost 24h" value={`£${Number(aiUsage.estimatedCost24h || 0).toFixed(2)}`} helper="only if rates are configured" />
         <StatCard title="AI guardrail" value={aiEnv.aiMarketSearchEnabled ? "Open" : "Locked"} helper={aiEnv.webSearchMarketLookupEnabled ? "web search allowed" : "web search blocked"} />
       </div>
+
+      <section className="rounded-[2rem] border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-black text-emerald-950">One-click investment + pension update</h2>
+            <p className="mt-1 max-w-4xl text-sm font-bold text-emerald-800">Runs stock/ETF price snapshots, pension provider-value refresh, salary-sacrifice/NI contribution projections, and optional pie reinvestment lots. Use this now; cron can call the same pipeline later.</p>
+          </div>
+          <form action={runFullInvestmentPensionSyncNow}>
+            <button className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-emerald-800">Run full sync now</button>
+          </form>
+        </div>
+        <div className="mt-4 flex flex-col gap-3 rounded-3xl border border-sky-200 bg-sky-50 p-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-black text-sky-950">Backfill Moneybox ISINs</p>
+            <p className="mt-1 max-w-3xl text-sm font-bold text-sky-800">One-time (safely re-runnable) fix for Moneybox holdings created before the fund catalogue carried real ISINs. Only updates the ISIN field — never touches units or price — so it's safe to run any time. Run this once after deploying an updated Moneybox fund catalogue, then let the normal price sync pick up real pricing from there.</p>
+          </div>
+          <form action={backfillMoneyboxIsinsNow}>
+            <button className="rounded-2xl bg-sky-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-sky-800">Backfill ISINs now</button>
+          </form>
+        </div>
+        <div className="mt-4 flex flex-col gap-3 rounded-3xl border border-red-200 bg-red-50 p-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-black text-red-950">Repair implausible day-change figures</p>
+            <p className="mt-1 max-w-3xl text-sm font-bold text-red-800">Clears any stored 1-day change (and its previous-close/day-open reference) beyond ±20%, which is now cross-checked against a fresh same-call quote automatically going forward — this button is for cleaning up anything already stuck from before that fix. Doesn't touch price, units or value, only the day-change fields, so the next successful price check recomputes them cleanly.</p>
+          </div>
+          <form action={repairImplausibleDayChangesNow}>
+            <button className="rounded-2xl bg-red-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-red-800">Repair now</button>
+          </form>
+        </div>
+      </section>
 
       <section className="grid gap-6 xl:grid-cols-[.9fr_1.1fr]">
         <SectionCard title="Storage settings" description="Store one raw share-price point per ticker/exchange, not per user holding. User charts multiply these shared prices by their own units, so one stored Apple/LSE/NYSE point can serve every eligible user.">

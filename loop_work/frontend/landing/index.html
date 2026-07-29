@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Inside LOOP — Something is happening</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="description" content="Inside LOOP is a private health and wealth platform currently in closed beta.">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="loop-shell">
+    <section class="hero">
+      <div class="badge">Closed beta · insideloop.life</div>
+      <h1>Something is happening inside the loop.</h1>
+      <p class="lead">
+        A private health and wealth dashboard for families — bringing food, habits,
+        markets, AI insights and household planning into one place.
+      </p>
+
+      <div class="access-card" id="accessCard">
+        <h2>Beta access</h2>
+        <p>Enter your private access code to reveal the login and account creation page.</p>
+        <form id="accessForm">
+          <label for="accessCode">Access code</label>
+          <div class="access-row">
+            <input id="accessCode" name="code" autocomplete="one-time-code" placeholder="XXXX-XXXX-XXXX" required>
+            <button type="submit">Continue</button>
+          </div>
+          <p class="status" id="accessStatus"></p>
+        </form>
+      </div>
+
+      <div class="login-card hidden" id="loginCard">
+        <h2>Welcome to Inside LOOP</h2>
+        <p>Use your beta code to create an account, or log in if your account already exists.</p>
+
+        <div class="tabs">
+          <button class="tab active" data-tab="signup" type="button">Create account</button>
+          <button class="tab" data-tab="login" type="button">Log in</button>
+        </div>
+
+        <form id="signupForm" class="panel active">
+          <input name="displayName" placeholder="Your name">
+          <input name="email" type="email" placeholder="Email address" required>
+          <input name="password" type="password" placeholder="Password — minimum 10 characters" required>
+          <input name="code" placeholder="Access code" required>
+          <button type="submit">Create beta account</button>
+          <p class="status" id="signupStatus"></p>
+        </form>
+
+        <form id="loginForm" class="panel">
+          <input name="email" type="email" placeholder="Email address" required>
+          <input name="password" type="password" placeholder="Password" required>
+          <button type="submit">Log in</button>
+          <p class="status" id="loginStatus"></p>
+        </form>
+      </div>
+
+      <footer>
+        <a href="mailto:dan@insideloop.life">dan@insideloop.life</a>
+        <span>·</span>
+        <a href="mailto:help@insideloop.life">help@insideloop.life</a>
+        <span>·</span>
+        <a href="mailto:privacy@insideloop.life">privacy@insideloop.life</a>
+      </footer>
+    </section>
+
+    <section class="visual-stage" aria-hidden="true">
+      <div class="orb orb-a"></div><div class="orb orb-b"></div>
+      <article class="float-card stock-card card-a"><div class="card-top"><strong>GNX</strong><span>+4.8%</span></div><svg viewBox="0 0 220 90"><path d="M4 72 C32 58,44 78,68 51 C92 23,108 38,130 31 C155 23,168 49,191 29 C204 17,213 21,218 12"/></svg><small>Portfolio momentum</small></article>
+      <article class="float-card health-card card-b"><div class="card-top"><strong>Health rhythm</strong><span>82</span></div><div class="bars"><i style="height:40%"></i><i style="height:66%"></i><i style="height:54%"></i><i style="height:78%"></i><i style="height:62%"></i><i style="height:88%"></i></div><small>Sleep · energy · recovery</small></article>
+      <article class="float-card recipe-card card-c"><div class="recipe-image">🥗</div><strong>High-protein bowl</strong><p>32g protein · 9g fibre · steady energy</p></article>
+      <article class="float-card stock-card card-d"><div class="card-top"><strong>LOOP 100</strong><span>-0.7%</span></div><svg viewBox="0 0 220 90"><path d="M4 24 C26 21,35 48,55 42 C78 34,93 69,118 55 C146 39,160 44,177 29 C194 15,207 41,218 33"/></svg><small>Watchlist volatility</small></article>
+      <article class="float-card recipe-card card-e"><div class="recipe-image">☕</div><strong>Morning log</strong><p>Coffee · hydration · nutrition context</p></article>
+    </section>
+  </main>
+
+  <script>
+    window.INSIDE_LOOP_CONFIG = {
+      apiBase: "",
+      supabaseUrl: "YOUR_SUPABASE_URL",
+      supabaseAnonKey: "YOUR_SUPABASE_ANON_KEY",
+      appUrl: "https://insideloop.life"
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./landing.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "admin_page_uses_dashboard_rpc": true,
+  "admin_page_uses_users_rpc": true,
+  "admin_page_uses_products_rpc": true,
+  "has_backfill_action": true,
+  "has_admin_users_page": true,
+  "has_product_quality_rpc_page": true,
+  "has_sql_backfill_function": true
+}

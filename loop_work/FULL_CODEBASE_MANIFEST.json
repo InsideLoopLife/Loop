@@ -1,0 +1,24 @@
+{
+  "name": "LOOP-v27-75-FULL-CODEBASE",
+  "base": "LOOP-v27-70-import-price-shopping.zip",
+  "overlays": [
+    "insideloop-v27-62-plan-admin-control-fix.zip",
+    "LOOP-v27-71-product-identity-barcode-match-first.zip",
+    "LOOP-v27-72-admin-domain-money-strategy.zip",
+    "LOOP-v27-73-money-daily-deal-watch.zip",
+    "LOOP-v27-74-admin-ops-assets.zip",
+    "LOOP-v27-75-property-estimate-mode.zip"
+  ],
+  "manual_fixes": [
+    "merged middleware.ts",
+    "fixed app/admin/products/quality import path",
+    "added catch-up SQL bundle",
+    "updated package scripts/env example"
+  ],
+  "version": "v28.92",
+  "repair": "code_domain_boundary_refactor",
+  "sql_to_run_first": "db/v27_76_deployment_error_repair.sql",
+  "catchup_sql": "db/RUN_CATCHUP_V27_62_TO_V27_76.sql",
+  "update": "Non-breaking Account/Identity, Wealth, Health, Market and Platform code boundaries with central permission and database-client layers.",
+  "sql_to_run_latest": "No new v28.92 migration. Database tables and RLS are unchanged."
+}

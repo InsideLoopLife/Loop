@@ -71,7 +71,7 @@ export function investmentDataEntitlementForProfile(profile?: TierProfile | null
   // Connecting a paid provider is allowed before the provider is already live.
   // Otherwise SnapTrade becomes a chicken-and-egg flow: users cannot connect because
   // the app waits for providerLive, but providerLive can only become true after connection.
-  const canConnectPaidProvider = hasPaidOrReviewedPlan && (requestedRealtime || paymentTier === "pro" || paymentTier === "realtime" || paymentTier === "enterprise");
+  const canConnectPaidProvider = hasPaidOrReviewedPlan && (requestedRealtime || paymentTier === "pro");
   const canUseRealtimePrices = hasPaidOrReviewedPlan && requestedRealtime && providerLive;
   const realtimeBlockedReason = requestedRealtime && !hasPaidOrReviewedPlan
     ? "Realtime was requested, but the payment tier/status is not eligible yet."

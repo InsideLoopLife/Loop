@@ -1,0 +1,50 @@
+services:
+  - type: cron
+    name: loop-daily-savings-rates
+    runtime: node
+    plan: starter
+    # Render schedules in UTC. Running at both 07:00 and 08:00 UTC plus the
+    # Europe/London guard below gives one real 08:00 run through GMT and BST.
+    schedule: "0 7,8 * * *"
+    buildCommand: npm ci
+    startCommand: node scripts/run-savings-rate-watch.mjs
+    envVars:
+      - key: APP_BASE_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: SAVINGS_WATCH_MODE
+        value: full
+      - key: SAVINGS_WATCH_RUN_KIND
+        value: daily_8am_europe_london
+      - key: SAVINGS_WATCH_TIMEZONE
+        value: Europe/London
+      - key: SAVINGS_WATCH_ENFORCE_LOCAL_HOUR
+        value: "true"
+
+  - type: cron
+    name: loop-annual-pension-performance
+    runtime: node
+    plan: starter
+    # Refresh the stored 5y/10y annualised unit-price evidence once a year.
+    schedule: "15 4 5 1 *"
+    buildCommand: npm ci
+    startCommand: node scripts/run-pension-performance-refresh.mjs
+    envVars:
+      - key: APP_BASE_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+
+  - type: cron
+    name: loop-daily-financial-briefing
+    runtime: node
+    plan: starter
+    schedule: "20 6 * * *"
+    buildCommand: npm ci
+    startCommand: npm run cron:financial-briefing
+    envVars:
+      - key: APP_BASE_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false

@@ -1,0 +1,48 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/money-deals-daily",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/deal-news-review",
+      "schedule": "15 8 * * *"
+    },
+    {
+      "path": "/api/cron/admin-alerts-refresh",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/uptime-checks",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/product-price-refresh",
+      "schedule": "30 8 * * *"
+    },
+    {
+      "path": "/api/cron/savings-rate-watch",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/mortgage-catalogue-refresh",
+      "schedule": "40 7 * * *"
+    },
+    {
+      "path": "/api/cron/mortgage-renewal-watch",
+      "schedule": "10 8 * * *"
+    },
+    {
+      "path": "/api/cron/snaptrade-position-snapshots",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/investment-price-snapshots",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/investment-coverage-requests",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "invalid_unique_lower_pattern_in_executable_sql": false,
+  "invalid_unique_coalesce_table_constraint_pattern_in_executable_sql": false,
+  "duplicate_safe_gen_random_bytes_block": true,
+  "healthcheck_function_present": true
+}

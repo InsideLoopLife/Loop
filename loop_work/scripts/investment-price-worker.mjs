@@ -33,24 +33,13 @@ const runOnStart = asBool(process.env.MARKET_DATA_WORKER_RUN_ON_START, true);
 const priceForce = asBool(process.env.MARKET_DATA_WORKER_FORCE_PRICE || process.env.INVESTMENT_PRICE_WORKER_FORCE, false);
 const workerDisabled = asBool(process.env.MARKET_DATA_WORKER_DISABLED, false);
 
-// Timeout for the worker's own call into the Next.js app. Even with the
-// tiered/timeout-guarded quote fetching added in market-data.ts, this is a
-// second layer of defence: if the app-side request itself hangs (proxy issue,
-// DB stall, etc.) the worker must not wait forever.
-const CRON_CALL_TIMEOUT_MS = asPositiveInt(process.env.MARKET_DATA_WORKER_CALL_TIMEOUT_MS, 90_000, 5_000, 600_000);
-
-// Watchdog: if a run's "running" flag is somehow still set after this long
-// (e.g. an unhandled hang that slipped past the timeout above), force-clear it
-// so scheduling can recover instead of skipping forever.
-const RUN_WATCHDOG_MS = asPositiveInt(process.env.MARKET_DATA_WORKER_WATCHDOG_MS, 5 * 60_000, 30_000, 3_600_000);
-
 const state = {
   pricesRunning: false,
   snapTradeRunning: false,
   lastPriceRunAt: null,
   lastSnapTradeRunAt: null,
-  pricesRunningSince: null,
-  snapTradeRunningSince: null,
+  continuousPricesRunning: false,
+  shuttingDown: false,
 };
 
 function buildUrl(path, params = {}) {
@@ -65,14 +54,22 @@ function buildUrl(path, params = {}) {
 async function callCronEndpoint(label, url) {
   const startedAt = new Date().toISOString();
   console.log(`[market-data-worker] ${startedAt} start ${label}: ${url.toString()}`);
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${cronSecret}`,
-      "x-cron-secret": cronSecret,
-      "user-agent": "InsideLoopMarketDataWorker/1.0",
-    },
-    signal: AbortSignal.timeout(CRON_CALL_TIMEOUT_MS),
-  });
+  const controller = new AbortController();
+  const timeoutMs = asPositiveInt(process.env.MARKET_DATA_WORKER_HTTP_TIMEOUT_SECONDS, 45, 10, 300) * 1000;
+  const timeout = setTimeout(() => controller.abort(new Error(`${label} timed out after ${timeoutMs / 1000}s`)), timeoutMs);
+  let response;
+  try {
+    response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${cronSecret}`,
+        "x-cron-secret": cronSecret,
+        "user-agent": "InsideLoopMarketDataWorker/1.0",
+      },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
   const text = await response.text();
   let payload;
   try {
@@ -89,25 +86,12 @@ async function callCronEndpoint(label, url) {
   return payload;
 }
 
-function watchdogClearedStaleRun(label, runningSinceKey, runningFlagKey) {
-  const runningSince = state[runningSinceKey];
-  if (!runningSince) return false;
-  const stuckForMs = Date.now() - runningSince;
-  if (stuckForMs < RUN_WATCHDOG_MS) return false;
-  console.error(`[market-data-worker] watchdog: ${label} has been "running" for ${Math.round(stuckForMs / 1000)}s (> ${Math.round(RUN_WATCHDOG_MS / 1000)}s); force-clearing the lock so scheduling can recover. This indicates a hang that slipped past the request timeout and should be investigated.`);
-  state[runningFlagKey] = false;
-  state[runningSinceKey] = null;
-  return true;
-}
-
 async function runPrices(reason = "schedule") {
-  watchdogClearedStaleRun("investment prices", "pricesRunningSince", "pricesRunning");
   if (state.pricesRunning) {
     console.log(`[market-data-worker] prices skipped; previous run still active reason=${reason}`);
     return;
   }
   state.pricesRunning = true;
-  state.pricesRunningSince = Date.now();
   try {
     const url = buildUrl("/api/cron/investment-price-snapshots", priceForce ? { force: "1" } : {});
     await callCronEndpoint(`investment-prices reason=${reason}`, url);
@@ -116,18 +100,15 @@ async function runPrices(reason = "schedule") {
     console.error(`[market-data-worker] investment prices failed`, error?.payload || error);
   } finally {
     state.pricesRunning = false;
-    state.pricesRunningSince = null;
   }
 }
 
 async function runSnapTrade(reason = "schedule") {
-  watchdogClearedStaleRun("SnapTrade positions", "snapTradeRunningSince", "snapTradeRunning");
   if (state.snapTradeRunning) {
     console.log(`[market-data-worker] SnapTrade skipped; previous run still active reason=${reason}`);
     return;
   }
   state.snapTradeRunning = true;
-  state.snapTradeRunningSince = Date.now();
   try {
     const url = buildUrl("/api/cron/snaptrade-position-snapshots", {
       realtimeOnly: snapTradeRealtimeOnly ? "true" : "false",
@@ -139,14 +120,33 @@ async function runSnapTrade(reason = "schedule") {
     console.error(`[market-data-worker] SnapTrade positions failed`, error?.payload || error);
   } finally {
     state.snapTradeRunning = false;
-    state.snapTradeRunningSince = null;
+  }
+}
+
+async function scheduleContinuousPrices(intervalMinutes) {
+  const ms = intervalMinutes * 60 * 1000;
+  if (state.continuousPricesRunning) return;
+  state.continuousPricesRunning = true;
+  console.log(`[market-data-worker] scheduling investment prices as continuous loop targeting every ${intervalMinutes} minute(s)`);
+  while (!state.shuttingDown) {
+    const started = Date.now();
+    await runPrices("continuous-loop");
+    const elapsed = Date.now() - started;
+    const wait = Math.max(250, ms - elapsed);
+    if (elapsed > ms) {
+      console.warn(`[market-data-worker] investment price cycle took ${Math.round(elapsed / 1000)}s, longer than target ${Math.round(ms / 1000)}s; next cycle starts after a short breather.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, wait));
   }
 }
 
 function schedule(name, intervalMinutes, fn) {
   const ms = intervalMinutes * 60 * 1000;
   console.log(`[market-data-worker] scheduling ${name} every ${intervalMinutes} minute(s)`);
-  return setInterval(() => fn("schedule"), ms);
+  return setInterval(() => {
+    if (state.shuttingDown) return;
+    void fn("schedule");
+  }, ms);
 }
 
 function start() {
@@ -178,16 +178,18 @@ function start() {
     void runSnapTrade("startup");
   }
 
-  schedule("investment prices", priceIntervalMinutes, runPrices);
+  void scheduleContinuousPrices(priceIntervalMinutes);
   schedule("SnapTrade positions", snapTradeIntervalMinutes, runSnapTrade);
 }
 
 process.on("SIGTERM", () => {
   console.log("[market-data-worker] SIGTERM received; Render is stopping the worker.");
+  state.shuttingDown = true;
   process.exit(0);
 });
 process.on("SIGINT", () => {
   console.log("[market-data-worker] SIGINT received; stopping the worker.");
+  state.shuttingDown = true;
   process.exit(0);
 });
 

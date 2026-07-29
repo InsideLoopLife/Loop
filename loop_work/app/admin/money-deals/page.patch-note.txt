@@ -1,0 +1,7 @@
+Add this link/button somewhere near the top of app/admin/money-deals/page.tsx:
+
+<a href="/admin/money-deals/daily-watch" className="rounded-full bg-emerald-400 px-5 py-3 font-black text-slate-950">
+  Daily deal watch
+</a>
+
+This zip includes the standalone /admin/money-deals/daily-watch page, so the feature works even before you add the nav link.

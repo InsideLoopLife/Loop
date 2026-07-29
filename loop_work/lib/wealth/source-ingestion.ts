@@ -8,6 +8,15 @@ export type ParsedSavingsDeal = {
   productName: string;
   accountType: string;
   grossAer: number | null;
+  bonusRate?: number | null;
+  minimumBalance?: number | null;
+  maximumBalance?: number | null;
+  monthlyMaxDeposit?: number | null;
+  accessType?: string | null;
+  withdrawalRules?: string | null;
+  noticePeriodDays?: number | null;
+  termLengthMonths?: number | null;
+  rateType?: string | null;
   requiresExistingCustomer: boolean;
   eligibilityNote: string | null;
   sourceUrl: string;
@@ -95,6 +104,56 @@ function firstMoney(text: string) {
   const match = text.match(/£\s?([0-9][0-9,]*(?:\.\d{1,2})?)/);
   if (!match) return null;
   return Number(match[1].replace(/,/g, ""));
+}
+
+
+function firstBalanceAround(text: string, patterns: RegExp[]) {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return Number(String(match[1]).replace(/,/g, ""));
+  }
+  return null;
+}
+
+function inferSavingsAccessType(text: string) {
+  const lower = text.toLowerCase();
+  if (/easy access|instant access|access any time|unlimited withdrawal/.test(lower)) return "easy_access";
+  if (/notice account|notice period|\b\d{2,3}\s*day\s*notice/.test(lower)) return "notice";
+  if (/regular saver|monthly saver/.test(lower)) return "regular_saver";
+  if (/fixed rate|fixed term|bond|maturity|term deposit/.test(lower)) return "fixed_term";
+  if (/cash isa|isa/.test(lower)) return "cash_isa";
+  return "savings";
+}
+
+function inferSavingsRateType(text: string) {
+  const lower = text.toLowerCase();
+  if (/fixed rate|fixed\s*(?:aer|gross)|rate fixed/.test(lower)) return "fixed";
+  if (/tracker|tracks/.test(lower)) return "tracker";
+  if (/variable|rate can change|may change/.test(lower)) return "variable";
+  return null;
+}
+
+function inferNoticeDays(text: string) {
+  const match = text.match(/(\d{1,3})\s*(?:calendar\s*)?days?\s*notice/i);
+  return match ? Number(match[1]) : null;
+}
+
+function inferTermMonths(text: string) {
+  const lower = text.toLowerCase();
+  const months = lower.match(/(\d{1,3})\s*(?:month|mth)/i);
+  if (months) return Number(months[1]);
+  const years = lower.match(/(1|2|3|4|5)\s*(?:year|yr)[-\s]*(?:fixed|bond|term|saver|account)?/i);
+  if (years) return Number(years[1]) * 12;
+  return null;
+}
+
+function inferWithdrawalRules(text: string) {
+  const windows = Array.from(text.matchAll(/(?:withdrawal|withdraw|access|notice|penalt|closure|maturity|easy access)[^.]{0,220}/gi)).map((m) => m[0].replace(/\s+/g, " ").trim());
+  const useful = windows.find((window) => /withdraw|access|notice|penalt|maturity|closure/i.test(window));
+  if (useful) return useful.slice(0, 260);
+  if (/unlimited withdrawals/i.test(text)) return "Unlimited withdrawals detected. Admin should confirm.";
+  if (/no withdrawals/i.test(text)) return "No withdrawals detected before maturity. Admin should confirm.";
+  return null;
 }
 
 function firstLtv(text: string) {
@@ -284,24 +343,119 @@ function extractAddressHint(text: string, rawText: string | undefined, postcode:
   return postcode ? `Near ${postcode.toUpperCase()}` : null;
 }
 
+
+const knownSavingsProviderNames = [
+  "Moneybox", "Chip", "Plum", "Zopa", "Atom Bank", "Tandem Bank", "Shawbrook Bank", "Paragon Bank", "OakNorth", "Aldermore",
+  "Cynergy Bank", "Ford Money", "Marcus", "Chase", "Monzo", "Starling Bank", "Revolut", "Nationwide", "NatWest", "First Direct",
+  "HSBC", "Barclays", "Santander", "Lloyds Bank", "Halifax", "TSB", "Virgin Money", "Coventry Building Society", "Skipton Building Society",
+  "Leeds Building Society", "Yorkshire Building Society", "Principality Building Society", "Newcastle Building Society", "Nottingham Building Society",
+  "Saffron Building Society", "Family Building Society", "Kent Reliance", "RCI Bank", "Raisin", "Investec", "Close Brothers", "Hampshire Trust Bank",
+  "Gatehouse Bank", "Al Rayan Bank", "UBL UK", "Post Office", "Tesco Bank", "Sainsbury's Bank", "NS&I",
+];
+
+function inferProviderNameFromWindow(window: string, fallback: string) {
+  const normalised = window.replace(/\s+/g, " ");
+  const exact = knownSavingsProviderNames.find((provider) => new RegExp(`\\b${provider.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(normalised));
+  if (exact) return exact;
+  const beforeProduct = normalised.match(/(?:^|[.;:])\s*([A-Z][A-Za-z'&. -]{2,52})\s+(?:Easy Access|Fixed Rate|Regular Saver|Cash ISA|Notice|Saver|Savings|Bond)/);
+  const candidate = beforeProduct?.[1]?.trim();
+  if (candidate && !/best|top|rate|account|savings|compare|open|apply/i.test(candidate)) return candidate.slice(0, 80);
+  return fallback;
+}
+
+function inferProductNameFromWindow(window: string, fallback: string) {
+  const normalised = window.replace(/\s+/g, " ").trim();
+  const productPatterns = [
+    /([A-Z][A-Za-z0-9'&. +\/-]{2,90}(?:Easy Access|Instant Access|Regular Saver|Monthly Saver|Cash ISA|Fixed Rate ISA|Fixed Rate Bond|Notice Account|Notice Saver|Savings Account|Saver|Bond|ISA))/,
+    /((?:Easy Access|Instant Access|Regular Saver|Monthly Saver|Cash ISA|Fixed Rate ISA|Fixed Rate Bond|Notice Account|Notice Saver|Savings Account|Saver|Bond|ISA)[A-Za-z0-9'&. +\/-]{0,90})/i,
+  ];
+  for (const pattern of productPatterns) {
+    const match = normalised.match(pattern);
+    const candidate = match?.[1]
+      ?.replace(/\b(?:AER|Gross|variable|fixed|interest|rate|earn|up to)\b.*$/i, "")
+      .replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9)]+$/g, "")
+      .trim();
+    if (candidate && candidate.length >= 6) return candidate.slice(0, 160);
+  }
+  return fallback;
+}
+
+function rateWindows(text: string) {
+  const matches = Array.from(text.matchAll(/(\d{1,2}(?:\.\d{1,3})?)\s*%\s*(?:AER|gross|variable|fixed|tax-free)?/gi))
+    .map((match) => ({ rate: Number(match[1]), index: match.index || 0 }))
+    .filter((item) => item.rate > 0 && item.rate < 25);
+  return matches.slice(0, 60).map((match) => {
+    const start = Math.max(0, match.index - 520);
+    const end = Math.min(text.length, match.index + 980);
+    return { ...match, window: text.slice(start, end).replace(/\s+/g, " ").trim() };
+  }).filter((item) => /\b(?:AER|gross|savings?|saver|cash isa|ISA|easy access|instant access|fixed rate|fixed term|notice|bond|regular saver|monthly saver|withdrawal)\b/i.test(item.window));
+}
+
+export function parseSavingsDealsFromSource(args: { providerName: string; productName?: string; sourceUrl: string; text: string }): ParsedSavingsDeal[] {
+  const windows = rateWindows(args.text);
+  if (windows.length <= 1) return [parseSavingsDealFromSource(args)];
+
+  const byKey = new Map<string, ParsedSavingsDeal>();
+  for (const candidate of windows) {
+    const providerName = inferProviderNameFromWindow(candidate.window, args.providerName);
+    const productName = inferProductNameFromWindow(candidate.window, args.productName || `${providerName} savings product`);
+    const parsed = parseSavingsDealFromSource({
+      providerName,
+      productName,
+      sourceUrl: args.sourceUrl,
+      text: candidate.window,
+    });
+    if (!parsed.grossAer) continue;
+    const key = `${parsed.providerSlug}:${normaliseProviderSlug(parsed.productName)}:${parsed.grossAer.toFixed(3)}`;
+    const boosted = {
+      ...parsed,
+      confidence: Math.min(95, parsed.confidence + (providerName !== args.providerName ? 4 : 0) + (productName !== args.productName ? 3 : 0)),
+      summary: `${parsed.summary} Parsed from a rate table/window on ${new URL(args.sourceUrl).hostname}.`,
+    };
+    const existing = byKey.get(key);
+    if (!existing || boosted.confidence > existing.confidence) byKey.set(key, boosted);
+  }
+
+  const parsedRows = Array.from(byKey.values()).sort((a, b) => Number(b.grossAer || 0) - Number(a.grossAer || 0));
+  return parsedRows.length ? parsedRows.slice(0, 40) : [parseSavingsDealFromSource(args)];
+}
+
 export function parseSavingsDealFromSource(args: { providerName: string; productName?: string; sourceUrl: string; text: string }): ParsedSavingsDeal {
   const lower = args.text.toLowerCase();
   const providerName = args.providerName || "Unknown provider";
-  const accountType = lower.includes("cash isa") || lower.includes("isa") ? "cash_isa" : lower.includes("regular saver") ? "regular_saver" : lower.includes("fixed") ? "fixed_saver" : "easy_access";
-  const requiresExistingCustomer = /existing customer|current account required|must hold|eligible if you already|linked current account/i.test(args.text);
+  const accessType = inferSavingsAccessType(args.text);
+  const accountType = lower.includes("cash isa") || lower.includes("isa") ? "cash_isa" : accessType === "regular_saver" ? "regular_saver" : accessType === "fixed_term" ? "fixed_saver" : accessType === "notice" ? "notice_saver" : "easy_access";
+  const requiresExistingCustomer = /existing customer|current account required|must hold|eligible if you already|linked current account|members only|exclusive to/i.test(args.text);
   const grossAer = firstRate(args.text);
   const productName = args.productName || titleFromSource(args.text, "Savings product");
+  const minimumBalance = firstBalanceAround(args.text, [/minimum(?: opening)?(?: balance| deposit)?[^£]{0,80}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)/i, /open(?:ing)?(?: with)?[^£]{0,80}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)/i]);
+  const maximumBalance = firstBalanceAround(args.text, [/maximum(?: balance)?[^£]{0,80}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)/i, /up to[^£]{0,50}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)/i]);
+  const monthlyMaxDeposit = firstBalanceAround(args.text, [/pay in(?: up to)?[^£]{0,80}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)\s*(?:a|per)?\s*month/i, /monthly(?: maximum|max)?[^£]{0,80}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)/i]);
+  const noticePeriodDays = inferNoticeDays(args.text);
+  const termLengthMonths = inferTermMonths(args.text);
+  const withdrawalRules = inferWithdrawalRules(args.text);
+  const rateType = inferSavingsRateType(args.text);
+  const evidence = [grossAer, minimumBalance, maximumBalance, monthlyMaxDeposit, withdrawalRules, noticePeriodDays, termLengthMonths, rateType].filter((value) => value !== null && value !== undefined && value !== "").length;
+  const confidence = grossAer ? Math.min(92, 50 + evidence * 6) : 35;
   return {
     providerSlug: normaliseProviderSlug(providerName),
     providerName,
     productName: productName.slice(0, 160),
     accountType,
     grossAer,
+    minimumBalance,
+    maximumBalance,
+    monthlyMaxDeposit,
+    accessType,
+    withdrawalRules,
+    noticePeriodDays,
+    termLengthMonths,
+    rateType,
     requiresExistingCustomer,
     eligibilityNote: requiresExistingCustomer ? "Source appears to reference existing-customer or linked-account eligibility. Admin should confirm." : "Source did not obviously require an existing account. Admin should confirm.",
     sourceUrl: args.sourceUrl,
-    confidence: grossAer ? 58 : 35,
-    summary: grossAer ? `Detected a possible savings rate of ${grossAer.toFixed(2)}%.` : "Could not confidently detect a savings rate; saved for admin review.",
+    confidence,
+    summary: grossAer ? `Detected ${productName.slice(0, 80)} at ${grossAer.toFixed(2)}%${withdrawalRules ? `; access note: ${withdrawalRules.slice(0, 90)}` : ""}.` : "Could not confidently detect a savings rate; saved for admin review.",
   };
 }
 
