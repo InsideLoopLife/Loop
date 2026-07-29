@@ -122,6 +122,7 @@ function requiredEnvReport() {
     ),
     hasAppEncryptionKey: Boolean(process.env.APP_ENCRYPTION_KEY),
     hasSnapTradeClientId: Boolean(process.env.SNAPTRADE_CLIENT_ID || process.env.SNAPTRADE_CLIENTID),
+    hasAlpacaKeys: Boolean((process.env.ALPACA_KEY_ID || process.env.ALPACA_API_KEY_ID) && (process.env.ALPACA_SECRET_KEY || process.env.ALPACA_API_SECRET_KEY)),
     hasSnapTradeConsumerKey: Boolean(process.env.SNAPTRADE_CONSUMER_KEY || process.env.SNAPTRADE_CONSUMERKEY),
     aiCoverageEnabled: process.env.MARKET_DATA_WORKER_AI_COVERAGE_ENABLED === "true",
     aiMarketSearchEnabled: process.env.LOOP_ENABLE_AI_MARKET_SEARCH === "true",

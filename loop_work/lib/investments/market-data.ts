@@ -279,6 +279,70 @@ function assetNameFor(ticker: string, symbol: string) {
   return COMMON_INVESTMENTS[base]?.assetName || base || symbol;
 }
 
+// US-listed venues Alpaca actually covers. Anything else (LSE, XETR, XPAR,
+// etc.) skips Alpaca entirely and goes straight to Yahoo/Stooq — Alpaca's
+// market data API only serves US equities.
+const ALPACA_VENUE_CODES = new Set(["NASDAQ", "NYSE", "AMEX", "ARCX", "BATS", "OTCM", "PINX"]);
+
+function isUsExchange(exchange?: string | null) {
+  return ALPACA_VENUE_CODES.has(normaliseVenueCode(exchange));
+}
+
+function alpacaCredentials() {
+  const keyId = process.env.ALPACA_KEY_ID || process.env.ALPACA_API_KEY_ID || process.env.ALPACAKEYID;
+  const secretKey = process.env.ALPACA_SECRET_KEY || process.env.ALPACA_API_SECRET_KEY || process.env.ALPACASECRETKEY;
+  if (!keyId || !secretKey) return null;
+  return { keyId, secretKey };
+}
+
+// Alpaca Market Data API (US equities only). Tried first for US-listed
+// tickers, ahead of Yahoo/Stooq — this is the "paid API key" source referred
+// to for US stocks; everything international still goes through Yahoo/Stooq
+// as before, unchanged.
+async function alpacaQuote(ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
+  const creds = alpacaCredentials();
+  if (!creds) return null;
+  const symbol = String(ticker || "").trim().toUpperCase().replace(/\.[A-Z]+$/i, "");
+  if (!symbol) return null;
+  try {
+    const response = await fetch(`https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/snapshot?feed=iex`, {
+      cache: "no-store",
+      headers: {
+        "APCA-API-KEY-ID": creds.keyId,
+        "APCA-API-SECRET-KEY": creds.secretKey,
+      },
+    });
+    if (!response.ok) return null;
+    const data = await response.json().catch(() => ({}));
+    const rawPrice = Number(data?.latestTrade?.p || data?.dailyBar?.c || 0);
+    if (!Number.isFinite(rawPrice) || rawPrice <= 0) return null;
+    const previousClose = Number(data?.prevDailyBar?.c || 0);
+    const ex = exchangeFromSymbol(symbol, exchange) || exchange || "NYSE";
+    const normalised = normaliseMarketPrice(rawPrice, ex, symbol);
+    const previousNormalised = Number.isFinite(previousClose) && previousClose > 0 ? normaliseMarketPrice(previousClose, ex, symbol) : null;
+    const common = COMMON_INVESTMENTS[cleanTicker(ticker).replace(/\.L$/i, "")];
+    return {
+      price: normalised.price,
+      source: "Alpaca",
+      rawSymbol: symbol,
+      assetName: common?.assetName || assetNameFor(ticker, symbol),
+      exchange: common?.exchange || ex,
+      currency: normalised.currency,
+      priceQuoteUnit: normalised.priceQuoteUnit,
+      assetType: common?.assetType || "share",
+      annualAssetFeePercent: common?.annualAssetFeePercent ?? 0,
+      sourceUrl: common?.sourceUrl || `https://app.alpaca.markets/`,
+      note: "US equity quote from Alpaca (IEX feed).",
+      previousClose: previousNormalised?.price || null,
+      previousCloseCurrency: previousNormalised?.currency || null,
+      previousCloseQuoteUnit: previousNormalised?.priceQuoteUnit || null,
+      previousCloseAt: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function yahooQuote(ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
   for (const symbol of yahooSymbols(ticker, exchange)) {
     try {
@@ -624,6 +688,18 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
 
   const providerFund = wantsExchangeTraded ? null : await providerFundQuoteFromSource(glossary);
   if (providerFund) return providerFund;
+
+  // BUGFIX (market data audit): Alpaca credentials were configured (as
+  // Render env vars) but never actually referenced anywhere in the
+  // quote-fetching chain — US tickers were silently going through the same
+  // Yahoo/Stooq path as everything else. Alpaca only covers US equities, so
+  // it's only attempted for US-listed venues; everything else is unchanged.
+  if (wantsExchangeTraded && isUsExchange(exchange || glossary?.exchange)) {
+    for (const candidate of providerSymbols(symbol, exchange || glossary?.exchange)) {
+      const alpaca = await alpacaQuote(candidate, exchange || glossary?.exchange);
+      if (alpaca) return { ...glossary, ...alpaca };
+    }
+  }
 
   if (secret?.value && secret.provider === "alpha_vantage") {
     for (const candidate of providerSymbols(symbol, exchange || glossary?.exchange)) {
