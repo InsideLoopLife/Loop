@@ -2188,7 +2188,6 @@ export async function importSnapTradeAccountsForUser(
         latest_price: position.latestPrice,
         latest_price_date: new Date().toISOString().slice(0, 10),
         currency: position.currency || account.currency || "GBP",
-        price_polling_enabled: Boolean(position.ticker),
         source_url: null,
         notes: position.raw?.synthetic
           ? "Imported from SnapTrade account-level value because the provider did not return position-level holdings yet. Refresh this account later to replace this placeholder with real positions."
@@ -2213,6 +2212,16 @@ export async function importSnapTradeAccountsForUser(
         last_provider_sync_at: new Date().toISOString(),
       } as Record<string, any>;
       let localHoldingId = existingHolding.data?.id || "";
+      // BUGFIX (market data audit): price_polling_enabled used to be part of
+      // holdingPayload unconditionally, which meant it got silently reset on
+      // EVERY re-sync — including for holdings that were already correctly
+      // enabled — whenever SnapTrade's payload for that particular sync
+      // happened not to include a clean ticker string for a position (common;
+      // brokerage APIs don't always return one). That reset every single
+      // SnapTrade-imported holding in production back to polling-disabled.
+      // Only set this field on a genuine new row; never touch it on update,
+      // so a holding's polling setting is never silently overwritten by a
+      // later sync.
       const writeHolding = existingHolding.data?.id
         ? await supabase
             .from("investment_holdings")
@@ -2223,7 +2232,7 @@ export async function importSnapTradeAccountsForUser(
             .single()
         : await supabase
             .from("investment_holdings")
-            .insert(holdingPayload)
+            .insert({ ...holdingPayload, price_polling_enabled: Boolean(position.ticker) })
             .select("id")
             .single();
       if (writeHolding.error) throw new Error(writeHolding.error.message);
