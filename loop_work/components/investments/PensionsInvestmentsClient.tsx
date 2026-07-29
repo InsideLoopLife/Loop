@@ -81,7 +81,7 @@ import {
   updateDefinedBenefitPension,
   updateInvestmentHoldingGroups,
   saveMoneyboxInvestmentAccountSetup,
-} from "@/app/investments/actions";
+} from "@/lib/investments/actions";
 
 type Person = {
   id: string;

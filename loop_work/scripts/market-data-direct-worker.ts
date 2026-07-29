@@ -1,7 +1,8 @@
-/// <reference types="node" />
-
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createRequire } from "node:module";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import { runInvestmentPriceSnapshotJob, runInvestmentSnapshotMaintenance } from "@/lib/investments/price-snapshot-runner";
+
+const requireFromWorker = createRequire(import.meta.url);
 
 process.env.LOOP_MARKET_DATA_WORKER = process.env.LOOP_MARKET_DATA_WORKER || "true";
 
@@ -13,7 +14,7 @@ process.env.LOOP_ENABLE_AI_MARKET_SEARCH = process.env.LOOP_ENABLE_AI_MARKET_SEA
 process.env.LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP = process.env.LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP || "false";
 process.env.LOOP_ENABLE_AI_HOLDING_IMAGE_IMPORT = process.env.LOOP_ENABLE_AI_HOLDING_IMAGE_IMPORT || "false";
 
-function scrubWorkerAiSecrets(): string[] {
+function scrubWorkerAiSecrets() {
   const aiKeys = [
     "OPENAI_API_KEY",
     "OPENAI_PREMIUM_API_KEY",
@@ -22,11 +23,8 @@ function scrubWorkerAiSecrets(): string[] {
     "OPENAI_TOKEN",
     "LOOP_OPENAI_API_KEY",
   ];
-  const env = process.env as Record<string, string | undefined>;
-  const present = aiKeys.filter((key) => Boolean(env[key]));
-  for (const key of present) {
-    delete env[key];
-  }
+  const present = aiKeys.filter((key) => Boolean(process.env[key]));
+  for (const key of present) delete process.env[key];
   if (present.length) {
     console.warn(`[market-data-direct-worker] OpenAI env keys were present on the worker and have been ignored: ${present.join(", ")}`);
   }
@@ -43,23 +41,21 @@ type WorkerState = {
   pricesRunning: boolean;
   snapTradeRunning: boolean;
   maintenanceRunning: boolean;
-  pricesRunningSince: number | null;
-  snapTradeRunningSince: number | null;
-  maintenanceRunningSince: number | null;
   lastPriceRunAt: string | null;
   lastSnapTradeRunAt: string | null;
   lastMaintenanceRunAt: string | null;
   timers: NodeJS.Timeout[];
+  priceLoopRunning: boolean;
   shuttingDown: boolean;
 };
 
-function asPositiveInt(value: unknown, fallback: number, min = 1, max = 1440): number {
+function asPositiveInt(value: unknown, fallback: number, min = 1, max = 1440) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
 }
 
-function asBool(value: unknown, fallback: boolean): boolean {
+function asBool(value: unknown, fallback: boolean) {
   if (value === undefined || value === null || value === "") return fallback;
   const clean = String(value).trim().toLowerCase();
   if (["1", "true", "yes", "y", "on"].includes(clean)) return true;
@@ -102,44 +98,17 @@ const snapTradeEnabled = asBool(process.env.MARKET_DATA_WORKER_SNAPTRADE_ENABLED
 const maintenanceEnabled = asBool(process.env.MARKET_DATA_WORKER_MAINTENANCE_ENABLED, true);
 const runMaintenanceOnStart = asBool(process.env.MARKET_DATA_WORKER_RUN_MAINTENANCE_ON_START, false);
 
-// Watchdog: runInvestmentPriceSnapshotJob() now has its own internal time
-// budget (JOB_TIME_BUDGET_MS in price-snapshot-runner.ts) and every external
-// call it makes has a timeout (see http.ts), so a run should never actually
-// hang. This is a second, outer layer of defence: if a run's "running" flag
-// is ever still set past this window anyway, force-clear it so the schedule
-// can recover instead of silently skipping forever.
-const RUN_WATCHDOG_MS = asPositiveIntMs(process.env.MARKET_DATA_WORKER_WATCHDOG_MS, 5 * 60_000, 30_000, 3_600_000);
-
-function asPositiveIntMs(value: unknown, fallback: number, min: number, max: number): number {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(min, Math.min(max, parsed));
-}
-
 const state: WorkerState = {
   pricesRunning: false,
   snapTradeRunning: false,
   maintenanceRunning: false,
-  pricesRunningSince: null,
-  snapTradeRunningSince: null,
-  maintenanceRunningSince: null,
   lastPriceRunAt: null,
   lastSnapTradeRunAt: null,
   lastMaintenanceRunAt: null,
   timers: [],
+  priceLoopRunning: false,
   shuttingDown: false,
 };
-
-function watchdogClearedStaleRun(label: string, runningSinceKey: "pricesRunningSince" | "snapTradeRunningSince" | "maintenanceRunningSince", runningFlagKey: "pricesRunning" | "snapTradeRunning" | "maintenanceRunning"): boolean {
-  const runningSince = state[runningSinceKey];
-  if (!runningSince) return false;
-  const stuckForMs = Date.now() - runningSince;
-  if (stuckForMs < RUN_WATCHDOG_MS) return false;
-  console.error(`[market-data-direct-worker] watchdog: ${label} has been "running" for ${Math.round(stuckForMs / 1000)}s (> ${Math.round(RUN_WATCHDOG_MS / 1000)}s); force-clearing the lock so scheduling can recover. This should not happen given the internal job/quote timeouts and is worth investigating if it does.`);
-  (state[runningFlagKey] as boolean) = false;
-  state[runningSinceKey] = null;
-  return true;
-}
 
 function requiredEnvReport() {
   return {
@@ -159,21 +128,22 @@ function requiredEnvReport() {
     webSearchMarketLookupEnabled: process.env.LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP === "true",
     hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY || process.env.OPENAI_PREMIUM_API_KEY || process.env.OPENAI_RESEARCH_API_KEY),
     scrubbedAiKeys,
+    priceQuoteConcurrency: process.env.MARKET_DATA_WORKER_QUOTE_CONCURRENCY || process.env.INVESTMENT_PRICE_WORKER_CONCURRENCY || "8",
+    realtimeTargetMinutes: process.env.MARKET_DATA_WORKER_REALTIME_TARGET_MINUTES || process.env.INVESTMENT_REALTIME_TARGET_MINUTES || "1",
+    pauseOnCoverageRequired: process.env.MARKET_DATA_WORKER_PAUSE_ON_COVERAGE_REQUIRED || "false",
   };
 }
 
-async function runPrices(reason = "schedule"): Promise<void> {
+async function runPrices(reason = "schedule") {
   if (!pricesEnabled) {
     console.log(`[market-data-direct-worker] prices disabled; reason=${reason}`);
     return;
   }
-  watchdogClearedStaleRun("investment prices", "pricesRunningSince", "pricesRunning");
   if (state.pricesRunning) {
     console.log(`[market-data-direct-worker] prices skipped; previous run still active reason=${reason}`);
     return;
   }
   state.pricesRunning = true;
-  state.pricesRunningSince = Date.now();
   const startedAt = new Date().toISOString();
   console.log(`[market-data-direct-worker] ${startedAt} start investment prices reason=${reason}`);
   try {
@@ -188,37 +158,36 @@ async function runPrices(reason = "schedule"): Promise<void> {
     console.error(`[market-data-direct-worker] investment prices failed`, error);
   } finally {
     state.pricesRunning = false;
-    state.pricesRunningSince = null;
   }
 }
 
-async function runSnapTrade(reason = "schedule"): Promise<void> {
+async function runSnapTrade(reason = "schedule") {
   if (!snapTradeEnabled) {
     console.log(`[market-data-direct-worker] SnapTrade disabled; reason=${reason}`);
     return;
   }
-  watchdogClearedStaleRun("SnapTrade positions", "snapTradeRunningSince", "snapTradeRunning");
   if (state.snapTradeRunning) {
     console.log(`[market-data-direct-worker] SnapTrade skipped; previous run still active reason=${reason}`);
     return;
   }
   state.snapTradeRunning = true;
-  state.snapTradeRunningSince = Date.now();
   const startedAt = new Date().toISOString();
   console.log(`[market-data-direct-worker] ${startedAt} start SnapTrade positions reason=${reason}`);
   try {
-    // @ts-ignore - Dynamic import may not resolve in strict frontend tsconfig contexts
-    const syncModule = await import("@/lib/snaptrade/sync").catch((error: unknown) => {
+    let syncModule: any = null;
+    try {
+      // Use CommonJS require through tsx/tsconfig-paths so the alias imports inside
+      // lib/snaptrade/sync.ts resolve correctly in the standalone Render worker.
+      syncModule = requireFromWorker("../lib/snaptrade/sync");
+    } catch (error) {
       console.error("[market-data-direct-worker] SnapTrade sync module unavailable; investment prices will keep running", error);
-      return null;
-    }) as Record<string, any> | null;
-    
+    }
     if (!syncModule?.runSnapTradeProviderSnapshotJob) {
       state.lastSnapTradeRunAt = new Date().toISOString();
-      console.warn("[market-data-direct-worker] SnapTrade positions skipped because @/lib/snaptrade/sync is not available in this deploy.");
+      console.warn("[market-data-direct-worker] SnapTrade positions skipped because the worker-safe sync module could not be loaded in this deploy.");
       return;
     }
-    const supabase = createAdminClient();
+    const supabase = createWorkerDatabaseClient("market");
     const result = await syncModule.runSnapTradeProviderSnapshotJob({
       supabase,
       realtimeOnly: snapTradeRealtimeOnly,
@@ -230,26 +199,23 @@ async function runSnapTrade(reason = "schedule"): Promise<void> {
     console.error(`[market-data-direct-worker] SnapTrade positions failed`, error);
   } finally {
     state.snapTradeRunning = false;
-    state.snapTradeRunningSince = null;
   }
 }
 
-async function runMaintenance(reason = "schedule"): Promise<void> {
+async function runMaintenance(reason = "schedule") {
   if (!maintenanceEnabled) {
     console.log(`[market-data-direct-worker] maintenance disabled; reason=${reason}`);
     return;
   }
-  watchdogClearedStaleRun("investment retention maintenance", "maintenanceRunningSince", "maintenanceRunning");
   if (state.maintenanceRunning) {
     console.log(`[market-data-direct-worker] maintenance skipped; previous run still active reason=${reason}`);
     return;
   }
   state.maintenanceRunning = true;
-  state.maintenanceRunningSince = Date.now();
   const startedAt = new Date().toISOString();
   console.log(`[market-data-direct-worker] ${startedAt} start investment retention maintenance reason=${reason}`);
   try {
-    const supabase = createAdminClient();
+    const supabase = createWorkerDatabaseClient("market");
     const result = await runInvestmentSnapshotMaintenance(supabase, { logger: console });
     state.lastMaintenanceRunAt = new Date().toISOString();
     console.log(`[market-data-direct-worker] success investment retention maintenance`, result);
@@ -257,11 +223,30 @@ async function runMaintenance(reason = "schedule"): Promise<void> {
     console.error(`[market-data-direct-worker] investment retention maintenance failed`, error);
   } finally {
     state.maintenanceRunning = false;
-    state.maintenanceRunningSince = null;
   }
 }
 
-function schedule(name: string, intervalMinutes: number, fn: (reason: string) => Promise<void>): void {
+async function scheduleContinuous(name: string, intervalMinutes: number, fn: (reason: string) => Promise<void>) {
+  const ms = intervalMinutes * 60 * 1000;
+  if (state.priceLoopRunning) return;
+  state.priceLoopRunning = true;
+  console.log(`[market-data-direct-worker] scheduling ${name} as continuous loop targeting every ${intervalMinutes} minute(s)`);
+  while (!state.shuttingDown) {
+    const started = Date.now();
+    await fn("continuous-loop");
+    const elapsed = Date.now() - started;
+    const wait = Math.max(250, ms - elapsed);
+    if (elapsed > ms) {
+      console.warn(`[market-data-direct-worker] ${name} cycle took ${Math.round(elapsed / 1000)}s, longer than target ${Math.round(ms / 1000)}s; restarting immediately after a short breather.`);
+    }
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, wait);
+      state.timers.push(timer);
+    });
+  }
+}
+
+function schedule(name: string, intervalMinutes: number, fn: (reason: string) => Promise<void>) {
   const ms = intervalMinutes * 60 * 1000;
   console.log(`[market-data-direct-worker] scheduling ${name} every ${intervalMinutes} minute(s)`);
   const timer = setInterval(() => {
@@ -271,20 +256,15 @@ function schedule(name: string, intervalMinutes: number, fn: (reason: string) =>
   state.timers.push(timer);
 }
 
-function shutdown(signal: string): void {
+function shutdown(signal: string) {
   console.log(`[market-data-direct-worker] ${signal} received; stopping timers and exiting.`);
   state.shuttingDown = true;
-  for (const timer of state.timers) {
-    clearInterval(timer);
-  }
-  
-  const exitTimer = setTimeout(() => process.exit(0), 750);
-  if (typeof exitTimer === "object" && "unref" in exitTimer && typeof exitTimer.unref === "function") {
-    exitTimer.unref();
-  }
+  for (const timer of state.timers) clearInterval(timer);
+  // Give active promise logs a brief chance to flush; Render will hard-stop if needed.
+  setTimeout(() => process.exit(0), 750).unref();
 }
 
-function start(): void {
+function start() {
   console.log("[market-data-direct-worker] boot", {
     mode: "direct-supabase",
     priceIntervalMinutes,
@@ -320,24 +300,23 @@ function start(): void {
   }
 
   if (runOnStart) {
-    void runPrices("startup");
     void runSnapTrade("startup");
   }
   if (runMaintenanceOnStart) {
     void runMaintenance("startup");
   }
 
-  schedule("investment prices", priceIntervalMinutes, runPrices);
+  void scheduleContinuous("investment prices", priceIntervalMinutes, runPrices);
   schedule("SnapTrade positions", snapTradeIntervalMinutes, runSnapTrade);
   schedule("investment retention maintenance", maintenanceIntervalMinutes, runMaintenance);
 }
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("uncaughtException", (error: unknown) => {
+process.on("uncaughtException", (error) => {
   console.error("[market-data-direct-worker] uncaught exception", error);
 });
-process.on("unhandledRejection", (reason: unknown) => {
+process.on("unhandledRejection", (reason) => {
   console.error("[market-data-direct-worker] unhandled rejection", reason);
 });
 

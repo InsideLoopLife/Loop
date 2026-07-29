@@ -16,7 +16,7 @@ import {
   saveInvestmentCostBasisBatch,
   updateInvestmentAccountOwners,
   updateInvestmentHolding,
-} from "@/app/investments/actions";
+} from "@/lib/investments/actions";
 import { fetchLiveFxRates } from "@/lib/investments/live-fx";
 
 export type InvestmentPeriod = "1D" | "5D" | "1M" | "6M" | "YTD" | "1Y" | "5Y" | "MAX";

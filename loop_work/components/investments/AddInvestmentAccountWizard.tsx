@@ -4,7 +4,7 @@ import { useState } from "react";
 import { FormInput } from "@/components/FormInput";
 import { SubmitButton } from "@/components/SubmitButton";
 import { investmentProviders, findProvider, accountOfferingsFor } from "@/lib/investments/provider-glossary";
-import { addInvestmentAccount, saveMoneyboxInvestmentAccountSetup } from "@/app/investments/actions";
+import { addInvestmentAccount, saveMoneyboxInvestmentAccountSetup } from "@/lib/investments/actions";
 
 type Person = { id: string; name: string; relationship: string };
 

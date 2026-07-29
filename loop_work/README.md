@@ -1,42 +1,78 @@
-# Minimal push — pension fee/ISIN cron only
+# Files to add to git — drop into `loop_work/` at these exact paths
 
-You're still local, so this is just the 6 files that are new or changed for
-this feature — not your whole app. Everything else stays as-is in GitHub.
+**Update (after your first push):** your codebase already relocated
+`app/investments/actions.ts` → `lib/investments/actions.ts` — confirmed
+on GitHub, and your Moneybox fix survived that move intact. All six
+files below that import from it have been corrected to
+`@/lib/investments/actions`. The stray old-path file is removed from
+this package; don't add it back.
 
-## Where each file goes (relative to your project folder — the one with
-## package.json, lib/, app/, scripts/ already in it)
+Also added: `scripts/market-data-direct-worker.ts` — this still had the
+old broken `@/lib/supabase/admin` import on GitHub after your last push
+(your local `requireFromWorker` fix hadn't made it in yet).
 
+Everything in this folder mirrors your repo's `loop_work/` structure.
+Copy each file to the matching path, overwriting where one already
+exists, then `git add`, commit, and push.
+
+## Replace these existing files
 ```
-cron-fees.ts                                     -> project root (next to package.json)
-lib/investments/pension-fee-refresher.ts         -> new file
-package.json                                     -> replaces yours (only openai, dotenv,
-                                                     and a cron:fees script were added —
-                                                     nothing else in it was touched)
-render.cron-only.yaml                            -> replaces yours (your existing cron
-                                                     blocks are untouched, one new block added)
-db/v28_99_provider_fund_glossary_create.sql      -> new file (history only — you already ran this)
-db/v28_99b_provider_fund_glossary_patch.sql      -> new file (history only — you already ran this)
+app/accounts/page.tsx
+app/api/investments/history/route.ts
+components/account/AccountJobsPanel.tsx
+components/household/PersonCalendarPlanner.tsx
+components/income/IncomeTrackerClient.tsx
+components/investments/AmplifiedInvestmentsDashboard.tsx
+components/investments/PensionsInvestmentsClient.tsx
+components/lifestyle/FamilyPlanningClient.tsx
+components/lifestyle/LifestyleClient.tsx
+components/mortgage/MortgagePlannerClient.tsx
+lib/investments/market-data.ts
+lib/investments/pension-contribution-runner.ts
+scripts/market-data-direct-worker.ts
 ```
 
-The two `db/*.sql` files aren't required for anything to *run* — you already
-executed both against Supabase directly. They're here purely so the repo has
-a record of how the table reached its current shape, for whenever this does
-get pushed for real.
+## Add these new files
+```
+components/household/PayEventWizard.tsx
+components/investments/AddInvestmentAccountWizard.tsx
+components/investments/AddInvestmentHoldingWizard.tsx
+components/investments/AddPensionAccountWizard.tsx
+components/investments/AddPensionFundWizard.tsx
+components/lifestyle/BillWizard.tsx
+components/lifestyle/FamilyPlanningWizards.tsx
+components/lifestyle/MealWizard.tsx
+components/mortgage/HomeWizard.tsx
+components/mortgage/MortgageWizard.tsx
+components/mortgage/MoveQueryWizard.tsx
+components/mortgage/ValuationWizard.tsx
+components/savings/SavingsAccountWizard.tsx
+components/ui/CollapsibleSection.tsx
+```
 
-## To get this working locally right now
+All 27 files pass an esbuild syntax check. Not a full `tsc`/build — run
+that before deploying. Your editor was showing 3 problems across
+`actions.ts`/`pension-contribution-runner.ts` before this fix — the
+import-path issue accounts for at least part of that; if anything's
+still flagged after this update, send over the exact Problems panel
+text and I'll chase it down precisely rather than guess.
 
-1. Drop these 6 files into place as above.
-2. `npm install` (picks up `openai` and `dotenv`).
-3. Add to `.env.local`: `OPENAI_API_KEY=...` (Supabase URL/service key you
-   should already have set for the rest of the app).
-4. Run it: `npm run cron:fees`
-   - First run against an empty/sparse `provider_fund_glossary` will mostly
-     log "nothing to backfill" / "all fees up to date" — that's expected.
-5. When you're ready to actually commit: `git add cron-fees.ts lib/investments/pension-fee-refresher.ts package.json render.cron-only.yaml db/v28_99_provider_fund_glossary_create.sql db/v28_99b_provider_fund_glossary_patch.sql`
-   then commit and push.
+## Deliberately NOT included, and why
 
-## Not needed yet (until you deploy)
+**Childcare overhaul files** (`ChildCostWizard.tsx`, `childcareRegistry.ts`,
+etc.) — checked, and your codebase already has these, byte-for-byte.
+Nothing to do there.
 
-`render.cron-only.yaml` and the actual Render Cron Job setup only matter once
-you're ready to schedule this on a server — no need to touch Render while
-you're still testing locally.
+**`app/investments/page.tsx`** — the version I'd patched earlier (for a
+pension chart data-fetch) is now well out of sync with your current
+file. Rather than overwrite your newer work with my stale copy, I dropped
+it. Nothing currently reads the prop it used to feed, so nothing is lost
+by skipping it.
+
+**`components/investments/PensionPerformanceOverview.tsx`** — the pension
+overview redesign I built earlier assumed a simpler page structure. Your
+codebase has since grown a proper "Pension live view" (`pension-command`
+experience) that looks like it already covers similar ground — including
+my old version risked conflicting with or regressing that. Worth a quick
+look together before deciding if anything from the old component is still
+worth pulling in.

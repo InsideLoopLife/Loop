@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { FormInput } from "@/components/FormInput";
 import { SubmitButton } from "@/components/SubmitButton";
-import { addPensionFund } from "@/app/investments/actions";
+import { addPensionFund } from "@/lib/investments/actions";
 
 type PensionAccount = { id: string; label: string; provider: string };
 type PensionFund = {

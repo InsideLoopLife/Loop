@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { FormInput } from "@/components/FormInput";
 import { SubmitButton } from "@/components/SubmitButton";
 import { pensionProviders, findProvider, accountOfferingsFor, providerValuationMode, providerContributionMode } from "@/lib/investments/provider-glossary";
-import { addPensionAccount, updatePensionAccount } from "@/app/investments/actions";
+import { addPensionAccount, updatePensionAccount } from "@/lib/investments/actions";
 
 type Person = { id: string; name: string; relationship: string };
 

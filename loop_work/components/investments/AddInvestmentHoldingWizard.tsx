@@ -5,7 +5,7 @@ import { Loader2, Search } from "lucide-react";
 import { FormInput } from "@/components/FormInput";
 import { SubmitButton } from "@/components/SubmitButton";
 import { formatMoney } from "@/lib/format/money";
-import { addInvestmentHolding } from "@/app/investments/actions";
+import { addInvestmentHolding } from "@/lib/investments/actions";
 
 type InvestmentAccount = { id: string; label: string; provider: string; annual_platform_fee_percent?: number; fixed_monthly_fee?: number };
 
