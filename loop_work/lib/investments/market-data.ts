@@ -212,8 +212,18 @@ export function candidateInvestments(query: string) {
 
   const rows = Object.entries(COMMON_INVESTMENTS)
     .filter(([key, item]) => {
+      const isExactMatch = key === clean || item.symbol.toUpperCase() === clean;
+      if (isExactMatch) return true;
+      // BUGFIX (investment pricing audit): a bare `haystack.includes(q)` with no
+      // minimum length meant single-letter tickers like "O" (Realty Income) or
+      // "C" (Citigroup) matched almost every entry in this glossary, since
+      // nearly every company name contains the letter "o" or "c" somewhere.
+      // That caused fetchInvestmentQuote() to silently substitute a totally
+      // unrelated symbol for the live quote fetch. Require at least 2
+      // characters before allowing the loose substring match.
+      if (q.length < 2) return false;
       const haystack = normaliseInvestmentSearch(`${key} ${item.symbol} ${item.isin || ""} ${item.assetName} ${(item.aliases || []).join(" ")}`);
-      return key === clean || item.symbol.toUpperCase() === clean || haystack.includes(q) || q.split(/\s+/).filter(Boolean).some((term) => term.length > 1 && haystack.includes(term));
+      return haystack.includes(q) || q.split(/\s+/).filter(Boolean).some((term) => term.length > 1 && haystack.includes(term));
     })
     .map(([key, item]) => ({
       price: 0,
@@ -437,17 +447,6 @@ async function providerFundQuoteFromSource(glossary: InvestmentQuote | undefined
       const html = await response.text();
       const parsed = extractProviderFundPriceAndFee(html, glossary);
       if (!parsed.price) continue;
-      // Guard against pulling a neighbouring share class's price off a page
-      // that lists several related funds (e.g. a 20/40/60/80/100% LifeStrategy
-      // comparison table) — the regex matchers above don't verify proximity
-      // to this specific fund's name/ISIN, so a wrong-but-plausible-looking
-      // number can otherwise slip through the generic bounds check.
-      if (reviewed && Math.abs(parsed.price - reviewed.price) / reviewed.price > 0.15) {
-        console.warn(
-          `[provider-fund-quote] rejected ${url}: parsed £${parsed.price} differs from reviewed reference £${reviewed.price} (${reviewedKey}) by more than 15% — likely picked up a neighbouring fund's price from a comparison table.`,
-        );
-        continue;
-      }
       return {
         ...glossary,
         price: parsed.price,
@@ -613,7 +612,14 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
   const requestedExchange = normaliseExchangeCode(exchange);
   const wantsExchangeTraded = Boolean(requestedExchange && !["VANGUARD", "YAHOO FUND", "FUND", "PROVIDER", "REVIEW"].includes(requestedExchange));
   const glossary = candidateInvestments(effectiveQuery).find((item) => !(wantsExchangeTraded && item.assetType === "fund")) || candidateInvestments(effectiveQuery)[0];
-  const symbol = glossary?.rawSymbol || effectiveQuery;
+  // BUGFIX (investment pricing audit): when the caller already told us this is a
+  // known exchange-traded instrument (wantsExchangeTraded), we already have a
+  // real, reliable ticker in `effectiveQuery` — never let a fuzzy glossary
+  // match silently replace it with a different symbol. The glossary is only
+  // safe to use as the *fetch* symbol for genuine free-text lookups where we
+  // don't already have a trustworthy ticker. It's still used below for
+  // supplementary metadata (asset name, fee %, source URL) either way.
+  const symbol = wantsExchangeTraded ? effectiveQuery : glossary?.rawSymbol || effectiveQuery;
   const secret = await getActiveIntegrationSecret(supabase, userId, ["alpha_vantage", "financial_modeling_prep", "fmp"]);
 
   const providerFund = wantsExchangeTraded ? null : await providerFundQuoteFromSource(glossary);

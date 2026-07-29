@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -7,9 +8,11 @@ import { parseNumber } from "@/lib/format/money";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { findProvider } from "@/lib/investments/provider-glossary";
 import { fetchInvestmentQuote, isYahooFundCode } from "@/lib/investments/market-data";
+import { marketSessionForVenue } from "@/lib/investments/market-venues";
 import { currencyForExchange, fxToGbp, quotePriceToGbp } from "@/lib/investments/fx";
 import { investmentDataEntitlementForProfile } from "@/lib/wealth/user-tiers";
 import { isAiFeatureEnabled, recordOpenAiUsageFromPayload } from "@/lib/ai/usage";
+import { findMoneyboxAsset, type MoneyboxAsset } from "@/lib/investments/moneybox-funds";
 
 async function currentUser() {
   const supabase = await createClient();
@@ -393,6 +396,21 @@ export async function addPensionAccount(formData: FormData) {
     employer_ni_topup_enabled: hasNiTopup,
     employer_ni_topup_percent: hasNiTopup ? (parseNumber(formData.get("employer_ni_topup_percent")) ?? 0) : 0,
     fixed_monthly_contribution: parseNumber(formData.get("fixed_monthly_contribution")) ?? 0,
+    contribution_frequency: safePensionContributionFrequency(formData.get("contribution_frequency")),
+    contribution_day: parseNumber(formData.get("contribution_day")) ?? parseNumber(formData.get("regular_pay_day")) ?? null,
+    regular_pay_day: parseNumber(formData.get("regular_pay_day")) ?? parseNumber(formData.get("contribution_day")) ?? null,
+    pension_payment_timing: safePensionTiming(formData.get("pension_payment_timing"), "next_working_day"),
+    contribution_delay_days: Math.max(0, Math.min(90, Math.round(parseNumber(formData.get("contribution_delay_days")) ?? 0))),
+    pension_investment_day: parseNumber(formData.get("pension_investment_day")) ?? null,
+    pension_investment_timing: safePensionTiming(formData.get("pension_investment_timing"), "next_working_day"),
+    contribution_started_on: nullableString(formData.get("contribution_started_on")),
+    contribution_ended_on: nullableString(formData.get("contribution_ended_on")),
+    contribution_paused: formData.get("contribution_paused") === "on",
+    contribution_auto_apply_enabled: formData.get("contribution_auto_apply_enabled") === "on",
+    employer_ni_topup_mode: safeEmployerNiTopupMode(formData.get("employer_ni_topup_mode")),
+    employer_ni_rate_percent: parseNumber(formData.get("employer_ni_rate_percent")) ?? 15,
+    employer_ni_passback_percent: hasNiTopup ? Math.max(0, Math.min(100, parseNumber(formData.get("employer_ni_passback_percent")) ?? 100)) : 0,
+    employer_base_salary_basis: safeEmployerBaseSalaryBasis(formData.get("employer_base_salary_basis")),
     annual_platform_fee_percent: platformFee,
     fixed_monthly_fee: fixedFee,
     current_value: parseNumber(formData.get("current_value")) ?? 0,
@@ -415,8 +433,6 @@ export async function updatePensionAccount(formData: FormData) {
   const hasNiTopup = formData.get("employer_ni_topup_enabled") === "on";
   const platformFee = parseNumber(formData.get("annual_platform_fee_percent")) ?? provider?.defaultAnnualPlatformFeePercent ?? 0;
   const fixedFee = parseNumber(formData.get("fixed_monthly_fee")) ?? provider?.defaultFixedMonthlyFee ?? 0;
-  const contributionFrequency = String(formData.get("contribution_frequency") || "monthly");
-  const safeFrequency = ["weekly", "fortnightly", "monthly", "quarterly", "annual", "manual"].includes(contributionFrequency) ? contributionFrequency : "monthly";
   const { error } = await supabase.from("pension_accounts").update({
     person_id: nullableString(formData.get("person_id")),
     label: String(formData.get("label") || "Company pension"),
@@ -428,17 +444,27 @@ export async function updatePensionAccount(formData: FormData) {
     employer_ni_topup_enabled: hasNiTopup,
     employer_ni_topup_percent: hasNiTopup ? (parseNumber(formData.get("employer_ni_topup_percent")) ?? 0) : 0,
     fixed_monthly_contribution: parseNumber(formData.get("fixed_monthly_contribution")) ?? 0,
+    contribution_frequency: safePensionContributionFrequency(formData.get("contribution_frequency")),
+    contribution_day: parseNumber(formData.get("contribution_day")) ?? parseNumber(formData.get("regular_pay_day")) ?? null,
+    regular_pay_day: parseNumber(formData.get("regular_pay_day")) ?? parseNumber(formData.get("contribution_day")) ?? null,
+    pension_payment_timing: safePensionTiming(formData.get("pension_payment_timing"), "next_working_day"),
+    contribution_delay_days: Math.max(0, Math.min(90, Math.round(parseNumber(formData.get("contribution_delay_days")) ?? 0))),
+    pension_investment_day: parseNumber(formData.get("pension_investment_day")) ?? null,
+    pension_investment_timing: safePensionTiming(formData.get("pension_investment_timing"), "next_working_day"),
+    contribution_started_on: nullableString(formData.get("contribution_started_on")),
+    contribution_ended_on: nullableString(formData.get("contribution_ended_on")),
+    contribution_paused: formData.get("contribution_paused") === "on",
+    contribution_auto_apply_enabled: formData.get("contribution_auto_apply_enabled") === "on",
+    employer_ni_topup_mode: safeEmployerNiTopupMode(formData.get("employer_ni_topup_mode")),
+    employer_ni_rate_percent: parseNumber(formData.get("employer_ni_rate_percent")) ?? 15,
+    employer_ni_passback_percent: hasNiTopup ? Math.max(0, Math.min(100, parseNumber(formData.get("employer_ni_passback_percent")) ?? 100)) : 0,
+    employer_base_salary_basis: safeEmployerBaseSalaryBasis(formData.get("employer_base_salary_basis")),
     annual_platform_fee_percent: platformFee,
     fixed_monthly_fee: fixedFee,
     current_value: parseNumber(formData.get("current_value")) ?? 0,
     value_as_of_date: String(formData.get("value_as_of_date") || new Date().toISOString().slice(0, 10)),
     source_url: nullableString(formData.get("source_url")),
     notes: nullableString(formData.get("notes")),
-    contribution_frequency: safeFrequency,
-    contribution_day: parseNumber(formData.get("contribution_day")) ?? null,
-    contribution_paused: formData.get("contribution_paused") === "on",
-    contribution_started_on: nullableString(formData.get("contribution_started_on")),
-    contribution_ended_on: nullableString(formData.get("contribution_ended_on")),
     valuation_mode: String(formData.get("valuation_mode") || providerValuationModeForAction(providerName)),
     updated_at: new Date().toISOString(),
   }).eq("id", id).eq("user_id", user.id);
@@ -452,6 +478,26 @@ function providerValuationModeForAction(providerName: string) {
   const notes = `${provider?.notes || ""} ${providerName}`.toLowerCase();
   if (/pensionbee|nest|people.s pension|standard life|aviva|legal|l&g|vanguard|provider value|pot value/.test(notes)) return "provider_value";
   return "fund_units";
+}
+function safePensionContributionFrequency(value: FormDataEntryValue | null) {
+  const frequency = String(value || "monthly").trim().toLowerCase();
+  return ["weekly", "fortnightly", "monthly", "quarterly", "annual", "one_off", "manual"].includes(frequency) ? frequency : "monthly";
+}
+
+function safePensionTiming(value: FormDataEntryValue | null, fallback: string) {
+  const timing = String(value || fallback).trim().toLowerCase();
+  return ["same_day", "calendar_day", "next_working_day", "previous_working_day"].includes(timing) ? timing : fallback;
+}
+
+function safeEmployerNiTopupMode(value: FormDataEntryValue | null) {
+  const mode = String(value || "fixed_percent").trim().toLowerCase();
+  return ["none", "fixed_percent", "saved_ni", "salary_sacrifice_saved_ni"].includes(mode) ? mode : "fixed_percent";
+}
+
+function safeEmployerBaseSalaryBasis(value: FormDataEntryValue | null) {
+  return String(value || "pre_sacrifice").trim().toLowerCase() === "post_sacrifice"
+    ? "post_sacrifice"
+    : "pre_sacrifice";
 }
 
 export async function addPensionFund(formData: FormData) {
@@ -543,6 +589,350 @@ export async function addInvestmentAccount(formData: FormData) {
   revalidatePath("/investments");
 }
 
+
+type MoneyboxAllocationInput = {
+  asset: MoneyboxAsset;
+  allocationPercent: number;
+};
+
+function safeFrequency(value: FormDataEntryValue | null) {
+  const frequency = String(value || "weekly").trim().toLowerCase();
+  return ["weekly", "fortnightly", "monthly", "quarterly", "one_off", "variable"].includes(frequency) ? frequency : "weekly";
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function addMonths(date: Date, months: number) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function buildContributionDates(startDateText: string, frequency: string, todayText: string) {
+  if (!startDateText || frequency === "variable") return [];
+  const start = new Date(`${startDateText}T00:00:00.000Z`);
+  const todayDate = new Date(`${todayText}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(todayDate.getTime()) || start > todayDate) return [];
+  const dates: string[] = [];
+  let cursor = start;
+  let guard = 0;
+  while (cursor <= todayDate && guard < 900) {
+    dates.push(isoDate(cursor));
+    guard += 1;
+    if (frequency === "one_off") break;
+    if (frequency === "weekly") cursor = addDays(cursor, 7);
+    else if (frequency === "fortnightly") cursor = addDays(cursor, 14);
+    else if (frequency === "quarterly") cursor = addMonths(cursor, 3);
+    else cursor = addMonths(cursor, 1);
+  }
+  return dates;
+}
+
+function parseMoneyboxAllocations(formData: FormData) {
+  const keys = formData.getAll("moneybox_asset_key").map((value) => String(value || "").trim()).filter(Boolean);
+  const percents = formData.getAll("moneybox_allocation_percent").map((value) => parseNumber(value));
+  const seen = new Set<string>();
+  const rows: MoneyboxAllocationInput[] = [];
+  keys.forEach((key, index) => {
+    const asset = findMoneyboxAsset(key);
+    const allocationPercent = percents[index] ?? 0;
+    if (!asset || allocationPercent <= 0 || seen.has(asset.key)) return;
+    seen.add(asset.key);
+    rows.push({ asset, allocationPercent });
+  });
+  return rows;
+}
+
+function estimatedMoneyboxPrice(asset: MoneyboxAsset, allocatedAmount: number) {
+  if (asset.assetKind === "cash") return 1;
+  // A safe placeholder: lots store the allocated £ amount as both total cost and units
+  // until a ticker/ETF refresh or user correction anchors the real unit price.
+  return allocatedAmount > 0 ? 1 : 0;
+}
+
+async function upsertMoneyboxHolding(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  accountId: string,
+  row: MoneyboxAllocationInput,
+  currentTotalValue: number | null,
+  valueDate: string,
+) {
+  const asset = row.asset;
+  const targetValue = currentTotalValue !== null ? (currentTotalValue * row.allocationPercent) / 100 : null;
+  const latestPrice = targetValue !== null && targetValue > 0 ? 1 : 0;
+  const units = targetValue !== null && targetValue > 0 ? targetValue : 0;
+  const lookup = asset.isin
+    ? supabase
+        .from("investment_holdings")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("investment_account_id", accountId)
+        .neq("record_status", "archived")
+        .eq("isin", asset.isin)
+        .limit(1)
+        .maybeSingle()
+    : supabase
+        .from("investment_holdings")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("investment_account_id", accountId)
+        .neq("record_status", "archived")
+        .eq("asset_name", asset.name)
+        .limit(1)
+        .maybeSingle();
+  const { data: existing } = await lookup;
+  const payload = {
+    user_id: userId,
+    investment_account_id: accountId,
+    asset_name: asset.name,
+    ticker: asset.ticker || null,
+    exchange: asset.exchange || (asset.assetKind === "cash" ? "Moneybox" : "Moneybox Fund"),
+    // BUGFIX: this used to hardcode every Moneybox holding into a
+    // "Moneybox allocation" group with no way to opt out — unlike every
+    // other provider, where grouping only happens if the user explicitly
+    // creates one (e.g. via "Organise into pies"). Grouping is a
+    // user-initiated action only; leave these ungrouped by default.
+    group_label: null,
+    asset_kind: asset.assetKind,
+    isin: asset.isin || null,
+    units,
+    average_buy_price: latestPrice,
+    latest_price: latestPrice,
+    latest_price_date: valueDate,
+    currency: "GBP",
+    price_quote_unit: "gbp",
+    annual_asset_fee_percent: asset.annualFeePercent ?? 0,
+    target_allocation_percent: row.allocationPercent,
+    price_polling_enabled: Boolean(asset.ticker && asset.assetKind !== "cash"),
+    source_url: asset.sourceUrl || "https://www.moneyboxapp.com/funds/",
+    import_source_type: "moneybox_allocation_model",
+    external_provider: "Moneybox",
+    external_position_raw: {
+      model: "moneybox_allocation_model",
+      asset_key: asset.key,
+      provider: asset.provider,
+      allocation_percent: row.allocationPercent,
+      target_value: targetValue,
+      value_date: valueDate,
+    },
+    notes: [
+      "Moneybox inferred holding. LOOP models this from the user's allocation split, contribution amount and contribution timing.",
+      asset.description || null,
+      targetValue !== null ? `Current value anchored from total Moneybox value: £${targetValue.toFixed(2)}.` : "No current total value supplied yet; generated contribution lots will anchor cost basis.",
+    ].filter(Boolean).join("\n"),
+    updated_at: new Date().toISOString(),
+  };
+
+  let result = existing?.id
+    ? await supabase.from("investment_holdings").update(payload).eq("id", existing.id).eq("user_id", userId).select("id").single()
+    : await supabase.from("investment_holdings").insert(payload).select("id").single();
+  if (result.error && /asset_kind|external_position_raw/i.test(result.error.message || "")) {
+    const { asset_kind: _assetKind, external_position_raw: _raw, ...legacyPayload } = payload;
+    result = existing?.id
+      ? await supabase.from("investment_holdings").update(legacyPayload).eq("id", existing.id).eq("user_id", userId).select("id").single()
+      : await supabase.from("investment_holdings").insert(legacyPayload).select("id").single();
+  }
+  if (result.error) throw new Error(result.error.message);
+  return result.data.id as string;
+}
+
+export async function saveMoneyboxInvestmentAccountSetup(formData: FormData) {
+  const { supabase, user } = await currentUser();
+  const todayText = new Date().toISOString().slice(0, 10);
+  const rows = parseMoneyboxAllocations(formData);
+  if (!rows.length) throw new Error("Add at least one Moneybox fund, ETF, stock or cash row.");
+  const totalAllocation = rows.reduce((sum, row) => sum + row.allocationPercent, 0);
+  if (Math.abs(totalAllocation - 100) > 0.05) throw new Error(`Moneybox allocation must total 100%. It is currently ${totalAllocation.toFixed(2)}%.`);
+
+  const provider = findProvider("Moneybox");
+  const platformFee = parseNumber(formData.get("annual_platform_fee_percent")) ?? provider?.defaultAnnualPlatformFeePercent ?? 0.45;
+  const fixedFee = parseNumber(formData.get("fixed_monthly_fee")) ?? provider?.defaultFixedMonthlyFee ?? 1;
+  const contributionAmount = parseNumber(formData.get("moneybox_contribution_amount")) ?? 0;
+  const frequency = safeFrequency(formData.get("moneybox_contribution_frequency"));
+  const startDate = String(formData.get("moneybox_start_date") || todayText);
+  const lagDays = Math.max(0, Math.min(30, Math.round(parseNumber(formData.get("moneybox_execution_lag_days")) ?? 7)));
+  const currentTotalValue = parseNumber(formData.get("moneybox_current_total_value"));
+  const valueDate = String(formData.get("moneybox_value_date") || todayText);
+  const note = nullableString(formData.get("moneybox_notes"));
+
+  let accountId = String(formData.get("investment_account_id") || "").trim();
+  if (accountId) {
+    const { data: existing, error: existingError } = await supabase
+      .from("investment_accounts")
+      .select("id")
+      .eq("id", accountId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (existingError) throw new Error(existingError.message);
+    if (!existing?.id) throw new Error("Moneybox investment pot was not found.");
+    const { error: updateError } = await supabase.from("investment_accounts").update({
+      provider: "Moneybox",
+      label: String(formData.get("label") || "Moneybox investments"),
+      account_type: String(formData.get("account_type") || "isa"),
+      annual_platform_fee_percent: platformFee,
+      fixed_monthly_fee: fixedFee,
+      notes: nullableString(formData.get("notes")) || "Moneybox allocation model enabled.",
+      provider_import_enabled: true,
+      sync_status: "manual_model",
+      last_provider_sync_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", accountId).eq("user_id", user.id);
+    if (updateError) throw new Error(updateError.message);
+  } else {
+    const { data: created, error: createError } = await supabase.from("investment_accounts").insert({
+      user_id: user.id,
+      person_id: nullableString(formData.get("person_id")),
+      label: String(formData.get("label") || "Moneybox investments"),
+      provider: "Moneybox",
+      account_type: String(formData.get("account_type") || "isa"),
+      annual_platform_fee_percent: platformFee,
+      fixed_monthly_fee: fixedFee,
+      notes: nullableString(formData.get("notes")) || "Moneybox allocation model enabled.",
+      provider_import_enabled: true,
+      sync_status: "manual_model",
+      last_provider_sync_at: new Date().toISOString(),
+    }).select("id").single();
+    if (createError) throw new Error(createError.message);
+    accountId = created.id;
+  }
+
+  const { data: rule, error: ruleError } = await supabase.from("moneybox_portfolio_rules").upsert({
+    user_id: user.id,
+    investment_account_id: accountId,
+    contribution_amount: contributionAmount,
+    contribution_frequency: frequency,
+    contribution_start_date: startDate,
+    estimated_execution_lag_days: lagDays,
+    current_total_value: currentTotalValue,
+    current_total_value_date: valueDate,
+    notes: note,
+    is_active: true,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "user_id,investment_account_id" }).select("id").single();
+  if (ruleError) throw new Error(ruleError.message);
+
+  await supabase.from("moneybox_portfolio_allocations").delete().eq("user_id", user.id).eq("investment_account_id", accountId);
+  const allocationRows = rows.map((row) => ({
+    user_id: user.id,
+    investment_account_id: accountId,
+    rule_id: rule.id,
+    asset_key: row.asset.key,
+    asset_name: row.asset.name,
+    provider_name: row.asset.provider,
+    asset_kind: row.asset.assetKind,
+    ticker: row.asset.ticker || null,
+    exchange: row.asset.exchange || null,
+    isin: row.asset.isin || null,
+    annual_asset_fee_percent: row.asset.annualFeePercent ?? 0,
+    allocation_percent: row.allocationPercent,
+    source_url: row.asset.sourceUrl || "https://www.moneyboxapp.com/funds/",
+  }));
+  const { error: allocationError } = await supabase.from("moneybox_portfolio_allocations").insert(allocationRows);
+  if (allocationError) throw new Error(allocationError.message);
+
+  const holdingIds: string[] = [];
+  const holdingByAssetKey = new Map<string, string>();
+  for (const row of rows) {
+    const holdingId = await upsertMoneyboxHolding(supabase, user.id, accountId, row, currentTotalValue, valueDate);
+    holdingIds.push(holdingId);
+    holdingByAssetKey.set(row.asset.key, holdingId);
+  }
+
+  if (holdingIds.length) {
+    await supabase.from("investment_purchase_lots").delete().eq("user_id", user.id).eq("external_source", "moneybox_allocation_model").in("holding_id", holdingIds);
+  }
+
+  const contributionDates = contributionAmount > 0 ? buildContributionDates(startDate, frequency, todayText) : [];
+  const lotRows = contributionDates.flatMap((contributionDate) => rows.map((row) => {
+    const allocatedAmount = (contributionAmount * row.allocationPercent) / 100;
+    const price = estimatedMoneyboxPrice(row.asset, allocatedAmount) || 1;
+    const executionDate = isoDate(addDays(new Date(`${contributionDate}T00:00:00.000Z`), lagDays));
+    const holdingId = holdingByAssetKey.get(row.asset.key);
+    if (!holdingId || executionDate > todayText) return null;
+    return {
+      user_id: user.id,
+      holding_id: holdingId,
+      purchase_date: executionDate,
+      units: allocatedAmount / price,
+      purchase_price: price,
+      total_cost: allocatedAmount,
+      fees: 0,
+      price_quote_unit: "gbp",
+      currency: "GBP",
+      external_source: "moneybox_allocation_model",
+      external_transaction_id: `moneybox:${accountId}:${row.asset.key}:${contributionDate}`,
+      contribution_date: contributionDate,
+      execution_date: executionDate,
+      contribution_source: "moneybox_regular_contribution",
+      allocation_percent: row.allocationPercent,
+      estimated: true,
+      notes: `Estimated Moneybox buy from £${contributionAmount.toFixed(2)} contribution collected ${contributionDate}; allocation ${row.allocationPercent.toFixed(3)}%; estimated execution ${executionDate}.`,
+    };
+  })).filter(Boolean) as any[];
+
+  if (lotRows.length) {
+    const { error: lotError } = await supabase.from("investment_purchase_lots").insert(lotRows);
+    if (lotError) throw new Error(lotError.message);
+
+    for (const row of rows) {
+      const holdingId = holdingByAssetKey.get(row.asset.key);
+      if (!holdingId) continue;
+      const holdingLots = lotRows.filter((lot) => lot.holding_id === holdingId);
+      const totalUnits = holdingLots.reduce((sum, lot) => sum + Number(lot.units || 0), 0);
+      const totalCost = holdingLots.reduce((sum, lot) => sum + Number(lot.total_cost || 0), 0);
+      const targetValue = currentTotalValue !== null ? (currentTotalValue * row.allocationPercent) / 100 : null;
+      const latestPrice = targetValue !== null && totalUnits > 0 ? targetValue / totalUnits : totalUnits > 0 ? totalCost / totalUnits : 0;
+      const avgPrice = totalUnits > 0 ? totalCost / totalUnits : latestPrice;
+      await supabase.from("investment_holdings").update({
+        units: totalUnits,
+        average_buy_price: avgPrice,
+        latest_price: latestPrice,
+        latest_price_date: valueDate,
+        updated_at: new Date().toISOString(),
+      }).eq("id", holdingId).eq("user_id", user.id);
+    }
+  }
+
+  if (currentTotalValue !== null) {
+    await supabase.from("moneybox_value_corrections").insert({
+      user_id: user.id,
+      investment_account_id: accountId,
+      correction_date: valueDate,
+      corrected_total_value: currentTotalValue,
+      note: note || "Moneybox total value anchor supplied in allocation setup.",
+    });
+
+    for (const row of rows) {
+      const holdingId = holdingByAssetKey.get(row.asset.key);
+      if (!holdingId) continue;
+      const value = (currentTotalValue * row.allocationPercent) / 100;
+      const { data: h } = await supabase.from("investment_holdings").select("units, latest_price").eq("id", holdingId).eq("user_id", user.id).maybeSingle();
+      await supabase.from("investment_price_snapshots").insert({
+        user_id: user.id,
+        holding_id: holdingId,
+        price: Number(h?.latest_price || 1),
+        units: Number(h?.units || value),
+        value,
+        snapshot_date: valueDate,
+        snapshot_at: new Date().toISOString(),
+        source: "moneybox_manual_total_anchor",
+      });
+    }
+  }
+
+  revalidatePath("/investments");
+  revalidatePath("/net-worth");
+}
+
 export async function updateInvestmentAccount(formData: FormData) {
   const { supabase, user } = await currentUser();
   const id = String(formData.get("id") || "");
@@ -602,7 +992,7 @@ export async function updateInvestmentPieSetting(formData: FormData) {
   const groupLabel = String(formData.get("group_label") || "").trim();
   if (!accountId || !groupLabel) throw new Error("Choose a pie/group to update.");
   const frequency = String(formData.get("reinvest_frequency") || "monthly");
-  const safeFrequency = ["weekly", "fortnightly", "monthly", "quarterly"].includes(frequency) ? frequency : "monthly";
+  const safeFrequency = ["weekly", "fortnightly", "monthly", "quarterly", "annual", "manual"].includes(frequency) ? frequency : "monthly";
   const { error } = await supabase.from("investment_pie_settings").upsert({
     user_id: user.id,
     investment_account_id: accountId,
@@ -611,6 +1001,9 @@ export async function updateInvestmentPieSetting(formData: FormData) {
     reinvest_frequency: safeFrequency,
     expected_dividend_yield_percent: parseNumber(formData.get("expected_dividend_yield_percent")) ?? 0,
     auto_reinvest_dividends: formData.get("auto_reinvest_dividends") === "on",
+    reinvest_day: parseNumber(formData.get("reinvest_day")) ?? 1,
+    reinvest_delay_days: Math.max(0, Math.min(90, Math.round(parseNumber(formData.get("reinvest_delay_days")) ?? 0))),
+    auto_materialise_reinvestments_enabled: formData.get("auto_materialise_reinvestments_enabled") === "on",
     notes: nullableString(formData.get("notes")),
     updated_at: new Date().toISOString(),
   }, { onConflict: "user_id,investment_account_id,group_label" });
@@ -799,6 +1192,88 @@ export async function updateInvestmentHolding(formData: FormData) {
 }
 
 
+export async function saveInvestmentCostBasisBatch(formData: FormData) {
+  const { supabase, user } = await currentUser();
+  const holdingIds = formData.getAll("holding_id").map((value) => String(value || "").trim()).filter(Boolean);
+  if (!holdingIds.length) throw new Error("Choose at least one holding to update.");
+
+  const { data: ownedHoldings, error: holdingsError } = await supabase
+    .from("investment_holdings")
+    .select("id,units,latest_price,native_latest_price,native_currency,price_quote_unit,latest_fx_rate_to_gbp,exchange")
+    .eq("user_id", user.id)
+    .in("id", holdingIds);
+  if (holdingsError) throw new Error(holdingsError.message);
+  const ownedById = new Map((ownedHoldings || []).map((row: any) => [String(row.id), row]));
+  let updated = 0;
+  let skipped = 0;
+
+  for (const holdingId of holdingIds) {
+    const owned = ownedById.get(holdingId);
+    if (!owned) { skipped += 1; continue; }
+    const enteredNativePrice = parseNumber(formData.get(`average_buy_price:${holdingId}`));
+    if (enteredNativePrice === null || enteredNativePrice <= 0) { skipped += 1; continue; }
+    const units = Math.max(0, Number(owned.units || 0));
+    const nativeCurrency = String(formData.get(`cost_currency:${holdingId}`) || owned.native_currency || "GBP").toUpperCase();
+    const quoteUnit = String(formData.get(`cost_quote_unit:${holdingId}`) || owned.price_quote_unit || "native").toLowerCase();
+    const explicitFx = Number(formData.get(`cost_fx_rate:${holdingId}`) || owned.latest_fx_rate_to_gbp || 0);
+    const nativeLatest = Number(owned.native_latest_price || 0);
+    const latestGbp = Number(owned.latest_price || 0);
+    const impliedFx = explicitFx > 0 ? explicitFx : nativeLatest > 0 && latestGbp > 0 ? latestGbp / nativeLatest : 1;
+    const averageBuyPrice = quoteUnit === "gbx" || nativeCurrency === "GBX"
+      ? enteredNativePrice / 100
+      : nativeCurrency === "GBP"
+        ? enteredNativePrice
+        : enteredNativePrice * impliedFx;
+    const { error } = await supabase
+      .from("investment_holdings")
+      .update({
+        average_buy_price: averageBuyPrice,
+        cost_basis_status: "manual_confirmed",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", holdingId)
+      .eq("user_id", user.id);
+    if (error) throw new Error(error.message);
+
+    const lotDate = String(formData.get(`purchase_date:${holdingId}`) || new Date().toISOString().slice(0, 10));
+    const { data: existingLot } = await supabase
+      .from("investment_purchase_lots")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("holding_id", holdingId)
+      .eq("external_source", "manual_cost_basis")
+      .maybeSingle();
+    const lotPayload = {
+      user_id: user.id,
+      holding_id: holdingId,
+      purchase_date: lotDate,
+      units,
+      purchase_price: averageBuyPrice,
+      native_purchase_price: enteredNativePrice,
+      native_currency: nativeCurrency,
+      total_cost: units * averageBuyPrice,
+      fees: 0,
+      price_quote_unit: quoteUnit,
+      currency: "GBP",
+      external_source: "manual_cost_basis",
+      notes: "Manual average cost supplied from the portfolio cost-basis drawer.",
+    };
+    if (existingLot?.id) {
+      const { user_id: _userId, holding_id: _holdingId, ...updatePayload } = lotPayload;
+      const { error: lotUpdateError } = await supabase.from("investment_purchase_lots").update(updatePayload).eq("id", existingLot.id).eq("user_id", user.id);
+      if (lotUpdateError) throw new Error(lotUpdateError.message);
+    } else {
+      const { error: lotInsertError } = await supabase.from("investment_purchase_lots").insert(lotPayload);
+      if (lotInsertError) throw new Error(lotInsertError.message);
+    }
+    updated += 1;
+  }
+
+  revalidatePath("/investments");
+  revalidatePath("/net-worth");
+  return { updated, skipped, message: updated ? `${updated} cost basis entr${updated === 1 ? "y" : "ies"} saved.` : "No valid purchase prices were supplied." };
+}
+
 export async function updateInvestmentHoldingGroups(formData: FormData) {
   const { supabase, user } = await currentUser();
   const accountId = String(formData.get("investment_account_id") || "").trim();
@@ -872,6 +1347,8 @@ export async function refreshInvestmentHoldingPrice(formData: FormData) {
   const today = checkedAtIso.slice(0, 10);
   const ticker = String(holding.ticker || "").trim().toUpperCase();
   const exchange = normalisedExchangeCode(holding.exchange);
+  const session = marketSessionForVenue(exchange, checkedAt, ticker);
+  const shouldStoreSnapshot = session.isMarketOpen || session.session === "daily";
 
   const quote = await fetchQuote(supabase, user.id, ticker, exchange);
   if (!quote || !Number.isFinite(Number(quote.price)) || Number(quote.price) <= 0) {
@@ -916,7 +1393,7 @@ export async function refreshInvestmentHoldingPrice(formData: FormData) {
   const dayChangeNative = previousCloseNative > 0 ? nativePrice - previousCloseNative : null;
   const dayChangeNativePercent = previousCloseNative > 0 ? ((nativePrice - previousCloseNative) / previousCloseNative) * 100 : null;
 
-  if (holding.listing_id) {
+  if (holding.listing_id && shouldStoreSnapshot) {
     await supabase.from("investment_instrument_price_points").upsert({
       listing_id: holding.listing_id,
       instrument_id: holding.instrument_id,
@@ -964,32 +1441,34 @@ export async function refreshInvestmentHoldingPrice(formData: FormData) {
   } as any).eq("id", id).eq("user_id", user.id);
   if (error) throw new Error(error.message);
 
-  await supabase.from("investment_price_snapshots").upsert({
-    user_id: user.id,
-    holding_id: id,
-    instrument_id: holding.instrument_id,
-    listing_id: holding.listing_id,
-    price: gbpPrice,
-    units,
-    value: units * gbpPrice,
-    native_price: nativePrice,
-    native_value: units * nativePrice,
-    native_currency: nativeCurrency,
-    fx_rate_to_gbp: fxRate,
-    fx_source: quotePricing.fxSource,
-    previous_close_price_gbp: previousCloseGbp || null,
-    previous_close_native_price: previousCloseNative || null,
-    previous_close_at: previousCloseAt,
-    day_change_gbp: dayChangeGbp,
-    day_change_percent: dayChangePercent,
-    day_change_native: dayChangeNative,
-    day_change_native_percent: dayChangeNativePercent,
-    snapshot_date: today,
-    snapshot_at: checkedAtIso,
-    snapshot_minute: snapshotMinuteIso,
-    source: `${quote.source}; ${quotePricing.fxSource}`,
-    bucket_interval: "manual-check",
-  } as any, { onConflict: "user_id,holding_id,snapshot_minute" });
+  if (shouldStoreSnapshot) {
+    await supabase.from("investment_price_snapshots").upsert({
+      user_id: user.id,
+      holding_id: id,
+      instrument_id: holding.instrument_id,
+      listing_id: holding.listing_id,
+      price: gbpPrice,
+      units,
+      value: units * gbpPrice,
+      native_price: nativePrice,
+      native_value: units * nativePrice,
+      native_currency: nativeCurrency,
+      fx_rate_to_gbp: fxRate,
+      fx_source: quotePricing.fxSource,
+      previous_close_price_gbp: previousCloseGbp || null,
+      previous_close_native_price: previousCloseNative || null,
+      previous_close_at: previousCloseAt,
+      day_change_gbp: dayChangeGbp,
+      day_change_percent: dayChangePercent,
+      day_change_native: dayChangeNative,
+      day_change_native_percent: dayChangeNativePercent,
+      snapshot_date: today,
+      snapshot_at: checkedAtIso,
+      snapshot_minute: snapshotMinuteIso,
+      source: `${quote.source}; ${quotePricing.fxSource}`,
+      bucket_interval: "manual-check",
+    } as any, { onConflict: "user_id,holding_id,snapshot_minute" });
+  }
 
   revalidatePath("/investments");
   revalidatePath("/net-worth");
@@ -1014,12 +1493,15 @@ export async function refreshAllInvestmentPrices(formData?: FormData) {
 
   const todayDate = new Date().toISOString().slice(0, 10);
   const checkedAt = new Date().toISOString();
+  const snapshotBatchId = randomUUID();
   let updated = 0;
   let failed = 0;
+  const rows = holdings || [];
+  let cursor = 0;
 
-  for (const holding of holdings || []) {
+  async function refreshOne(holding: any) {
     const ticker = String(holding.ticker || "").trim();
-    if (!ticker) continue;
+    if (!ticker) return;
     const quote = await fetchQuote(supabase, user.id, ticker, holding.exchange).catch(() => null);
     if (!quote || !Number.isFinite(Number(quote.price)) || Number(quote.price) <= 0) {
       failed += 1;
@@ -1027,9 +1509,11 @@ export async function refreshAllInvestmentPrices(formData?: FormData) {
       const existing = String(holding.notes || "");
       await supabase.from("investment_holdings").update({
         notes: existing.includes(note) ? existing : [existing, note].filter(Boolean).join("\n"),
+        price_check_status: "failed",
+        last_price_check_at: checkedAt,
         updated_at: checkedAt,
       }).eq("id", holding.id).eq("user_id", user.id);
-      continue;
+      return;
     }
 
     const units = Number(holding.units || 0);
@@ -1042,28 +1526,41 @@ export async function refreshAllInvestmentPrices(formData?: FormData) {
       native_currency: quotePricing.nativeCurrency,
       native_exchange: quote.exchange || holding.exchange,
       source_url: quote.sourceUrl || `market-data:${quote.source}:${quote.rawSymbol}`,
+      price_check_status: "ok",
+      last_price_check_at: checkedAt,
       updated_at: checkedAt,
     }).eq("id", holding.id).eq("user_id", user.id);
-    if (update.error) {
-      failed += 1;
-      continue;
-    }
+    if (update.error) { failed += 1; return; }
 
+    const nativePrice = Number(quotePricing.nativePrice || 0);
     const snapshot = await supabase.from("investment_price_snapshots").insert({
       user_id: user.id,
       holding_id: holding.id,
       price: quotePricing.gbpPrice,
+      native_price: nativePrice,
+      native_currency: quotePricing.nativeCurrency,
+      fx_rate_to_gbp: nativePrice > 0 ? quotePricing.gbpPrice / nativePrice : 1,
       units,
       value: units * Number(quotePricing.gbpPrice),
+      native_value: units * nativePrice,
       snapshot_date: todayDate,
       snapshot_at: checkedAt,
+      snapshot_batch_id: snapshotBatchId,
       source: quote.source,
     });
     if (snapshot.error) failed += 1;
     else updated += 1;
   }
 
-  console.log(`[investment-manual-refresh] updated=${updated} failed=${failed} account=${accountId || "all"}`);
+  async function worker() {
+    while (cursor < rows.length) {
+      const index = cursor++;
+      await refreshOne(rows[index]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(8, Math.max(1, rows.length)) }, () => worker()));
+
+  console.log(`[investment-manual-refresh] updated=${updated} failed=${failed} account=${accountId || "all"} batch=${snapshotBatchId}`);
   revalidatePath("/investments");
   revalidatePath("/net-worth");
 }
