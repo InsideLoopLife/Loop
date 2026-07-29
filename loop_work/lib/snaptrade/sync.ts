@@ -1477,10 +1477,23 @@ export async function fetchSnapTradeAccountsForUser(
 ): Promise<SnapTradeAccountPreview[]> {
   const userSecret = await getSnapTradeSecretForUser(supabase, appUserId);
   const snapUserId = loopSnapTradeUserId(appUserId);
-  const accountsPayload = await snapTradeRequest<any[]>(
-    "GET",
-    `/accounts?userId=${encodeURIComponent(snapUserId)}&userSecret=${encodeURIComponent(userSecret)}`,
-  );
+  // DIAGNOSTIC (SnapTrade sync failures): failures across the whole sync
+  // flow were being flattened into one generic message ("requested path is
+  // invalid"), which doesn't distinguish "SnapTrade's API rejected this
+  // request" from "a Supabase call inside this flow failed" — that phrase is
+  // actually a known Supabase error message, not a documented SnapTrade one.
+  // Tag this specific call clearly so the next failure's log line says
+  // exactly which step broke.
+  let accountsPayload: any;
+  try {
+    accountsPayload = await snapTradeRequest<any[]>(
+      "GET",
+      `/accounts?userId=${encodeURIComponent(snapUserId)}&userSecret=${encodeURIComponent(userSecret)}`,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`[snaptrade:GET /accounts] ${message}`);
+  }
   const accounts = Array.isArray(accountsPayload) ? accountsPayload : [];
 
   const { data: existingAccounts } = await supabase
