@@ -330,6 +330,12 @@ export default async function AccountPage({
       )
       .eq("user_id", user.id)
       .eq("provider", "SnapTrade")
+      // BUGFIX (remove-access stuck as "connected"): this query had no
+      // status filter at all — every connection ever created stayed in
+      // the list forever. The real disconnected status is 'disabled'
+      // (confirmed against the table's own check constraint), not
+      // 'removed'/'removing', which were never valid values at all.
+      .neq("status", "disabled")
       .order("updated_at", { ascending: false }),
     supabase
       .from("investment_accounts")

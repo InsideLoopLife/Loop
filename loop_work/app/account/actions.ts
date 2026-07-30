@@ -851,35 +851,55 @@ export async function removeSnapTradeConnectionAndRestoreManual(formData: FormDa
     : await accountQuery;
 
   for (const account of importedAccounts || []) {
-    await supabase
-      .from("investment_holdings")
-      .update({
-        record_status: "archived",
-        archive_reason: "snaptrade_connection_removed",
-        archived_at: new Date().toISOString(),
-        provider_migration_status: "snaptrade_archived_connection_removed",
-      })
-      .eq("user_id", user.id)
-      .eq("investment_account_id", (account as any).id)
-      .neq("record_status", "archived");
+    // BUGFIX (remove-access stuck as "connected"): none of this loop body
+    // was wrapped in error handling. If any single account's processing
+    // threw, the function aborted right there — meaning the accounts for
+    // THAT account got processed, but the connection-status update below
+    // (which only runs once, after the whole loop) never ran at all.
+    // Confirmed against real data: accounts were correctly archived, but
+    // the connection itself silently never got marked removed. Wrapping
+    // each account's work means one bad account can never block the
+    // connection from actually being marked removed.
+    try {
+      await supabase
+        .from("investment_holdings")
+        .update({
+          record_status: "archived",
+          archive_reason: "snaptrade_connection_removed",
+          archived_at: new Date().toISOString(),
+          provider_migration_status: "snaptrade_archived_connection_removed",
+        })
+        .eq("user_id", user.id)
+        .eq("investment_account_id", (account as any).id)
+        .neq("record_status", "archived");
 
-    await supabase
-      .from("investment_accounts")
-      .update({
-        record_status: "archived",
-        archive_reason: "snaptrade_connection_removed",
-        archived_at: new Date().toISOString(),
-        provider_import_enabled: false,
-        provider_migration_status: "snaptrade_archived_connection_removed",
-      })
-      .eq("user_id", user.id)
-      .eq("id", (account as any).id);
+      await supabase
+        .from("investment_accounts")
+        .update({
+          record_status: "archived",
+          archive_reason: "snaptrade_connection_removed",
+          archived_at: new Date().toISOString(),
+          provider_import_enabled: false,
+          provider_migration_status: "snaptrade_archived_connection_removed",
+        })
+        .eq("user_id", user.id)
+        .eq("id", (account as any).id);
 
-    await restoreManualAccountsForSnapTradeAccount(supabase, user.id, (account as any).id);
+      await restoreManualAccountsForSnapTradeAccount(supabase, user.id, (account as any).id);
+    } catch (error) {
+      providerDeleteNote += ` (Warning: one account did not fully archive: ${error instanceof Error ? error.message : "unknown error"}.)`;
+    }
   }
 
   const connectionUpdate = {
-    status: externalConnectionId ? "removing" : "removed",
+    // BUGFIX (remove-access silently never worked, for anyone, ever):
+    // this used to set "removing"/"removed" — neither value is allowed
+    // by integration_connections' own check constraint (only
+    // planned/sandbox/connected/needs_reauth/disabled are permitted).
+    // Every single disconnect attempt was hitting a constraint violation
+    // on this exact update, silently discarded because the result was
+    // never checked. 'disabled' is the correct existing status for this.
+    status: "disabled",
     review_status: "archived",
     notes: providerDeleteNote,
     updated_at: new Date().toISOString(),
@@ -891,7 +911,19 @@ export async function removeSnapTradeConnectionAndRestoreManual(formData: FormDa
     .eq("provider", "SnapTrade");
   if (localConnectionId) connectionRequest = connectionRequest.eq("id", localConnectionId);
   else if (externalConnectionId) connectionRequest = connectionRequest.eq("external_connection_id", externalConnectionId);
-  await connectionRequest;
+  // BUGFIX (remove-access stuck as "connected"): this result was
+  // previously completely discarded — `await connectionRequest;` with no
+  // error check at all. If this specific update failed for any reason
+  // (RLS, a bad id match, anything), there was no way to ever know; the
+  // connection would just silently stay "connected" forever, exactly as
+  // reported. Now throws so the failure is visible instead of invisible.
+  const { error: connectionUpdateError, count: connectionUpdateCount } = await connectionRequest.select("id", { count: "exact" });
+  if (connectionUpdateError) {
+    throw new Error(`Failed to update the connection's own status: ${connectionUpdateError.message}`);
+  }
+  if (!connectionUpdateCount) {
+    throw new Error("Remove access did not match any connection row — the connection_id/external_connection_id sent from the button may not match what's stored.");
+  }
 
   const { count: activeSnapTradeCount } = await supabase
     .from("investment_accounts")

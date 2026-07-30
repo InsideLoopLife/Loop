@@ -2170,7 +2170,7 @@ export async function importSnapTradeAccountsForUser(
     for (const position of positionsToImport) {
       const existingHolding = await supabase
         .from("investment_holdings")
-        .select("id")
+        .select("id, average_buy_price, cost_basis_status")
         .eq("user_id", appUserId)
         .eq("investment_account_id", localAccountId)
         .eq("external_provider", "snaptrade")
@@ -2197,7 +2197,6 @@ export async function importSnapTradeAccountsForUser(
           position.groupLabel ||
           (position.raw?.synthetic ? "Account value placeholder" : null),
         units: position.units,
-        average_buy_price: position.averageBuyPrice,
         latest_price: position.latestPrice,
         latest_price_date: new Date().toISOString().slice(0, 10),
         currency: position.currency || account.currency || "GBP",
@@ -2210,7 +2209,6 @@ export async function importSnapTradeAccountsForUser(
         external_position_id: position.externalPositionId,
         external_position_raw: position.raw,
         logo_url: position.logoUrl,
-        cost_basis_status: position.costBasisVerified ? "provider_verified" : "missing",
         imported_current_value: position.value,
         imported_invested_value:
           position.costBasis && position.costBasis > 0
@@ -2224,6 +2222,35 @@ export async function importSnapTradeAccountsForUser(
         import_source_type: "snaptrade",
         last_provider_sync_at: new Date().toISOString(),
       } as Record<string, any>;
+      // BUGFIX (cost basis wipe): average_buy_price/cost_basis_status had
+      // the exact same problem as price_polling_enabled above — part of
+      // the unconditional payload, silently reset to "missing" on every
+      // re-sync whenever SnapTrade's data for that position happened to
+      // be incomplete that round. This wiped out manually-confirmed cost
+      // basis entries, and made "known" cost basis flicker back to
+      // "unknown" even when nothing had actually changed. Now: a
+      // manually-confirmed cost basis is never touched by a sync, full
+      // stop. Otherwise, provider data is only applied when it's an
+      // actual improvement (a real number replacing missing/reconstructed
+      // data) — never regresses a known value back to unknown.
+      const existingCostBasisStatus = existingHolding.data?.cost_basis_status || null;
+      const newAverageBuyPrice = Number(position.averageBuyPrice);
+      const hasUsableNewCostBasis = Number.isFinite(newAverageBuyPrice) && newAverageBuyPrice > 0;
+      const costBasisFields: Record<string, any> = {};
+      if (existingCostBasisStatus !== "manual_confirmed") {
+        if (hasUsableNewCostBasis) {
+          costBasisFields.average_buy_price = newAverageBuyPrice;
+          costBasisFields.cost_basis_status = position.costBasisVerified ? "provider_verified" : (existingCostBasisStatus === "provider_verified" ? "provider_verified" : "missing");
+        } else if (!existingHolding.data?.id) {
+          // Brand new row with no usable cost basis yet — record that
+          // honestly rather than leaving the column null with no status.
+          costBasisFields.cost_basis_status = "missing";
+        }
+        // If there's no usable new value AND this is an existing row,
+        // deliberately omit both fields so whatever's already stored is
+        // left completely untouched.
+      }
+
       let localHoldingId = existingHolding.data?.id || "";
       // BUGFIX (market data audit): price_polling_enabled used to be part of
       // holdingPayload unconditionally, which meant it got silently reset on
@@ -2238,14 +2265,14 @@ export async function importSnapTradeAccountsForUser(
       const writeHolding = existingHolding.data?.id
         ? await supabase
             .from("investment_holdings")
-            .update(holdingPayload)
+            .update({ ...holdingPayload, ...costBasisFields })
             .eq("id", existingHolding.data.id)
             .eq("user_id", appUserId)
             .select("id")
             .single()
         : await supabase
             .from("investment_holdings")
-            .insert({ ...holdingPayload, price_polling_enabled: Boolean(position.ticker) })
+            .insert({ ...holdingPayload, ...costBasisFields, price_polling_enabled: Boolean(position.ticker) })
             .select("id")
             .single();
       if (writeHolding.error) throw new Error(writeHolding.error.message);
