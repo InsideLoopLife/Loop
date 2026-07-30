@@ -8292,6 +8292,19 @@ export function PensionsInvestmentsClient({
                   >
                     Add investment pot
                   </button>
+                  {/* NEW: there was no way to start a brokerage connection
+                      (SnapTrade) from this menu at all — only manual pots.
+                      This links through to the real connect flow at
+                      /integrations rather than duplicating it inline here. */}
+                  <button
+                    onClick={() => {
+                      setAddOpen(false);
+                      router.push("/integrations");
+                    }}
+                    className="block w-full rounded-2xl px-3 py-3 text-left text-sm font-black hover:bg-slate-50"
+                  >
+                    Connect a broker (Trading integration)
+                  </button>
                 </div>
               ) : null}
             </div>
