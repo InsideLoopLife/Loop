@@ -23,6 +23,11 @@ export type MoneyboxAsset = {
   priceQuoteUnit?: "gbp" | "gbx" | "usd" | "eur";
   sourceUrl?: string | null;
   description?: string;
+  // The real, full institutional fund name — Moneybox's own "name" field is
+  // a simplified retail label (e.g. "Global Property Shares ESG"); this is
+  // what that name actually maps to underneath (e.g. "iShares Environment &
+  // Low Carbon Tilt Real Estate Index Fund (UK)").
+  actualFundName?: string | null;
   pricePollingEnabled?: boolean;
   aliases?: string[];
   catalogueId?: string | null; // Optional link to PROVIDER_FUND_CATALOGUE
@@ -45,7 +50,8 @@ export const MONEYBOX_ASSETS: MoneyboxAsset[] = [
     annualFeePercent: 0.12,
     priceQuoteUnit: "gbp",
     sourceUrl: FUNDS_SOURCE,
-    description: "Core Moneybox global equity fund tracking the global stock market (Fidelity Index World Fund P Acc).",
+    description: "Core Moneybox global equity fund tracking the global stock market. A massive global tracker fund that passively manages investments by aiming to closely match the performance of the MSCI World Index, giving broad exposure to large and mid-cap companies across developed countries worldwide.",
+    actualFundName: "Fidelity Index World Fund P Acc",
     aliases: ["world shares", "global equity", "fidelity global shares", "global shares"],
     catalogueId: "fidelity-fidelity-index-world-fund"
   },
@@ -138,7 +144,8 @@ export const MONEYBOX_ASSETS: MoneyboxAsset[] = [
     annualFeePercent: 0.15,
     priceQuoteUnit: "gbp",
     sourceUrl: FUNDS_SOURCE,
-    description: "Cautious cash-like Moneybox fund option; use for Cash Trust allocations.",
+    description: "Cautious cash-like Moneybox fund option; use for Cash Trust allocations. A money market fund — instead of stocks, it invests in short-term deposits, government bonds, and certificates of deposit to essentially mirror cash savings rates (like the Bank of England base rate) while protecting capital.",
+    actualFundName: "L&G Cash Trust",
     aliases: ["cash", "cash trust", "unknown allocation", "uninvested cash"],
     catalogueId: "legal-general-landg-pmc-cash-fund-3"
   },
@@ -412,13 +419,14 @@ export const MONEYBOX_ASSETS: MoneyboxAsset[] = [
   {
     key: "moneybox-global-property-shares-esg",
     name: "Global Property Shares ESG",
-    provider: "iShares",
+    provider: "iShares (BlackRock)",
     assetKind: "fund",
     isin: "GB00B5BFJG71", // Enriched from institutional data
     annualFeePercent: 0.18,
     priceQuoteUnit: "gbp",
     sourceUrl: FUNDS_SOURCE,
-    description: "Global property company exposure with ESG screening.",
+    description: "Global property company exposure with ESG screening. Tracks an index of leading global property companies but applies an \"ESG tilt\" — weighting investments more heavily toward property companies that score well on environmental factors and carbon footprint reduction.",
+    actualFundName: "iShares Environment & Low Carbon Tilt Real Estate Index Fund (UK)",
     aliases: ["property", "real estate", "global property esg", "global-property-esg", "moneybox-global-property-esg"],
     catalogueId: "ishares-global-property-securities-equity-index-uk-d-acc"
   },
@@ -436,13 +444,14 @@ export const MONEYBOX_ASSETS: MoneyboxAsset[] = [
   {
     key: "moneybox-overseas-corporate-bonds-esg",
     name: "Overseas Corporate Bonds ESG",
-    provider: "iShares",
+    provider: "iShares (BlackRock)",
     assetKind: "fund",
     isin: "GB00B84DSH94", // Enriched from institutional data
     annualFeePercent: 0.11,
     priceQuoteUnit: "gbp",
     sourceUrl: FUNDS_SOURCE,
-    description: "ESG screened overseas corporate bond exposure.",
+    description: "ESG screened overseas corporate bond exposure. A fixed-income fund tracking global corporate bonds (excluding those denominated in British Pounds), specifically screening out companies involved in controversial sectors such as weapons, tobacco and thermal coal, or those violating UN Global Compact principles.",
+    actualFundName: "iShares ESG Screened Overseas Corporate Bond Index Fund (UK)",
     aliases: ["corporate bonds", "overseas corporate bonds", "esg bonds"],
     catalogueId: "ishares-overseas-corporate-bond-index-uk-d-acc"
   },
