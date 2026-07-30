@@ -1334,6 +1334,29 @@ export async function refreshInvestmentHoldingPrice(formData: FormData) {
     return;
   }
 
+  // NEW (tier-based rate limiting): manual "Check price" clicks were
+  // previously uncapped for any user, any number of times per day. Now
+  // gated per-tier, with a genuine midnight-UTC reset, matching the same
+  // pattern used for AI budget enforcement.
+  const { data: membershipForRefresh } = await supabase
+    .from("app_user_plan_memberships")
+    .select("plan_slug")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const { data: refreshEntitlement } = await supabase.rpc("loop_check_manual_refresh_entitlement", {
+    p_user_id: user.id,
+    p_tier_key: membershipForRefresh?.plan_slug || "free",
+  });
+  if (refreshEntitlement && !refreshEntitlement.allowed) {
+    await supabase.from("investment_holdings").update({
+      notes: String(refreshEntitlement.reason || "Daily price-check limit reached. Resets at midnight."),
+      updated_at: new Date().toISOString(),
+    }).eq("id", id).eq("user_id", user.id);
+    revalidatePath("/investments");
+    return;
+  }
+  await supabase.from("loop_manual_refresh_events").insert({ user_id: user.id, holding_id: id }).then(() => null, () => null);
+
   const checkedAt = new Date();
   const checkedAtIso = checkedAt.toISOString();
   const snapshotMinute = new Date(checkedAt.getTime());

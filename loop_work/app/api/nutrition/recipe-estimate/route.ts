@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 import { fallbackRecipeEstimate, normaliseRecipeEstimate } from "@/lib/nutrition/scoring";
 import { enforceUserRateLimit } from "@/lib/security/rate-limit";
 import { cleanText } from "@/lib/security/external-data";
@@ -54,6 +55,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ estimate: fallback, usedOpenAi: false, note: "No OpenAI token is saved, so this is a rough built-in estimate." });
   }
 
+  const budget = await checkAiRouteAllowed(supabase, user.id, "nutrition_recommendation");
+  if (!budget.allowed) {
+    return NextResponse.json({ estimate: fallback, usedOpenAi: false, note: `${budget.reason} Resets at midnight. Rough built-in estimate returned instead.` });
+  }
+
   const prompt = `You are helping a private household meal planner estimate nutrition for a recipe or commercial food. Return ONLY valid JSON. Do not give medical advice. Estimate values per serving, not whole recipe. Go deeper than basic macros: split carbohydrate type, fibre type, sugar source, lipid profile, sodium/potassium, fortification-style micronutrients, ingredient ratios, confidence and behavioural flags. If ingredients are vague, infer a realistic UK-style recipe ratio and state why confidence is lower.
 
 Recipe/food name: ${label}
@@ -103,6 +109,7 @@ JSON shape:
     if (!response.ok) throw new Error(payload?.error?.message || "OpenAI recipe estimate failed");
     const parsed = parseJsonLoose(extractTextFromResponse(payload));
     if (!parsed) throw new Error("OpenAI returned a non-JSON recipe estimate");
+    await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budget.tierKey, routeKey: "nutrition_recommendation", provider: "openai", model: process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini" });
     return NextResponse.json({ estimate: normaliseRecipeEstimate(parsed, fallback), usedOpenAi: true, note: "AI estimate created. Review labels for precision before relying on this." });
   } catch (error) {
     return NextResponse.json({ estimate: fallback, usedOpenAi: false, note: `AI estimate could not complete, so fallback values were returned. ${error instanceof Error ? error.message : ""}`.trim() });

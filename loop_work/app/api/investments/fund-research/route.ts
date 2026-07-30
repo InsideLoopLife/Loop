@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 
 function safeJsonFromText(text: string) {
   try { return JSON.parse(text); } catch {}
@@ -82,13 +83,22 @@ export async function POST(request: Request) {
 
   let result = await fallbackResult(fundName, provider);
 
-  if (secret?.value) {
+  // BUGFIX (AI budget enforcement): the daily-limit/midnight-reset
+  // machinery already existed (checkUserAiBudget / loop_check_ai_entitlement)
+  // but nothing ever called it, so no route was actually tier-capped.
+  // Same graceful-degrade pattern as "no OpenAI key configured" below —
+  // hitting the limit falls back to the existing non-AI result rather
+  // than erroring the whole request.
+  const budget = secret?.value ? await checkAiRouteAllowed(supabase, user.id, "investment_research") : null;
+
+  if (secret?.value && budget?.allowed) {
     try {
       const prompt = `You are helping build a UK private household finance tracker. Use web search where available. Research guidance only. Fund provider: ${provider}. Fund name: ${fundName}. Search for the provider fund factsheet, visible latest unit price, OCF/AMC/TER, ISIN/sedol/fund code and any platform/plan-charge caveat. Return JSON only with keys: suggested_fee_percent (number or null), suggested_unit_price (number or null, stored in GBP/pounds even if shown as pence), suggested_unit_price_quote_unit ("gbx" if source is pence/GBX else "gbp" or null), suggested_fund_code (string or null), suggested_group_label (string), suggested_source_url (string or null), confidence (0-100), research_summary (short), options (array of {label,note}). Do not invent exact fees unless you are confident they come from a provider/factsheet. If workplace pension plan charges may differ from public factsheets, say so clearly.`;
+      const model = process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini";
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret.value}` },
-        body: JSON.stringify({ model: process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini", tools: [{ type: "web_search_preview" }], input: prompt }),
+        body: JSON.stringify({ model, tools: [{ type: "web_search_preview" }], input: prompt }),
       });
 
       const payload = await response.json();
@@ -96,10 +106,13 @@ export async function POST(request: Request) {
         const text = payload.output_text || payload.output?.flatMap?.((item: { content?: { text?: string }[] }) => item.content?.map((c) => c.text) || []).join("\n") || "";
         const parsed = safeJsonFromText(text);
         if (parsed) result = { ...(await fallbackResult(fundName, provider)), ...parsed, usedOpenAi: true };
+        await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budget.tierKey, routeKey: "investment_research", provider: "openai", model });
       }
     } catch {
       result = { ...result, research_summary: `${result.research_summary}\n\nOpenAI request failed, so this fallback was shown.` };
     }
+  } else if (secret?.value && budget && !budget.allowed) {
+    result = { ...result, research_summary: `${result.research_summary}\n\n${budget.reason} (Resets at midnight.) This fallback was shown instead.` };
   }
 
   await supabase.from("pension_fund_research_notes").insert({

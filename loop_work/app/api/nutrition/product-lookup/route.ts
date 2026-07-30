@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient, hasSupabaseAdminKey } from "@/lib/supabase/admin";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 import { cleanBarcode, looksLikeBarcode, mapOpenFoodFactsProduct, normaliseAiProductCandidate, type ProductLookupCandidate } from "@/lib/nutrition/product-data";
 import { fallbackRecipeEstimate, normaliseRecipeEstimate } from "@/lib/nutrition/scoring";
 import { cleanText, compactJson } from "@/lib/security/external-data";
@@ -287,6 +288,8 @@ async function searchOpenFoodFacts(query: string) {
 async function searchWithOpenAi(supabase: any, userId: string, query: string) {
   const secret = await getActiveIntegrationSecret(supabase, userId, "openai");
   if (!secret?.value) return [];
+  const budget = await checkAiRouteAllowed(supabase, userId, "product_enrichment");
+  if (!budget.allowed) return [];
   const barcode = cleanBarcode(query);
   const prompt = `Find likely UK packaged-food or drink product data for: "${query}".
 
@@ -313,6 +316,7 @@ Return ONLY JSON with a candidates array. This is for a private food diary. Incl
     if (!response.ok) return [];
     const parsed = parseJsonLoose(extractTextFromResponse(payload));
     const candidates = Array.isArray(parsed?.candidates) ? parsed.candidates : [];
+    if (candidates.length) await recordAiRouteUsage({ supabase, userId, tierKey: budget.tierKey, routeKey: "product_enrichment", provider: "openai", model: process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini" });
     return candidates.map((item: any) => normaliseAiProductCandidate(item, query)).filter(Boolean).slice(0, 5) as ProductLookupCandidate[];
   } catch {
     return [];

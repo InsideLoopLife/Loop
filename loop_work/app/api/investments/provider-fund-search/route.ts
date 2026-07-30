@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 import { findProvider } from "@/lib/investments/provider-glossary";
 
 function safeJsonFromText(text: string) {
@@ -153,7 +154,14 @@ export async function POST(request: Request) {
   const secret = await getActiveIntegrationSecret(supabase, user.id, "openai");
   const openAiKey = secret?.value || process.env.OPENAI_API_KEY;
 
-  if (openAiKey) {
+  // BUGFIX (AI budget enforcement): same missing wiring as fund-research —
+  // this route could call OpenAI unlimited times per user per day with no
+  // cap at all. Now checked against the real per-tier daily limit before
+  // attempting the call; on hitting the limit, falls through to the
+  // existing catalogue-only fallback below rather than erroring.
+  const budget = openAiKey ? await checkAiRouteAllowed(supabase, user.id, "investment_research") : null;
+
+  if (openAiKey && (!budget || budget.allowed)) {
     const prompt = `You are a UK pension fund research engine. Find real pension funds, underlying ISIN codes, internal codes, and fees for provider "${provider}" matching query "${query}".
 Return valid JSON only in this exact format:
 {
@@ -202,6 +210,7 @@ Rules:
       if (parsed?.funds?.length) {
         // Automatically save these newly discovered funds to our database!
         await saveDiscoveredFundsToDb(provider, parsed.funds);
+        await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budget?.tierKey || "free", routeKey: "investment_research", provider: "openai", model: process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini" });
 
         // Merge OpenAI funds with any existing DB funds
         const allFunds = [...parsed.funds, ...rankedCached];

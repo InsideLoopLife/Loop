@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 import {
   UK_MORTGAGE_LOGIC_SOURCES,
   buildLenderAffordabilityChecks,
@@ -212,6 +213,8 @@ export async function POST(request: Request) {
   const fallback = fallbackResult(query, context);
   const secret = await getActiveIntegrationSecret(supabase, user.id, "openai");
   if (!secret?.value) return NextResponse.json(fallback);
+  const budget = await checkAiRouteAllowed(supabase, user.id, "profile_insight");
+  if (!budget.allowed) return NextResponse.json({ ...fallback, note: `${budget.reason} Resets at midnight.` });
 
   try {
     const prompt = `You are an affordability coach inside a private UK household finance app. Interpret the user's natural-language affordability query and return JSON only matching this shape: {"title":"", "itemType":"house|car|tv|holiday|other", "summary":"", "questions":[""], "assumptions":[""], "score":"0-100", "scoreLabel":"", "mortgageProducts":[{"lender":"","productName":"","rate":0,"rateType":"2yr_fixed|3yr_fixed|5yr_fixed|tracker|planning","maxLtv":0,"productFee":0,"termYears":0,"monthlyPayment":0,"stressedPayment":0,"notes":"","sourceName":"","sourceUrl":""}], "draftScenario":{"label":"", "purchase_price":0, "deposit_cash":0, "current_property_sale_price":0, "current_mortgage_balance":0, "gross_household_income":0, "monthly_fixed_costs":0, "monthly_childcare":0, "interest_rate":0, "stress_rate":0, "term_years":0, "arrangement_and_moving_costs":0, "notes":""}}.
@@ -236,6 +239,7 @@ Rules: For a house move, do not count the current mortgage payment against affor
     const parsed = safeJson(text);
     if (!parsed?.draftScenario) return NextResponse.json(fallback);
     const mortgageProducts = normaliseProducts(parsed.mortgageProducts, fallback.mortgageProducts || [], fallback.mortgageBreakdown);
+    await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budget.tierKey, routeKey: "profile_insight", provider: "openai", model: process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini" });
     return NextResponse.json({
       ...fallback,
       ...parsed,

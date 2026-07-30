@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 import { enforceUserRateLimit } from "@/lib/security/rate-limit";
 import { cleanText, safeExternalUrl } from "@/lib/security/external-data";
 import { fallbackRecipeEstimate, normaliseRecipeEstimate } from "@/lib/nutrition/scoring";
@@ -255,6 +256,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ items: [], usedOpenAi: false, note: "Menu import needs the saved OpenAI token so it can read and structure public menu data." });
   }
 
+  const budget = await checkAiRouteAllowed(supabase, user.id, "nutrition_recommendation");
+  if (!budget.allowed) {
+    return NextResponse.json({ items: [], usedOpenAi: false, note: `${budget.reason} Resets at midnight.` });
+  }
+
   const evidence = await getPublicPageEvidence(url);
   if (evidence.dynamicAppDetected && !evidence.headlessSucceeded) {
     await notifyImportStatus(
@@ -301,6 +307,7 @@ export async function POST(request: Request) {
 
     const items = uniqueItems(rawItems).slice(0, 150).map((item: any) => normaliseItem(item, url, firstParsed.source_name || sourceName, evidence.images, importKind));
     await notifyImportStatus(supabase, user.id, "Menu import ready", `${items.length} item(s) from ${firstParsed.source_name || sourceName} are ready to review and save.`, "unread", "success");
+    await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budget.tierKey, routeKey: "nutrition_recommendation", provider: "openai", model: process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini" });
     return NextResponse.json({
       items,
       usedOpenAi: true,

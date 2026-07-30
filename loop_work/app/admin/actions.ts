@@ -241,6 +241,46 @@ export async function updateUserPaymentTier(formData: FormData) {
     }).then(() => null, () => null);
   }
 
+  // BUGFIX (tiering consolidation, upgrade-only): this page writes
+  // app_user_profiles directly, bypassing the plan-catalogue system that
+  // /account/plan, the landing page and the financial briefing page all
+  // read from (see TIERING_SOURCE_OF_TRUTH.md). Fan this out too, so a
+  // change made here shows up everywhere else as well — same upgrade-only
+  // guarantee as app_admin_set_user_plan(): this never claws a user's
+  // plan_slug or current_plan back down, only raises it or leaves it
+  // alone if this page's value maps to something lower than what they
+  // already have (e.g. a plan set via /admin/tiers).
+  const PAYMENT_TIER_RANK: Record<string, number> = { free: 0, starter: 1, plus: 2, pro: 3, realtime: 4, enterprise: 5 };
+  const PLAN_SLUG_RANK: Record<string, number> = { free: 0, extra: 1, plus: 2, pro: 3, staff: 4 };
+  const paymentTierToPlanSlug: Record<string, string> = { free: "free", starter: "extra", plus: "plus", pro: "pro", realtime: "staff", enterprise: "staff" };
+  const mappedPlanSlug = paymentTierToPlanSlug[paymentTier] || "free";
+
+  const [{ data: existingMembership }, { data: existingLoopProfile }] = await Promise.all([
+    supabase.from("app_user_plan_memberships").select("plan_slug").eq("user_id", targetUserId).maybeSingle(),
+    supabase.from("loop_user_admin_profiles").select("current_plan, realtime_market_data_enabled").eq("user_id", targetUserId).maybeSingle(),
+  ]);
+
+  const existingPlanSlug = existingMembership?.plan_slug || "free";
+  const finalPlanSlug = (PLAN_SLUG_RANK[mappedPlanSlug] ?? 0) < (PLAN_SLUG_RANK[existingPlanSlug] ?? 0) ? existingPlanSlug : mappedPlanSlug;
+
+  await supabase.from("app_user_plan_memberships").upsert({
+    user_id: targetUserId,
+    plan_slug: finalPlanSlug,
+    status: "active",
+    source: "admin",
+    manual_override: true,
+    override_reason: `Synced from /admin tier update by ${access.user.email || access.user.id}`,
+    created_by: access.user.id,
+    updated_at: checkedAt,
+  }, { onConflict: "user_id" }).then(() => null, () => null);
+
+  await supabase.from("loop_user_admin_profiles").upsert({
+    user_id: targetUserId,
+    current_plan: finalPlanSlug,
+    realtime_market_data_enabled: realtimeEnabled || Boolean(existingLoopProfile?.realtime_market_data_enabled),
+    updated_at: checkedAt,
+  }, { onConflict: "user_id" }).then(() => null, () => null);
+
   revalidatePath("/admin");
   revalidatePath("/investments");
 }

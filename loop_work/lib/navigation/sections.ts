@@ -23,6 +23,12 @@ export const wealthSections: LoopSection[] = [
   { key: "affordability", label: "Affordability", href: "/affordability", area: "wealth", icon: "home", hidden: true, description: "Hidden lab until rebuilt." },
   { key: "can-i-afford", label: "Can I afford?", href: "/affordability-lab", area: "wealth", icon: "search", hidden: true, description: "Hidden lab until rebuilt." },
   { key: "investments", label: "Pensions & Investments", href: "/investments", area: "wealth", icon: "investments", description: "Pension pots, funds, holdings and investment performance." },
+  // BUGFIX (missing nav entry): the /integrations page (SnapTrade/broker
+  // connections) has existed and worked the whole time, but there was no
+  // link to it anywhere in the nav after the navigation rebuild — it was
+  // an orphaned route, not a tier/entitlement gate. The page itself
+  // already gates the connect panel correctly via canConnectPaidProvider.
+  { key: "integrations", label: "Integrations", href: "/integrations", area: "wealth", icon: "investments", description: "Connect SnapTrade/brokerage accounts and manage which pots sync automatically." },
 ];
 
 export const healthSections: LoopSection[] = [

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 
 type RateSuggestion = {
   lender: string;
@@ -80,6 +81,14 @@ export async function POST(request: Request) {
     });
   }
 
+  const budget = await checkAiRouteAllowed(supabase, user.id, "property_insight");
+  if (!budget.allowed) {
+    return NextResponse.json({
+      suggestions: fallback,
+      note: `${budget.reason} Resets at midnight. Using the built-in planning shortlist instead.`,
+    });
+  }
+
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -99,6 +108,7 @@ export async function POST(request: Request) {
     const rawText = data.output_text || data.output?.flatMap((item: any) => item.content || []).map((item: any) => item.text || "").join("") || "{}";
     const parsed = JSON.parse(rawText);
     const suggestions = Array.isArray(parsed.suggestions) ? parsed.suggestions : fallback;
+    await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budget.tierKey, routeKey: "property_insight", provider: "openai", model: "gpt-4.1-mini" });
     return NextResponse.json({ suggestions, note: "AI notes generated. Verify rates, fees and eligibility against the lender/broker source before applying." });
   } catch (error) {
     return NextResponse.json({

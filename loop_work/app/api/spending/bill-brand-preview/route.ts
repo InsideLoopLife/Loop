@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 
 const COMMON_BRAND_DOMAINS: { match: RegExp; brandName: string; domain: string }[] = [
   { match: /spotify/i, brandName: "Spotify", domain: "spotify.com" },
@@ -50,6 +51,9 @@ export async function GET(request: NextRequest) {
   const secret = await getActiveIntegrationSecret(supabase, user.id, "openai");
   if (!secret?.value) return NextResponse.json({ brand: null, needsToken: true });
 
+  const budget = await checkAiRouteAllowed(supabase, user.id, "quick_runtime");
+  if (!budget.allowed) return NextResponse.json({ brand: null });
+
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -79,6 +83,7 @@ export async function GET(request: NextRequest) {
     const confidence = Number(parsed.confidence ?? 0);
     if (!domain || confidence < 0.55) return NextResponse.json({ brand: null });
 
+    await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budget.tierKey, routeKey: "quick_runtime", provider: "openai", model: process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini" });
     return NextResponse.json({
       brand: {
         brandName: String(parsed.brandName || label).slice(0, 80),

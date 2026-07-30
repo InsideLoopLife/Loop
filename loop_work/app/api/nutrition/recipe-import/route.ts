@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 import { enforceUserRateLimit } from "@/lib/security/rate-limit";
 import { cleanText, safeExternalUrl } from "@/lib/security/external-data";
 import { fallbackRecipeEstimate, normaliseRecipeEstimate } from "@/lib/nutrition/scoring";
@@ -308,6 +309,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ recipe: fallback, usedOpenAi: false, pageTextChars: evidence.pageTextChars, sourceRead: evidence.pageTextChars > 250 || evidenceIngredients.length > 0, note: `No OpenAI token is configured. Page evidence mode: ${evidence.evidenceMode || "unknown"}. Add a token to extract recipe pages automatically.` });
   }
 
+  const budget = await checkAiRouteAllowed(supabase, user.id, "nutrition_recommendation");
+  if (!budget.allowed) {
+    return NextResponse.json({ recipe: fallback, usedOpenAi: false, pageTextChars: evidence.pageTextChars, sourceRead: evidence.pageTextChars > 250 || evidenceIngredients.length > 0, note: `${budget.reason} Resets at midnight.` });
+  }
+
   const prompt = mode === "import"
     ? `You help a household nutrition app import public recipe pages with minimal user editing. Return ONLY valid JSON. Use the supplied page evidence first. If the structured recipe evidence includes ingredients or nutrition, treat those as the source of truth. Use web search only to fill missing pieces from the same public URL. Never output placeholder ingredients such as "main ingredient" or "ingredient".
 
@@ -460,6 +466,7 @@ Rules:
       estimate,
     };
 
+    await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budget.tierKey, routeKey: "nutrition_recommendation", provider: "openai", model: process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini" });
     return NextResponse.json({
       recipe,
       estimate,

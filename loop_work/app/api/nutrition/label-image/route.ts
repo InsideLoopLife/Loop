@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 import { normaliseAiProductCandidate } from "@/lib/nutrition/product-data";
 import { enforceUserRateLimit } from "@/lib/security/rate-limit";
 import { cleanText } from "@/lib/security/external-data";
@@ -149,6 +150,9 @@ export async function POST(request: Request) {
 
   const secret = await getActiveIntegrationSecret(supabase, user.id, "openai");
   if (!secret?.value) return NextResponse.json({ error: "Add an OpenAI token before using label-image extraction." }, { status: 400 });
+
+  const budget = await checkAiRouteAllowed(supabase, user.id, "vision_label_scan");
+  if (!budget.allowed) return NextResponse.json({ error: `${budget.reason} Resets at midnight.` }, { status: 429 });
 
   const prompt = `Read this nutrition/supplement facts label for Inside LOOP. Return ONLY valid JSON. You MUST visually read every visible row in the facts panel. Do not return zeros where the label clearly contains values. If a row is visible, extract it.
 

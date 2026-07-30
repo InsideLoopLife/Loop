@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 import { enforceUserRateLimit } from "@/lib/security/rate-limit";
 import { cleanText } from "@/lib/security/external-data";
 
@@ -63,6 +64,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ image_url: null, search_url: searchUrl, note: "No OpenAI token is saved, so open image search and paste the preferred image URL." });
   }
 
+  const budget = await checkAiRouteAllowed(supabase, user.id, "quick_runtime");
+  if (!budget.allowed) {
+    return NextResponse.json({ image_url: null, search_url: searchUrl, note: `${budget.reason} Resets at midnight. Open image search and paste the preferred image URL for now.` });
+  }
+
   const prompt = `Find a suitable public image URL for this private household food diary entry: "${label}".
 ${sourceUrl ? `Preferred source page: ${sourceUrl}` : ""}
 
@@ -78,6 +84,7 @@ Use a direct product/food image where possible, preferably from the brand, retai
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload?.error?.message || "Image search failed");
     const parsed = parseJsonLoose(extractTextFromResponse(payload)) || {};
+    await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budget.tierKey, routeKey: "quick_runtime", provider: "openai", model: process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini" });
     return NextResponse.json({
       image_url: cleanImageUrl(parsed.image_url),
       source_url: cleanText(parsed.source_url || "", 600) || null,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
+import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 
 const helpContext = `
 Loop feature help:
@@ -32,6 +33,9 @@ export async function POST(request: Request) {
   const secret = await getActiveIntegrationSecret(supabase, user.id, "openai").catch(() => null);
   if (!secret?.value) return NextResponse.json({ answer: fallbackAnswer(question), usedOpenAi: false });
 
+  const budget = await checkAiRouteAllowed(supabase, user.id, "quick_runtime");
+  if (!budget.allowed) return NextResponse.json({ answer: fallbackAnswer(question), usedOpenAi: false });
+
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -44,6 +48,7 @@ export async function POST(request: Request) {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload?.error?.message || "OpenAI help failed");
     const answer = typeof payload.output_text === "string" ? payload.output_text : payload.output?.flatMap((item: any) => item.content || []).map((part: any) => part.text).filter(Boolean).join("\n");
+    if (answer) await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budget.tierKey, routeKey: "quick_runtime", provider: "openai", model: process.env.OPENAI_HELP_MODEL || process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini" });
     return NextResponse.json({ answer: answer || fallbackAnswer(question), usedOpenAi: Boolean(answer) });
   } catch {
     return NextResponse.json({ answer: fallbackAnswer(question), usedOpenAi: false });

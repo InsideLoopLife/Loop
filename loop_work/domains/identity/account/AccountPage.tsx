@@ -59,6 +59,14 @@ const tabs = [
   ["info", "Personal"],
   ["health", "Health"],
   ["wealth", "Wealth"],
+  // BUGFIX (missing tabs): "plan" and "integrations" already had fully
+  // working content sections further down this file (activeTab === "plan"
+  // / "integrations") — they were just never in this clickable list, so
+  // there was no way to reach them except by typing the exact URL
+  // directly. Same root cause as the missing /integrations nav link fixed
+  // separately.
+  ["plan", "Plan"],
+  ["integrations", "Integrations"],
 ] as const;
 
 function tabHref(tab: string) {
