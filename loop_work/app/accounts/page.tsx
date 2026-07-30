@@ -138,6 +138,7 @@ type SavingsDeal = {
   bonus_rate: number | null;
   minimum_balance?: number | null;
   maximum_balance?: number | null;
+  monthly_min_deposit?: number | null;
   monthly_max_deposit?: number | null;
   access_type?: string | null;
   withdrawal_rules?: string | null;
@@ -414,6 +415,7 @@ function dealInfoRows(deal: any) {
     { label: "Term", value: deal.term_length_months ? `${deal.term_length_months} months` : deal.rate_type === "fixed" ? "Fixed term" : "Ongoing / variable" },
     { label: "Min", value: deal.minimum_balance != null ? formatMoney(deal.minimum_balance) : "Not stated" },
     { label: "Max", value: deal.maximum_balance != null ? formatMoney(deal.maximum_balance) : "Not stated" },
+    { label: "Monthly min", value: deal.monthly_min_deposit != null ? formatMoney(deal.monthly_min_deposit) : "Not stated" },
     { label: "Monthly max", value: deal.monthly_max_deposit != null ? formatMoney(deal.monthly_max_deposit) : "Not stated" },
   ];
 }

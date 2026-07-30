@@ -60,7 +60,7 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
         .limit(limit),
       supabase
         .from("savings_rate_deals")
-        .select("id, provider_slug, provider_name, product_name, account_type, gross_aer, bonus_rate, minimum_balance, maximum_balance, monthly_max_deposit, requires_existing_customer, eligible_provider_slug, eligibility_note, access_type, withdrawal_rules, notice_period_days, term_length_months, rate_type, source_url, status, last_checked_at, confidence")
+        .select("id, provider_slug, provider_name, product_name, account_type, gross_aer, bonus_rate, minimum_balance, maximum_balance, monthly_min_deposit, monthly_max_deposit, requires_existing_customer, eligible_provider_slug, eligibility_note, access_type, withdrawal_rules, notice_period_days, term_length_months, rate_type, source_url, status, last_checked_at, confidence")
         .eq("status", "active")
         .order("gross_aer", { ascending: false })
         .limit(500),
@@ -152,6 +152,7 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
             rateType: deal.rate_type,
             minimumBalance: deal.minimum_balance,
             maximumBalance: deal.maximum_balance,
+            monthlyMinDeposit: deal.monthly_min_deposit,
             monthlyMaxDeposit: deal.monthly_max_deposit,
           },
         }, { onConflict: "user_id,financial_account_id,savings_rate_deal_id" });

@@ -29,6 +29,7 @@ export type SavingsDealLike = {
   bonus_rate?: number | null;
   minimum_balance?: number | null;
   maximum_balance?: number | null;
+  monthly_min_deposit?: number | null;
   monthly_max_deposit?: number | null;
   access_type?: string | null;
   withdrawal_rules?: string | null;
