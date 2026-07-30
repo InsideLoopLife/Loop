@@ -917,11 +917,17 @@ export async function removeSnapTradeConnectionAndRestoreManual(formData: FormDa
   // (RLS, a bad id match, anything), there was no way to ever know; the
   // connection would just silently stay "connected" forever, exactly as
   // reported. Now throws so the failure is visible instead of invisible.
-  const { error: connectionUpdateError, count: connectionUpdateCount } = await connectionRequest.select("id", { count: "exact" });
+  // BUGFIX (false-alarm error after a successful removal): the previous
+  // version of this check used `count` from the update response, which
+  // can come back null/unreliable for an UPDATE + .select() even when the
+  // update genuinely succeeded and the row was returned correctly. The
+  // actual returned rows (`data`) are the reliable signal — check that
+  // instead. The database write was never the problem; this check was.
+  const { error: connectionUpdateError, data: connectionUpdateRows } = await connectionRequest.select("id");
   if (connectionUpdateError) {
     throw new Error(`Failed to update the connection's own status: ${connectionUpdateError.message}`);
   }
-  if (!connectionUpdateCount) {
+  if (!connectionUpdateRows?.length) {
     throw new Error("Remove access did not match any connection row — the connection_id/external_connection_id sent from the button may not match what's stored.");
   }
 
