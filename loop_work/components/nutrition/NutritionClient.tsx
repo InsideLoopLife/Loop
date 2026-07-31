@@ -11,7 +11,7 @@ import type { FoodLog, NutritionMeal, NutritionPerson, NutritionSettings, Superm
 import type { ProductLookupCandidate } from "@/lib/nutrition/product-data";
 import { cleanProductOrMealLabel, displayProductCandidateLabel, extractTimeHHMM, extractVolumeMl, inferFoodEntityType, isProductLikeKind, nutritionUpdateStatus, productUpdateStatusLabel } from "@/lib/nutrition/intelligence";
 
-type Props = { people: NutritionPerson[]; meals: NutritionMeal[]; logs: FoodLog[]; supermarkets: Supermarket[]; selectedDate: string; settings: NutritionSettings; initialOpen?: "recipe" | "log" | "edit-recipe" | null; initialMealId?: string | null };
+type Props = { people: NutritionPerson[]; meals: NutritionMeal[]; logs: FoodLog[]; supermarkets: Supermarket[]; selectedDate: string; settings: NutritionSettings; initialOpen?: "recipe" | "log" | "edit-recipe" | null; initialMealId?: string | null; initialTab?: "overview" | "recipes" | "food-log" | "meal-cards" };
 type Modal = { type: "recipe" } | { type: "edit-recipe"; meal: NutritionMeal } | { type: "log"; meal?: NutritionMeal } | { type: "edit-log"; log: FoodLog } | { type: "menu-import" } | null;
 type NutritionPanel = "log" | "cards" | "settings";
 
@@ -677,7 +677,7 @@ function EditableImageUrlField({ name, label, value, onChange, foodLabel, source
 function RecipeForm({ people, supermarkets, meal, onClose }: { people: NutritionPerson[]; supermarkets: Supermarket[]; meal?: NutritionMeal; onClose: () => void }) {
   const [mode, setMode] = useState<"custom" | "import">("custom");
   const [label, setLabel] = useState(meal?.label || "");
-  const [cardKind, setCardKind] = useState<"recipe" | "ingredient" | "menu" | "product">((meal?.card_kind === "ingredient" || meal?.card_kind === "menu" || meal?.card_kind === "product") ? meal.card_kind : "recipe");
+  const [cardKind, setCardKind] = useState<"recipe" | "ingredient" | "menu" | "product" | "drink_product">((meal?.card_kind === "ingredient" || meal?.card_kind === "menu" || meal?.card_kind === "product") ? meal.card_kind : "recipe");
   const [ingredients, setIngredients] = useState(meal?.ingredients || "");
   const [servings, setServings] = useState(number(meal?.servings || 1) || 1);
   const [recipeInstructions, setRecipeInstructions] = useState<string[]>(() => Array.isArray(meal?.nutrition_json?.instructions) ? meal.nutrition_json.instructions.map(String).filter(Boolean) : []);
@@ -1026,7 +1026,14 @@ function RecipeForm({ people, supermarkets, meal, onClose }: { people: Nutrition
               <button type="button" disabled={isLookupPending} onClick={() => lookupProduct(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-emerald-800 ring-1 ring-emerald-200 disabled:opacity-60"><Sparkles className="h-4 w-4" /> Retailer search</button>
             </div>
             {lookupError ? <p className="mt-3 rounded-2xl bg-white p-3 text-sm font-black text-orange-800 ring-1 ring-orange-100">{lookupError}</p> : null}
-          {productQuery.trim() && matchingSavedMeals.length ? <div className="mt-4 rounded-[1.5rem] bg-white p-3 ring-1 ring-emerald-100"><p className="mb-2 text-xs font-black uppercase tracking-wide text-emerald-700">Saved matches</p><div className="grid gap-2 md:grid-cols-2">{matchingSavedMeals.map((item) => <button key={item.id} type="button" onClick={() => { setSelectedMealId(item.id); setSelectedProduct(null); setManualImageUrl(item.image_url || item.product_image_url || ""); setCardSearch(item.label); if (isProductLikeKind(`${item.card_kind || ""} ${item.product_data_source || ""}`) && /drink|gfuel|g fuel|coffee|latte/i.test(item.label)) setMealSlot("drink"); }} className={`rounded-2xl px-3 py-2 text-left text-sm font-black ring-1 ${selectedMealId === item.id ? "bg-slate-950 text-white ring-slate-950" : "bg-slate-50 text-slate-800 ring-slate-100"}`}><span className="block">{item.label}</span><span className="block text-xs font-semibold opacity-70">{isProductLikeKind(`${item.card_kind || ""} ${item.product_data_source || ""}`) ? "Product/card" : "Recipe/meal"}</span></button>)}</div></div> : null}
+          {/* BUGFIX (production build failure): a "Saved matches" block used
+              to be here, copy-pasted from LogFoodForm's equivalent feature.
+              It referenced state (selectedMealId, setManualImageUrl,
+              setCardSearch, setMealSlot, matchingSavedMeals) that was never
+              declared in this component — it could never have worked and
+              would have thrown a runtime error on click. This component's
+              real, working results list is the productCandidates block
+              directly below. */}
             {productCandidates.length ? <div className="mt-4 grid gap-3 md:grid-cols-2">{productCandidates.map((candidate, idx) => { const usedBefore = false; const img = candidate.image_url || fallbackFoodImageUrl(candidate.label); return <button key={`${candidate.gtin || candidate.barcode || candidate.label}-${idx}`} type="button" onClick={() => applyProduct(candidate)} className="relative rounded-[1.5rem] bg-white p-3 text-left shadow-sm ring-1 ring-emerald-100 transition hover:-translate-y-0.5 hover:shadow-lg">{usedBefore ? <span className="absolute right-3 top-3 rounded-full bg-amber-100 p-1 text-amber-700" title="Used before / saved"><Star className="h-4 w-4 fill-current" /></span> : null}<div className="flex gap-3"><FoodThumb label={candidate.label} imageUrl={img} size="md" /><div className="min-w-0 flex-1 pr-8"><p className="line-clamp-2 text-sm font-black text-slate-950">{displayProductCandidateLabel(candidate)}</p><p className="mt-1 text-xs font-bold text-slate-500">{candidate.brand_name || candidate.source_label} · {candidate.data_confidence}% confidence</p></div></div></button>; })}</div> : null}
           </div>
 

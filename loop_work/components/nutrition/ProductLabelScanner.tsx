@@ -31,6 +31,7 @@ type Candidate = {
     manufacturing_notes?: string[];
     micronutrient_notes?: string[];
     assumptions?: string[];
+    confidence?: number;
   };
 };
 
