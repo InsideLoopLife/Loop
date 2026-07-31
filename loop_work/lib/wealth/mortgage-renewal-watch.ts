@@ -76,7 +76,7 @@ export async function runMortgageRenewalWatch(supabase: any, options: MortgageWa
     if (dealsError) throw new Error(dealsError.message);
     if (rateDealsError) throw new Error(rateDealsError.message);
 
-    const homeById = new Map((homes || []).map((home: any) => [home.id, home]));
+    const homeById = new Map<string, any>((homes || []).map((home: any) => [home.id, home]));
 
     for (const mortgage of mortgages || []) {
       if (options.respectTier !== false && !(await hasMortgageWatch(mortgage.user_id))) {

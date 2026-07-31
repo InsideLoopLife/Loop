@@ -158,7 +158,7 @@ export async function refreshMortgageCatalogueFromSources(supabase: any, options
       .select("id,external_product_key,status")
       .eq("source_url", source.source_url)
       .in("catalogue_status", ["active", "needs_review", "broken"]);
-    const existingKeys = new Map((existingForSource.data || []).map((row: any) => [row.external_product_key, row]));
+    const existingKeys = new Map<string, any>((existingForSource.data || []).map((row: any) => [row.external_product_key, row]));
     const seenKeys = new Set<string>();
 
     try {
