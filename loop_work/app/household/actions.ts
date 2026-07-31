@@ -547,7 +547,7 @@ function revalidateChildCostPaths(childId: string) {
 export async function addChildCost(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const payload = { ...buildChildCostPayload(user.id, formData), ...householdWriteFields(householdContext, user.id) };
-  const { error } = await supabase.from("child_costs").insert(payload);
+  const { error } = await supabase.from("child_costs").insert(payload as any);
   if (error) throw new Error(error.message);
   revalidateChildCostPaths(String(formData.get("child_id") || ""));
 }
@@ -559,7 +559,7 @@ export async function updateChildCost(formData: FormData) {
 
   const payload = buildChildCostPayload(user.id, formData);
   const { error } = await applyMutableRecordFilter(
-    supabase.from("child_costs").update(payload),
+    supabase.from("child_costs").update(payload as any),
     id,
     householdContext,
   );
