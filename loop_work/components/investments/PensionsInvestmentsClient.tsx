@@ -391,6 +391,10 @@ type Props = {
   people: Person[];
   pensionAccounts: PensionAccount[];
   pensionFunds: PensionFund[];
+  // Passed by the page but not yet consumed here — added to fix a type
+  // error; if this was meant to power a feature, that wiring still needs
+  // doing separately.
+  pensionFundPriceChanges?: Record<string, { previousPrice: number; proposedPrice: number; checkedAt: string }>;
   investmentAccounts: InvestmentAccount[];
   investmentAccountOwners?: InvestmentAccountOwner[];
   investmentPieSettings?: InvestmentPieSetting[];

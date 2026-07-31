@@ -1228,8 +1228,15 @@ export function AmplifiedInvestmentsDashboard({
         </div>
       </div>
 
-      {showCostBasisDrawer ? <CostBasisDrawer holdings={filteredHoldings} dark={dark} onClose={() => setShowCostBasisDrawer(false)} /> : null}
-      {showOtherHoldingsDrawer ? <OtherHoldingsDrawer holdings={otherHoldings} snapshots={snapshots} period={period} dark={dark} onClose={() => setShowOtherHoldingsDrawer(false)} /> : null}
+      {/* KNOWN GAP (not silently fixed): CostBasisDrawer/OtherHoldingsDrawer
+          were referenced here but never actually built anywhere in this
+          file — only the Rail (side-panel) versions above exist and work.
+          The "expand to full drawer" buttons (onOpenFull/onExpand) still
+          set showCostBasisDrawer/showOtherHoldingsDrawer to true, but
+          nothing currently renders when they do — clicking "expand" is
+          currently a no-op rather than a crash. Building the actual full
+          drawer components is real, separate work if this feature is
+          wanted. */}
     </section>
   );
 }
