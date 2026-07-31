@@ -420,7 +420,20 @@ function dealInfoRows(deal: any) {
   ];
 }
 
-function maximumDealReturn(deal: SavingsDeal) {
+// BUGFIX (production build failure): this only ever reads these 4 fields,
+// never `status` — but was typed to require the full SavingsDeal shape,
+// which broke when eligibleDeals started being populated with
+// SavingsDealMatch objects (a different, newer type missing `status`).
+// Narrowed to just what's actually used, so it accepts either type. This
+// never showed up in local `next dev`, only in a real production build
+// (`next build`), which does full strict type-checking that dev mode
+// skips — this was likely the first time this code has gone through one.
+function maximumDealReturn(deal: {
+  gross_aer?: number | null;
+  term_length_months?: number | null;
+  monthly_max_deposit?: number | null;
+  maximum_balance?: number | null;
+}) {
   const rate = Number(deal.gross_aer || 0) / 100;
   const months = Math.max(1, Number(deal.term_length_months || 12));
   const monthlyCap = Number(deal.monthly_max_deposit || 0);
