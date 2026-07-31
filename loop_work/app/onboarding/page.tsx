@@ -199,7 +199,7 @@ export default async function OnboardingPage() {
     countRows(supabase, "home_mortgage_deals", user.id).catch(() => 0),
     countRows(supabase, "home_valuation_sources", user.id).catch(() => 0),
     countRows(supabase, "property_move_queries", user.id).catch(() => 0),
-    supabase.from("app_household_members").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "active").then((r: any) => r.count || 0).catch(() => 0),
+    Promise.resolve(supabase.from("app_household_members").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "active").then((r: any) => r.count || 0)).catch(() => 0),
     countRows(supabase, "people", user.id).catch(() => 0),
     countRows(supabase, "integration_connections", user.id).catch(() => 0),
   ]);
