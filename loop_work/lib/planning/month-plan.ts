@@ -61,7 +61,8 @@ export type ChildCostForPlan = {
   id: string;
   child_id: string | null;
   label: string;
-  cost_kind: "fixed" | "nursery" | "activity" | null;
+  cost_kind: "fixed" | "nursery" | "activity" | "nanny" | null;
+  category_id?: string | null;
   monthly_cost: number;
   billing_month: string | null;
   daily_rate: number | null;
@@ -407,7 +408,7 @@ export function buildMonthPlan({
 
   const activeMortgageDeals = mortgageDeals.filter((deal) => isActiveInMonth(deal.start_date, deal.end_date, month));
   const mortgageFromDeals = activeMortgageDeals.reduce((sum, deal) => sum + mortgageDealMonthlyPayment(deal), 0);
-  const outgoingItems = [
+  const outgoingItems: MonthPlanLine[] = [
     {
       label: mortgageFromDeals > 0 ? "Mortgage deals" : "Mortgage",
       value: mortgageFromDeals > 0 ? mortgageFromDeals : Number(profile?.monthly_mortgage ?? 0),
