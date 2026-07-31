@@ -16,6 +16,12 @@ import {
   snapshotPriceGbp,
   snapshotValueGbp,
 } from "@/lib/investments/portfolio-history";
+import {
+  bucketIntervalForRange,
+  historySpansSelectedRange,
+  yahooIntervalForChart,
+  yahooRangeForChart,
+} from "@/lib/investments/history-range";
 
 export const runtime = "nodejs";
 
@@ -41,6 +47,8 @@ type SnapshotRow = {
 type HoldingRow = {
   id: string;
   investment_account_id: string;
+  listing_id?: string | null;
+  instrument_id?: string | null;
   ticker: string | null;
   exchange: string | null;
   latest_price: number | null;
@@ -110,21 +118,11 @@ function sinceForRange(range: string) {
 }
 
 function yahooRange(range: string) {
-  if (range === "1d") return "1d";
-  if (range === "5d") return "5d";
-  if (range === "6m") return "6mo";
-  if (range === "ytd") return "ytd";
-  if (range === "1y") return "1y";
-  if (range === "5y") return "5y";
-  if (range === "max") return "max";
-  return "1mo";
+  return yahooRangeForChart(range);
 }
 
 function yahooInterval(range: string) {
-  if (range === "1d") return "5m";
-  if (range === "5d") return "30m";
-  if (range === "5y" || range === "max") return "1wk";
-  return "1d";
+  return yahooIntervalForChart(range);
 }
 
 function isGbxHolding(holding: HoldingRow) {
@@ -323,7 +321,7 @@ async function fetchHoldingHistory(
         (String(result?.meta?.currency || "").toUpperCase() === "GBP" && symbol.endsWith(".L"))
       );
       const fx = await fxToGbp(lseOrPence ? "GBP" : nativeCurrency);
-      const points = timestamps
+      let points = timestamps
         .map((stamp, index) => {
           const close = Number(closes[index] || 0);
           if (!Number.isFinite(close) || close <= 0) return null;
@@ -336,6 +334,13 @@ async function fetchHoldingHistory(
           };
         })
         .filter(Boolean) as Array<{ at: string; price: number; value: number }>;
+      if (range === "1d" && points.length) {
+        const latestSession = points.reduce((latest, point) => {
+          const date = point.at.slice(0, 10);
+          return date > latest ? date : latest;
+        }, "");
+        points = points.filter((point) => point.at.startsWith(latestSession));
+      }
       if (points.length) return { holdingId: holding.id, points };
     } catch {
       continue;
@@ -346,7 +351,6 @@ async function fetchHoldingHistory(
 
 async function storedInstrumentMarketHistory(
   supabase: any,
-  userId: string,
   holdings: HoldingRow[],
   range: string,
   since: string,
@@ -362,37 +366,119 @@ async function storedInstrumentMarketHistory(
     covered += holdingValue(holding);
     if ((total > 0 && covered / total >= 0.92) || selected.length >= 40) break;
   }
-  const tickers = Array.from(new Set(selected.map((holding) => String(holding.ticker || "").toUpperCase()).filter(Boolean)));
-  if (!tickers.length) return { points: [], coveragePercent: 0, selectedHoldings: 0, totalHoldings: ranked.length, source: "stored_instrument_history" } satisfies MarketHistoryResult;
-  const { data, error } = await supabase
-    .from("investment_instrument_price_points")
-    .select("ticker,exchange_code,gbp_price,price_gbp,native_price,native_currency,point_at")
-    .in("ticker", tickers)
-    .gte("point_at", since)
-    .order("point_at", { ascending: true })
-    .limit(12000);
-  if (error || !data?.length) return { points: [], coveragePercent: total > 0 ? (covered / total) * 100 : 0, selectedHoldings: selected.length, totalHoldings: ranked.length, source: "stored_instrument_history" } satisfies MarketHistoryResult;
+  const listingIds = Array.from(
+    new Set(selected.map((holding) => holding.listing_id).filter(Boolean)),
+  ) as string[];
+  const legacyTickers = Array.from(
+    new Set(
+      selected
+        .filter((holding) => !holding.listing_id)
+        .map((holding) => String(holding.ticker || "").toUpperCase())
+        .filter(Boolean),
+    ),
+  );
+  if (!listingIds.length && !legacyTickers.length)
+    return {
+      points: [],
+      coveragePercent: 0,
+      selectedHoldings: 0,
+      totalHoldings: ranked.length,
+      source: "stored_instrument_history",
+    } satisfies MarketHistoryResult;
+
+  const bucketInterval = bucketIntervalForRange(range);
+  const data: any[] = [];
+  const pageSize = 1000;
+  const maxRows = Math.min(
+    50_000,
+    Math.max(5_000, selected.length * (range === "1d" ? 520 : 300)),
+  );
+  const filters: Array<{ column: "listing_id" | "ticker"; values: string[] }> =
+    [];
+  if (listingIds.length)
+    filters.push({ column: "listing_id", values: listingIds });
+  if (legacyTickers.length)
+    filters.push({ column: "ticker", values: legacyTickers });
+  for (const filter of filters) {
+    for (let offset = 0; offset < maxRows; offset += pageSize) {
+      const page = await supabase
+        .from("investment_instrument_price_points")
+        .select(
+          "listing_id,ticker,exchange_code,gbp_price,price_gbp,native_price,native_currency,point_at,bucket_interval",
+        )
+        .eq("bucket_interval", bucketInterval)
+        .gte("point_at", since)
+        .in(filter.column, filter.values)
+        .order("point_at", { ascending: true })
+        .range(offset, offset + pageSize - 1);
+      if (page.error)
+        return {
+          points: [],
+          coveragePercent: 0,
+          selectedHoldings: 0,
+          totalHoldings: ranked.length,
+          source: "stored_instrument_history",
+        } satisfies MarketHistoryResult;
+      const rows = page.data || [];
+      data.push(...rows);
+      if (rows.length < pageSize) break;
+    }
+  }
+  if (!data.length)
+    return {
+      points: [],
+      coveragePercent: 0,
+      selectedHoldings: 0,
+      totalHoldings: ranked.length,
+      source: "stored_instrument_history",
+    } satisfies MarketHistoryResult;
+
+  const holdingsByListing = new Map<string, HoldingRow[]>();
   const holdingsByTicker = new Map<string, HoldingRow[]>();
   selected.forEach((holding) => {
+    if (holding.listing_id) {
+      if (!holdingsByListing.has(holding.listing_id))
+        holdingsByListing.set(holding.listing_id, []);
+      holdingsByListing.get(holding.listing_id)!.push(holding);
+      return;
+    }
     const ticker = String(holding.ticker || "").toUpperCase();
     if (!holdingsByTicker.has(ticker)) holdingsByTicker.set(ticker, []);
     holdingsByTicker.get(ticker)!.push(holding);
   });
-  const seriesByTicker = new Map<string, Array<{ at: string; value: number; price: number }>>();
+  const seriesByAsset = new Map<
+    string,
+    Array<{ at: string; value: number; price: number }>
+  >();
   for (const row of data as any[]) {
     const ticker = String(row.ticker || "").toUpperCase();
-    const linked = holdingsByTicker.get(ticker) || [];
+    const listingId = String(row.listing_id || "");
+    const linked = listingId
+      ? holdingsByListing.get(listingId) || []
+      : holdingsByTicker.get(ticker) || [];
     if (!linked.length || !row.point_at) continue;
     const price = Number(row.gbp_price ?? row.price_gbp ?? 0);
     if (!Number.isFinite(price) || price <= 0) continue;
     const units = linked.reduce((sum, holding) => sum + Number(holding.units || 0), 0);
-    if (!seriesByTicker.has(ticker)) seriesByTicker.set(ticker, []);
-    seriesByTicker.get(ticker)!.push({ at: row.point_at, price, value: price * units });
+    const assetKey = listingId || `ticker:${ticker}`;
+    if (!seriesByAsset.has(assetKey)) seriesByAsset.set(assetKey, []);
+    seriesByAsset.get(assetKey)!.push({
+      at: row.point_at,
+      price,
+      value: price * units,
+    });
   }
-  const series = Array.from(seriesByTicker.entries()).map(([ticker, points]) => ({ holdingId: ticker, points }));
-  const evidencedTickers = new Set(series.map((item) => item.holdingId));
+  const series = Array.from(seriesByAsset.entries()).map(
+    ([assetKey, points]) => ({ holdingId: assetKey, points }),
+  );
+  const evidencedAssets = new Set(series.map((item) => item.holdingId));
   const evidencedValue = selected
-    .filter((holding) => evidencedTickers.has(String(holding.ticker || "").toUpperCase()))
+    .filter((holding) =>
+      evidencedAssets.has(
+        holding.listing_id ||
+          `ticker:${String(holding.ticker || "").toUpperCase()}`,
+      ),
+    )
     .reduce((sum, holding) => sum + holdingValue(holding), 0);
   if (!series.length) return { points: [], coveragePercent: 0, selectedHoldings: 0, totalHoldings: ranked.length, source: "stored_instrument_history" } satisfies MarketHistoryResult;
   const times = Array.from(new Set(series.flatMap((item) => item.points.map((point) => point.at)))).sort();
@@ -410,7 +496,7 @@ async function storedInstrumentMarketHistory(
     return { at, label: labelFor(at, range), price: count ? price / count : 0, value, source: "Stored direct instrument price history", coverage: count };
   }).filter((point) => point.value > 0 && point.coverage >= minimum).map(({ coverage: _coverage, ...point }) => point);
   return {
-    points: downsample(result, range === "1d" ? 120 : 220),
+    points: downsample(result, range === "1d" ? 520 : 220),
     coveragePercent: total > 0 ? Math.min(100, (evidencedValue / total) * 100) : 0,
     selectedHoldings: series.length,
     totalHoldings: ranked.length,
@@ -640,7 +726,7 @@ export async function GET(request: NextRequest) {
   let holdingsQuery: any = supabase
     .from("investment_holdings")
     .select(
-      "id, investment_account_id, ticker, exchange, isin, latest_price, native_latest_price, units, imported_current_value, asset_name, source_url, currency, native_currency, price_polling_enabled, previous_close_price_gbp, previous_close_native_price, previous_close_at, day_change_percent, day_change_native_percent, day_change_gbp, day_change_native",
+      "id, investment_account_id, listing_id, instrument_id, ticker, exchange, isin, latest_price, native_latest_price, units, imported_current_value, asset_name, source_url, currency, native_currency, price_polling_enabled, previous_close_price_gbp, previous_close_native_price, previous_close_at, day_change_percent, day_change_native_percent, day_change_gbp, day_change_native",
     )
     .eq("user_id", dataOwnerUserId);
   if (holdingId) holdingsQuery = holdingsQuery.eq("id", holdingId);
@@ -797,15 +883,38 @@ export async function GET(request: NextRequest) {
       value: point.value,
       source: point.source,
     }));
-    sourceMode = built.quality.reliable
+    const snapshotsCoverSelectedRange = historySpansSelectedRange(
+      points,
+      range,
+      since,
+    );
+    if (built.quality.reliable && !snapshotsCoverSelectedRange) {
+      quality = {
+        ...built.quality,
+        reliable: false,
+        note:
+          "Saved portfolio snapshots are complete but do not yet span the selected period. LOOP is using stored instrument history for this chart.",
+      };
+      points = [];
+    }
+    sourceMode = quality?.reliable
       ? "stored_portfolio_batches"
       : "insufficient_portfolio_history";
 
     // When complete cash-flow-aware portfolio snapshots do not yet exist, provide a clearly
     // labelled market-movement estimate. This uses current units solely to estimate market
     // performance and must never be presented as historic account value or contribution history.
-    if ((!points.length || points.length < 2) && currentValue > 0 && (entitlement.canUseDelayedPrices || entitlement.canUseRealtimePrices)) {
-      const storedEstimate = await storedInstrumentMarketHistory(supabase, dataOwnerUserId, currentHoldings, range, since);
+    if (
+      !historySpansSelectedRange(points, range, since) &&
+      currentValue > 0 &&
+      (entitlement.canUseDelayedPrices || entitlement.canUseRealtimePrices)
+    ) {
+      const storedEstimate = await storedInstrumentMarketHistory(
+        supabase,
+        currentHoldings,
+        range,
+        since,
+      );
       const directEstimate = storedEstimate.points.length >= 2
         ? storedEstimate
         : await generatedMarketHistory(currentHoldings, range);
