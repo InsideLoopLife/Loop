@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     const price = latestPrice.get(card.id);
     const packageQty = q(card.serving_g) || q(card.serving_ml) || q(String(card.product_size_text || "").match(/(\d+(?:\.\d+)?)\s*(g|kg|ml|l)/i)?.[1]) || 1;
     const unitMatch = String(card.product_size_text || "").match(/\d+(?:\.\d+)?\s*(g|kg|ml|l)/i)?.[1]?.toLowerCase();
-    const unit = card.serving_g ? "g" : card.serving_ml ? "ml" : (unitMatch || "each");
+    const unit = (card.serving_g ? "g" : card.serving_ml ? "ml" : (unitMatch || "each")) as ProductCandidate["package_unit"];
 
     return {
       card_id: card.id,
