@@ -306,14 +306,16 @@ function isActiveInMonth(start: string | null | undefined, end: string | null | 
 // items that are genuinely still "live". A one-off item has no ongoing recurrence at all, so it must
 // only ever count in the single month it actually falls in — otherwise it keeps counting every month
 // forever once its start_date has passed.
-function plannedItemAppliesToMonth(item: { recurrence?: string | null; start_date: string; end_date?: string | null }, rangeStart: string, rangeEnd: string) {
+function plannedItemAppliesToMonth(item: { recurrence?: string | null; start_date: string | null; end_date?: string | null }, rangeStart: string, rangeEnd: string) {
+  if (!item.start_date) return false;
   if (item.recurrence === "one_off") return item.start_date >= rangeStart && item.start_date <= rangeEnd;
   return isActiveInMonth(item.start_date, item.end_date, rangeStart, rangeEnd);
 }
 
 // Occurrences of a four_weekly/custom_interval item within the given date range (inclusive), so the
 // month total reflects the (rare) months with two paydays instead of always assuming exactly one.
-function plannedItemOccurrencesInRange(item: { recurrence?: string | null; recurrence_interval_days?: number | null; start_date: string; end_date?: string | null }, rangeStart: string, rangeEnd: string) {
+function plannedItemOccurrencesInRange(item: { recurrence?: string | null; recurrence_interval_days?: number | null; start_date: string | null; end_date?: string | null }, rangeStart: string, rangeEnd: string) {
+  if (!item.start_date) return 0;
   if (item.recurrence !== "four_weekly" && item.recurrence !== "custom_interval") return 1;
   const stepDays = item.recurrence === "custom_interval" ? Math.max(1, Number(item.recurrence_interval_days || 0) || 7) : 28;
   const cursor = new Date(`${item.start_date}T12:00:00Z`);
@@ -384,8 +386,8 @@ function monthlyPay(event: PayEvent, monthKey: string) {
     const estimate = calculateNhsMaternityMonthlyAmount({
       month: monthKey,
       grossAnnualSalary: n(event.gross_annual_salary),
-      leaveStart: event.maternity_leave_start || event.effective_from,
-      leaveEnd: event.maternity_leave_end || event.effective_until || event.effective_from,
+      leaveStart: event.maternity_leave_start || event.effective_from || monthKey,
+      leaveEnd: event.maternity_leave_end || event.effective_until || event.effective_from || monthKey,
       fullPayWeeks: n(event.maternity_full_pay_weeks) || 8,
       halfPayWeeks: n(event.maternity_half_pay_weeks) || 18,
       smpOnlyWeeks: n(event.maternity_smp_only_weeks) || 13,
@@ -835,7 +837,7 @@ export default async function FinancialFlowPage({ searchParams }: { searchParams
     supabase.from("savings_pots").select("id, person_id, name, target_amount, target_date, monthly_target, current_allocated_amount, priority, status").or(visibleFilter).in("status", ["active", "paused", "completed"]).order("priority", { ascending: true }).returns<SavingsPot[]>(),
     supabase.from("savings_pot_allocations").select("id, savings_pot_id, financial_account_id, amount, allocation_percent").or(allocationFilter).returns<SavingsPotAllocation[]>(),
     supabase.from("savings_rate_deals").select("id, account_type, gross_aer, minimum_balance, maximum_balance, status").eq("status", "active").order("gross_aer", { ascending: false }).limit(150).returns<SavingsRateDeal[]>(),
-    supabase.from("child_costs").select("id, child_id, label, cost_kind, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on").or(memberFilter).returns<ChildCostForPlan[]>(),
+    supabase.from("child_costs").select("id, child_id, label, cost_kind, category_id, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on").or(memberFilter).returns<ChildCostForPlan[]>(),
   ]);
 
   const people = dedupeHouseholdPeople(peopleResult.data || [], user.id) as Person[];
