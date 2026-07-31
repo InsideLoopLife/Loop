@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   DEFAULT_USER_FEATURE_ACCESS,
   type UserFeatureAccess,
@@ -467,7 +467,13 @@ function AccountModal({
   );
 }
 
-export function Nav() {
+// BUGFIX (production build failure): useSearchParams() (used inside this
+// component below) requires a <Suspense> boundary for Next.js to
+// statically prerender any page that renders this component. Since <Nav />
+// is used directly across most pages in the app, wrapping it here — once
+// — fixes every one of those pages at once, rather than needing each
+// page's own file changed individually.
+function NavInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -818,5 +824,13 @@ export function Nav() {
         </div>
       </header>
     </>
+  );
+}
+
+export function Nav() {
+  return (
+    <Suspense fallback={null}>
+      <NavInner />
+    </Suspense>
   );
 }
