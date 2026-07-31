@@ -140,6 +140,19 @@ function looksLikeTrading212Holdings(headers: string[]) {
   return lower.includes("slice") && lower.includes("invested value") && lower.includes("value") && lower.includes("owned quantity");
 }
 
+// NEW: Trading212 also exports a full transaction-history CSV (every
+// dividend/deposit/buy/sell event over a date range) — a completely
+// different, equally legitimate export from the "current holdings
+// snapshot" format above. Previously this fell through to the generic
+// 7-column parser, which misread "Dividend (Dividend)" as an asset name
+// and a timestamp as a ticker, producing nothing usable. This format is
+// actually the ideal source for real purchase-lot cost basis, since it
+// has every individual buy transaction with its own price and date.
+function looksLikeTrading212TransactionHistory(headers: string[]) {
+  const lower = headers.map((header) => header.toLowerCase());
+  return lower.includes("action") && lower.includes("time (utc)") && lower.includes("no. of shares") && lower.includes("price / share");
+}
+
 function likelyExchangeForTicker(ticker: string, existing?: string | null) {
   const ex = normalisedExchangeCode(existing);
   if (ex) return ex;
@@ -1610,6 +1623,188 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
   const accountCurrency = String(formData.get("account_currency") || "GBP").toUpperCase();
   const accountFx = await fxToGbp(accountCurrency);
   let records: any[] = [];
+
+  if (looksLikeTrading212TransactionHistory(parsed.headers)) {
+    // Group every Market buy/sell by ISIN+ticker, computing net units and a
+    // real weighted-average GBP cost basis from actual transaction data —
+    // this is a genuinely better cost basis source than anything SnapTrade
+    // has been supplying, since it's built from your own purchase history.
+    type TxRow = { units: number; nativePrice: number; nativeCurrency: string; gbpTotal: number; date: string; externalId: string; isSell?: boolean };
+    const buysByKey = new Map<string, TxRow[]>();
+    const sellsByKey = new Map<string, TxRow[]>();
+    const nameByKey = new Map<string, string>();
+    const isinByKey = new Map<string, string>();
+
+    for (const row of parsed.rows) {
+      const action = rowValue(row, ["Action"]).trim();
+      const ticker = rowValue(row, ["Ticker"]).trim().toUpperCase();
+      const isin = rowValue(row, ["ISIN"]).trim();
+      if (!ticker && !isin) continue;
+      const key = ticker || isin;
+      if (!nameByKey.has(key)) nameByKey.set(key, rowValue(row, ["Name"]).trim() || ticker || isin);
+      if (isin) isinByKey.set(key, isin);
+
+      const units = Number(rowValue(row, ["No. of shares"])) || 0;
+      if (!units) continue;
+
+      const gbpTotal = Number(rowValue(row, ["Total"])) || 0;
+      const nativePrice = Number(rowValue(row, ["Price / share"])) || 0;
+      const nativeCurrency = rowValue(row, ["Currency (Price / share)"]).trim().toUpperCase() || "GBP";
+      const date = rowValue(row, ["Time (UTC)"]).trim().slice(0, 10) || todayDate;
+      const externalId = rowValue(row, ["ID"]).trim();
+
+      if (/^market buy$/i.test(action)) {
+        const list = buysByKey.get(key) || [];
+        list.push({ units, nativePrice, nativeCurrency, gbpTotal, date, externalId });
+        buysByKey.set(key, list);
+      } else if (/^market sell$/i.test(action)) {
+        // BUGFIX (multi-import correctness): sells now stored as their own
+        // lot rows (negative units) rather than only tracked in-memory for
+        // this one import. Without this, a sell recorded in a LATER import
+        // would never reduce units bought in an EARLIER import — each
+        // import would only "know about" its own transactions. Storing
+        // sells as real, persistent, deduplicated rows means the holding's
+        // final position is always correct regardless of how many
+        // separate CSV imports (covering any date ranges, overlapping or
+        // not) have contributed to it over time.
+        const list = sellsByKey.get(key) || [];
+        list.push({ units: -units, nativePrice, nativeCurrency, gbpTotal: -gbpTotal, date, externalId, isSell: true });
+        sellsByKey.set(key, list);
+      }
+      // Dividends/deposits/interest rows are intentionally not touched here
+      // — this import is specifically for building purchase-lot cost basis
+      // from buy/sell activity, not a full transaction ledger.
+    }
+
+    const allKeys = new Set([...buysByKey.keys(), ...sellsByKey.keys()]);
+    let importedHoldings = 0;
+    let importedLots = 0;
+    let skippedSellOnly = 0;
+
+    for (const key of allKeys) {
+      const buys = buysByKey.get(key) || [];
+      const sells = sellsByKey.get(key) || [];
+      const allTx = [...buys, ...sells];
+      if (!allTx.length) continue;
+
+      const assetName = nameByKey.get(key) || key;
+      const quote = await fetchQuote(supabase, user.id, key, null);
+
+      const { data: existing } = await supabase
+        .from("investment_holdings")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("investment_account_id", accountId)
+        .eq("ticker", key)
+        .eq("record_status", "active")
+        .maybeSingle();
+
+      let holdingId = existing?.id as string | undefined;
+      if (!holdingId) {
+        // Create with THIS import's data as a starting point only — the
+        // real, final units/cost basis get set below from the complete
+        // lot history (which, for a brand new holding, is just this
+        // import's transactions, but written through the same single
+        // code path multi-import relies on).
+        const { data: inserted, error: insertError } = await supabase.from("investment_holdings").insert({
+          user_id: user.id,
+          investment_account_id: accountId,
+          asset_name: assetName,
+          ticker: key,
+          exchange: normalisedExchangeCode(quote?.exchange) || likelyExchangeForTicker(key),
+          group_label: nullableString(formData.get("group_label")) || "Trading 212",
+          units: 0,
+          average_buy_price: 0,
+          latest_price: 0,
+          cost_basis_status: "manual_confirmed",
+          latest_price_date: todayDate,
+          currency: "GBP",
+          price_quote_unit: "gbp",
+          import_source_type: "trading212_transaction_history_csv",
+          annual_asset_fee_percent: 0,
+          target_allocation_percent: 0,
+          notes: "Imported from Trading 212 transaction-history CSV; cost basis built from real purchase data.",
+        }).select("id").single();
+        if (insertError) throw new Error(insertError.message);
+        holdingId = inserted?.id;
+      }
+      if (!holdingId) continue;
+
+      // One lot per real transaction (buys positive, sells negative),
+      // matching Dan's stated preference for full purchase-lot history
+      // over a single averaged figure. external_transaction_id makes
+      // re-importing an overlapping date range safe — duplicates are
+      // skipped, not doubled up, however many times you import.
+      const { data: existingLots } = await supabase
+        .from("investment_purchase_lots")
+        .select("external_transaction_id")
+        .eq("user_id", user.id)
+        .eq("holding_id", holdingId)
+        .not("external_transaction_id", "is", null);
+      const existingIds = new Set((existingLots || []).map((l: any) => l.external_transaction_id));
+
+      const newLots = allTx
+        .filter((b) => !b.externalId || !existingIds.has(b.externalId))
+        .map((b) => ({
+          user_id: user.id,
+          holding_id: holdingId,
+          purchase_date: b.date,
+          units: b.units,
+          purchase_price: b.units !== 0 ? b.gbpTotal / b.units : 0,
+          price_quote_unit: "gbp",
+          currency: "GBP",
+          total_cost: b.gbpTotal,
+          native_purchase_price: b.nativePrice,
+          native_currency: b.nativeCurrency,
+          fees: 0,
+          external_transaction_id: b.externalId || null,
+          external_source: "trading212_transaction_history_csv",
+          notes: b.isSell ? "Market sell (Trading 212)" : null,
+          estimated: false,
+        }));
+      if (newLots.length) {
+        const { error: lotsError } = await supabase.from("investment_purchase_lots").insert(newLots);
+        if (lotsError) throw new Error(lotsError.message);
+        importedLots += newLots.length;
+      }
+
+      // BUGFIX (multi-import correctness): recompute units/average cost
+      // from the COMPLETE, current set of lots for this holding — not just
+      // this import's transactions. This is what makes importing multiple
+      // CSVs over time (different date ranges, overlapping or not)
+      // correctly accumulate into one accurate picture instead of each
+      // import overwriting the last.
+      const { data: allLotsForHolding } = await supabase
+        .from("investment_purchase_lots")
+        .select("units, total_cost")
+        .eq("user_id", user.id)
+        .eq("holding_id", holdingId);
+      const lots = allLotsForHolding || [];
+      const netUnits = lots.reduce((sum: number, l: any) => sum + Number(l.units || 0), 0);
+      const buyLots = lots.filter((l: any) => Number(l.units || 0) > 0);
+      const buyUnitsTotal = buyLots.reduce((sum: number, l: any) => sum + Number(l.units || 0), 0);
+      const buyCostTotal = buyLots.reduce((sum: number, l: any) => sum + Number(l.total_cost || 0), 0);
+      const averageBuyPriceGbp = buyUnitsTotal > 0 ? buyCostTotal / buyUnitsTotal : 0;
+
+      if (netUnits <= 0) { skippedSellOnly += 1; continue; } // fully sold out — leave the holding archived-in-place, don't show as an active position
+
+      const latestPrice = quote?.price && quote.priceQuoteUnit === "gbx" ? quote.price / 100 : (quote?.price ?? averageBuyPriceGbp);
+      await supabase.from("investment_holdings").update({
+        units: netUnits,
+        average_buy_price: averageBuyPriceGbp,
+        cost_basis_status: "manual_confirmed",
+        latest_price: latestPrice,
+        latest_price_date: todayDate,
+        notes: `Cost basis from Trading 212 transaction history (${buyLots.length} buy transaction(s) across all imports to date).`,
+      }).eq("id", holdingId).eq("user_id", user.id);
+      importedHoldings += 1;
+    }
+
+    console.log(`[trading212-transaction-import] holdings=${importedHoldings} lots=${importedLots} soldOut=${skippedSellOnly} account=${accountId}`);
+    revalidatePath("/investments");
+    revalidatePath("/net-worth");
+    return;
+  }
 
   if (looksLikeTrading212Holdings(parsed.headers)) {
     records = await Promise.all(parsed.rows.map(async (row) => {
