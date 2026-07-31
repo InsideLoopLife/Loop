@@ -129,7 +129,7 @@ export type ChildCost = {
   child_id: string | null;
   bill_person_id?: string | null;
   label: string;
-  cost_kind: "fixed" | "nursery" | "activity" | null;
+  cost_kind: "fixed" | "nursery" | "activity" | "nanny" | null;
   monthly_cost: number;
   billing_month: string | null;
   daily_rate: number | null;
