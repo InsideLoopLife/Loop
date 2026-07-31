@@ -33,7 +33,7 @@ async function one(query: PromiseLike<any>) {
 }
 
 export async function buildFinancialBriefing(supabase: any, user: { id: string; email?: string | null }, visibleFilter?: string): Promise<FinancialBriefing> {
-  const scope = <T extends any>(query: T) => visibleFilter ? query.or(visibleFilter) : query.eq("user_id", user.id);
+  const scope = (query: any) => visibleFilter ? query.or(visibleFilter) : query.eq("user_id", user.id);
   const [profile, assets, liabilities, homes, mortgages, pensionAccounts, pensionFunds, investmentAccounts, holdings, financialAccounts, movements, payEvents, plannedItems, snapshots] = await Promise.all([
     one(supabase.from("app_user_profiles").select("display_name,full_name,name").eq("user_id", user.id).maybeSingle()),
     rows(scope(supabase.from("assets").select("value,type,created_at"))),
@@ -89,11 +89,11 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
   const top = [...exposure.entries()].sort((a,b)=>b[1]-a[1])[0];
   const topExposurePercent = top && investmentValue ? top[1]/investmentValue*100 : 0;
 
-  const contributors: BriefingContributor[] = [
+  const contributors: BriefingContributor[] = ([
     { key:"investments",label:"Investments",amount:investmentWeeklyChange,href:"/investments",tone:investmentWeeklyChange>0?"positive":investmentWeeklyChange<0?"negative":"neutral" },
     { key:"savings",label:"Savings",amount:deposits-withdrawals+confirmedInterest+accruedInterest,href:"/accounts?tab=savings",tone:deposits-withdrawals>=0?"positive":"negative" },
     { key:"mortgage",label:"Mortgage",amount:sum(mortgages,(m:any)=>Math.max(0,n(m.monthly_payment_override)/4)),href:"/mortgage",tone:"positive" },
-  ].filter(x=>Math.abs(x.amount)>0.01).sort((a,b)=>Math.abs(b.amount)-Math.abs(a.amount)).slice(0,4);
+  ] as BriefingContributor[]).filter(x=>Math.abs(x.amount)>0.01).sort((a,b)=>Math.abs(b.amount)-Math.abs(a.amount)).slice(0,4);
 
   const dataQuality: FinancialBriefing["dataQuality"] = [];
   if (!homes.length) dataQuality.push({area:"Home",issue:"No property is linked, so property equity is excluded.",severity:"info"});
