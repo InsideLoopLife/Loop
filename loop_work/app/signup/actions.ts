@@ -47,6 +47,16 @@ export async function requestSignupCode(formData: FormData) {
   const email = normaliseEmail(String(formData.get("email") || ""));
   const next = String(formData.get("next") || "/dashboard");
 
+  // Signup access codeword — the only way to create a new account right
+  // now. Stored as an env var so it can be changed without a code deploy.
+  // Falls back to "BASEBALL2!" if the env var isn't set, matching what
+  // was requested — set SIGNUP_ACCESS_CODE on Render to change it later.
+  const requiredCode = process.env.SIGNUP_ACCESS_CODE || "BASEBALL2!";
+  const submittedCode = String(formData.get("access_code") || "").trim();
+  if (submittedCode !== requiredCode) {
+    redirect(`/signup?error=${encodeURIComponent("Incorrect access code.")}&email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}`);
+  }
+
   if (!email) throw new Error("Enter an email address.");
   if (!hasSupabaseAdminKey()) {
     redirect(`/signup/verify?email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}&native=1`);
