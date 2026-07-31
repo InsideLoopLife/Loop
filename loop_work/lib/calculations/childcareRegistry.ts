@@ -12,6 +12,7 @@ export type CareType =
   | "after_school_club"
   | "holiday_camp"
   | "nanny"
+  | "activity"
   | "fixed";
 
 export type ChildLite = { id: string; name: string; age: number | null };
