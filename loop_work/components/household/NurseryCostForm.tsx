@@ -24,7 +24,7 @@ type ChildCostValues = {
   child_id?: string | null;
   bill_person_id?: string | null;
   label?: string | null;
-  cost_kind?: "fixed" | "nursery" | "activity" | null;
+  cost_kind?: "fixed" | "nursery" | "activity" | "nanny" | null;
   monthly_cost?: number | null;
   billing_month?: string | null;
   daily_rate?: number | null;
@@ -96,7 +96,7 @@ function sessionValue(value: string): DaySession {
 
 export function NurseryCostForm({ childrenOptions, billPersonOptions = childrenOptions, hasHousehold = true, action, lockedChildId, initialValues, submitLabel = "Add child cost" }: NurseryCostFormProps) {
   const monthFromInitial = initialValues?.billing_month ? initialValues.billing_month.slice(0, 7) : currentMonth();
-  const [costKind, setCostKind] = useState<"fixed" | "nursery" | "activity">(initialValues?.cost_kind ?? "nursery");
+  const [costKind, setCostKind] = useState<"fixed" | "nursery" | "activity" | "nanny">(initialValues?.cost_kind ?? "nursery");
   const [isAdvanced, setIsAdvanced] = useState(Boolean(initialValues?.funded_hours_per_week || initialValues?.hourly_funding_credit || initialValues?.monday_hours || initialValues?.tuesday_hours || initialValues?.wednesday_hours || initialValues?.thursday_hours || initialValues?.friday_hours));
   const [billingMonth, setBillingMonth] = useState(monthFromInitial);
   const [monthlyCost, setMonthlyCost] = useState(initialValues?.monthly_cost ? String(initialValues.monthly_cost) : "");
