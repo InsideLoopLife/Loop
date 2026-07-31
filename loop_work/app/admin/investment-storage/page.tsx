@@ -209,7 +209,7 @@ export default async function InvestmentStorageAdminPage() {
             <h2 className="text-xl font-black text-emerald-950">One-click investment + pension update</h2>
             <p className="mt-1 max-w-4xl text-sm font-bold text-emerald-800">Runs stock/ETF price snapshots, pension provider-value refresh, salary-sacrifice/NI contribution projections, and optional pie reinvestment lots. Use this now; cron can call the same pipeline later.</p>
           </div>
-          <form action={runFullInvestmentPensionSyncNow}>
+          <form action={async () => { "use server"; await runFullInvestmentPensionSyncNow(); }}>
             <button className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-emerald-800">Run full sync now</button>
           </form>
         </div>
@@ -218,7 +218,7 @@ export default async function InvestmentStorageAdminPage() {
             <p className="text-sm font-black text-sky-950">Backfill Moneybox ISINs</p>
             <p className="mt-1 max-w-3xl text-sm font-bold text-sky-800">One-time (safely re-runnable) fix for Moneybox holdings created before the fund catalogue carried real ISINs. Only updates the ISIN field — never touches units or price — so it's safe to run any time. Run this once after deploying an updated Moneybox fund catalogue, then let the normal price sync pick up real pricing from there.</p>
           </div>
-          <form action={backfillMoneyboxIsinsNow}>
+          <form action={async () => { "use server"; await backfillMoneyboxIsinsNow(); }}>
             <button className="rounded-2xl bg-sky-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-sky-800">Backfill ISINs now</button>
           </form>
         </div>
@@ -227,7 +227,7 @@ export default async function InvestmentStorageAdminPage() {
             <p className="text-sm font-black text-red-950">Repair implausible day-change figures</p>
             <p className="mt-1 max-w-3xl text-sm font-bold text-red-800">Clears any stored 1-day change (and its previous-close/day-open reference) beyond ±20%, which is now cross-checked against a fresh same-call quote automatically going forward — this button is for cleaning up anything already stuck from before that fix. Doesn't touch price, units or value, only the day-change fields, so the next successful price check recomputes them cleanly.</p>
           </div>
-          <form action={repairImplausibleDayChangesNow}>
+          <form action={async () => { "use server"; await repairImplausibleDayChangesNow(); }}>
             <button className="rounded-2xl bg-red-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-red-800">Repair now</button>
           </form>
         </div>
