@@ -1,11 +1,14 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export default function UpdatePasswordPage() {
+// BUGFIX (production build failure): same issue and same fix as
+// app/login/page.tsx — useSearchParams() needs a <Suspense> boundary for
+// Next.js to statically prerender this page.
+function UpdatePasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
@@ -137,5 +140,13 @@ export default function UpdatePasswordPage() {
         <Link href="/dashboard" className="mt-4 block text-center text-sm font-bold text-slate-600">Back to app</Link>
       </form>
     </main>
+  );
+}
+
+export default function UpdatePasswordPage() {
+  return (
+    <Suspense fallback={<main className="flex min-h-screen items-center justify-center bg-slate-50 p-6" />}>
+      <UpdatePasswordForm />
+    </Suspense>
   );
 }
