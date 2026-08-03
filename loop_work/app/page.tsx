@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { ACCESS_COOKIE_NAME, accessCookieValue, accessGateRequired } from "@/lib/access/beta-gate";
 import { featureEnabled, getEffectiveEntitlements } from "@/lib/tiers/entitlements";
+import { IntroductionPage } from "@/components/marketing/IntroductionPage";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -21,8 +22,8 @@ export default async function HomePage() {
   if (accessGateRequired()) {
     const cookieStore = await cookies();
     const unlocked = cookieStore.get(ACCESS_COOKIE_NAME)?.value === accessCookieValue();
-    redirect(unlocked ? "/login" : "/access");
+    if (!unlocked) redirect("/access");
   }
 
-  redirect("/login");
+  return <IntroductionPage />;
 }
