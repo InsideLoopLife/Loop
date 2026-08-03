@@ -828,7 +828,8 @@ export async function saveMoneyboxInvestmentAccountSetup(formData: FormData) {
   }, { onConflict: "user_id,investment_account_id" }).select("id").single();
   if (ruleError) throw new Error(ruleError.message);
 
-  await supabase.from("moneybox_portfolio_allocations").delete().eq("user_id", user.id).eq("investment_account_id", accountId);
+  const { error: allocationsDeleteError } = await supabase.from("moneybox_portfolio_allocations").delete().eq("user_id", user.id).eq("investment_account_id", accountId);
+  if (allocationsDeleteError) throw new Error(allocationsDeleteError.message);
   const allocationRows = rows.map((row) => ({
     user_id: user.id,
     investment_account_id: accountId,
@@ -856,7 +857,8 @@ export async function saveMoneyboxInvestmentAccountSetup(formData: FormData) {
   }
 
   if (holdingIds.length) {
-    await supabase.from("investment_purchase_lots").delete().eq("user_id", user.id).eq("external_source", "moneybox_allocation_model").in("holding_id", holdingIds);
+    const { error: lotsDeleteError } = await supabase.from("investment_purchase_lots").delete().eq("user_id", user.id).eq("external_source", "moneybox_allocation_model").in("holding_id", holdingIds);
+    if (lotsDeleteError) throw new Error(lotsDeleteError.message);
   }
 
   const contributionDates = contributionAmount > 0 ? buildContributionDates(startDate, frequency, todayText) : [];
