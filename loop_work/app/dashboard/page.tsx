@@ -17,8 +17,6 @@ import {
   calculateNurseryMonthlyCost,
 } from "@/lib/calculations/childcare";
 import { calculateMonthlyMortgagePayment } from "@/lib/calculations/mortgage";
-import { ensureDefaultAssumptions } from "@/lib/assumptions/server";
-import { processPendingHouseholdLinksForUser } from "@/lib/auth/invite-linking";
 import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
 import { buildWealthSummary } from "@/lib/wealth/summary";
 import { buildMonthlyInvestmentPensionPerformance } from "@/lib/wealth/monthly-performance";
@@ -657,12 +655,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
 
   if (!user) redirect("/login");
 
-  await processPendingHouseholdLinksForUser({ userId: user.id, email: user.email });
   const householdContext = await getActiveHouseholdContext(supabase, user);
   const dataOwnerUserId = user.id;
   const dataClient = supabase;
   const householdVisibleFilter = visibleDataOrFilter(householdContext);
-  await ensureDefaultAssumptions(dataClient as any, dataOwnerUserId);
   const wealthUserIds = householdContext.householdId ? householdContext.memberUserIds : [dataOwnerUserId];
 
   const [{ data: profile }, { data: dashboardPrefs }, { data: categories }, { data: childCosts }, { data: people }, { data: payEvents }, { data: mortgageDeals }, { data: plannedItems }, { data: incomeEntries }, { data: dealBills }, { data: payOverrides }, wealthSummary, investmentPensionPerformance] = await Promise.all([

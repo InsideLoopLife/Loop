@@ -492,32 +492,6 @@ function NavInner() {
       "loop:navigation-layout",
     ) as NavigationLayout | null;
     if (stored === "side" || stored === "top") setLayout(stored);
-
-    fetch("/api/user/ui-preferences", { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((preference) => {
-        if (
-          preference?.navigationLayout === "side" ||
-          preference?.navigationLayout === "top"
-        ) {
-          setLayout(preference.navigationLayout);
-        }
-        const localConfirmed =
-          window.localStorage.getItem(
-            "loop:navigation-layout-confirmed-v28_84",
-          ) === "true";
-        setHasChosenLayout(
-          Boolean(preference?.hasChosenNavigationLayout) || localConfirmed,
-        );
-      })
-      .catch(() => {
-        const localConfirmed =
-          window.localStorage.getItem(
-            "loop:navigation-layout-confirmed-v28_84",
-          ) === "true";
-        setHasChosenLayout(localConfirmed);
-      })
-      .finally(() => setPreferenceLoaded(true));
   }, []);
 
   useEffect(() => {
@@ -552,36 +526,34 @@ function NavInner() {
 
   useEffect(() => {
     let mounted = true;
-    const fetchJson = (
-      url: string,
-      fallback: unknown,
-      setter: (value: any) => void,
-    ) =>
-      fetch(url, { cache: "no-store" })
-        .then((response) => response.json())
-        .then((payload) => mounted && setter(payload))
-        .catch(() => mounted && setter(fallback));
+    fetch("/api/user/navigation-bootstrap", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (!mounted || !payload) return;
+        if (payload.navigationLayout === "side" || payload.navigationLayout === "top") {
+          setLayout(payload.navigationLayout);
+        }
+        const localConfirmed = window.localStorage.getItem("loop:navigation-layout-confirmed-v28_84") === "true";
+        setHasChosenLayout(Boolean(payload.hasChosenNavigationLayout) || localConfirmed);
+        setUnreadCount(Number(payload.unreadCount || 0));
+        setShowAdmin(Boolean(payload.isAdmin));
+        setFeatures({ ...DEFAULT_USER_FEATURE_ACCESS, ...(payload.features || {}) });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!mounted) return;
+        const localConfirmed = window.localStorage.getItem("loop:navigation-layout-confirmed-v28_84") === "true";
+        setHasChosenLayout((current) => current || localConfirmed);
+        setPreferenceLoaded(true);
+      });
 
-    fetchJson("/api/notifications/unread-count", { count: 0 }, (payload) =>
-      setUnreadCount(Number(payload.count || 0)),
-    );
-    fetchJson("/api/admin/access-status", { isAdmin: false }, (payload) =>
-      setShowAdmin(Boolean(payload.isAdmin)),
-    );
-    fetchJson(
-      "/api/user/features",
-      { features: DEFAULT_USER_FEATURE_ACCESS },
-      (payload) =>
-        setFeatures({
-          ...DEFAULT_USER_FEATURE_ACCESS,
-          ...(payload.features || {}),
-        }),
-    );
+    const refreshUnreadCount = () =>
+      fetch("/api/notifications/unread-count", { cache: "no-store" })
+        .then((response) => response.json())
+        .then((payload) => mounted && setUnreadCount(Number(payload.count || 0)))
+        .catch(() => undefined);
     const timer = window.setInterval(
-      () =>
-        fetchJson("/api/notifications/unread-count", { count: 0 }, (payload) =>
-          setUnreadCount(Number(payload.count || 0)),
-        ),
+      refreshUnreadCount,
       15000,
     );
 

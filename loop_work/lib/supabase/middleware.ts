@@ -26,7 +26,10 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  await supabase.auth.getUser();
+  // getClaims verifies the access token using the cached JWKS for asymmetric
+  // projects. Unlike getUser, it does not require an Auth network round-trip
+  // on every route request.
+  await supabase.auth.getClaims();
 
   return supabaseResponse;
 }

@@ -1,7 +1,7 @@
 import { fallbackRecipeEstimate, normaliseRecipeEstimate, scoreMeal, type NutritionTotals, type RecipeEstimate } from "@/lib/nutrition/scoring";
 import { cleanText, compactJson, safeExternalUrl } from "@/lib/security/external-data";
 
-export type ProductDataSource = "open_food_facts" | "open_food_facts_uk" | "retailer_web" | "manual_label" | "ai_research" | "user_verified" | "global_cache" | "household_cache" | "ingredient_url_import" | "restaurant_menu_import" | "product_search" | "ai_freehand";
+export type ProductDataSource = "open_food_facts" | "open_food_facts_uk" | "retailer_web" | "manual_label" | "ai_research" | "user_verified" | "global_cache" | "household_cache" | "ingredient_url_import" | "restaurant_menu_import" | "product_search" | "ai_freehand" | "ai_photo";
 
 export type ProductLookupCandidate = {
   source: ProductDataSource;
