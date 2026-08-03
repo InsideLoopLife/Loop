@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { Barcode, CalendarDays, CheckCircle2, Clock, Coffee, Droplets, Edit3, HeartPulse, Image as ImageIcon, Import, Info, Link2, Loader2, MoonStar, Plus, Salad, Scale, ShieldAlert, Sparkles, Star, Sun, Trash2, Utensils } from "lucide-react";
+import { Barcode, Camera, CalendarDays, CheckCircle2, Clock, Coffee, Droplets, Edit3, HeartPulse, Image as ImageIcon, Import, Info, Link2, Loader2, MoonStar, Plus, Salad, Scale, ShieldAlert, Sparkles, Star, Sun, Trash2, Utensils } from "lucide-react";
 import { FormInput } from "@/components/FormInput";
 import { SubmitButton } from "@/components/SubmitButton";
 import { addNutritionMeal, bulkAddNutritionMeals, deleteFoodEntry, deleteNutritionMeal, generateMealMethod, logFoodEntry, queueNutritionProductCorrection, setNutritionMealCardKind, updateFoodEntry, updateNutritionMeal, updateNutritionSettings } from "@/app/nutrition/actions";
@@ -1054,7 +1054,7 @@ function RecipeForm({ people, supermarkets, meal, onClose }: { people: Nutrition
               <label className="block"><span className="text-sm font-bold text-slate-700">Supermarket</span><select name="supermarket_id" defaultValue={meal?.supermarket_id ?? ""} className={inputClass}><option value="">No supermarket</option>{supermarkets.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
               <label className="block"><span className="text-xs font-black uppercase text-slate-500">Front label image</span><input name="label_front_image_url" defaultValue={meal?.label_front_image_url ?? ""} placeholder="Optional image URL" className={inputClass} /></label>
               <label className="block"><span className="text-xs font-black uppercase text-slate-500">Ingredients image</span><input name="label_ingredients_image_url" defaultValue={meal?.label_ingredients_image_url ?? ""} placeholder="Optional image URL" className={inputClass} /></label>
-              <label className="block"><span className="text-xs font-black uppercase text-slate-500">Nutrition image</span><input name="label_nutrition_image_url" defaultValue={meal?.label_nutrition_image_url ?? ""} placeholder="Optional image URL" className={inputClass} /></label><label className="block md:col-span-2 rounded-2xl border border-dashed border-emerald-200 bg-emerald-50 p-4"><span className="text-xs font-black uppercase text-emerald-800">Upload label image for AI stripping</span><input type="file" accept="image/*" onChange={(event) => analyseLabelImage(event.target.files?.[0] || null)} className="mt-2 block w-full text-sm font-bold text-slate-700" /><span className="mt-2 block text-xs font-semibold text-emerald-900/80">Use this for Supplement Facts / Nutrition labels where no JSON is available.</span></label>
+              <label className="block"><span className="text-xs font-black uppercase text-slate-500">Nutrition image</span><input name="label_nutrition_image_url" defaultValue={meal?.label_nutrition_image_url ?? ""} placeholder="Optional image URL" className={inputClass} /></label><label className="block md:col-span-2 rounded-2xl border border-dashed border-emerald-200 bg-emerald-50 p-4"><span className="text-xs font-black uppercase text-emerald-800">Upload label image for AI stripping</span><input type="file" accept="image/*" capture="environment" onChange={(event) => analyseLabelImage(event.target.files?.[0] || null)} className="mt-2 block w-full text-sm font-bold text-slate-700" /><span className="mt-2 block text-xs font-semibold text-emerald-900/80">Use this for Supplement Facts / Nutrition labels where no JSON is available.</span></label>
               <label className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-3 text-sm font-black text-slate-700"><input type="checkbox" name="user_verified_label" defaultChecked={Boolean(meal?.user_verified_label)} /> I have checked this against the product label</label>
             </> : null}
             <label className="block md:col-span-2"><span className="text-sm font-bold text-slate-700">Ingredients with quantities / product label text</span><textarea name="ingredients" value={ingredients} onChange={(event) => setIngredients(event.target.value)} rows={8} className={`${inputClass} min-h-[210px] resize-y`} placeholder="Paste ingredients from a recipe card, retailer page or product label" /></label>
@@ -1287,6 +1287,8 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
   const [drinkVolumeMl, setDrinkVolumeMl] = useState("");
   const [allocationMode, setAllocationMode] = useState<"per_person" | "split">("per_person");
   const [isAiPending, startAiTransition] = useTransition();
+  const [isPhotoPending, startPhotoTransition] = useTransition();
+  const [photoNote, setPhotoNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectedMeal?.person_id) setSelectedPeople([selectedMeal.person_id]);
@@ -1434,6 +1436,60 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
     });
   }
 
+  async function buildPhotoEntry(file: File | null | undefined) {
+    if (!file) return;
+    setPhotoNote("Analysing your photo...");
+    startPhotoTransition(async () => {
+      try {
+        const imageDataUrl: string = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(new Error("Could not read that photo."));
+          reader.readAsDataURL(file);
+        });
+        const response = await fetch("/api/nutrition/food-photo-estimate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageDataUrl }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Could not analyse this photo");
+        const estimate = data.estimate as RecipeEstimate;
+        const label = cleanProductOrMealLabel(String(data.label || "Photo diary entry"));
+        const candidate: ProductLookupCandidate = {
+          source: "ai_photo",
+          source_label: "AI photo diary",
+          source_url: null,
+          label,
+          brand_name: null,
+          image_url: imageDataUrl,
+          ingredients_text: "",
+          serving_label: "1 photographed serving",
+          data_confidence: number(estimate?.confidence || 40),
+          confidence_reason: estimate?.confidence_reason || "Estimated visually from a photo.",
+          estimate,
+        };
+        setSelectedMealId("");
+        setSelectedProduct(candidate);
+        setManualImageUrl(imageDataUrl);
+        setPortion(1);
+        // The one capability nothing else in the app does automatically:
+        // detecting fluid volume directly from the photo itself, rather
+        // than requiring it to be typed or measured by hand.
+        const detectedFluidMl = Number(data.detectedFluidMl) || 0;
+        if (detectedFluidMl > 0) {
+          setDrinkVolumeMl(String(Math.round(detectedFluidMl)));
+          setMealSlot("drink");
+        } else {
+          setMealSlot("meal");
+        }
+        setPhotoNote(data.note || "Photo analysed. Review the estimate, then save.");
+      } catch (caught) {
+        setPhotoNote(caught instanceof Error ? caught.message : "Could not analyse this photo");
+      }
+    });
+  }
+
   async function importMenuFromLog() {
     if (!menuUrl.trim()) {
       setMenuImportStatus("failed");
@@ -1571,6 +1627,17 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
             <p className="text-xs font-semibold text-slate-500">AI fills the same lower form; you still choose who ate it, time, volume and image before saving.</p>
           </div>
           {aiNote ? <p className="mt-3 rounded-2xl bg-white p-3 text-xs font-black text-slate-700 ring-1 ring-slate-100">{aiNote}</p> : null}
+
+          <div className="mt-4 border-t border-emerald-100 pt-4">
+            <label className="flex items-center gap-2 text-sm font-black text-slate-950"><Camera className="h-4 w-4" /> Or take a photo of what you're eating or drinking</label>
+            <p className="mt-1 text-xs font-semibold text-emerald-900/80">No label needed — LOOP identifies it from the photo, including estimating fluid volume (ml) for drinks.</p>
+            <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white">
+              {isPhotoPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              {isPhotoPending ? "Analysing..." : "Take / upload photo"}
+              <input type="file" accept="image/*" capture="environment" disabled={isPhotoPending} onChange={(event) => buildPhotoEntry(event.target.files?.[0])} className="sr-only" />
+            </label>
+            {photoNote ? <p className="mt-3 rounded-2xl bg-white p-3 text-xs font-black text-slate-700 ring-1 ring-slate-100">{photoNote}</p> : null}
+          </div>
         </>}
       </div>
 

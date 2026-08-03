@@ -102,7 +102,7 @@ export function ProductLabelScanner({ mealId, label, sourceUrl }: { mealId: stri
       <p className="mt-1 text-emerald-900/80">Upload a nutrition/supplement facts label or paste a direct image URL. This replaces the incorrect product data after review.</p>
       <div className="mt-3 grid gap-2">
         <input value={source} onChange={(event) => setSource(event.target.value)} placeholder="Label image URL or product source" className="rounded-xl border border-emerald-200 bg-white px-3 py-2 outline-none" />
-        <input type="file" accept="image/*" onChange={(event) => onFile(event.target.files?.[0])} className="rounded-xl bg-white px-3 py-2" />
+        <input type="file" accept="image/*" capture="environment" onChange={(event) => onFile(event.target.files?.[0])} className="rounded-xl bg-white px-3 py-2" />
         {fileName ? <p className="text-emerald-800">Selected: {fileName}</p> : null}
         <button type="button" onClick={scan} disabled={pending} className="rounded-full bg-emerald-700 px-3 py-2 font-black text-white disabled:opacity-60">{pending ? "Reading…" : "Read label"}</button>
       </div>
