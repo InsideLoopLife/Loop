@@ -39,6 +39,7 @@ import {
   hideSnapTradeImportedAccount,
   restoreArchivedManualInvestmentAccount,
   removeSnapTradeConnectionAndRestoreManual,
+  savePrivacyModeSettings,
 } from "@/app/account/actions";
 import { getAdminAccess } from "@/lib/admin/access";
 import { providerIntegrationEntitlementFromSources } from "@/lib/integrations/entitlements";
@@ -1208,6 +1209,42 @@ export default async function AccountPage({
               ) : null}
             </SectionCard>
             <div className="space-y-6">
+              <SectionCard title="Privacy mode" description="Hide real numbers when you're using Loop somewhere someone else could see your screen — a train, an office, over someone's shoulder.">
+                <form action={savePrivacyModeSettings} className="space-y-4">
+                  <div className="space-y-2">
+                    {[
+                      { value: "off", label: "Off", description: "Show real numbers everywhere, as normal." },
+                      { value: "blur", label: "Blur amounts", description: "Pound amounts are blurred out. Percentages and progress against goals (e.g. \"73% of income\") stay fully visible, since those don't reveal an absolute figure." },
+                      { value: "fake_currency", label: "Made-up currency", description: "Real amounts are shown as a made-up currency instead. Bigger and smaller numbers still look bigger and smaller relative to each other, so it still means something to you — just not to anyone glancing at your screen." },
+                    ].map((option) => (
+                      <label key={option.value} className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 p-3 hover:bg-slate-50">
+                        <input
+                          type="radio"
+                          name="privacy_mode"
+                          value={option.value}
+                          defaultChecked={(profile?.privacy_mode || "off") === option.value}
+                          className="mt-1"
+                        />
+                        <span>
+                          <span className="block font-black text-slate-950">{option.label}</span>
+                          <span className="block text-sm font-medium text-slate-500">{option.description}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <label className="block">
+                    <span className="text-sm font-bold text-slate-700">Made-up currency name</span>
+                    <input
+                      name="privacy_fake_currency_name"
+                      defaultValue={profile?.privacy_fake_currency_name || "Credits"}
+                      maxLength={24}
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-orange-500 focus:ring-2"
+                      placeholder="Credits"
+                    />
+                  </label>
+                  <button className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white">Save privacy mode</button>
+                </form>
+              </SectionCard>
               <SectionCard title="What this changes" description="These toggles control whether specialist UI, calculations and background checks appear anywhere else in Loop.">
                 <div className="space-y-4 text-sm font-bold text-slate-600">
                   <p><strong className="text-slate-950">Toggles, not navigation tabs.</strong> Switching something on enables its calculations and setup prompts. Student loans, cars, childcare and debt remain inside Account, Financial Flow or LoopWatch rather than creating extra top-level pages.</p>
