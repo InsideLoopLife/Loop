@@ -21,6 +21,7 @@ import {
   Search,
   Settings,
   Sparkles,
+  CheckCircle2,
   Trash2,
   TrendingUp,
   UserPlus,
@@ -3745,7 +3746,7 @@ function MoneyboxAllocationSetupForm({
   account: InvestmentAccount;
 }) {
   return (
-    <form action={saveMoneyboxInvestmentAccountSetup} className="space-y-5">
+    <form action={async (formData) => { await saveMoneyboxInvestmentAccountSetup(formData); }} className="space-y-5">
       <input type="hidden" name="investment_account_id" value={account.id} />
       <input type="hidden" name="provider" value="Moneybox" />
       <div className="grid gap-4 md:grid-cols-2">
@@ -3816,9 +3817,10 @@ function AddInvestmentAccountForm({
     providerName.toLowerCase().includes("moneybox");
   return (
     <form
-      action={
-        isMoneybox ? saveMoneyboxInvestmentAccountSetup : addInvestmentAccount
-      }
+      action={async (formData) => {
+        if (isMoneybox) await saveMoneyboxInvestmentAccountSetup(formData);
+        else await addInvestmentAccount(formData);
+      }}
       className="space-y-5"
     >
       <div className="grid gap-4 md:grid-cols-2">
@@ -5199,12 +5201,38 @@ function OrganiseInvestmentPiesForm({
 function BulkHoldingsForm({
   accounts,
   defaultAccountId,
+  onComplete,
 }: {
   accounts: InvestmentAccount[];
   defaultAccountId?: string;
+  onComplete?: (accountId: string) => void;
 }) {
+  const [status, setStatus] = useState<"editing" | "importing" | "complete">("editing");
+  const [preview, setPreview] = useState<string[]>([]);
+  const [result, setResult] = useState<Awaited<ReturnType<typeof importInvestmentHoldingsBulk>> | null>(null);
+  const [accountId, setAccountId] = useState(defaultAccountId ?? accounts[0]?.id ?? "");
+  const [error, setError] = useState<string | null>(null);
+
+  function previewText(text: string) {
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    setPreview(lines.slice(1, 26).map((line) => line.split(",")[0]?.replace(/^"|"$/g, "") || "Holding"));
+  }
+  async function previewFile(file?: File) {
+    if (!file || file.type.startsWith("image/")) return setPreview([]);
+    previewText(await file.text());
+  }
+  async function submit(formData: FormData) {
+    setStatus("importing"); setError(null);
+    try { const completed = await importInvestmentHoldingsBulk(formData); setResult(completed); setStatus("complete"); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : "The import could not be completed."); setStatus("editing"); }
+  }
+
+  if (status === "importing") return <div className="space-y-5 py-6"><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full w-3/4 animate-pulse rounded-full bg-emerald-500" /></div><div className="text-center"><Loader2 className="mx-auto h-10 w-10 animate-spin text-emerald-500" /><h3 className="mt-3 text-xl font-black">Adding your investments…</h3><p className="mt-1 text-sm font-semibold text-slate-500">Matching market listings and saving purchase history.</p></div>{preview.length ? <div className="max-h-64 space-y-2 overflow-y-auto rounded-3xl bg-slate-50 p-4">{preview.map((item, index) => <div key={`${item}-${index}`} className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-bold"><span>{item}</span><Loader2 className="h-4 w-4 animate-spin text-orange-500" /></div>)}</div> : null}</div>;
+  if (status === "complete" && result) return <div className="py-6 text-center"><CheckCircle2 className="mx-auto h-16 w-16 text-emerald-500" /><h3 className="mt-3 text-2xl font-black">Import complete</h3><div className="mx-auto mt-5 grid max-w-xl gap-3 sm:grid-cols-2"><SummaryTile label="Holdings processed" value={result.holdingsProcessed} /><SummaryTile label="New stocks added" value={result.newHoldings} /><SummaryTile label="Purchase lines added" value={result.purchaseLinesAdded} /><SummaryTile label="Duplicates skipped" value={result.duplicatesSkipped} /></div>{result.dateFrom ? <p className="mt-4 text-sm font-bold text-slate-600">{result.dateFrom} – {result.dateTo} · {formatMoney(result.importedValue)} imported value</p> : null}<button type="button" onClick={() => onComplete?.(accountId)} className="mt-7 rounded-full bg-slate-950 px-6 py-3 text-sm font-black text-white">View imported pot</button></div>;
+
   return (
-    <form action={importInvestmentHoldingsBulk} className="space-y-4">
+    <form action={submit} className="space-y-4">
+      {error ? <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p> : null}
       <div className="grid gap-4 md:grid-cols-3">
         <label className="block">
           <span className="text-sm font-bold text-slate-700">
@@ -5213,6 +5241,7 @@ function BulkHoldingsForm({
           <select
             name="investment_account_id"
             defaultValue={defaultAccountId ?? ""}
+            onChange={(event) => setAccountId(event.target.value)}
             className={inputClass}
             required
           >
@@ -5248,6 +5277,7 @@ function BulkHoldingsForm({
           type="file"
           accept=".csv,text/csv,text/plain,image/*"
           className={inputClass}
+          onChange={(event) => previewFile(event.target.files?.[0])}
         />
         <span className="mt-1 block text-xs font-semibold text-slate-500">
           CSV/text works without AI. Screenshot extraction uses the saved OpenAI
@@ -5262,6 +5292,7 @@ function BulkHoldingsForm({
           name="holdings_text"
           rows={12}
           className={inputClass}
+          onChange={(event) => previewText(event.target.value)}
           placeholder={
             "Name,Ticker,Exchange,Units,Average Buy Price,Latest Price,Group\nGear4music,G4M,LSE,414.96000000,241,250,My 52-stock group"
           }
@@ -5273,9 +5304,14 @@ function BulkHoldingsForm({
         value in the account currency, then separately tries to identify the
         native exchange/quote for each ticker.
       </div>
+      {preview.length ? <div className="max-h-52 space-y-2 overflow-y-auto rounded-3xl border border-slate-200 bg-slate-50 p-3"><p className="px-2 text-xs font-black uppercase text-slate-400">Ready to add · {preview.length}{preview.length === 25 ? "+" : ""} detected</p>{preview.map((item, index) => <div key={`${item}-${index}`} className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-slate-700">{item}</div>)}</div> : null}
       <SubmitButton>Import holdings</SubmitButton>
     </form>
   );
+}
+
+function SummaryTile({ label, value }: { label: string; value: number }) {
+  return <div className="rounded-2xl bg-slate-50 p-4 text-left"><p className="text-xs font-black uppercase text-slate-400">{label}</p><p className="mt-1 text-2xl font-black text-slate-950">{value}</p></div>;
 }
 
 function formatProviderFundUnitPrice(fund: {
@@ -6980,6 +7016,16 @@ export function PensionsInvestmentsClient({
   >(null);
   const [dismissedPieNoticeAccountIds, setDismissedPieNoticeAccountIds] =
     useState<Set<string>>(new Set());
+  const [highlightedAccountId, setHighlightedAccountId] = useState<string | null>(null);
+
+  function revealAccount(accountId: string) {
+    setModal(null);
+    setHighlightedAccountId(accountId);
+    setCollapsedInvestmentAccountIds((current) => { const next = new Set(current); next.delete(accountId); return next; });
+    router.refresh();
+    window.setTimeout(() => document.getElementById(`investment-account-${accountId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 250);
+    window.setTimeout(() => setHighlightedAccountId(null), 2600);
+  }
 
   useEffect(() => {
     try {
@@ -8397,8 +8443,10 @@ export function PensionsInvestmentsClient({
             return (
               <div
                 key={account.id}
-                className="relative overflow-hidden rounded-[2.25rem] border border-white/70 bg-white shadow-[0_28px_90px_-62px_rgba(15,23,42,.75)]"
+                id={`investment-account-${account.id}`}
+                className={`relative overflow-hidden rounded-[2.25rem] border bg-white shadow-[0_28px_90px_-62px_rgba(15,23,42,.75)] transition duration-700 ${highlightedAccountId === account.id ? "scale-[1.01] border-emerald-400 ring-4 ring-emerald-300/70" : "border-white/70"}`}
               >
+                {highlightedAccountId === account.id ? <span className="absolute right-5 top-5 z-20 rounded-full bg-emerald-500 px-3 py-1 text-xs font-black text-white shadow-lg">New pot</span> : null}
                 <OwnerBadge people={people} personId={account.person_id} />
                 <div className="grid lg:grid-cols-[1fr_340px]">
                   <div className="p-6">
@@ -9458,6 +9506,7 @@ export function PensionsInvestmentsClient({
           <AddInvestmentAccountWizard
             people={people}
             defaultPersonId={modal.personId}
+            onCreated={revealAccount}
           />
         </ModalShell>
       ) : null}
@@ -9579,6 +9628,7 @@ export function PensionsInvestmentsClient({
             <BulkHoldingsForm
               accounts={investmentAccounts}
               defaultAccountId={modal.accountId}
+              onComplete={revealAccount}
             />
           ) : (
             <p className="text-sm font-semibold text-slate-500">

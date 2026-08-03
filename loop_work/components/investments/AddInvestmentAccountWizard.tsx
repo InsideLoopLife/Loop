@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { FormInput } from "@/components/FormInput";
 import { SubmitButton } from "@/components/SubmitButton";
 import { investmentProviders, findProvider, accountOfferingsFor } from "@/lib/investments/provider-glossary";
@@ -38,10 +39,13 @@ const STEPS: { id: StepId; label: string }[] = [
 // PensionsInvestmentsClient.tsx) aren't reproduced here yet — Moneybox
 // providers still fall back to the original dense form for that one extra
 // section until that's folded in as its own step.
-export function AddInvestmentAccountWizard({ people, defaultPersonId }: { people: Person[]; defaultPersonId?: string }) {
+export function AddInvestmentAccountWizard({ people, defaultPersonId, onCreated }: { people: Person[]; defaultPersonId?: string; onCreated?: (accountId: string) => void }) {
   const providers = investmentProviders();
   const [providerName, setProviderName] = useState(providers.find((p) => p.id === "trading-212")?.name || providers[0]?.name || "Trading 212");
   const [stepIndex, setStepIndex] = useState(0);
+  const [status, setStatus] = useState<"editing" | "saving" | "complete">("editing");
+  const [result, setResult] = useState<{ accountId: string; label: string; provider: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const provider = findProvider(providerName);
   const offerings = accountOfferingsFor(providerName, "investment");
@@ -49,8 +53,25 @@ export function AddInvestmentAccountWizard({ people, defaultPersonId }: { people
   const isLast = stepIndex === STEPS.length - 1;
   const currentStepId = STEPS[stepIndex].id;
 
+  async function submit(formData: FormData) {
+    setStatus("saving");
+    setError(null);
+    try {
+      const created = await (isMoneybox ? saveMoneyboxInvestmentAccountSetup(formData) : addInvestmentAccount(formData));
+      setResult(created);
+      setStatus("complete");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The pot could not be added.");
+      setStatus("editing");
+    }
+  }
+
+  if (status === "saving") return <div className="py-12 text-center"><div className="mx-auto mb-5 h-2 max-w-md overflow-hidden rounded-full bg-slate-100"><div className="h-full w-2/3 animate-pulse rounded-full bg-orange-500" /></div><Loader2 className="mx-auto h-10 w-10 animate-spin text-orange-500" /><h3 className="mt-4 text-xl font-black text-slate-950">Creating your new pot…</h3><p className="mt-2 text-sm font-semibold text-slate-500">Saving the provider, ownership and account settings.</p></div>;
+  if (status === "complete" && result) return <div className="py-10 text-center"><CheckCircle2 className="mx-auto h-16 w-16 text-emerald-500" /><h3 className="mt-4 text-2xl font-black text-slate-950">Pot added</h3><p className="mt-2 font-semibold text-slate-600"><strong>{result.label}</strong> has been added to your investments.</p><button type="button" onClick={() => onCreated?.(result.accountId)} className="mt-7 rounded-full bg-slate-950 px-6 py-3 text-sm font-black text-white">View new pot</button></div>;
+
   return (
-    <form action={isMoneybox ? saveMoneyboxInvestmentAccountSetup : addInvestmentAccount} className="space-y-5">
+    <form action={submit} className="space-y-5">
+      {error ? <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p> : null}
       <div className="rounded-3xl bg-slate-50 p-3 ring-1 ring-slate-100">
         <div className="mb-2 flex items-center gap-1.5">
           {STEPS.map((step, i) => (

@@ -588,18 +588,21 @@ export async function addInvestmentAccount(formData: FormData) {
   const provider = findProvider(providerName);
   const platformFee = parseNumber(formData.get("annual_platform_fee_percent")) ?? provider?.defaultAnnualPlatformFeePercent ?? 0;
   const fixedFee = parseNumber(formData.get("fixed_monthly_fee")) ?? provider?.defaultFixedMonthlyFee ?? 0;
-  const { error } = await supabase.from("investment_accounts").insert({
+  const label = String(formData.get("label") || "Investment account");
+  const { data, error } = await supabase.from("investment_accounts").insert({
     user_id: user.id,
     person_id: nullableString(formData.get("person_id")),
-    label: String(formData.get("label") || "Investment account"),
+    label,
     provider: provider?.name || providerName,
     account_type: String(formData.get("account_type") || "gia"),
     annual_platform_fee_percent: platformFee,
     fixed_monthly_fee: fixedFee,
     notes: nullableString(formData.get("notes")) || provider?.notes || null,
-  });
+  }).select("id").single();
   if (error) throw new Error(error.message);
   revalidatePath("/investments");
+  revalidatePath("/net-worth");
+  return { accountId: data.id as string, label, provider: provider?.name || providerName };
 }
 
 
@@ -941,6 +944,11 @@ export async function saveMoneyboxInvestmentAccountSetup(formData: FormData) {
 
   revalidatePath("/investments");
   revalidatePath("/net-worth");
+  return {
+    accountId,
+    label: String(formData.get("label") || "Moneybox investments"),
+    provider: "Moneybox",
+  };
 }
 
 export async function updateInvestmentAccount(formData: FormData) {
@@ -1617,7 +1625,7 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
 
   if (!text.trim()) {
     revalidatePath("/investments");
-    return;
+    return { kind: "empty" as const, holdingsProcessed: 0, newHoldings: 0, purchaseLinesAdded: 0, duplicatesSkipped: 0, dateFrom: null, dateTo: null, importedValue: 0, items: [] as string[] };
   }
 
   const parsed = parseCsvRows(text);
@@ -1680,7 +1688,9 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
 
     const allKeys = new Set([...buysByKey.keys(), ...sellsByKey.keys()]);
     let importedHoldings = 0;
+    let newHoldings = 0;
     let importedLots = 0;
+    let duplicatesSkipped = 0;
     let skippedSellOnly = 0;
 
     for (const key of allKeys) {
@@ -1729,6 +1739,7 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
         }).select("id").single();
         if (insertError) throw new Error(insertError.message);
         holdingId = inserted?.id;
+        if (holdingId) newHoldings += 1;
       }
       if (!holdingId) continue;
 
@@ -1764,6 +1775,7 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
           notes: b.isSell ? "Market sell (Trading 212)" : null,
           estimated: false,
         }));
+      duplicatesSkipped += allTx.length - newLots.length;
       if (newLots.length) {
         const { error: lotsError } = await supabase.from("investment_purchase_lots").insert(newLots);
         if (lotsError) throw new Error(lotsError.message);
@@ -1805,7 +1817,19 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
     console.log(`[trading212-transaction-import] holdings=${importedHoldings} lots=${importedLots} soldOut=${skippedSellOnly} account=${accountId}`);
     revalidatePath("/investments");
     revalidatePath("/net-worth");
-    return;
+    const importDates = Array.from(allKeys).flatMap((key) => [...(buysByKey.get(key) || []), ...(sellsByKey.get(key) || [])]).map((row) => row.date).filter(Boolean).sort();
+    const importedValue = Array.from(buysByKey.values()).flat().reduce((sum, row) => sum + Math.abs(row.gbpTotal), 0);
+    return {
+      kind: "transactions" as const,
+      holdingsProcessed: importedHoldings,
+      newHoldings,
+      purchaseLinesAdded: importedLots,
+      duplicatesSkipped,
+      dateFrom: importDates[0] || null,
+      dateTo: importDates.at(-1) || null,
+      importedValue,
+      items: Array.from(allKeys).map((key) => nameByKey.get(key) || key),
+    };
   }
 
   if (looksLikeTrading212Holdings(parsed.headers)) {
@@ -1899,12 +1923,23 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
   records = records.filter((record) => Number(record.units || 0) > 0 && (record.ticker || record.asset_name));
   if (records.length === 0) {
     revalidatePath("/investments");
-    return;
+    return { kind: "empty" as const, holdingsProcessed: 0, newHoldings: 0, purchaseLinesAdded: 0, duplicatesSkipped: 0, dateFrom: null, dateTo: null, importedValue: 0, items: [] as string[] };
   }
   const { error } = await supabase.from("investment_holdings").insert(records);
   if (error) throw new Error(error.message);
   revalidatePath("/investments");
   revalidatePath("/net-worth");
+  return {
+    kind: "holdings" as const,
+    holdingsProcessed: records.length,
+    newHoldings: records.length,
+    purchaseLinesAdded: 0,
+    duplicatesSkipped: 0,
+    dateFrom: null,
+    dateTo: null,
+    importedValue: records.reduce((sum, record) => sum + Number(record.imported_invested_value || (Number(record.units || 0) * Number(record.average_buy_price || 0))), 0),
+    items: records.map((record) => String(record.asset_name || record.ticker || "Holding")),
+  };
 }
 
 export async function deletePensionAccount(formData: FormData) {
