@@ -263,3 +263,26 @@ main h1 { font-weight: 900; }
   body[data-loop-nav="side"] main.max-w-6xl,
   body[data-loop-nav="side"] main.max-w-5xl { width: 100% !important; }
 }
+
+/* Shared "convergence visual" — used on both the login page and the
+   introduction page, so there's one source of truth for this signature
+   element rather than duplicated CSS. Disabled entirely under
+   prefers-reduced-motion, leaving a clean static arrangement. */
+.loop-thread-node { transform: translate(-50%, -50%); }
+@media (prefers-reduced-motion: no-preference) {
+  .loop-thread-line { animation: loop-flow 2.4s ease-in-out infinite; }
+  .loop-thread-node { animation: loop-float 4.5s ease-in-out infinite; }
+  .loop-total-glow { animation: loop-glow 3.2s ease-in-out infinite; }
+}
+@keyframes loop-flow {
+  0%, 100% { stroke-dashoffset: 24; opacity: 0.35; }
+  50% { stroke-dashoffset: 0; opacity: 0.9; }
+}
+@keyframes loop-float {
+  0%, 100% { transform: translate(-50%, -50%) translateY(0); }
+  50% { transform: translate(-50%, -50%) translateY(-4px); }
+}
+@keyframes loop-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.25); }
+  50% { box-shadow: 0 0 0 14px rgba(45, 212, 191, 0); }
+}

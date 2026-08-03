@@ -93,7 +93,8 @@ export async function confirmLoopWatchItem(formData: FormData) {
   if (readError) throw new Error(readError.message);
   if (!item) return;
 
-  await supabase.from("loopwatch_events").delete().eq("loopwatch_item_id", id);
+  const { error: eventsDeleteError } = await supabase.from("loopwatch_events").delete().eq("loopwatch_item_id", id);
+  if (eventsDeleteError) throw new Error(eventsDeleteError.message);
 
   const extractionForEvents: LoopWatchExtraction = {
     documentType: (item.item_type || "general_contract") as any,

@@ -124,7 +124,8 @@ function cardPayload(row: ProductImportNormalised | ProductEnrichmentResult, acc
 async function replaceIngredients(supabase: any, cardId: string, row: ProductImportNormalised | ProductEnrichmentResult) {
   if (!row.ingredients) return;
   try {
-    await supabase.from("loop_nutrition_card_ingredients").delete().eq("card_id", cardId);
+    const { error: ingredientsDeleteError } = await supabase.from("loop_nutrition_card_ingredients").delete().eq("card_id", cardId);
+    if (ingredientsDeleteError) throw new Error(ingredientsDeleteError.message);
     const tree = parseIngredientTextToTree(row.ingredients);
     const rows: any[] = [];
 
@@ -212,7 +213,8 @@ function explicitAllergenRows(cardId: string, row: ProductImportNormalised | Pro
 
 async function replaceAllergens(supabase: any, cardId: string, row: ProductImportNormalised | ProductEnrichmentResult) {
   try {
-    await supabase.from("loop_nutrition_card_allergens").delete().eq("card_id", cardId);
+    const { error: allergensDeleteError } = await supabase.from("loop_nutrition_card_allergens").delete().eq("card_id", cardId);
+    if (allergensDeleteError) throw new Error(allergensDeleteError.message);
     const rows = explicitAllergenRows(cardId, row);
     if (rows.length) await supabase.from("loop_nutrition_card_allergens").insert(rows);
   } catch {
@@ -276,7 +278,8 @@ async function replaceServingOptions(supabase: any, cardId: string, row: Product
   if (!rows.length) return;
 
   try {
-    await supabase.from("loop_nutrition_serving_options").delete().eq("card_id", cardId);
+    const { error: servingOptionsDeleteError } = await supabase.from("loop_nutrition_serving_options").delete().eq("card_id", cardId);
+    if (servingOptionsDeleteError) throw new Error(servingOptionsDeleteError.message);
     await supabase.from("loop_nutrition_serving_options").insert(rows);
   } catch {
     // Serving options table may not exist yet.

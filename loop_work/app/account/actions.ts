@@ -526,7 +526,8 @@ export async function assignChildGuardians(formData: FormData) {
   const childId = String(formData.get("child_id") || "");
   if (!childId) throw new Error("Missing child profile id.");
   const guardianIds = formData.getAll("guardian_person_id").map(String).filter(Boolean);
-  await supabase.from("person_guardians").delete().eq("child_person_id", childId).eq("user_id", user.id);
+  const { error: guardianClearError } = await supabase.from("person_guardians").delete().eq("child_person_id", childId).eq("user_id", user.id);
+  if (guardianClearError) throw new Error(guardianClearError.message);
   if (guardianIds.length > 0) {
     const { error } = await supabase.from("person_guardians").insert(guardianIds.map((guardianId) => ({
       user_id: user.id,
@@ -1048,6 +1049,22 @@ export async function saveHealthAccountSettings(formData: FormData) {
   }, { onConflict: "user_id" });
   if (error) throw new Error(error.message);
   revalidatePath("/account");
+}
+
+export async function savePrivacyModeSettings(formData: FormData) {
+  const { supabase, user } = await requireUser();
+  const mode = String(formData.get("privacy_mode") || "off");
+  if (!["off", "blur", "fake_currency"].includes(mode)) throw new Error("Invalid privacy mode.");
+  const fakeCurrencyName = String(formData.get("privacy_fake_currency_name") || "Credits").trim().slice(0, 24) || "Credits";
+  const { error } = await supabase.from("app_user_profiles").upsert({
+    user_id: user.id,
+    privacy_mode: mode,
+    privacy_fake_currency_name: fakeCurrencyName,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "user_id" });
+  if (error) throw new Error(error.message);
+  revalidatePath("/account");
+  revalidatePath("/dashboard");
 }
 
 export async function saveWealthAccountSettings(formData: FormData) {
