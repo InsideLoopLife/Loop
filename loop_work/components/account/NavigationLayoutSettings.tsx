@@ -16,6 +16,17 @@ export function NavigationLayoutSettings({
   const [chosen, setChosen] = useState(initialChosen);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  // A sidebar genuinely doesn't work on a phone-width screen — this
+  // disables the option itself here, rather than silently letting
+  // someone pick it and then wondering why it never actually shows up.
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1023px)");
+    const update = () => setIsMobileViewport(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     fetch("/api/user/ui-preferences", { cache: "no-store" })
@@ -77,14 +88,16 @@ export function NavigationLayoutSettings({
         <button
           type="button"
           onClick={() => choose("side")}
-          disabled={saving}
-          className={`rounded-3xl border p-5 text-left transition ${layout === "side" ? "border-indigo-600 bg-indigo-600 text-white shadow-xl shadow-indigo-600/20" : "border-slate-200 bg-white text-slate-800 hover:border-indigo-300 hover:bg-indigo-50"}`}
+          disabled={saving || isMobileViewport}
+          className={`rounded-3xl border p-5 text-left transition ${layout === "side" ? "border-indigo-600 bg-indigo-600 text-white shadow-xl shadow-indigo-600/20" : "border-slate-200 bg-white text-slate-800 hover:border-indigo-300 hover:bg-indigo-50"} ${isMobileViewport ? "cursor-not-allowed opacity-50 hover:border-slate-200 hover:bg-white" : ""}`}
         >
           <span className="flex items-start gap-4">
             <span className={`grid h-11 w-11 place-items-center rounded-2xl ${layout === "side" ? "bg-white/10" : "bg-indigo-50 text-indigo-700"}`}><PanelLeft className="h-5 w-5" /></span>
             <span className="min-w-0 flex-1">
               <span className="flex items-center justify-between gap-2 font-black">Side navigation {layout === "side" ? <Check className="h-4 w-4" /> : null}</span>
-              <span className={`mt-2 block text-xs font-semibold leading-5 ${layout === "side" ? "text-white/75" : "text-slate-500"}`}>Uses the premium left-hand menu with a Wealth and Health switch.</span>
+              <span className={`mt-2 block text-xs font-semibold leading-5 ${layout === "side" ? "text-white/75" : "text-slate-500"}`}>
+                {isMobileViewport ? "Not available on a phone-width screen — you'll always get top navigation here regardless." : "Uses the premium left-hand menu with a Wealth and Health switch."}
+              </span>
             </span>
           </span>
         </button>

@@ -1090,7 +1090,71 @@ export function AmplifiedInvestmentsDashboard({
                   </span>
                 </div>
 
-                <div className="overflow-x-auto">
+                {/* Mobile: clean stacked cards, matching Trading212's own
+                    style — no horizontal scrolling, no squeezed columns.
+                    Desktop keeps the table below, which works fine at
+                    that width. */}
+                <div className="space-y-2 lg:hidden">
+                  {tableItems.map((item) => {
+                    const isUp = item.move.pct >= 0;
+                    const isSelected = selectedTickerItem === item.holding.id;
+                    return (
+                      <button
+                        key={item.holding.id}
+                        type="button"
+                        onClick={() => setSelectedTickerItem(item.holding.id)}
+                        className={`w-full rounded-2xl border p-3 text-left transition-colors ${isSelected ? (dark ? "border-emerald-500/40 bg-white/10" : "border-emerald-200 bg-emerald-50") : (dark ? "border-white/10 bg-white/[0.02]" : "border-slate-200 bg-white")}`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <AssetBadge holding={item.holding} dark={dark} />
+                            <div className="min-w-0">
+                              <p className={`truncate font-bold ${isSelected ? "text-emerald-500" : (dark ? "text-white" : "text-slate-900")}`}>{primaryHoldingLabel(item.holding)}</p>
+                              <p className={`truncate text-[11px] ${dark ? "text-white/40" : "text-slate-500"}`}>{secondaryHoldingLabel(item.holding)}</p>
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className={`font-bold ${dark ? "text-white" : "text-slate-900"}`}>{formatMoney(item.value)}</p>
+                            <p className={`text-xs font-bold ${!item.move.has ? (dark ? "text-white/30" : "text-slate-400") : isUp ? "text-emerald-500" : "text-rose-500"}`}>
+                              {item.move.has ? `${isUp ? "▲" : "▼"} ${Math.abs(item.move.pct).toFixed(2)}%` : "—"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className={`mt-2 flex items-center justify-between border-t pt-2 text-[11px] ${dark ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500"}`}>
+                          <span>Price {unitPriceLabel(item.holding)}</span>
+                          <span>Cost {holdingCost(item.holding) > 0 ? formatMoney(averageHoldingPrice(item.holding)) : <span className="font-bold text-amber-500">Missing</span>}</span>
+                        </div>
+                        {/* Tap-to-expand chart, right in the card — mobile
+                            never had this before at all (the chart panel
+                            was desktop-only), same data the desktop sticky
+                            panel already uses, no extra fetch needed. */}
+                        {isSelected ? (
+                          <div className={`mt-3 border-t pt-3 ${dark ? "border-white/10" : "border-slate-100"}`} onClick={(e) => e.stopPropagation()}>
+                            <div className={`h-40 w-full rounded-2xl border ${dark ? "border-white/10 bg-[#06080c]" : "border-slate-200 bg-slate-50"}`}>
+                              <AssetMiniChart points={item.points} positive={item.move.pct >= 0} dark={dark} />
+                            </div>
+                            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                              <div>
+                                <p className={`text-[10px] font-bold uppercase tracking-wide ${dark ? "text-white/40" : "text-slate-500"}`}>Value</p>
+                                <p className={`text-sm font-bold ${dark ? "text-white" : "text-slate-900"}`}>{formatMoney(item.value)}</p>
+                              </div>
+                              <div>
+                                <p className={`text-[10px] font-bold uppercase tracking-wide ${dark ? "text-white/40" : "text-slate-500"}`}>Day move</p>
+                                <p className={`text-sm font-bold ${item.move.pct >= 0 ? "text-emerald-500" : "text-rose-500"}`}>{item.move.pct >= 0 ? "+" : ""}{item.move.pct.toFixed(2)}%</p>
+                              </div>
+                              <div>
+                                <p className={`text-[10px] font-bold uppercase tracking-wide ${dark ? "text-white/40" : "text-slate-500"}`}>Allocation</p>
+                                <p className="text-sm font-bold text-emerald-500">{item.allocation.toFixed(2)}%</p>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="hidden overflow-x-auto lg:block">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className={`border-b text-[10px] font-bold uppercase tracking-wider ${dark ? "border-white/10 text-white/40" : "border-slate-200 text-slate-400"}`}>

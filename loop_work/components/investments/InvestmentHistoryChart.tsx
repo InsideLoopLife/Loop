@@ -214,58 +214,96 @@ export function InvestmentHistoryChart({
   showRange = true,
   refreshMs,
 }: Props) {
-  const [points, setPoints] = useState<Point[]>([]);
+  type RangeEntry = { points: Point[]; quality: HistoryQuality | null; sourceMode: string; status: string; fetchedAt: number };
+  // BUGFIX (the "flash to a different chart" complaint): previously this
+  // component held ONE set of points/status for whichever range was
+  // currently selected, and re-fetched from scratch on every single
+  // click — meaning switching ranges always meant staring at the OLD
+  // range's (differently shaped/scaled) chart for however long the
+  // network round-trip took, then a jarring swap. Now every range is
+  // cached independently the first time it's fetched, so switching back
+  // to an already-seen range is instant, and every range gets quietly
+  // prefetched in the background shortly after the page loads — by the
+  // time a person actually clicks a range button, it's very often
+  // already sitting there ready.
+  const cacheRef = useRef<Map<string, RangeEntry>>(new Map());
   const [range, setRange] = useState("1m");
-  const [status, setStatus] = useState("Loading history...");
-  const [quality, setQuality] = useState<HistoryQuality | null>(null);
-  const [sourceMode, setSourceMode] = useState<string>("");
+  const [, forceRerender] = useState(0);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
+  function cacheKey(r: string) {
+    return `${r}|${holdingId || ""}|${accountId || ""}`;
+  }
+
   useEffect(() => {
     let cancelled = false;
-    let timer: number | null = null;
-    async function load(silent = false) {
-      const params = new URLSearchParams({ range });
+    async function loadRange(targetRange: string, silent: boolean) {
+      const key = cacheKey(targetRange);
+      const existing = cacheRef.current.get(key);
+      // Already have this one — nothing to fetch, nothing to show as
+      // loading. This is what makes clicking back to a seen range instant.
+      if (existing && !silent) return;
+      const params = new URLSearchParams({ range: targetRange });
       if (holdingId) params.set("holdingId", holdingId);
       if (accountId) params.set("accountId", accountId);
-      if (!silent) setStatus("Loading history...");
       try {
-        const response = await fetch(
-          `/api/investments/history?${params.toString()}`,
-          { cache: silent ? "default" : "default" },
-        );
+        const response = await fetch(`/api/investments/history?${params.toString()}`, { cache: "default" });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok)
-          throw new Error(data.error || "Could not load history");
-        if (!cancelled) {
-          const rows = Array.isArray(data.points) ? data.points : [];
-          setPoints(rows);
-          const nextQuality =
-            data.quality && typeof data.quality === "object"
-              ? (data.quality as HistoryQuality)
-              : null;
-          setQuality(nextQuality);
-          setSourceMode(String(data.sourceMode || ""));
-          setStatus(
-            rows.length ? "" : nextQuality?.note || "No reliable history yet",
-          );
-        }
+        if (!response.ok) throw new Error(data.error || "Could not load history");
+        if (cancelled) return;
+        const rows = Array.isArray(data.points) ? data.points : [];
+        const nextQuality = data.quality && typeof data.quality === "object" ? (data.quality as HistoryQuality) : null;
+        cacheRef.current.set(key, {
+          points: rows,
+          quality: nextQuality,
+          sourceMode: String(data.sourceMode || ""),
+          status: rows.length ? "" : nextQuality?.note || "No reliable history yet",
+          fetchedAt: Date.now(),
+        });
+        forceRerender((n) => n + 1);
       } catch (caught) {
-        if (!cancelled)
-          setStatus(
-            caught instanceof Error ? caught.message : "Could not load history",
-          );
+        if (cancelled) return;
+        cacheRef.current.set(key, {
+          points: existing?.points || [],
+          quality: existing?.quality || null,
+          sourceMode: existing?.sourceMode || "",
+          status: caught instanceof Error ? caught.message : "Could not load history",
+          fetchedAt: Date.now(),
+        });
+        forceRerender((n) => n + 1);
       }
     }
-    load(false);
+
+    // Load whichever range is actually selected first — this is the one
+    // thing the person is actually looking at right now.
+    loadRange(range, false);
+
+    // Then quietly prefetch every other range in the background, spaced
+    // out a little so this doesn't fire 8 requests at once competing
+    // with the one that actually matters right now.
+    const otherRanges = RANGES.map((r) => r.value).filter((r) => r !== range);
+    const prefetchTimers = otherRanges.map((r, index) =>
+      window.setTimeout(() => { if (!cancelled) loadRange(r, false); }, 400 + index * 350),
+    );
+
+    // Keep the existing background-refresh behaviour for the active range
+    // specifically, so numbers still stay live while the page is open.
     const interval = Math.max(30_000, refreshMs ?? 60_000);
-    timer = window.setInterval(() => load(true), interval);
+    const refreshTimer = window.setInterval(() => loadRange(range, true), interval);
+
     return () => {
       cancelled = true;
-      if (timer) window.clearInterval(timer);
+      prefetchTimers.forEach((t) => window.clearTimeout(t));
+      window.clearInterval(refreshTimer);
     };
   }, [holdingId, accountId, range, compact, refreshMs]);
+
+  const active = cacheRef.current.get(cacheKey(range));
+  const points = active?.points || [];
+  const status = active ? active.status : "Loading history...";
+  const quality = active?.quality || null;
+  const sourceMode = active?.sourceMode || "";
 
   const values = useMemo(
     () =>

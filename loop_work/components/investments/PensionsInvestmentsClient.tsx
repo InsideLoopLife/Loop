@@ -570,8 +570,9 @@ function holdingCost(holding: InvestmentHolding) {
 function hasUnverifiedProviderCostBasis(holdings: InvestmentHolding[]) {
   return holdings.some(
     (holding) =>
-      isProviderImportedHolding(holding) &&
-      !hasVerifiedProviderCostBasis(holding),
+      (isProviderImportedHolding(holding) &&
+      !hasVerifiedProviderCostBasis(holding)) ||
+      isPriceUnverified(holding),
   );
 }
 
@@ -1559,6 +1560,16 @@ function holdingPl(holding: InvestmentHolding) {
   return { value, cost, pl, pct };
 }
 
+// BUGFIX: a holding whose price has genuinely never been found (as
+// opposed to one with a good last-known price that just failed today's
+// refresh) should never show a computed gain at all — that's exactly
+// what let a ticker collision (THG plc vs. an unrelated US company also
+// ticker THG) show a nonsensical +52344% gain instead of a clear
+// "processing" state until a real price actually arrives.
+function isPriceUnverified(holding: InvestmentHolding) {
+  return holding.price_check_status === "quote_not_found";
+}
+
 function changeFromSnapshotsForHoldings(
   holdings: InvestmentHolding[],
   snapshots: InvestmentSnapshot[],
@@ -1765,7 +1776,8 @@ function providerCashLabel(
   return Math.abs(cash) >= 0.5 ? cash : 0;
 }
 
-function performanceUnavailableLabel() {
+function performanceUnavailableLabel(holding?: InvestmentHolding) {
+  if (holding && isPriceUnverified(holding)) return "Processing — price not yet verified";
   return "Cost price missing";
 }
 
@@ -1867,8 +1879,14 @@ function AssetAllocationMosaic({
               {item.holding.ticker || item.holding.asset_name}
             </p>
             <p className="text-[11px] font-black">
-              {item.share.toFixed(1)}% · {item.pct >= 0 ? "+" : ""}
-              {item.pct.toFixed(1)}%
+              {item.share.toFixed(1)}% ·{" "}
+              {isPriceUnverified(item.holding) ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" /> Processing
+                </span>
+              ) : (
+                <>{item.pct >= 0 ? "+" : ""}{item.pct.toFixed(1)}%</>
+              )}
             </p>
           </>
         );
@@ -1971,8 +1989,9 @@ function HoldingCard({
 }) {
   const { value, cost, pl, pct } = holdingPl(holding);
   const plReliable =
-    !isProviderImportedHolding(holding) ||
-    hasVerifiedProviderCostBasis(holding);
+    (!isProviderImportedHolding(holding) ||
+    hasVerifiedProviderCostBasis(holding)) &&
+    !isPriceUnverified(holding);
   const providerResult = Number(holding.imported_result_value);
   const dayMove = dayMovementFromSnapshots([holding], snapshots);
   const storedDayChange = Number(holding.day_change_gbp);
@@ -2130,7 +2149,7 @@ function HoldingCard({
             </p>
           ) : (
             <p className="text-sm font-black text-slate-500">
-              {performanceUnavailableLabel()}
+              {performanceUnavailableLabel(holding)}
             </p>
           )}
           <div
