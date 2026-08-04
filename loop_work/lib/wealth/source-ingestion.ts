@@ -12,6 +12,7 @@ export type ParsedSavingsDeal = {
   minimumBalance?: number | null;
   maximumBalance?: number | null;
   monthlyMaxDeposit?: number | null;
+  monthlyMinDeposit?: number | null;
   accessType?: string | null;
   withdrawalRules?: string | null;
   noticePeriodDays?: number | null;
@@ -94,10 +95,14 @@ function stripHtml(input: string) {
 }
 
 function firstRate(text: string) {
+  const labelled = Array.from(text.matchAll(/(\d{1,2}(?:\.\d{1,3})?)\s*%\s*(?:AER|gross|tax[- ]free)/gi))
+    .map((match) => Number(match[1]))
+    .filter((value) => value > 0 && value < 25);
+  if (labelled.length) return labelled[0];
   const matches = Array.from(text.matchAll(/(\d{1,2}(?:\.\d{1,3})?)\s*%/g))
     .map((match) => Number(match[1]))
     .filter((value) => value > 0 && value < 25);
-  return matches.length ? Math.max(...matches.slice(0, 20)) : null;
+  return matches[0] ?? null;
 }
 
 function firstMoney(text: string) {
@@ -117,11 +122,11 @@ function firstBalanceAround(text: string, patterns: RegExp[]) {
 
 function inferSavingsAccessType(text: string) {
   const lower = text.toLowerCase();
-  if (/easy access|instant access|access any time|unlimited withdrawal/.test(lower)) return "easy_access";
-  if (/notice account|notice period|\b\d{2,3}\s*day\s*notice/.test(lower)) return "notice";
   if (/regular saver|monthly saver/.test(lower)) return "regular_saver";
+  if (/notice account|notice period|\b\d{2,3}\s*day\s*notice/.test(lower)) return "notice";
   if (/fixed rate|fixed term|bond|maturity|term deposit/.test(lower)) return "fixed_term";
   if (/cash isa|isa/.test(lower)) return "cash_isa";
+  if (/easy access|instant access|access any time|unlimited withdrawal/.test(lower)) return "easy_access";
   return "savings";
 }
 
@@ -384,9 +389,14 @@ function rateWindows(text: string) {
   const matches = Array.from(text.matchAll(/(\d{1,2}(?:\.\d{1,3})?)\s*%\s*(?:AER|gross|variable|fixed|tax-free)?/gi))
     .map((match) => ({ rate: Number(match[1]), index: match.index || 0 }))
     .filter((item) => item.rate > 0 && item.rate < 25);
-  return matches.slice(0, 60).map((match) => {
-    const start = Math.max(0, match.index - 520);
-    const end = Math.min(text.length, match.index + 980);
+  const candidates = matches.slice(0, 60);
+  return candidates.map((match, index) => {
+    // Split midway between adjacent rates. A wide fixed window lets one product's
+    // access rules/deposit cap leak into the next product on comparison tables.
+    const previous = candidates[index - 1];
+    const next = candidates[index + 1];
+    const start = previous ? Math.floor((previous.index + match.index) / 2) : Math.max(0, match.index - 520);
+    const end = next ? Math.floor((match.index + next.index) / 2) : Math.min(text.length, match.index + 980);
     return { ...match, window: text.slice(start, end).replace(/\s+/g, " ").trim() };
   }).filter((item) => /\b(?:AER|gross|savings?|saver|cash isa|ISA|easy access|instant access|fixed rate|fixed term|notice|bond|regular saver|monthly saver|withdrawal)\b/i.test(item.window));
 }
@@ -404,6 +414,7 @@ export function parseSavingsDealsFromSource(args: { providerName: string; produc
       productName,
       sourceUrl: args.sourceUrl,
       text: candidate.window,
+      rateHint: candidate.rate,
     });
     if (!parsed.grossAer) continue;
     const key = `${parsed.providerSlug}:${normaliseProviderSlug(parsed.productName)}:${parsed.grossAer.toFixed(3)}`;
@@ -420,17 +431,18 @@ export function parseSavingsDealsFromSource(args: { providerName: string; produc
   return parsedRows.length ? parsedRows.slice(0, 40) : [parseSavingsDealFromSource(args)];
 }
 
-export function parseSavingsDealFromSource(args: { providerName: string; productName?: string; sourceUrl: string; text: string }): ParsedSavingsDeal {
+export function parseSavingsDealFromSource(args: { providerName: string; productName?: string; sourceUrl: string; text: string; rateHint?: number | null }): ParsedSavingsDeal {
   const lower = args.text.toLowerCase();
   const providerName = args.providerName || "Unknown provider";
   const accessType = inferSavingsAccessType(args.text);
   const accountType = lower.includes("cash isa") || lower.includes("isa") ? "cash_isa" : accessType === "regular_saver" ? "regular_saver" : accessType === "fixed_term" ? "fixed_saver" : accessType === "notice" ? "notice_saver" : "easy_access";
   const requiresExistingCustomer = /existing customer|current account required|must hold|eligible if you already|linked current account|members only|exclusive to/i.test(args.text);
-  const grossAer = firstRate(args.text);
+  const grossAer = args.rateHint && args.rateHint > 0 && args.rateHint < 25 ? args.rateHint : firstRate(args.text);
   const productName = args.productName || titleFromSource(args.text, "Savings product");
   const minimumBalance = firstBalanceAround(args.text, [/minimum(?: opening)?(?: balance| deposit)?[^£]{0,80}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)/i, /open(?:ing)?(?: with)?[^£]{0,80}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)/i]);
   const maximumBalance = firstBalanceAround(args.text, [/maximum(?: balance)?[^£]{0,80}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)/i, /up to[^£]{0,50}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)/i]);
   const monthlyMaxDeposit = firstBalanceAround(args.text, [/pay in(?: up to)?[^£]{0,80}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)\s*(?:a|per)?\s*month/i, /monthly(?: maximum|max)?[^£]{0,80}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)/i]);
+  const monthlyMinDeposit = firstBalanceAround(args.text, [/pay in(?: at least|a minimum of)[^£]{0,80}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)\s*(?:a|per)?\s*month/i, /monthly(?: minimum|min)[^£]{0,80}£\s?([0-9][0-9,]*(?:\.\d{1,2})?)/i]);
   const noticePeriodDays = inferNoticeDays(args.text);
   const termLengthMonths = inferTermMonths(args.text);
   const withdrawalRules = inferWithdrawalRules(args.text);
@@ -446,6 +458,7 @@ export function parseSavingsDealFromSource(args: { providerName: string; product
     minimumBalance,
     maximumBalance,
     monthlyMaxDeposit,
+    monthlyMinDeposit,
     accessType,
     withdrawalRules,
     noticePeriodDays,

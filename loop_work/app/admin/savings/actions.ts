@@ -63,7 +63,7 @@ export async function runSavingsCatalogueAndWatchNow(formData: FormData) {
     runKind: "admin_refresh_then_watch",
     limit: numberOr(formData.get("account_limit"), 500),
     triggeredBy: access.user.email || access.user.id,
-    respectTier: true,
+    respectTier: false,
   });
   const expire = await expireStaleSavingsDeals(supabase, numberOr(formData.get("stale_days"), 7), access.user.email || access.user.id);
   const result = { seed, refresh, watch, expire };

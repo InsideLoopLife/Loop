@@ -16,6 +16,7 @@ export type SavingsFlowAccountRow = {
   savedThisMonth: number;
   interestRate: number;
   maximisedScore: number;
+  annualOpportunity: number;
   endDate: string | null;
   providerSlug?: string | null;
 };
@@ -61,6 +62,9 @@ type Props = {
   pots: SavingsFlowPotRow[];
   trend: SavingsFlowTrendPoint[];
   yearMonths: SavingsFlowYearMonth[];
+  healthScore: number;
+  marketStatus: "healthy" | "partial" | "unavailable";
+  annualOpportunity: number;
 };
 
 function clamp(value: number, max = 100) {
@@ -116,6 +120,9 @@ export function SavingsFlowDetail({
   pots,
   trend,
   yearMonths,
+  healthScore,
+  marketStatus,
+  annualOpportunity,
 }: Props) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
@@ -141,6 +148,13 @@ export function SavingsFlowDetail({
 
   return (
     <div className="space-y-6">
+      <section className={`flex flex-wrap items-center justify-between gap-5 rounded-[2rem] border p-5 shadow-sm ${marketStatus === "healthy" ? "border-emerald-200 bg-gradient-to-r from-emerald-50 to-white" : "border-amber-200 bg-gradient-to-r from-amber-50 to-white"}`}>
+        <div className="flex items-center gap-4">
+          <div className="grid h-20 w-20 shrink-0 place-items-center rounded-full bg-slate-950 text-white"><span className="text-2xl font-black">{healthScore}</span><span className="-mt-5 text-[10px] font-black text-white/50">/100</span></div>
+          <div><p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">Savings Health Score</p><h2 className="mt-1 text-2xl font-black text-slate-950">{marketStatus === "healthy" ? `${formatMoney(annualOpportunity)}/yr estimated rate opportunity` : "Market comparison is incomplete"}</h2><p className="mt-1 text-sm font-semibold text-slate-600">{marketStatus === "healthy" ? "Based on rates, access fit, tax efficiency, protection spread, goals and data quality." : "LOOP will not show £0 as no opportunity until enough fresh, reviewed savings products are available."}</p></div>
+        </div>
+        <Link href="/accounts?tab=ai" className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white">See score and actions</Link>
+      </section>
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.2fr_1fr_1.25fr_auto]">
         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">Savings % of {scopeSavingsLabel}</p>

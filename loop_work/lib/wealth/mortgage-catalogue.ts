@@ -31,6 +31,9 @@ function rateMatches(text: string) {
   }
   const seen = new Set<string>();
   return out.filter((row) => {
+    const context = text.slice(Math.max(0, row.index - 260), Math.min(text.length, row.index + 520));
+    // Ignore promotional percentages, APR examples and unrelated page furniture.
+    if (!/mortgage|remortgage|ltv|fixed|tracker|product fee|initial rate/i.test(context)) return false;
     const key = row.rate.toFixed(3);
     if (seen.has(key)) return false;
     seen.add(key);
@@ -41,13 +44,13 @@ function rateMatches(text: string) {
 function ltvFromContext(context: string) {
   const direct = Array.from(context.matchAll(/(\d{2,3})\s*%\s*LTV/gi)).map((m) => Number(m[1])).filter((n) => n > 0 && n <= 100);
   if (direct.length) return Math.max(...direct);
-  const upto = context.match(/(?:up to|max(?:imum)?|at)\s+(\d{2,3})\s*%/i);
+  const upto = context.match(/(?:up to|max(?:imum)?|at)\s+(\d{2,3})\s*%\s*(?:loan[- ]to[- ]value|ltv)/i);
   const parsed = upto ? Number(upto[1]) : null;
   return parsed && parsed > 0 && parsed <= 100 ? parsed : null;
 }
 
 function termFromContext(context: string) {
-  const years = context.match(/\b(2|3|5|7|10)\s*(?:year|yr)[-\s]*(?:fixed|fix|rate|mortgage)?\b/i);
+  const years = context.match(/\b(2|3|5|7|10)\s*(?:year|yr)[-\s]*(?:fixed|fix|initial rate|tracker)\b/i);
   if (years) return Number(years[1]) * 12;
   const months = context.match(/\b(24|36|60|84|120)\s*month/i);
   return months ? Number(months[1]) : null;
@@ -92,7 +95,10 @@ export function parseMortgageCatalogueDeals(args: { lenderName: string; sourceUr
     const ltvMax = ltvFromContext(context);
     const productFee = feeFromContext(context);
     const existingOnly = existingCustomerOnly(context);
-    const confidence = 45 + (initialTermMonths ? 10 : 0) + (ltvMax ? 10 : 0) + (productFee !== null ? 5 : 0) + (context.length > 100 ? 5 : 0);
+    const hasProductRateLabel = /initial rate|mortgage rate|fixed rate|tracker rate/i.test(context);
+    const hasMortgagePurpose = /remortgage|moving home|purchase|first[- ]time buyer|mortgage/i.test(context);
+    const plausibleRate = rate >= 1 && rate <= 15;
+    const confidence = 50 + (initialTermMonths ? 15 : 0) + (ltvMax ? 15 : 0) + (productFee !== null ? 5 : 0) + (hasProductRateLabel ? 10 : 0) + (hasMortgagePurpose ? 5 : 0);
     const productName = titleFor(lenderName, rateType, initialTermMonths, ltvMax, rate);
     return {
       lenderSlug,
@@ -107,7 +113,7 @@ export function parseMortgageCatalogueDeals(args: { lenderName: string; sourceUr
       existingCustomerOnly: existingOnly,
       newCustomerAvailable: !existingOnly || /new customer|remortgage|purchase|moving home/i.test(context),
       sourceUrl: args.sourceUrl,
-      confidence: Math.min(90, confidence),
+      confidence: plausibleRate ? Math.min(100, confidence) : Math.min(55, confidence),
       summary: `Detected possible mortgage deal at ${rate.toFixed(2)}%${initialTermMonths ? ` for ${initialTermMonths} months` : ""}${ltvMax ? ` up to ${ltvMax}% LTV` : ""}. Admin review required before users see it.`,
       externalProductKey: productKey([lenderSlug, productName, rateType, initialTermMonths, ltvMax, rate, args.sourceUrl]),
     };
@@ -135,7 +141,9 @@ export async function refreshMortgageCatalogueFromSources(supabase: any, options
   let sourceQuery = supabase
     .from("mortgage_lender_sources")
     .select("id,lender_slug,lender_name,source_url,source_kind,status,last_checked_at,check_frequency_hours")
-    .in("status", ["active", "needs_review"])
+    // Failed sources must remain retryable; otherwise one transient block permanently
+    // removes a lender from all future catalogue runs.
+    .in("status", ["active", "needs_review", "failed", "blocked"])
     .order("last_checked_at", { ascending: true, nullsFirst: true })
     .limit(limit);
   if (options.sourceId) sourceQuery = sourceQuery.eq("id", options.sourceId);
@@ -155,7 +163,7 @@ export async function refreshMortgageCatalogueFromSources(supabase: any, options
     const sourceStartedAt = new Date().toISOString();
     const existingForSource = await supabase
       .from("mortgage_rate_deals")
-      .select("id,external_product_key,status")
+      .select("id,external_product_key,status,missing_observation_count")
       .eq("source_url", source.source_url)
       .in("catalogue_status", ["active", "needs_review", "broken"]);
     const existingKeys = new Map<string, any>((existingForSource.data || []).map((row: any) => [row.external_product_key, row]));
@@ -192,6 +200,7 @@ export async function refreshMortgageCatalogueFromSources(supabase: any, options
           external_product_key: externalProductKey,
           admin_review_reason: parsed.confidence >= publishThreshold ? null : "AI/source extraction needs admin review before users see it.",
           removed_detected_at: null,
+          missing_observation_count: 0,
           updated_at: now,
           payload: {
             summary: parsed.summary,
@@ -214,20 +223,30 @@ export async function refreshMortgageCatalogueFromSources(supabase: any, options
 
       const missing = Array.from(existingKeys.entries()).filter(([key, row]) => key && !seenKeys.has(key) && row.status !== "expired");
       if (missing.length) {
-        const missingIds = missing.map(([, row]) => row.id);
-        const { data } = await supabase
-          .from("mortgage_rate_deals")
-          .update({ status: "expired", catalogue_status: "removed", removed_detected_at: now, updated_at: now })
-          .in("id", missingIds)
-          .select("id");
-        removed += data?.length || 0;
+        for (const [, row] of missing) {
+          const missingCount = Number(row.missing_observation_count || 0) + 1;
+          const withdraw = missingCount >= 3;
+          const { data } = await supabase
+            .from("mortgage_rate_deals")
+            .update({
+              missing_observation_count: missingCount,
+              status: withdraw ? "expired" : row.status,
+              catalogue_status: withdraw ? "removed" : "needs_review",
+              removed_detected_at: withdraw ? now : null,
+              admin_review_reason: withdraw ? "Removed after three consecutive missing observations." : `Missing from source observation ${missingCount}/3; held for review.`,
+              updated_at: now,
+            })
+            .eq("id", row.id)
+            .select("id");
+          if (withdraw) removed += data?.length || 0;
+        }
       }
 
-      await supabase.from("mortgage_lender_sources").update({ last_checked_at: now, last_success_at: now, last_error: null, status: source.status === "needs_review" ? "needs_review" : "active", updated_at: now }).eq("id", source.id);
+      await supabase.from("mortgage_lender_sources").update({ last_checked_at: now, last_success_at: now, last_error: null, status: parsedDeals.length ? "active" : "needs_review", updated_at: now }).eq("id", source.id);
     } catch (error: any) {
       failed += 1;
       detail.push({ source_id: source.id, source_url: source.source_url, error: error?.message || "Source refresh failed" });
-      await supabase.from("mortgage_lender_sources").update({ last_checked_at: now, last_error: error?.message || "Source refresh failed", status: "failed", updated_at: now }).eq("id", source.id);
+      await supabase.from("mortgage_lender_sources").update({ last_checked_at: now, last_error: error?.message || "Source refresh failed", status: "needs_review", updated_at: now }).eq("id", source.id);
     }
   }
 

@@ -33,22 +33,25 @@ type Props = {
   monthlyFlow: number;
   monthlyTopUps: number;
   currentWeightedRate: number;
+  catalogue: { status: "healthy" | "partial" | "unavailable"; activeDeals: number; completeDeals: number; freshDeals: number; confidence: "high" | "medium" | "low" };
 };
 
 const SCORE_MAX: Record<string, number> = {
-  rate: 30,
-  isa: 20,
-  flow: 20,
-  hygiene: 15,
-  eligibility: 15,
+  rate: 40,
+  suitability: 20,
+  tax: 15,
+  protection: 10,
+  goals: 10,
+  data: 5,
 };
 
 const SCORE_LABEL: Record<string, string> = {
-  rate: "Rate quality",
-  isa: "ISA & tax use",
-  flow: "Flow & capacity",
-  hygiene: "Data hygiene",
-  eligibility: "Eligibility evidence",
+  rate: "Rate competitiveness",
+  suitability: "Access & suitability",
+  tax: "ISA & tax efficiency",
+  protection: "Protection & spread",
+  goals: "Goals & regular saving",
+  data: "Data quality",
 };
 
 function compoundGain(amount: number, currentRate: number, betterRate: number, years: number) {
@@ -72,6 +75,7 @@ export function SavingsOptimiser({
   monthlyFlow,
   monthlyTopUps,
   currentWeightedRate,
+  catalogue,
 }: Props) {
   const actionableRows = rows.filter((row) => row.bestRate != null && row.annualGain > 0.01).sort((a, b) => b.annualGain - a.annualGain);
   const [selectedId, setSelectedId] = useState(actionableRows[0]?.accountId || rows[0]?.accountId || "");
@@ -111,9 +115,9 @@ export function SavingsOptimiser({
   return (
     <div className="grid gap-5 xl:grid-cols-[340px_1fr]">
       <aside className="rounded-[2rem] border border-slate-200 bg-slate-950 p-6 text-white shadow-xl">
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-200">AI savings score</p>
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-200">Savings Health Score</p>
         <p className="mt-4 text-6xl font-black">{score}<span className="text-2xl text-white/50">/100</span></p>
-        <p className="mt-2 text-sm font-bold text-white/65">{enabled ? "Full savings optimiser enabled." : "Preview mode. Recommendations remain visible, but paid automation and alerts are gated."}</p>
+        <p className="mt-2 text-sm font-bold text-white/65">{catalogue.confidence[0].toUpperCase() + catalogue.confidence.slice(1)} confidence · {enabled ? "automation and alerts enabled" : "basic matching active; automation and alerts optional"}.</p>
         <div className="mt-5 space-y-2 text-sm font-bold">
           {Object.entries(scoreParts).map(([key, value]) => (
             <div key={key} className="rounded-2xl bg-white/10 px-3 py-2">
@@ -132,8 +136,8 @@ export function SavingsOptimiser({
           <div className="grid gap-5 lg:grid-cols-[1fr_320px] lg:items-center">
             <div>
               <p className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-orange-700"><Sparkles className="h-4 w-4" /> Opportunity cost</p>
-              <h3 className="mt-2 text-3xl font-black text-slate-950">Potentially {formatMoney(totalAnnualOpportunity)}/year not being maximised</h3>
-              <p className="mt-2 max-w-3xl text-sm font-bold text-slate-600">Each account is compared only with reviewed products that broadly match its type, balance limits, access and known provider eligibility. The figure is an evidence-led comparison, not a recommendation to move.</p>
+              <h3 className="mt-2 text-3xl font-black text-slate-950">{catalogue.status === "healthy" ? `Potentially ${formatMoney(totalAnnualOpportunity)}/year not being maximised` : "Market check incomplete"}</h3>
+              <p className="mt-2 max-w-3xl text-sm font-bold text-slate-600">{catalogue.status === "healthy" ? "Each account is compared only with reviewed products that broadly match its type, balance limits, access and known provider eligibility. The figure is an evidence-led comparison, not a recommendation to move." : `Only ${catalogue.activeDeals} active products are available, with ${catalogue.completeDeals} carrying enough access and limit evidence. LOOP will not present £0 as proof that no better option exists.`}</p>
             </div>
             <div className="rounded-3xl bg-white/80 px-5 py-4 ring-1 ring-white">
               <p className="text-xs font-black uppercase tracking-wide text-slate-400">Current blended rate</p>

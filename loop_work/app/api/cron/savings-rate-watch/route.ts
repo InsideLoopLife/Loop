@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
       runKind: request.nextUrl.searchParams.get("run_kind") || (mode === "watch_only" ? "daily_8am" : "catalogue_then_daily_watch"),
       limit: watchLimit,
       triggeredBy,
-      respectTier: true,
+      respectTier: false,
     });
 
     const expire = mode === "watch_only" ? null : await expireStaleSavingsDeals(supabase, Number(request.nextUrl.searchParams.get("stale_days") || 7), triggeredBy);

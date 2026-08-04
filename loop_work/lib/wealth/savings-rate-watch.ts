@@ -1,5 +1,6 @@
 import { createFeatureCache } from "@/lib/wealth/watch-entitlements";
 import { loadWealthWatchSettings } from "@/lib/wealth/watch-settings";
+import { savingsDealEligibleBalance, savingsDealMatchesAccount } from "@/lib/wealth/savings-intelligence";
 
 export type SavingsWatchOptions = {
   runKey?: string;
@@ -11,16 +12,6 @@ export type SavingsWatchOptions = {
 
 function runKey(date = new Date()) {
   return `savings-rate-watch:${date.toISOString().slice(0, 10)}`;
-}
-
-function accountKindMatches(accountType: string | null, dealAccountType: string | null) {
-  const account = String(accountType || "savings").toLowerCase();
-  const deal = String(dealAccountType || "savings").toLowerCase();
-  if (deal.includes("isa")) return account.includes("isa");
-  if (deal.includes("regular")) return account.includes("regular") || account.includes("savings");
-  if (deal.includes("fixed")) return account.includes("fixed") || account.includes("bond") || account.includes("savings");
-  if (deal.includes("notice")) return account.includes("notice") || account.includes("savings");
-  return !account.includes("investment") && !account.includes("mortgage") && !account.includes("current_account");
 }
 
 export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOptions = {}) {
@@ -51,7 +42,7 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
   const hasSavingsWatch = createFeatureCache(supabase, "savings_rate_watch");
 
   try {
-    const [{ data: accounts, error: accountsError }, { data: deals, error: dealsError }, { data: relationships }, { data: enabledProfiles }] = await Promise.all([
+    const [{ data: accounts, error: accountsError }, { data: deals, error: dealsError }, { data: relationships }] = await Promise.all([
       supabase
         .from("financial_accounts")
         .select("id, user_id, name, provider, provider_slug, account_type, current_balance, interest_rate, monthly_top_up_amount, savings_watch_enabled")
@@ -68,16 +59,11 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
         .from("user_financial_provider_relationships")
         .select("user_id, provider_slug, provider_name, relationship_type, is_active")
         .eq("is_active", true),
-      supabase
-        .from("app_user_profiles")
-        .select("user_id, wealth_has_savings")
-        .eq("wealth_has_savings", true),
     ]);
 
     if (accountsError) throw new Error(accountsError.message);
     if (dealsError) throw new Error(dealsError.message);
 
-    const enabledSavingsUsers = new Set((enabledProfiles || []).map((row: any) => String(row.user_id)));
     const relationshipsByUser = new Map<string, Set<string>>();
     for (const rel of relationships || []) {
       const set = relationshipsByUser.get(rel.user_id) || new Set<string>();
@@ -86,9 +72,10 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
     }
 
     for (const account of accounts || []) {
-      if (!enabledSavingsUsers.has(String(account.user_id))) continue;
       if (account.savings_watch_enabled === false) continue;
-      if (options.respectTier !== false && !(await hasSavingsWatch(account.user_id))) {
+      // Basic daily matching is available to every saver. Tiers control alerts,
+      // automation and advanced modelling, not whether a useful comparison exists.
+      if (options.respectTier === true && !(await hasSavingsWatch(account.user_id))) {
         skippedNoTier += 1;
         continue;
       }
@@ -99,12 +86,11 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
       const monthlyTopUp = Math.max(0, Number(account.monthly_top_up_amount || 0));
       const held = relationshipsByUser.get(account.user_id) || new Set<string>();
       if (account.provider_slug) held.add(String(account.provider_slug));
-      const annualBase = balance + monthlyTopUp * 6;
       let createdForAccount = 0;
 
       for (const deal of deals || []) {
         if (createdForAccount >= settings.savingsMaxRecommendationsPerAccount) break;
-        if (!accountKindMatches(account.account_type, deal.account_type)) continue;
+        if (!savingsDealMatchesAccount(account, deal)) continue;
         const suggestedRate = Number(deal.gross_aer || 0);
         if (!suggestedRate || suggestedRate <= currentRate + settings.savingsMinimumRateDelta) continue;
         const needsExisting = Boolean(deal.requires_existing_customer);
@@ -113,6 +99,12 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
         if (!eligible) continue;
 
         const delta = suggestedRate - currentRate;
+        const eligibleBalance = savingsDealEligibleBalance(account, deal);
+        const isRegularSaver = String(deal.account_type || deal.access_type || "").toLowerCase().includes("regular");
+        const monthlyAllowance = Number(deal.monthly_max_deposit || 0) > 0
+          ? Math.min(monthlyTopUp, Number(deal.monthly_max_deposit))
+          : monthlyTopUp;
+        const annualBase = eligibleBalance + (isRegularSaver ? 0 : monthlyAllowance * 6);
         const estimatedGain = annualBase * (delta / 100);
         const recommendationKind = deal.provider_slug === account.provider_slug ? "existing_provider_better_rate" : "market_better_rate";
         const eligibilityStatus = needsExisting ? "eligible_existing" : "eligible_open_market";
@@ -142,6 +134,7 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
           payload: {
             monthlyTopUp,
             annualBase,
+            eligibleBalance,
             eligibilityNote: deal.eligibility_note,
             confidence: deal.confidence,
             lastCheckedAt: deal.last_checked_at,
