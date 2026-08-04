@@ -1712,6 +1712,18 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
         .maybeSingle();
 
       let holdingId = existing?.id as string | undefined;
+      // BUGFIX (ticker collision): the shared exchange guesser defaults to
+      // "US" for any ticker without a .L suffix — correct for the OTHER
+      // Trading212 import format, but wrong here, where we actually know
+      // the real trading currency from the transaction data itself. GBX
+      // (pence) is an unambiguous LSE signal — this is what caught, for
+      // real, a genuine collision between THG plc (LSE) and Hanover
+      // Insurance Group (NYSE, also ticker THG): without this, the price
+      // fetch was pulling Hanover's ~$170 share price against THG plc's
+      // correct ~33p cost basis, producing an astronomical, meaningless
+      // "gain".
+      const dominantNativeCurrency = allTx.find((t) => t.nativeCurrency)?.nativeCurrency || "";
+      const currencyImpliedExchange = dominantNativeCurrency === "GBX" || dominantNativeCurrency === "GBP" ? "LSE" : null;
       if (!holdingId) {
         // Create with THIS import's data as a starting point only — the
         // real, final units/cost basis get set below from the complete
@@ -1723,7 +1735,7 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
           investment_account_id: accountId,
           asset_name: assetName,
           ticker: key,
-          exchange: normalisedExchangeCode(quote?.exchange) || likelyExchangeForTicker(key),
+          exchange: normalisedExchangeCode(quote?.exchange) || currencyImpliedExchange || likelyExchangeForTicker(key),
           group_label: nullableString(formData.get("group_label")) || "Trading 212",
           units: 0,
           average_buy_price: 0,
