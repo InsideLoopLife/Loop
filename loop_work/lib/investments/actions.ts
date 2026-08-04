@@ -1700,7 +1700,20 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
       if (!allTx.length) continue;
 
       const assetName = nameByKey.get(key) || key;
-      const quote = await fetchQuote(supabase, user.id, key, null);
+      // BUGFIX (GFIN priced at £67 instead of £0.00035 — same root cause
+      // as the earlier THG/Hanover Insurance collision, but deeper this
+      // time): the previous fix only corrected the STORED exchange label
+      // after the fact. It never actually changed what fetchQuote
+      // searched for, so a ticker collision (a same-ticker but unrelated
+      // company on another exchange) could still return an entirely
+      // wrong price — the label would say LSE while the number underneath
+      // was still whatever the blind search happened to match. This now
+      // computes the real exchange from the transaction's own currency
+      // FIRST, and passes it into fetchQuote as a hint, so the price
+      // lookup itself searches under the correct exchange from the start.
+      const dominantNativeCurrency = allTx.find((t) => t.nativeCurrency)?.nativeCurrency || "";
+      const currencyImpliedExchange = dominantNativeCurrency === "GBX" || dominantNativeCurrency === "GBP" ? "LSE" : null;
+      const quote = await fetchQuote(supabase, user.id, key, currencyImpliedExchange);
 
       const { data: existing } = await supabase
         .from("investment_holdings")
@@ -1721,9 +1734,9 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
       // Insurance Group (NYSE, also ticker THG): without this, the price
       // fetch was pulling Hanover's ~$170 share price against THG plc's
       // correct ~33p cost basis, producing an astronomical, meaningless
-      // "gain".
-      const dominantNativeCurrency = allTx.find((t) => t.nativeCurrency)?.nativeCurrency || "";
-      const currencyImpliedExchange = dominantNativeCurrency === "GBX" || dominantNativeCurrency === "GBP" ? "LSE" : null;
+      // "gain". (currencyImpliedExchange is now computed earlier and
+      // already used as a hint into the actual price lookup itself —
+      // this comment stays as the record of why it exists.)
       if (!holdingId) {
         // Create with THIS import's data as a starting point only — the
         // real, final units/cost basis get set below from the complete

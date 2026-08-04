@@ -247,7 +247,20 @@ export function candidateInvestments(query: string) {
 function providerSymbols(ticker: string, exchange?: string | null) {
   const fromYahoo = yahooProviderSymbols(ticker, exchange);
   const fromStooq = stooqProviderSymbols(ticker, exchange).map((symbol) => symbol.toUpperCase());
-  return Array.from(new Set([...fromYahoo, ...fromStooq, cleanTicker(ticker)]));
+  // BUGFIX (real ticker collisions confirmed: THG plc/LSE vs Hanover
+  // Insurance Group/NYSE, GFIN plc/LSE vs an unrelated NYSE Arca
+  // security): the bare, unqualified ticker used to always be appended
+  // as a final fallback candidate, regardless of what exchange was
+  // actually requested. When a specific non-US exchange is known, that
+  // bare candidate is genuinely dangerous — it's exactly what let
+  // US-centric providers (Alpha Vantage, FMP) match a completely
+  // different, unrelated company sharing the same ticker letters. Only
+  // include it when no specific exchange was requested at all, where a
+  // broader search is the intended behaviour.
+  const requestedExchange = normaliseExchangeCode(exchange);
+  const isKnownNonUsExchange = Boolean(requestedExchange) && !isUsExchange(requestedExchange);
+  const candidates = isKnownNonUsExchange ? [...fromYahoo, ...fromStooq] : [...fromYahoo, ...fromStooq, cleanTicker(ticker)];
+  return Array.from(new Set(candidates));
 }
 
 function yahooSymbols(ticker: string, exchange?: string | null) {
