@@ -153,6 +153,27 @@ function looksLikeTrading212TransactionHistory(headers: string[]) {
   return lower.includes("action") && lower.includes("time (utc)") && lower.includes("no. of shares") && lower.includes("price / share");
 }
 
+// Revolut's stock/ETF account statement export (Invest tab → More →
+// Documents → Stocks → Account statement → Excel/CSV). Based on
+// third-party documentation of Revolut's actual export columns, not a
+// verified real sample file the way Trading212's format was — worth
+// testing against a genuine Revolut export and reporting back if any
+// column doesn't match.
+function looksLikeRevolutTransactionHistory(headers: string[]) {
+  const lower = headers.map((header) => header.toLowerCase());
+  return lower.includes("ticker") && lower.includes("isin") && lower.includes("type") && lower.includes("price per share") && lower.includes("total amount");
+}
+
+// Which known service a transaction-history CSV came from — the one
+// thing that has to be figured out before any row can be parsed
+// correctly, since each service uses different column names, action
+// wording, and currency conventions for the same underlying data.
+function detectImportService(headers: string[]): "trading212" | "revolut" | null {
+  if (looksLikeTrading212TransactionHistory(headers)) return "trading212";
+  if (looksLikeRevolutTransactionHistory(headers)) return "revolut";
+  return null;
+}
+
 function likelyExchangeForTicker(ticker: string, existing?: string | null) {
   const ex = normalisedExchangeCode(existing);
   if (ex) return ex;
@@ -1634,7 +1655,8 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
   const accountFx = await fxToGbp(accountCurrency);
   let records: any[] = [];
 
-  if (looksLikeTrading212TransactionHistory(parsed.headers)) {
+  const importService = detectImportService(parsed.headers);
+  if (importService) {
     // Group every Market buy/sell by ISIN+ticker, computing net units and a
     // real weighted-average GBP cost basis from actual transaction data —
     // this is a genuinely better cost basis source than anything SnapTrade
@@ -1646,28 +1668,68 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
     const isinByKey = new Map<string, string>();
 
     for (const row of parsed.rows) {
-      const action = rowValue(row, ["Action"]).trim();
-      const ticker = rowValue(row, ["Ticker"]).trim().toUpperCase();
-      const isin = rowValue(row, ["ISIN"]).trim();
+      let ticker: string;
+      let isin: string;
+      let action: string;
+      let units: number;
+      let gbpTotal: number;
+      let nativePrice: number;
+      let nativeCurrency: string;
+      let date: string;
+      let externalId: string;
+
+      if (importService === "trading212") {
+        ticker = rowValue(row, ["Ticker"]).trim().toUpperCase();
+        isin = rowValue(row, ["ISIN"]).trim();
+        action = rowValue(row, ["Action"]).trim();
+        units = Number(rowValue(row, ["No. of shares"])) || 0;
+        // Trading212's Total column is already converted to the account's
+        // own currency (GBP for a UK account) — used directly, no further
+        // FX conversion needed.
+        gbpTotal = Number(rowValue(row, ["Total"])) || 0;
+        nativePrice = Number(rowValue(row, ["Price / share"])) || 0;
+        nativeCurrency = rowValue(row, ["Currency (Price / share)"]).trim().toUpperCase() || "GBP";
+        date = rowValue(row, ["Time (UTC)"]).trim().slice(0, 10) || todayDate;
+        externalId = rowValue(row, ["ID"]).trim();
+      } else {
+        // Revolut: Total Amount is in the trade's own currency (the
+        // Currency column), NOT pre-converted to GBP the way Trading212's
+        // Total already is — needs a real FX conversion here, unlike the
+        // Trading212 branch above.
+        ticker = rowValue(row, ["Ticker"]).trim().toUpperCase();
+        isin = rowValue(row, ["ISIN"]).trim();
+        action = rowValue(row, ["Type"]).trim();
+        units = Number(rowValue(row, ["Quantity"])) || 0;
+        nativePrice = Number(rowValue(row, ["Price per share"])) || 0;
+        nativeCurrency = rowValue(row, ["Currency"]).trim().toUpperCase() || "GBP";
+        const nativeTotal = Number(rowValue(row, ["Total Amount"])) || 0;
+        const rowFx = await fxToGbp(nativeCurrency);
+        gbpTotal = nativeTotal * rowFx.rate;
+        date = rowValue(row, ["Date"]).trim().slice(0, 10) || todayDate;
+        // Revolut's export doesn't document a stable per-transaction ID
+        // the way Trading212's does — left blank rather than invented,
+        // which means the duplicate-quarantine system (built specifically
+        // for exactly this "can't be sure by ID" case) correctly reviews
+        // repeat Revolut imports rather than either blindly trusting or
+        // blindly skipping them.
+        externalId = "";
+      }
+
       if (!ticker && !isin) continue;
       const key = ticker || isin;
       if (!nameByKey.has(key)) nameByKey.set(key, rowValue(row, ["Name"]).trim() || ticker || isin);
       if (isin) isinByKey.set(key, isin);
 
-      const units = Number(rowValue(row, ["No. of shares"])) || 0;
       if (!units) continue;
 
-      const gbpTotal = Number(rowValue(row, ["Total"])) || 0;
-      const nativePrice = Number(rowValue(row, ["Price / share"])) || 0;
-      const nativeCurrency = rowValue(row, ["Currency (Price / share)"]).trim().toUpperCase() || "GBP";
-      const date = rowValue(row, ["Time (UTC)"]).trim().slice(0, 10) || todayDate;
-      const externalId = rowValue(row, ["ID"]).trim();
+      const isBuy = importService === "trading212" ? /^market buy$/i.test(action) : /^buy$/i.test(action);
+      const isSell = importService === "trading212" ? /^market sell$/i.test(action) : /^sell$/i.test(action);
 
-      if (/^market buy$/i.test(action)) {
+      if (isBuy) {
         const list = buysByKey.get(key) || [];
         list.push({ units, nativePrice, nativeCurrency, gbpTotal, date, externalId });
         buysByKey.set(key, list);
-      } else if (/^market sell$/i.test(action)) {
+      } else if (isSell) {
         // BUGFIX (multi-import correctness): sells now stored as their own
         // lot rows (negative units) rather than only tracked in-memory for
         // this one import. Without this, a sell recorded in a LATER import
@@ -1700,7 +1762,20 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
       if (!allTx.length) continue;
 
       const assetName = nameByKey.get(key) || key;
-      const quote = await fetchQuote(supabase, user.id, key, null);
+      // BUGFIX (GFIN priced at £67 instead of £0.00035 — same root cause
+      // as the earlier THG/Hanover Insurance collision, but deeper this
+      // time): the previous fix only corrected the STORED exchange label
+      // after the fact. It never actually changed what fetchQuote
+      // searched for, so a ticker collision (a same-ticker but unrelated
+      // company on another exchange) could still return an entirely
+      // wrong price — the label would say LSE while the number underneath
+      // was still whatever the blind search happened to match. This now
+      // computes the real exchange from the transaction's own currency
+      // FIRST, and passes it into fetchQuote as a hint, so the price
+      // lookup itself searches under the correct exchange from the start.
+      const dominantNativeCurrency = allTx.find((t) => t.nativeCurrency)?.nativeCurrency || "";
+      const currencyImpliedExchange = dominantNativeCurrency === "GBX" || dominantNativeCurrency === "GBP" ? "LSE" : null;
+      const quote = await fetchQuote(supabase, user.id, key, currencyImpliedExchange);
 
       const { data: existing } = await supabase
         .from("investment_holdings")
@@ -1721,9 +1796,9 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
       // Insurance Group (NYSE, also ticker THG): without this, the price
       // fetch was pulling Hanover's ~$170 share price against THG plc's
       // correct ~33p cost basis, producing an astronomical, meaningless
-      // "gain".
-      const dominantNativeCurrency = allTx.find((t) => t.nativeCurrency)?.nativeCurrency || "";
-      const currencyImpliedExchange = dominantNativeCurrency === "GBX" || dominantNativeCurrency === "GBP" ? "LSE" : null;
+      // "gain". (currencyImpliedExchange is now computed earlier and
+      // already used as a hint into the actual price lookup itself —
+      // this comment stays as the record of why it exists.)
       if (!holdingId) {
         // Create with THIS import's data as a starting point only — the
         // real, final units/cost basis get set below from the complete
@@ -1736,7 +1811,7 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
           asset_name: assetName,
           ticker: key,
           exchange: normalisedExchangeCode(quote?.exchange) || currencyImpliedExchange || likelyExchangeForTicker(key),
-          group_label: nullableString(formData.get("group_label")) || "Trading 212",
+          group_label: nullableString(formData.get("group_label")) || (importService === "trading212" ? "Trading 212" : "Revolut"),
           units: 0,
           average_buy_price: 0,
           latest_price: 0,
@@ -1745,7 +1820,7 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
           latest_price_date: todayDate,
           currency: "GBP",
           price_quote_unit: "gbp",
-          import_source_type: "trading212_transaction_history_csv",
+          import_source_type: `${importService}_transaction_history_csv`,
           annual_asset_fee_percent: 0,
           target_allocation_percent: 0,
           notes: "Imported from Trading 212 transaction-history CSV; cost basis built from real purchase data.",
@@ -1784,7 +1859,7 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
           native_currency: b.nativeCurrency,
           fees: 0,
           external_transaction_id: b.externalId || null,
-          external_source: "trading212_transaction_history_csv",
+          external_source: `${importService}_transaction_history_csv`,
           notes: b.isSell ? "Market sell (Trading 212)" : null,
           estimated: false,
         }));
