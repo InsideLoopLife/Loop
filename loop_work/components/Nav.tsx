@@ -486,6 +486,21 @@ function NavInner() {
   const [hasChosenLayout, setHasChosenLayout] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  // BUGFIX/FEATURE: a sidebar layout genuinely doesn't work on a phone
+  // width, however it got chosen (saved preference from a wider screen,
+  // an old default, etc.) — this forces "top" for rendering purposes
+  // specifically on narrow viewports, without touching the person's
+  // actual saved preference, so it correctly reverts to their real
+  // choice the moment they're back on a wider screen.
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1023px)");
+    const update = () => setIsMobileViewport(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  const effectiveLayout: NavigationLayout = isMobileViewport ? "top" : layout;
 
   useEffect(() => {
     const stored = window.localStorage.getItem(
@@ -633,7 +648,7 @@ function NavInner() {
     </>
   );
 
-  if (layout === "side") {
+  if (effectiveLayout === "side") {
     return (
       <>
         {overlays}
@@ -744,54 +759,64 @@ function NavInner() {
     <>
       {overlays}
       <header className="sticky top-0 z-40 border-b border-white/70 bg-white/82 shadow-[0_18px_70px_-48px_rgba(15,23,42,.75)] backdrop-blur-2xl">
-        <div className="mx-auto flex w-[95vw] max-w-none flex-col gap-4 py-3 xl:flex-row xl:items-center xl:justify-between">
-          <Brand />
-          <div className="flex min-w-0 items-center gap-3 xl:justify-end">
-            <div className="min-w-0 flex-1 overflow-x-auto pb-1 xl:pb-0">
-              <div className="flex min-w-max items-center gap-2 rounded-full border border-slate-200/80 bg-slate-50/85 p-1 shadow-inner">
-                <nav className="flex items-center gap-1.5">
-                  {currentLinks.map((link) => (
-                    <NavItem
-                      key={link.href}
-                      link={link}
-                      active={isActiveLink(
-                        pathname,
-                        searchParams,
-                        link.href,
-                        currentLinks,
-                      )}
-                    />
-                  ))}
-                </nav>
+        <div className="mx-auto w-[95vw] max-w-none py-3">
+          {/* Row 1: Loop on the left, toggle + account on the right —
+              always this arrangement, on every screen size, not just
+              once you cross into a wide viewport. */}
+          <div className="flex items-center justify-between gap-3">
+            <Brand />
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 items-center overflow-hidden rounded-full border border-slate-200 bg-white p-1 text-xs font-black shadow-sm">
+                <Link
+                  href={wealthHome}
+                  className={`rounded-full px-3 py-2 ${domain === "wealth" ? "bg-slate-950 text-white" : "text-slate-500"}`}
+                >
+                  Wealth
+                </Link>
+                <span className="h-5 w-px bg-slate-200" />
+                <Link
+                  href="/nutrition"
+                  className={`rounded-full px-3 py-2 ${domain === "health" ? "bg-emerald-700 text-white" : "text-emerald-700"}`}
+                >
+                  Health
+                </Link>
               </div>
-            </div>
-            <div className="flex shrink-0 items-center overflow-hidden rounded-full border border-slate-200 bg-white p-1 text-xs font-black shadow-sm">
-              <Link
-                href={wealthHome}
-                className={`rounded-full px-3 py-2 ${domain === "wealth" ? "bg-slate-950 text-white" : "text-slate-500"}`}
+              <button
+                type="button"
+                onClick={() => setAccountOpen(true)}
+                className="relative flex shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700 shadow-sm"
               >
-                Wealth
-              </Link>
-              <span className="h-5 w-px bg-slate-200" />
-              <Link
-                href="/nutrition"
-                className={`rounded-full px-3 py-2 ${domain === "health" ? "bg-emerald-700 text-white" : "text-emerald-700"}`}
-              >
-                Health
-              </Link>
+                <UserRound className="h-4 w-4" />
+                <span className="hidden sm:inline">Account</span>
+                <ChevronDown className="h-4 w-4" />
+                {unreadCount > 0 ? (
+                  <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-violet-600 ring-2 ring-white" />
+                ) : null}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setAccountOpen(true)}
-              className="relative flex shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700 shadow-sm"
-            >
-              <UserRound className="h-4 w-4" />
-              <span className="hidden sm:inline">Account</span>
-              <ChevronDown className="h-4 w-4" />
-              {unreadCount > 0 ? (
-                <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-violet-600 ring-2 ring-white" />
-              ) : null}
-            </button>
+          </div>
+
+          {/* Row 2: the section nav gets the full width to itself,
+              instead of being squeezed in alongside the toggle/account —
+              this is what was making it feel cramped and forcing a tiny
+              horizontal-scroll strip on mobile. */}
+          <div className="mt-3 min-w-0 overflow-x-auto pb-1">
+            <div className="flex min-w-max items-center gap-2 rounded-full border border-slate-200/80 bg-slate-50/85 p-1 shadow-inner">
+              <nav className="flex items-center gap-1.5">
+                {currentLinks.map((link) => (
+                  <NavItem
+                    key={link.href}
+                    link={link}
+                    active={isActiveLink(
+                      pathname,
+                      searchParams,
+                      link.href,
+                      currentLinks,
+                    )}
+                  />
+                ))}
+              </nav>
+            </div>
           </div>
         </div>
       </header>
