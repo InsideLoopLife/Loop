@@ -53,8 +53,6 @@ import {
   buildSavingsIntelligence,
   classifySavingsDeals,
   providerSlugsFromAccounts,
-  savingsDealEligibleBalance,
-  savingsDealMatchesAccount,
 } from "@/lib/wealth/savings-intelligence";
 import {
   addFinancialAccount,
@@ -152,7 +150,6 @@ type SavingsDeal = {
   eligibility_note: string | null;
   source_url: string | null;
   status: string | null;
-  last_checked_at?: string | null;
 };
 
 type HeldProvider = {
@@ -202,6 +199,7 @@ type PlannedItem = {
   start_date: string | null;
   end_date: string | null;
   end_behavior?: string | null;
+  spending_categories?: { standard_category_key: string | null } | null;
 };
 
 type PayEvent = {
@@ -391,6 +389,18 @@ function cleanDealLabel(value?: string | null) {
   return String(value || "Not stated").replaceAll("_", " ");
 }
 
+function accountKindMatchesDeal(account: FinancialAccount, deal: { account_type?: string | null; product_name?: string | null }) {
+  const accountType = `${account.account_type || ""} ${account.name || ""} ${account.savings_product_name || ""}`.toLowerCase();
+  const dealType = `${deal.account_type || ""} ${deal.product_name || ""}`.toLowerCase();
+  const accountIsIsa = accountType.includes("isa") || String(account.savings_limit_scope || "").toLowerCase().includes("isa");
+  const dealIsIsa = dealType.includes("isa");
+  if (dealIsIsa !== accountIsIsa) return false;
+  if (dealType.includes("regular")) return accountType.includes("regular") || Number(account.monthly_top_up_amount || 0) > 0;
+  if (dealType.includes("fixed") || dealType.includes("bond")) return accountType.includes("fixed") || accountType.includes("bond") || accountType.includes("savings");
+  if (dealType.includes("notice")) return accountType.includes("notice") || accountType.includes("savings");
+  return !accountType.includes("investment") && !accountType.includes("mortgage") && !accountType.includes("current_account");
+}
+
 function daysOld(value?: string | null) {
   if (!value) return null;
   const timestamp = new Date(value).getTime();
@@ -526,7 +536,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     supabase
       .from("savings_rate_deals")
       .select(
-        "id, provider_slug, provider_name, product_name, account_type, gross_aer, bonus_rate, minimum_balance, maximum_balance, monthly_min_deposit, monthly_max_deposit, access_type, withdrawal_rules, notice_period_days, term_length_months, rate_type, requires_existing_customer, eligible_provider_slug, eligibility_note, source_url, status, last_checked_at",
+        "id, provider_slug, provider_name, product_name, account_type, gross_aer, bonus_rate, minimum_balance, maximum_balance, monthly_max_deposit, access_type, withdrawal_rules, notice_period_days, term_length_months, rate_type, requires_existing_customer, eligible_provider_slug, eligibility_note, source_url, status",
       )
       .eq("status", "active")
       .order("gross_aer", { ascending: false })
@@ -575,7 +585,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       .returns<SavingsMovement[]>(),
     supabase
       .from("planned_items")
-      .select("direction, amount, monthly_cost, recurrence, start_date, end_date, end_behavior")
+      .select("direction, amount, monthly_cost, recurrence, start_date, end_date, end_behavior, spending_categories(standard_category_key)")
       .or(householdMemberFilter)
       .returns<PlannedItem[]>(),
     supabase
@@ -688,7 +698,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     accounts: accountRows,
     deals: savingsDeals ?? [],
     relationships: allHeldProviders,
-    plannedItems: plannedItems ?? [],
+    plannedItems: (plannedItems ?? []).map((item) => ({ ...item, standard_category_key: item.spending_categories?.standard_category_key ?? null })),
     payEvents: payEvents ?? [],
     subjectPersonId: defaultOwnerPerson?.id || adultPersonIds[0] || null,
     adultPersonIds,
@@ -943,12 +953,12 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     const balance = calculateSavingsAccruedBalance(account).estimatedBalance;
     const currentRate = Number(account.interest_rate || 0);
     const best = dealMatches
-      .filter((deal) => deal.eligible_now && savingsDealMatchesAccount(account, deal))
+      .filter((deal) => deal.eligible_now && accountKindMatchesDeal(account, deal))
       .filter((deal) => Number(deal.gross_aer || 0) > currentRate)
       .filter((deal) => deal.minimum_balance == null || balance >= Number(deal.minimum_balance))
       .sort((a, b) => Number(b.gross_aer || 0) - Number(a.gross_aer || 0))[0] || null;
     const bestRate = best?.gross_aer != null ? Number(best.gross_aer) : null;
-    const eligibleBalance = best ? savingsDealEligibleBalance(account, best) : 0;
+    const eligibleBalance = best?.maximum_balance != null ? Math.min(balance, Number(best.maximum_balance)) : balance;
     const accessSummary = best
       ? [
           cleanDealLabel(best.access_type || best.account_type),
@@ -1231,7 +1241,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
           <Link href="/accounts?tab=accounts"><StatCard title="Tracked savings" value={formatMoney(totalSavings)} helper={`${personalSavings.length} personal · ${sharedSavings.length} shared`} /></Link>
           <Link href="/accounts?tab=accounts"><StatCard title="Monthly top-up" value={formatMoney(monthlyTopUps)} helper="Across active ladders" /></Link>
           <SavingsPotsRotator goals={potRotatorGoals} />
-          <Link href="/accounts?tab=ai"><StatCard title="Savings health" value={`${intelligence.score}/100`} helper={`${intelligence.catalogue.confidence} confidence · automation ${hasAiSavingsFeature ? "on" : "optional"}`} /></Link>
+          <Link href="/accounts?tab=ai"><StatCard title="AI score" value={`${intelligence.score}/100`} helper={hasAiSavingsFeature ? "Pro optimiser active" : "Preview · Pro tier unlock"} /></Link>
           <Link href="/accounts?tab=projection"><StatCard title="12m projection" value={formatMoney(twelveMonthSavings)} helper="Savings assumptions" /></Link>
         </section>
 
@@ -1256,9 +1266,9 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
               <div className="space-y-3">
                 <OpportunityCard
                   title="Opportunity cost"
-                  body={topRateOpportunities.length > 0 ? `${topRateOpportunities.length} account${topRateOpportunities.length === 1 ? " is" : "s are"} below the best broadly compatible eligible rate currently logged. Open Savings Health to model the effect before acting.` : intelligence.catalogue.status === "healthy" ? "No positive compatible rate gap is currently evidenced by the reviewed catalogue." : "The market check is incomplete, so £0 would not mean there is no opportunity. LOOP will show a value once enough fresh, reviewed products are available."}
-                  metric={intelligence.catalogue.status === "healthy" ? `${formatMoney(totalOpportunityCost)}/yr` : "Check incomplete"}
-                  tone={intelligence.catalogue.status !== "healthy" ? "warning" : totalOpportunityCost > 1 ? "action" : "good"}
+                  body={topRateOpportunities.length > 0 ? `${topRateOpportunities.length} account${topRateOpportunities.length === 1 ? " is" : "s are"} below the best broadly compatible eligible rate currently logged. Open AI optimiser to model the effect before acting.` : "No positive compatible rate gap is currently logged. The morning rate watch will keep checking."}
+                  metric={`${formatMoney(totalOpportunityCost)}/yr`}
+                  tone={totalOpportunityCost > 1 ? "action" : "good"}
                 />
                 <OpportunityCard
                   title={`${defaultOwnerPerson?.name || "Your"} interest allowance watch`}
@@ -1281,7 +1291,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
               action={createSavingsPot}
               people={ownerOptions.map((person) => ({ id: person.id, name: person.name, relationship: person.relationship }))}
               accounts={accountRows.map((account) => ({ id: account.id, name: account.name, provider: account.provider }))}
-              essentialMonthlyOutgoings={Math.max(0, intelligence.monthlyFlow.outgoings)}
+              essentialMonthlyOutgoings={Math.max(0, intelligence.essentialOutgoings.essential)}
             />
 
             <SectionCard title="Your savings pots" description="The visual adapts to the goal. Custom images take priority; otherwise LOOP uses a holiday, emergency, home, car, education, gift or repairs visual. The top-right thread records monthly allocations.">
@@ -1373,12 +1383,12 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
 
         {activeTab === "rates" ? (
           <div className="space-y-7">
-            <SectionCard title="Better-rate watch" description="The daily comparison checks reviewed products for every saver. Paid tiers add automation and alerts; basic matching is not tier-gated.">
+            <SectionCard title="Better-rate watch" description="A zero-subscription-cost comparison worker checks reviewed deal rows each morning and saves only positive, broadly compatible opportunities.">
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="rounded-3xl bg-slate-950 p-4 text-white"><p className="text-xs font-black uppercase tracking-wide text-white/50">Latest saved match</p><p className="mt-2 text-xl font-black">{latestRecommendationAt ? `${daysOld(latestRecommendationAt) ?? 0} day(s) ago` : "None yet"}</p><p className="mt-1 text-xs font-bold text-white/60">The worker only saves a row when it finds a positive compatible rate gap.</p></div>
                 <div className="rounded-3xl bg-blue-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-blue-700">Accounts watched</p><p className="mt-2 text-2xl font-black text-slate-950">{accountRows.length}</p><p className="mt-1 text-xs font-bold text-slate-500">tracked savers eligible for checks</p></div>
                 <div className="rounded-3xl bg-emerald-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-emerald-700">Saved actions</p><p className="mt-2 text-2xl font-black text-slate-950">{savingsRecommendations?.length ?? 0}</p><p className="mt-1 text-xs font-bold text-slate-500">active recommendations</p></div>
-                <div className="rounded-3xl bg-orange-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-orange-700">Opportunity</p><p className="mt-2 text-2xl font-black text-slate-950">{intelligence.catalogue.status === "healthy" ? `${formatMoney((savingsRecommendations ?? []).reduce((sum, row) => sum + Number(row.estimated_annual_gain || 0), 0))}/yr` : "Check incomplete"}</p><p className="mt-1 text-xs font-bold text-slate-500">{intelligence.catalogue.activeDeals} active · {intelligence.catalogue.completeDeals} complete · {intelligence.catalogue.freshDeals} fresh</p></div>
+                <div className="rounded-3xl bg-orange-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-orange-700">Opportunity</p><p className="mt-2 text-2xl font-black text-slate-950">{formatMoney((savingsRecommendations ?? []).reduce((sum, row) => sum + Number(row.estimated_annual_gain || 0), 0))}/yr</p><p className="mt-1 text-xs font-bold text-slate-500">from saved recommendations</p></div>
               </div>
             </SectionCard>
 
@@ -1402,7 +1412,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                     </article>
                   );
                 })}
-                {(savingsRecommendations ?? []).length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-bold text-slate-500">{intelligence.catalogue.status === "healthy" ? "No positive compatible rate gap was found in the reviewed catalogue." : "Market check incomplete. This is not a £0 opportunity result: the catalogue needs more fresh, complete products before LOOP can make a reliable comparison."}</div> : null}
+                {(savingsRecommendations ?? []).length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-bold text-slate-500">No recommendation rows have been created yet. The worker needs at least one tracked account with a rate and at least one active, reviewed deal with a meaningfully higher compatible rate.</div> : null}
               </div>
             </SectionCard>
 
@@ -1458,7 +1468,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
         ) : null}
 
         {activeTab === "ai" ? (
-          <SectionCard title="Savings Health Score & optimiser" description="See rate competitiveness, access fit, tax efficiency, protection spread, goal funding and data quality in one explainable score.">
+          <SectionCard title="AI savings score & optimiser" description="See the annual opportunity cost, why an action is being prioritised and model the gain before deciding whether it is suitable.">
             <SavingsOptimiser
               score={intelligence.score}
               scoreParts={intelligence.scoreParts}
@@ -1474,7 +1484,6 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
               monthlyFlow={intelligence.monthlyFlow.spare}
               monthlyTopUps={monthlyTopUps}
               currentWeightedRate={weightedRate}
-              catalogue={intelligence.catalogue}
             />
           </SectionCard>
         ) : null}
