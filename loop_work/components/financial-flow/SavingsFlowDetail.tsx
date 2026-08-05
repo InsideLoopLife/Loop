@@ -6,7 +6,7 @@ import { CalendarDays, ChevronRight, CirclePlus, PiggyBank, Target, TrendingUp, 
 import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatMoney } from "@/lib/format/money";
 import { FinancialInstitutionLogo } from "@/components/savings/FinancialInstitutionLogo";
-import { PiggyPotVisual } from "@/components/savings/PiggyPotVisual";
+import { SavingsGoalVisual } from "@/components/savings/SavingsGoalVisual";
 
 export type SavingsFlowAccountRow = {
   id: string;
@@ -16,7 +16,6 @@ export type SavingsFlowAccountRow = {
   savedThisMonth: number;
   interestRate: number;
   maximisedScore: number;
-  annualOpportunity: number;
   endDate: string | null;
   providerSlug?: string | null;
 };
@@ -30,6 +29,8 @@ export type SavingsFlowPotRow = {
   thisMonthAmount: number;
   thisMonthProgress: number;
   score: number;
+  goalType?: string | null;
+  referenceImageUrl?: string | null;
 };
 
 export type SavingsFlowTrendPoint = {
@@ -62,9 +63,6 @@ type Props = {
   pots: SavingsFlowPotRow[];
   trend: SavingsFlowTrendPoint[];
   yearMonths: SavingsFlowYearMonth[];
-  healthScore: number;
-  marketStatus: "healthy" | "partial" | "unavailable";
-  annualOpportunity: number;
 };
 
 function clamp(value: number, max = 100) {
@@ -120,9 +118,6 @@ export function SavingsFlowDetail({
   pots,
   trend,
   yearMonths,
-  healthScore,
-  marketStatus,
-  annualOpportunity,
 }: Props) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
@@ -148,13 +143,6 @@ export function SavingsFlowDetail({
 
   return (
     <div className="space-y-6">
-      <section className={`flex flex-wrap items-center justify-between gap-5 rounded-[2rem] border p-5 shadow-sm ${marketStatus === "healthy" ? "border-emerald-200 bg-gradient-to-r from-emerald-50 to-white" : "border-amber-200 bg-gradient-to-r from-amber-50 to-white"}`}>
-        <div className="flex items-center gap-4">
-          <div className="grid h-20 w-20 shrink-0 place-items-center rounded-full bg-slate-950 text-white"><span className="text-2xl font-black">{healthScore}</span><span className="-mt-5 text-[10px] font-black text-white/50">/100</span></div>
-          <div><p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">Savings Health Score</p><h2 className="mt-1 text-2xl font-black text-slate-950">{marketStatus === "healthy" ? `${formatMoney(annualOpportunity)}/yr estimated rate opportunity` : "Market comparison is incomplete"}</h2><p className="mt-1 text-sm font-semibold text-slate-600">{marketStatus === "healthy" ? "Based on rates, access fit, tax efficiency, protection spread, goals and data quality." : "LOOP will not show £0 as no opportunity until enough fresh, reviewed savings products are available."}</p></div>
-        </div>
-        <Link href="/accounts?tab=ai" className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white">See score and actions</Link>
-      </section>
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.2fr_1fr_1.25fr_auto]">
         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">Savings % of {scopeSavingsLabel}</p>
@@ -200,7 +188,7 @@ export function SavingsFlowDetail({
       <section className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-xl font-black text-slate-950">Pot coverage</h2><p className="mt-1 text-sm font-semibold text-slate-500">Green is already filled, orange is this month, and the remainder stays transparent.</p></div><Link href="/accounts?tab=pots" className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">View all pots <ChevronRight className="h-4 w-4" /></Link></div>
         <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          {pots.map((pot) => <article key={pot.id} className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm"><div className="flex items-start justify-between gap-2"><div><p className="font-black text-slate-950">{pot.name}</p><p className="text-xs font-bold text-slate-400">{formatMoney(pot.allocated)} of {formatMoney(pot.target)}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${scoreClass(pot.score)}`}>{pot.score}</span></div><PiggyPotVisual progress={pot.progress} thisMonthProgress={pot.thisMonthProgress} score={null} compact /><p className="text-center text-xs font-black text-orange-600">{formatMoney(pot.thisMonthAmount)} this month</p></article>)}
+          {pots.map((pot) => <article key={pot.id} className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm"><div className="flex items-start justify-between gap-2"><div><p className="font-black text-slate-950">{pot.name}</p><p className="text-xs font-bold text-slate-400">{formatMoney(pot.allocated)} of {formatMoney(pot.target)}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${scoreClass(pot.score)}`}>{pot.score}</span></div><SavingsGoalVisual goalType={pot.goalType} referenceImageUrl={pot.referenceImageUrl} progress={pot.progress} thisMonthProgress={pot.thisMonthProgress} score={null} compact /><p className="text-center text-xs font-black text-orange-600">{formatMoney(pot.thisMonthAmount)} this month</p></article>)}
           <Link href="/accounts?tab=pots" className="grid min-h-60 place-items-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 text-center"><div><span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-white text-2xl shadow-sm"><PiggyBank className="h-5 w-5" /></span><p className="mt-3 text-sm font-black text-slate-700">Add new pot</p></div></Link>
         </div>
       </section>

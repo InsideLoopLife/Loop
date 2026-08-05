@@ -25,7 +25,6 @@ import { formatMoney } from "@/lib/format/money";
 import { calculateSavingsAccruedBalance } from "@/lib/wealth/savings-accrual";
 import { buildSavingsTrajectory, movementDelta, movementDirection } from "@/lib/wealth/savings-ledger";
 import { estimateSavingsInterestForMonth } from "@/lib/wealth/savings-interest";
-import { buildSavingsIntelligence, savingsDealEligibleBalance, savingsDealMatchesAccount } from "@/lib/wealth/savings-intelligence";
 import { estimateAnnualTakeHome, type PensionMethod, type StudentLoanPlan } from "@/lib/calculations/tax";
 import { calculateNhsMaternityMonthlyAmount, type MaternityPayMode } from "@/lib/calculations/maternity";
 import { getChildCostMonthlyAmount, type ChildCostForPlan } from "@/lib/planning/month-plan";
@@ -168,6 +167,8 @@ type SavingsPot = {
   current_allocated_amount?: number | null;
   priority?: number | null;
   status?: string | null;
+  goal_type?: string | null;
+  reference_image_url?: string | null;
 };
 
 type SavingsPotAllocation = {
@@ -185,17 +186,6 @@ type SavingsRateDeal = {
   minimum_balance?: number | null;
   maximum_balance?: number | null;
   status?: string | null;
-  provider_slug?: string | null;
-  provider_name?: string | null;
-  product_name?: string | null;
-  access_type?: string | null;
-  withdrawal_rules?: string | null;
-  notice_period_days?: number | null;
-  term_length_months?: number | null;
-  monthly_min_deposit?: number | null;
-  monthly_max_deposit?: number | null;
-  requires_existing_customer?: boolean | null;
-  last_checked_at?: string | null;
 };
 
 type PensionAccount = {
@@ -359,6 +349,15 @@ function monthlyise(value: number, frequency?: string | null) {
   if (frequency === "annual") return value / 12;
   if (frequency === "weekly") return (value * 52) / 12;
   return value;
+}
+
+function savingsKind(value?: string | null) {
+  const clean = String(value || "").toLowerCase();
+  if (clean.includes("isa")) return clean.includes("fixed") ? "fixed_isa" : "cash_isa";
+  if (clean.includes("regular")) return "regular_saver";
+  if (clean.includes("fixed") || clean.includes("bond")) return "fixed";
+  if (clean.includes("notice")) return "notice";
+  return "easy_access";
 }
 
 function monthsBetweenDates(start: Date, end: Date) {
@@ -837,9 +836,9 @@ export default async function FinancialFlowPage({ searchParams }: { searchParams
     supabase.from("financial_accounts").select("id, owner_person_id, ownership_scope, name, provider, provider_slug, account_type, current_balance, balance_last_confirmed_value, balance_last_confirmed_at, interest_rate, interest_accrual_frequency, interest_compounding_frequency, interest_rate_end_date, end_date, is_liability, monthly_top_up_amount, created_at, updated_at").or(memberFilter).returns<FinancialAccount[]>(),
     supabase.from("pension_accounts").select("id, person_id, label, provider, fixed_monthly_contribution").or(memberFilter).returns<PensionAccount[]>(),
     supabase.from("savings_account_movements").select("id, financial_account_id, movement_type, amount, previous_balance, balance_delta, resulting_balance, effective_at, created_at, note, source_type").or(visibleFilter).order("effective_at", { ascending: false }).limit(1500).returns<SavingsMovement[]>(),
-    supabase.from("savings_pots").select("id, person_id, name, target_amount, target_date, monthly_target, current_allocated_amount, priority, status").or(visibleFilter).in("status", ["active", "paused", "completed"]).order("priority", { ascending: true }).returns<SavingsPot[]>(),
+    supabase.from("savings_pots").select("id, person_id, name, target_amount, target_date, monthly_target, current_allocated_amount, priority, status, goal_type, reference_image_url").or(visibleFilter).in("status", ["active", "paused", "completed"]).order("priority", { ascending: true }).returns<SavingsPot[]>(),
     supabase.from("savings_pot_allocations").select("id, savings_pot_id, financial_account_id, amount, allocation_percent").or(allocationFilter).returns<SavingsPotAllocation[]>(),
-    supabase.from("savings_rate_deals").select("id, provider_slug, provider_name, product_name, account_type, gross_aer, minimum_balance, maximum_balance, monthly_min_deposit, monthly_max_deposit, access_type, withdrawal_rules, notice_period_days, term_length_months, requires_existing_customer, last_checked_at, status").eq("status", "active").order("gross_aer", { ascending: false }).limit(150).returns<SavingsRateDeal[]>(),
+    supabase.from("savings_rate_deals").select("id, account_type, gross_aer, minimum_balance, maximum_balance, status").eq("status", "active").order("gross_aer", { ascending: false }).limit(150).returns<SavingsRateDeal[]>(),
     supabase.from("child_costs").select("id, child_id, label, cost_kind, category_id, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on").or(memberFilter).returns<ChildCostForPlan[]>(),
   ]);
 
@@ -1012,15 +1011,6 @@ export default async function FinancialFlowPage({ searchParams }: { searchParams
     ? scopedSavingsAccounts.reduce((sum, account) => sum + calculateSavingsAccruedBalance(account as any).estimatedBalance * n(account.interest_rate), 0) / totalTrackedSavings
     : 0;
   const savingsTrend = buildSavingsTrajectory(scopedSavingsAccounts as any, scopedMovements as any, 24).map((point) => ({ label: point.date.slice(0, 7), balance: point.balance, kind: point.kind === "actual" ? "recorded" as const : "projected" as const }));
-  const savingsHealth = buildSavingsIntelligence({
-    accounts: scopedSavingsAccounts as any,
-    deals: (dealsResult.data || []) as any,
-    relationships: [],
-    plannedItems: plannedResult.data || [],
-    payEvents: payResult.data || [],
-    subjectPersonId: scopeIds[0] || null,
-    adultPersonIds: people.filter((person) => String(person.relationship || "").toLowerCase() !== "child").map((person) => person.id),
-  });
 
   const flowAccountRows: SavingsFlowAccountRow[] = scopedSavingsAccounts.map((account) => {
     const balance = calculateSavingsAccruedBalance(account as any).estimatedBalance;
@@ -1028,13 +1018,12 @@ export default async function FinancialFlowPage({ searchParams }: { searchParams
       if (movement.financial_account_id !== account.id || String(movement.effective_at || movement.created_at || "").slice(0, 7) !== month.key || movementDirection(movement as any) !== "in" || movement.movement_type === "opening_balance") return sum;
       return sum + Math.max(0, movementDelta(movement as any));
     }, 0);
-    const compatibleDeals = (dealsResult.data || [])
-      .filter((deal) => !deal.requires_existing_customer)
-      .filter((deal) => savingsDealMatchesAccount(account as any, deal as any));
-    const compatibleRates = compatibleDeals.map((deal) => n(deal.gross_aer));
+    const compatibleRates = (dealsResult.data || [])
+      .filter((deal) => savingsKind(deal.account_type) === savingsKind(account.account_type))
+      .filter((deal) => deal.minimum_balance == null || balance >= n(deal.minimum_balance))
+      .filter((deal) => deal.maximum_balance == null || balance <= n(deal.maximum_balance))
+      .map((deal) => n(deal.gross_aer));
     const bestRate = Math.max(n(account.interest_rate), ...compatibleRates, 0);
-    const bestDeal = compatibleDeals.sort((a, b) => n(b.gross_aer) - n(a.gross_aer))[0] || null;
-    const eligibleBalance = bestDeal ? savingsDealEligibleBalance(account as any, bestDeal as any) : 0;
     const score = bestRate > 0 ? Math.round(Math.min(100, n(account.interest_rate) / bestRate * 100)) : 100;
     return {
       id: account.id,
@@ -1045,7 +1034,6 @@ export default async function FinancialFlowPage({ searchParams }: { searchParams
       savedThisMonth: deposited > 0 ? deposited : n(account.monthly_top_up_amount),
       interestRate: n(account.interest_rate),
       maximisedScore: score,
-      annualOpportunity: Math.max(0, eligibleBalance * (bestRate - n(account.interest_rate)) / 100),
       endDate: account.interest_rate_end_date || account.end_date || null,
     };
   }).sort((a, b) => b.savedThisMonth - a.savedThisMonth || b.balance - a.balance);
@@ -1084,7 +1072,7 @@ export default async function FinancialFlowPage({ searchParams }: { searchParams
       const needed = remaining <= 0 ? 0 : monthsRemaining ? remaining / monthsRemaining : n(pot.monthly_target);
       const pace = n(pot.monthly_target) || thisMonthAmount;
       const score = remaining <= 0 ? 100 : needed > 0 ? Math.round(Math.min(100, pace / needed * 100) * 0.8 + progress * 0.2) : Math.round(progress);
-      return { id: pot.id, name: pot.name, allocated, target, progress, thisMonthAmount, thisMonthProgress: target > 0 ? thisMonthAmount / target * 100 : 0, score: Math.max(0, Math.min(100, score)) };
+      return { id: pot.id, name: pot.name, allocated, target, progress, thisMonthAmount, thisMonthProgress: target > 0 ? thisMonthAmount / target * 100 : 0, score: Math.max(0, Math.min(100, score)), goalType: pot.goal_type, referenceImageUrl: pot.reference_image_url };
     });
   const earmarkedToPots = Math.min(totalTrackedSavings, flowPotRows.reduce((sum, pot) => sum + pot.allocated, 0));
   const savingsYearMonths = yearMonths.map((row) => {
@@ -1176,9 +1164,6 @@ export default async function FinancialFlowPage({ searchParams }: { searchParams
             pots={flowPotRows}
             trend={savingsTrend}
             yearMonths={savingsYearMonths}
-            healthScore={savingsHealth.score}
-            marketStatus={savingsHealth.catalogue.status}
-            annualOpportunity={flowAccountRows.reduce((sum, account) => sum + account.annualOpportunity, 0)}
           />
         ) : (
           <>

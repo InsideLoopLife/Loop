@@ -899,6 +899,8 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     const priorityLabel = priorityValue <= 25 ? "High" : priorityValue <= 65 ? "Medium" : "Low";
     const firstLinked = allocations.find((allocation) => allocation.financial_account_id)?.financial_account_id;
     const linkedAccount = firstLinked ? accountById.get(firstLinked) : null;
+    const attentionStatus: "attention" | "on_track" | "complete" =
+      progress >= 100 || onTrackScore >= 90 ? "complete" : onTrackScore < 50 ? "attention" : "on_track";
     return {
       pot,
       allocations,
@@ -917,8 +919,25 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       priorityLabel,
       linkedAccount,
       owner: pot.person_id ? ownerById.get(pot.person_id) : null,
+      attentionStatus,
     };
   });
+
+  // BUGFIX/FEATURE ("do we have logic that changes the way people see
+  // pots — so it's not basic"): the data to do this properly already
+  // existed (onTrackScore, progress) but was only ever used as a passive
+  // badge colour — the list itself was flat, sorted by a manually-set
+  // priority number regardless of which pots actually needed attention
+  // right now. This groups pots that are genuinely behind pace to the
+  // top, so the ones that need a decision are the first thing seen, not
+  // buried in the same flat grid as ones already doing fine.
+  const attentionOrder = { attention: 0, on_track: 1, complete: 2 } as const;
+  const sortedPotRows = [...potRows].sort((a, b) => {
+    const statusDiff = attentionOrder[a.attentionStatus] - attentionOrder[b.attentionStatus];
+    if (statusDiff !== 0) return statusDiff;
+    return a.onTrackScore - b.onTrackScore; // most urgent (lowest score) first within a group
+  });
+  const attentionPotCount = potRows.filter((row) => row.attentionStatus === "attention").length;
 
   const optimiserRows = accountRows.map((account) => {
     const balance = calculateSavingsAccruedBalance(account).estimatedBalance;
@@ -1266,13 +1285,18 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
             />
 
             <SectionCard title="Your savings pots" description="The visual adapts to the goal. Custom images take priority; otherwise LOOP uses a holiday, emergency, home, car, education, gift or repairs visual. The top-right thread records monthly allocations.">
+              {attentionPotCount > 0 ? (
+                <p className="mb-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-black text-amber-800">
+                  {attentionPotCount} pot{attentionPotCount === 1 ? "" : "s"} behind pace — shown first below.
+                </p>
+              ) : null}
               <div className="grid gap-5 xl:grid-cols-2">
-                {potRows.map(({ pot, allocations, potMovements, allocated, target, remaining, monthly, neededPerMonth, thisMonthAmount, thisMonthProgress, progress, onTrackScore, priorityLabel, linkedAccount, owner }) => (
-                  <article key={pot.id} className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+                {sortedPotRows.map(({ pot, allocations, potMovements, allocated, target, remaining, monthly, neededPerMonth, thisMonthAmount, thisMonthProgress, progress, onTrackScore, priorityLabel, linkedAccount, owner, attentionStatus }) => (
+                  <article key={pot.id} className={`overflow-hidden rounded-[2rem] border bg-white shadow-sm ${attentionStatus === "attention" ? "border-amber-300 ring-1 ring-amber-100" : "border-slate-200"}`}>
                     <div className="p-5">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">{owner?.name || "Household"} · {priorityLabel} priority</p>
+                          <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">{owner?.name || "Household"} · {priorityLabel} priority{attentionStatus === "attention" ? <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">Behind pace</span> : null}</p>
                           <h3 className="mt-1 text-2xl font-black text-slate-950">{pot.name}</h3>
                           <p className="mt-1 text-sm font-bold text-slate-500">{pot.notes || "A goal for your savings"}</p>
                         </div>

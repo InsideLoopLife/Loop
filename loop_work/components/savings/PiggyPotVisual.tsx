@@ -61,7 +61,7 @@ export function PiggyPotVisual({
           {total > 0 ? <line x1="40" x2="325" y1={totalY + 16} y2={totalY + 16} stroke="#f97316" strokeWidth="3" opacity="0.8" /> : null}
         </g>
 
-        <g fill="none" stroke="#94a3b8" strokeWidth="3" strokeDasharray="8 7" opacity="0.72">
+        <g fill="none" stroke="#94a3b8" strokeWidth="2.5" opacity="0.55">
           <ellipse cx="155" cy="120" rx="104" ry="66" />
           <circle cx="248" cy="112" r="48" />
           <ellipse cx="296" cy="126" rx="28" ry="22" />
