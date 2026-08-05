@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import { calculateMonthlyMortgagePayment } from "@/lib/calculations/mortgage";
 import { calculateStampDutyEngland } from "@/lib/calculations/property";
 import { normaliseProviderSlug } from "@/lib/wealth/provider-normalise";
@@ -58,11 +60,62 @@ export type ParsedMoveListing = {
   sourceSummary: string;
 };
 
-const fetchTimeoutMs = 9000;
+const fetchTimeoutMs = 12_000;
+const maxSourceBytes = 800_000;
 
-export async function fetchSourceText(url: string) {
+export class SourceFetchError extends Error {
+  readonly httpStatus: number | null;
+  readonly failureClass: "blocked" | "not_found" | "rate_limited" | "timeout" | "network" | "invalid_source" | "unsupported_content";
+  readonly retryable: boolean;
+
+  constructor(message: string, options: { httpStatus?: number | null; failureClass: SourceFetchError["failureClass"]; retryable: boolean }) {
+    super(message);
+    this.name = "SourceFetchError";
+    this.httpStatus = options.httpStatus ?? null;
+    this.failureClass = options.failureClass;
+    this.retryable = options.retryable;
+  }
+}
+
+function assertSafeSourceUrl(url: string) {
   const safeUrl = new URL(url);
-  if (!["http:", "https:"].includes(safeUrl.protocol)) throw new Error("Only http/https source URLs can be checked.");
+  if (!["http:", "https:"].includes(safeUrl.protocol)) {
+    throw new SourceFetchError("Only http/https source URLs can be checked.", { failureClass: "invalid_source", retryable: false });
+  }
+  const hostname = safeUrl.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const privateIpv4 = /^(?:10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/;
+  const privateIpv6 = /^(?:::1|fc|fd|fe80:)/i;
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || (isIP(hostname) === 4 && privateIpv4.test(hostname)) || (isIP(hostname) === 6 && privateIpv6.test(hostname))) {
+    throw new SourceFetchError("Private or local source addresses cannot be checked.", { failureClass: "invalid_source", retryable: false });
+  }
+  return safeUrl;
+}
+
+async function readBoundedText(response: Response) {
+  const declaredLength = Number(response.headers.get("content-length") || 0);
+  if (declaredLength > maxSourceBytes) {
+    throw new SourceFetchError(`Source response exceeds ${maxSourceBytes} bytes`, { httpStatus: response.status, failureClass: "unsupported_content", retryable: false });
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let received = 0;
+  let output = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxSourceBytes) {
+      await reader.cancel();
+      throw new SourceFetchError(`Source response exceeds ${maxSourceBytes} bytes`, { httpStatus: response.status, failureClass: "unsupported_content", retryable: false });
+    }
+    output += decoder.decode(value, { stream: true });
+  }
+  return output + decoder.decode();
+}
+
+export async function fetchSourceText(url: string, options: { etag?: string | null; lastModified?: string | null } = {}) {
+  const safeUrl = assertSafeSourceUrl(url);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), fetchTimeoutMs);
   try {
@@ -70,14 +123,57 @@ export async function fetchSourceText(url: string) {
       headers: {
         "user-agent": "LOOP Wealth Watch source check/1.0 (+admin initiated)",
         accept: "text/html,application/xhtml+xml,application/json,text/plain;q=0.8,*/*;q=0.5",
+        ...(options.etag ? { "if-none-match": options.etag } : {}),
+        ...(options.lastModified ? { "if-modified-since": options.lastModified } : {}),
       },
       signal: controller.signal,
       cache: "no-store",
+      redirect: "follow",
     });
-    if (!response.ok) throw new Error(`Source returned ${response.status}`);
+    if (response.status === 304) {
+      return {
+        url: response.url || safeUrl.toString(),
+        contentType: response.headers.get("content-type") || "",
+        rawText: "",
+        text: "",
+        contentHash: null as string | null,
+        etag: response.headers.get("etag") || options.etag || null,
+        lastModified: response.headers.get("last-modified") || options.lastModified || null,
+        httpStatus: 304,
+        notModified: true,
+      };
+    }
+    if (!response.ok) {
+      const failureClass = response.status === 403 ? "blocked" : response.status === 404 ? "not_found" : response.status === 429 ? "rate_limited" : "network";
+      throw new SourceFetchError(`Source returned ${response.status}`, {
+        httpStatus: response.status,
+        failureClass,
+        retryable: response.status === 403 || response.status === 408 || response.status === 429 || response.status >= 500,
+      });
+    }
     const contentType = response.headers.get("content-type") || "";
-    const rawText = await response.text();
-    return { url: safeUrl.toString(), contentType, rawText: rawText.slice(0, 600_000), text: stripHtml(rawText).slice(0, 250_000) };
+    if (contentType && !/(?:html|json|text|xml|xhtml)/i.test(contentType)) {
+      throw new SourceFetchError(`Unsupported source content type: ${contentType}`, { httpStatus: response.status, failureClass: "unsupported_content", retryable: false });
+    }
+    const rawText = await readBoundedText(response);
+    const contentHash = createHash("sha256").update(rawText).digest("hex");
+    return {
+      url: response.url || safeUrl.toString(),
+      contentType,
+      rawText: rawText.slice(0, 600_000),
+      text: stripHtml(rawText).slice(0, 250_000),
+      contentHash,
+      etag: response.headers.get("etag"),
+      lastModified: response.headers.get("last-modified"),
+      httpStatus: response.status,
+      notModified: false,
+    };
+  } catch (error) {
+    if (error instanceof SourceFetchError) throw error;
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new SourceFetchError(`Source timed out after ${fetchTimeoutMs}ms`, { failureClass: "timeout", retryable: true });
+    }
+    throw new SourceFetchError(error instanceof Error ? error.message : "Source fetch failed", { failureClass: "network", retryable: true });
   } finally {
     clearTimeout(timeout);
   }

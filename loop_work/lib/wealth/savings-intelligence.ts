@@ -40,6 +40,7 @@ export type SavingsDealLike = {
   eligible_provider_slug?: string | null;
   eligibility_note?: string | null;
   source_url?: string | null;
+  last_checked_at?: string | null;
 };
 
 export type ProviderRelationshipLike = {
@@ -83,6 +84,14 @@ export type SavingsDealMatch = SavingsDealLike & {
   eligibility_status: "eligible_now" | "needs_provider" | "open_market";
   best_gain?: number;
   best_account_id?: string | null;
+};
+
+export type SavingsCatalogueHealth = {
+  status: "healthy" | "partial" | "unavailable";
+  activeDeals: number;
+  completeDeals: number;
+  freshDeals: number;
+  confidence: "high" | "medium" | "low";
 };
 
 export type SavingsTaxPosition = {
@@ -145,6 +154,42 @@ function accountKindMatches(accountType: string | null | undefined, dealAccountT
   return !account.includes("mortgage") && !account.includes("investment") && !account.includes("current_account");
 }
 
+export function savingsDealEligibleBalance(account: SavingsAccountLike, deal: SavingsDealLike) {
+  const balance = Math.max(0, calculateSavingsAccruedBalance(account as any).estimatedBalance);
+  const minimum = Math.max(0, n(deal.minimum_balance));
+  if (minimum > 0 && balance < minimum) return 0;
+  const maximum = n(deal.maximum_balance) > 0 ? n(deal.maximum_balance) : Number.POSITIVE_INFINITY;
+  const monthlyCap = Math.max(0, n(deal.monthly_max_deposit));
+  const isRegularSaver = String(deal.account_type || deal.access_type || "").toLowerCase().includes("regular");
+  // A regular saver cannot receive the whole balance on day one. Six months of the
+  // annual deposit allowance is a fair first-year average balance for rate comparisons.
+  const regularSaverAverage = isRegularSaver && monthlyCap > 0 ? monthlyCap * 6 : Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.min(balance, maximum, regularSaverAverage));
+}
+
+export function savingsDealMatchesAccount(account: SavingsAccountLike, deal: SavingsDealLike) {
+  if (!accountKindMatches(account.account_type, deal.account_type)) return false;
+  return savingsDealEligibleBalance(account, deal) > 0;
+}
+
+function catalogueHealth(deals: SavingsDealLike[]): SavingsCatalogueHealth {
+  const now = Date.now();
+  const activeDeals = deals.filter((deal) => n(deal.gross_aer) > 0).length;
+  const completeDeals = deals.filter((deal) => {
+    const kind = String(deal.account_type || deal.access_type || "").toLowerCase();
+    const hasAccess = Boolean(deal.access_type || deal.withdrawal_rules || deal.notice_period_days || deal.term_length_months);
+    const hasLimit = deal.minimum_balance != null && (deal.maximum_balance != null || !kind.includes("regular"));
+    return n(deal.gross_aer) > 0 && hasAccess && hasLimit;
+  }).length;
+  const freshDeals = deals.filter((deal) => {
+    if (!deal.last_checked_at) return false;
+    const checked = new Date(deal.last_checked_at).getTime();
+    return Number.isFinite(checked) && now - checked <= 7 * 86_400_000;
+  }).length;
+  const status = activeDeals === 0 ? "unavailable" : activeDeals >= 10 && completeDeals >= Math.ceil(activeDeals * 0.6) ? "healthy" : "partial";
+  return { activeDeals, completeDeals, freshDeals, status, confidence: status === "healthy" && freshDeals >= Math.ceil(activeDeals * 0.5) ? "high" : status === "unavailable" ? "low" : "medium" };
+}
+
 export function providerSlugsFromAccounts(accounts: SavingsAccountLike[], relationships: ProviderRelationshipLike[]) {
   const map = new Map<string, ProviderRelationshipLike>();
   for (const rel of relationships || []) {
@@ -175,11 +220,11 @@ export function classifySavingsDeals(accounts: SavingsAccountLike[], deals: Savi
     let bestGain = 0;
     let bestAccountId: string | null = null;
     for (const account of accounts || []) {
-      if (!accountKindMatches(account.account_type, deal.account_type)) continue;
+      if (!savingsDealMatchesAccount(account, deal)) continue;
       const suggestedRate = n(deal.gross_aer);
       const currentRate = n(account.interest_rate);
-      const balance = calculateSavingsAccruedBalance(account as any).estimatedBalance;
-      const gain = Math.max(0, (suggestedRate - currentRate) / 100) * Math.max(0, balance);
+      const eligibleBalance = savingsDealEligibleBalance(account, deal);
+      const gain = Math.max(0, (suggestedRate - currentRate) / 100) * eligibleBalance;
       if (gain > bestGain) {
         bestGain = gain;
         bestAccountId = account.id;
@@ -394,7 +439,6 @@ export function buildSavingsIntelligence(params: {
     ? Math.min(subjectTaxableBalance, isaRoom, taxableInterest / (weightedNonIsaRate / 100))
     : 0;
   const monthlyFlow = estimateMonthlyFlow(params.plannedItems);
-  const essentialOutgoings = estimateEssentialMonthlyOutgoings(params.plannedItems);
   const classifiedDeals = classifySavingsDeals(accounts, params.deals, params.relationships);
   const eligibleDeals = classifiedDeals.filter((deal) => deal.eligible_now);
   const bestEligibleRate = eligibleDeals.reduce((best, deal) => Math.max(best, n(deal.gross_aer)), 0);
@@ -405,6 +449,8 @@ export function buildSavingsIntelligence(params: {
     return ageDays > 31;
   });
   const lowRateAccounts = accounts.filter((account) => n(account.interest_rate) > 0 && bestEligibleRate > n(account.interest_rate) + 0.5);
+  const catalogue = catalogueHealth(params.deals || []);
+  const essentialOutgoings = estimateEssentialMonthlyOutgoings(params.plannedItems);
 
   const opportunities: SavingsOpportunity[] = [];
   if (eligibleDeals.length > 0 && bestEligibleRate > weightedRate + 0.25) {
@@ -462,12 +508,22 @@ export function buildSavingsIntelligence(params: {
     });
   }
 
+  const balancesByProvider = new Map<string, number>();
+  for (const account of accounts) {
+    const provider = String(account.provider_slug || account.provider || account.id);
+    balancesByProvider.set(provider, (balancesByProvider.get(provider) || 0) + calculateSavingsAccruedBalance(account as any).estimatedBalance);
+  }
+  // FSCS protects eligible deposits up to £120,000 per person, per authorised firm
+  // from 1 December 2025. Provider slugs are only an approximation until banking-
+  // licence groups are stored, so this score is deliberately capped below full marks.
+  const largestProviderBalance = Math.max(0, ...balancesByProvider.values());
   const scoreParts = {
-    rate: Math.min(30, bestEligibleRate ? Math.max(0, 30 - Math.max(0, bestEligibleRate - weightedRate) * 6) : 16),
-    isa: Math.min(20, subjectIsaBalance > 0 ? 20 : subjectNonIsaInterest > savingsAllowance * 0.5 ? 8 : 14),
-    flow: Math.min(20, monthlyTopUps > 0 ? 20 : monthlyFlow.spare > 100 ? 12 : 8),
-    hygiene: Math.min(15, Math.max(3, 15 - staleAccounts.length * 4)),
-    eligibility: Math.min(15, providerSlugsFromAccounts(accounts, params.relationships).length > 0 ? 15 : 6),
+    rate: catalogue.status === "unavailable" ? 20 : Math.min(40, Math.max(0, 40 - Math.max(0, bestEligibleRate - weightedRate) * 10)),
+    suitability: Math.min(20, accounts.length > 0 && eligibleDeals.length > 0 ? 20 : accounts.length > 0 ? 10 : 4),
+    tax: Math.min(15, taxableInterest <= 0 ? 15 : subjectIsaBalance > 0 ? 9 : 4),
+    protection: Math.min(10, balancesByProvider.size > 1 ? 9 : largestProviderBalance <= 120000 ? 7 : 2),
+    goals: Math.min(10, monthlyTopUps > 0 ? 10 : monthlyFlow.spare > 100 ? 5 : 3),
+    data: Math.min(5, Math.max(1, 5 - staleAccounts.length * 2)),
   };
   const score = Math.round(Object.values(scoreParts).reduce((sum, value) => sum + value, 0));
   const taxYear = taxYearWindow();
@@ -475,6 +531,8 @@ export function buildSavingsIntelligence(params: {
   return {
     score,
     scoreParts,
+    catalogue,
+    essentialOutgoings,
     totalSavings,
     monthlyTopUps,
     weightedRate,
@@ -496,7 +554,6 @@ export function buildSavingsIntelligence(params: {
     isaAccounts,
     taxableAccounts,
     monthlyFlow,
-    essentialOutgoings,
     opportunities,
     classifiedDeals,
     eligibleDeals,
