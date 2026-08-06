@@ -75,3 +75,4 @@ export function quoteObservationTime(
   const parsed = new Date(observedAt);
   return Number.isNaN(parsed.getTime()) ? fallback : parsed.toISOString();
 }
+

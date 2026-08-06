@@ -54,3 +54,4 @@ export function totalPensionValue(
     .reduce((sum, fund) => sum + pensionFundValue(fund), 0);
   return accounted + orphaned;
 }
+

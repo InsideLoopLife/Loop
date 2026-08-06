@@ -1,5 +1,5 @@
 const DEFAULT_PRICE_INTERVAL_MINUTES = 1;
-const DEFAULT_SNAPTRADE_INTERVAL_MINUTES = 1;
+const DEFAULT_SNAPTRADE_INTERVAL_MINUTES = 30;
 
 const rawBaseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.LOOP_APP_URL || "http://localhost:3000";
 const baseUrl = rawBaseUrl.replace(/\/$/, "");

@@ -41,3 +41,4 @@ test("keeps an orphaned fund visible without double counting known accounts", ()
     100,
   );
 });
+

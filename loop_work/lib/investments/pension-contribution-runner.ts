@@ -265,38 +265,89 @@ function asGbpUnitPrice(row: any) {
   return unit === "GBX" || unit.includes("PENCE") ? raw / 100 : raw;
 }
 
-async function getLatestGlossaryPrice(supabase: SupabaseAdmin, fund: PensionFundRow): Promise<GlossaryPrice | null> {
-  const code = String(fund.fund_code || "").trim();
-  const name = String(fund.fund_name || "").trim();
-  const select = "id,internal_fund_name,internal_fund_code,underlying_isin,unit_price,unit_price_quote_unit,annual_fund_fee_percent,source_url,confidence,updated_at";
-  const read = async (column: string, value: string, exact = false) => {
-    const query = supabase.from("provider_fund_glossary").select(select).order("confidence", { ascending: false }).limit(1);
-    const result = exact ? await query.eq(column, value).maybeSingle() : await query.ilike(column, `%${value}%`).maybeSingle();
-    return result.data || null;
-  };
+function glossaryKey(value: unknown) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
 
-  let data: any = null;
-  if (fund.glossary_id) data = await read("id", fund.glossary_id, true);
-  if (!data && code) data = await read("internal_fund_code", code, true) || await read("underlying_isin", code, true);
-  if (!data && name) data = await read("internal_fund_name", name, false);
-  if (!data) return null;
-  const { data: latestAppliedChange } = await supabase
-    .from("provider_fund_price_change_log")
-    .select("checked_at")
-    .eq("glossary_id", data.id)
-    .eq("applied", true)
-    .order("checked_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return {
-    unitPrice: asGbpUnitPrice(data),
-    priceDate: latestAppliedChange?.checked_at
-      ? String(latestAppliedChange.checked_at).slice(0, 10)
-      : null,
-    fee: data.annual_fund_fee_percent ?? null,
-    sourceUrl: data.source_url || null,
-    confidence: data.confidence ?? null,
-  };
+async function loadGlossaryPrices(
+  supabase: SupabaseAdmin,
+  funds: PensionFundRow[],
+): Promise<Map<string, GlossaryPrice | null>> {
+  const prices = new Map<string, GlossaryPrice | null>();
+  for (const fund of funds) prices.set(fund.id, null);
+  if (!funds.length) return prices;
+
+  // The glossary is a shared provider catalogue and is deliberately loaded
+  // once. The previous implementation queried it (and its change log) up to
+  // five times for every pension fund on every daily run.
+  const { data: glossaryRows, error: glossaryError } = await supabase
+    .from("provider_fund_glossary")
+    .select("id,internal_fund_name,internal_fund_code,underlying_isin,unit_price,unit_price_quote_unit,annual_fund_fee_percent,source_url,confidence,updated_at")
+    .order("confidence", { ascending: false });
+  if (glossaryError) throw glossaryError;
+
+  const rows = (glossaryRows || []) as any[];
+  const byId = new Map(rows.map((row) => [String(row.id), row]));
+  const byCode = new Map<string, any>();
+  const byName = new Map<string, any>();
+  for (const row of rows) {
+    for (const value of [row.internal_fund_code, row.underlying_isin]) {
+      const key = glossaryKey(value);
+      if (key && !byCode.has(key)) byCode.set(key, row);
+    }
+    const nameKey = glossaryKey(row.internal_fund_name);
+    if (nameKey && !byName.has(nameKey)) byName.set(nameKey, row);
+  }
+
+  const matchedByFund = new Map<string, any>();
+  for (const fund of funds) {
+    const idMatch = fund.glossary_id ? byId.get(fund.glossary_id) : null;
+    const codeMatch = byCode.get(glossaryKey(fund.fund_code));
+    const nameKey = glossaryKey(fund.fund_name);
+    let nameMatch = byName.get(nameKey);
+    if (!nameMatch && nameKey) {
+      nameMatch = rows.find((row) => {
+        const candidate = glossaryKey(row.internal_fund_name);
+        return candidate && (candidate.includes(nameKey) || nameKey.includes(candidate));
+      });
+    }
+    const match = idMatch || codeMatch || nameMatch || null;
+    if (match) matchedByFund.set(fund.id, match);
+  }
+
+  const glossaryIds = Array.from(new Set(
+    Array.from(matchedByFund.values()).map((row) => String(row.id)).filter(Boolean),
+  ));
+  const latestChangeByGlossary = new Map<string, string>();
+  if (glossaryIds.length) {
+    const { data: changeRows, error: changeError } = await supabase
+      .from("provider_fund_price_change_log")
+      .select("glossary_id,checked_at")
+      .in("glossary_id", glossaryIds)
+      .eq("applied", true)
+      .order("checked_at", { ascending: false });
+    if (changeError) throw changeError;
+    for (const row of changeRows || []) {
+      const id = String(row.glossary_id || "");
+      if (id && !latestChangeByGlossary.has(id)) {
+        latestChangeByGlossary.set(id, String(row.checked_at || ""));
+      }
+    }
+  }
+
+  for (const fund of funds) {
+    const row = matchedByFund.get(fund.id);
+    if (!row) continue;
+    const checkedAt = latestChangeByGlossary.get(String(row.id));
+    prices.set(fund.id, {
+      unitPrice: asGbpUnitPrice(row),
+      priceDate: checkedAt ? checkedAt.slice(0, 10) : null,
+      fee: row.annual_fund_fee_percent ?? null,
+      sourceUrl: row.source_url || null,
+      confidence: row.confidence ?? null,
+    });
+  }
+  return prices;
 }
 
 function normaliseAllocations(funds: PensionFundRow[]) {
@@ -351,6 +402,7 @@ export async function runPensionContributionProjection(
   if (accountError) throw accountError;
 
   const accountIds = (accounts || []).map((account) => account.id);
+  const userIds = Array.from(new Set((accounts || []).map((account) => account.user_id).filter(Boolean)));
   const [{ data: funds, error: fundError }, { data: payEvents, error: payError }] = await Promise.all([
     accountIds.length
       ? supabase
@@ -359,10 +411,13 @@ export async function runPensionContributionProjection(
           .in("pension_account_id", accountIds)
           .returns<PensionFundRow[]>()
       : Promise.resolve({ data: [] as PensionFundRow[], error: null as any }),
-    supabase
-      .from("pay_events")
-      .select("user_id,person_id,gross_annual_salary,effective_from,effective_until")
-      .returns<PayEventRow[]>(),
+    userIds.length
+      ? supabase
+          .from("pay_events")
+          .select("user_id,person_id,gross_annual_salary,effective_from,effective_until")
+          .in("user_id", userIds)
+          .returns<PayEventRow[]>()
+      : Promise.resolve({ data: [] as PayEventRow[], error: null as any }),
   ]);
   if (fundError) throw fundError;
   if (payError) throw payError;
@@ -373,16 +428,23 @@ export async function runPensionContributionProjection(
     fundsByAccount.get(fund.pension_account_id)!.push(fund);
   }
 
-  const glossaryByFund = new Map<string, Promise<GlossaryPrice | null>>();
-  const glossaryFor = (fund: PensionFundRow) => {
-    if (!glossaryByFund.has(fund.id)) {
-      glossaryByFund.set(
-        fund.id,
-        getLatestGlossaryPrice(supabase, fund).catch(() => null),
-      );
-    }
-    return glossaryByFund.get(fund.id)!;
-  };
+  const glossaryByFund = await loadGlossaryPrices(supabase, funds || []);
+  const glossaryFor = (fund: PensionFundRow) => glossaryByFund.get(fund.id) || null;
+
+  const existingEventRead = accountIds.length
+    ? await supabase
+        .from("pension_contribution_events")
+        .select("id,event_status,external_transaction_id")
+        .in("pension_account_id", accountIds)
+        .gte("contribution_date", isoDate(fromDate))
+        .like("external_transaction_id", "pension:auto:%")
+    : { data: [] as any[], error: null as any };
+  if (existingEventRead.error) throw existingEventRead.error;
+  const existingEventByTx = new Map<string, { id: string; event_status?: string | null }>();
+  for (const event of existingEventRead.data || []) {
+    const txId = String(event.external_transaction_id || "");
+    if (txId) existingEventByTx.set(txId, event as any);
+  }
 
   // Refresh every fund's live price unconditionally, independent of whether a contribution gets
   // created below. Previously this only ever happened as a side effect of a successful
@@ -392,7 +454,7 @@ export async function runPensionContributionProjection(
   // that's actually reflected.
   let pricesRefreshed = 0;
   for (const fund of funds || []) {
-    const glossary = await glossaryFor(fund);
+    const glossary = glossaryFor(fund);
     if (!glossary?.unitPrice || glossary.unitPrice <= 0) continue;
     if (glossary.priceDate && fund.price_as_of_date && glossary.priceDate <= fund.price_as_of_date) continue;
     if (
@@ -467,11 +529,7 @@ export async function runPensionContributionProjection(
         if (contributionAmount <= 0) continue;
         const txId = `pension:auto:${account.id}:${fund.id}:${isoDate(contributionDate)}:${isoDate(investmentDate)}`;
 
-        const { data: existing } = await supabase
-          .from("pension_contribution_events")
-          .select("id,event_status")
-          .eq("external_transaction_id", txId)
-          .maybeSingle();
+        const existing = existingEventByTx.get(txId) || null;
         if (
           existing &&
           !options.force &&
@@ -481,7 +539,7 @@ export async function runPensionContributionProjection(
           continue;
         }
 
-        const glossary = await glossaryFor(fund);
+        const glossary = glossaryFor(fund);
         const unitPrice = glossary?.unitPrice || n(fund.unit_price, 0) || null;
         const unitsBought = status === "invested" && unitPrice && unitPrice > 0 ? contributionAmount / unitPrice : 0;
 

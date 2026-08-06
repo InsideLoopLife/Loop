@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbo",
-    "build": "next build --webpack",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint .",
     "worker:investment-prices": "tsx -r tsconfig-paths/register scripts/market-data-direct-worker.ts",
@@ -20,6 +20,7 @@
     "worker:savings-rates": "node scripts/savings-rate-watch-worker.mjs",
     "refresh:pension-performance": "node scripts/run-pension-performance-refresh.mjs",
     "cron:run-endpoint": "node scripts/run-loop-cron-endpoint.mjs",
+    "cron:pensions-daily": "node scripts/run-pensions-daily.mjs",
     "cron:financial-briefing": "node scripts/run-daily-financial-briefing.mjs",
     "check:boundaries": "node scripts/check-domain-boundaries.mjs",
     "check:architecture": "npm run check:boundaries",

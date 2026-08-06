@@ -34,8 +34,10 @@ function scrubWorkerAiSecrets() {
 const scrubbedAiKeys = scrubWorkerAiSecrets();
 
 const DEFAULT_PRICE_INTERVAL_MINUTES = 1;
-const DEFAULT_SNAPTRADE_INTERVAL_MINUTES = 1;
-const DEFAULT_MAINTENANCE_INTERVAL_MINUTES = 60;
+// Position imports do not need to run at quote cadence. Market prices still
+// run every minute; provider holdings/cash are reconciled every 30 minutes.
+const DEFAULT_SNAPTRADE_INTERVAL_MINUTES = 30;
+const DEFAULT_MAINTENANCE_INTERVAL_MINUTES = 1440;
 
 type WorkerState = {
   pricesRunning: boolean;
@@ -95,7 +97,9 @@ const priceForce = asBool(
 const workerDisabled = asBool(process.env.MARKET_DATA_WORKER_DISABLED, false);
 const pricesEnabled = asBool(process.env.MARKET_DATA_WORKER_PRICES_ENABLED, true);
 const snapTradeEnabled = asBool(process.env.MARKET_DATA_WORKER_SNAPTRADE_ENABLED, true);
-const maintenanceEnabled = asBool(process.env.MARKET_DATA_WORKER_MAINTENANCE_ENABLED, true);
+// The production database owns the 02:15 UTC downsampling job. Keep worker
+// maintenance opt-in so two schedulers cannot compact the same tables.
+const maintenanceEnabled = asBool(process.env.MARKET_DATA_WORKER_MAINTENANCE_ENABLED, false);
 const runMaintenanceOnStart = asBool(process.env.MARKET_DATA_WORKER_RUN_MAINTENANCE_ON_START, false);
 
 const state: WorkerState = {

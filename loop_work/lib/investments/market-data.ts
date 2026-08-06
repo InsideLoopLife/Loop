@@ -708,8 +708,6 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
   // don't already have a trustworthy ticker. It's still used below for
   // supplementary metadata (asset name, fee %, source URL) either way.
   const symbol = wantsExchangeTraded ? effectiveQuery : glossary?.rawSymbol || effectiveQuery;
-  const secret = await getActiveIntegrationSecret(supabase, userId, ["alpha_vantage", "financial_modeling_prep", "fmp"]);
-
   const providerFund = wantsExchangeTraded ? null : await providerFundQuoteFromSource(glossary);
   if (providerFund) return providerFund;
 
@@ -724,6 +722,11 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
       if (alpaca) return { ...glossary, ...alpaca };
     }
   }
+
+  // User-managed fallbacks require a database secret lookup. Keep that lookup
+  // behind the shared provider/fund and Alpaca paths so the normal minute loop
+  // does not generate one Supabase read per user before every ticker quote.
+  const secret = await getActiveIntegrationSecret(supabase, userId, ["alpha_vantage", "financial_modeling_prep", "fmp"]);
 
   if (secret?.value && secret.provider === "alpha_vantage") {
     for (const candidate of providerSymbols(symbol, exchange || glossary?.exchange)) {
