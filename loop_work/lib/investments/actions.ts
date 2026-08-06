@@ -603,6 +603,116 @@ export async function updatePensionFund(formData: FormData) {
   revalidatePath("/net-worth");
 }
 
+function pensionContributionPayload(formData: FormData) {
+  const contributionDate = String(
+    formData.get("contribution_date") || new Date().toISOString().slice(0, 10),
+  ).slice(0, 10);
+  const investmentDate = String(
+    formData.get("investment_date") || contributionDate,
+  ).slice(0, 10);
+  const contributionAmount = Math.max(
+    0,
+    parseNumber(formData.get("contribution_amount")) ?? 0,
+  );
+  const unitPrice = parseNumber(formData.get("unit_price"));
+  const enteredUnits = parseNumber(formData.get("units_bought"));
+  const unitsBought =
+    enteredUnits ??
+    (unitPrice && unitPrice > 0 ? contributionAmount / unitPrice : null);
+  return {
+    pension_account_id: nullableString(formData.get("pension_account_id")),
+    pension_fund_id: nullableString(formData.get("pension_fund_id")),
+    contribution_month: contributionDate.slice(0, 7),
+    contribution_date: contributionDate,
+    contribution_due_date: contributionDate,
+    investment_date: investmentDate,
+    contribution_amount: contributionAmount,
+    employee_amount: Math.max(
+      0,
+      parseNumber(formData.get("employee_amount")) ?? 0,
+    ),
+    employer_amount: Math.max(
+      0,
+      parseNumber(formData.get("employer_amount")) ?? 0,
+    ),
+    employer_ni_topup_amount: Math.max(
+      0,
+      parseNumber(formData.get("employer_ni_topup_amount")) ?? 0,
+    ),
+    fixed_amount: Math.max(
+      0,
+      parseNumber(formData.get("fixed_amount")) ?? 0,
+    ),
+    allocation_percent:
+      parseNumber(formData.get("allocation_percent")) ?? 100,
+    unit_price: unitPrice,
+    units_bought: unitsBought,
+    event_status: String(formData.get("event_status") || "invested"),
+    source: "manual_reconciliation",
+    notes: nullableString(formData.get("notes")),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+async function assertOwnedPensionFund(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  accountId: string | null,
+  fundId: string | null,
+) {
+  if (!accountId || !fundId) {
+    throw new Error("Choose the pension pot and fund for this purchase.");
+  }
+  const { data, error } = await supabase
+    .from("pension_funds")
+    .select("id")
+    .eq("id", fundId)
+    .eq("pension_account_id", accountId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error || !data) throw new Error("That pension fund was not found.");
+}
+
+export async function addPensionContributionEvent(formData: FormData) {
+  const { supabase, user } = await currentUser();
+  const payload = pensionContributionPayload(formData);
+  await assertOwnedPensionFund(
+    supabase,
+    user.id,
+    payload.pension_account_id,
+    payload.pension_fund_id,
+  );
+  const { error } = await supabase.from("pension_contribution_events").insert({
+    ...payload,
+    user_id: user.id,
+    external_transaction_id: `pension:manual:${randomUUID()}`,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath("/investments");
+  revalidatePath("/accounts");
+}
+
+export async function updatePensionContributionEvent(formData: FormData) {
+  const { supabase, user } = await currentUser();
+  const id = String(formData.get("id") || "").trim();
+  if (!id) throw new Error("Choose a pension purchase to update.");
+  const payload = pensionContributionPayload(formData);
+  await assertOwnedPensionFund(
+    supabase,
+    user.id,
+    payload.pension_account_id,
+    payload.pension_fund_id,
+  );
+  const { error } = await supabase
+    .from("pension_contribution_events")
+    .update(payload)
+    .eq("id", id)
+    .eq("user_id", user.id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/investments");
+  revalidatePath("/accounts");
+}
+
 export async function addInvestmentAccount(formData: FormData) {
   const { supabase, user } = await currentUser();
   const providerName = String(formData.get("provider") || "Provider");

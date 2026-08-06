@@ -21,6 +21,7 @@ export type InvestmentQuote = {
   previousCloseCurrency?: string | null;
   previousCloseQuoteUnit?: string | null;
   previousCloseAt?: string | null;
+  observedAt?: string | null;
 };
 
 export function normaliseExchangeCode(exchange?: string | null, symbol?: string | null) {
@@ -350,6 +351,7 @@ async function alpacaQuote(ticker: string, exchange?: string | null): Promise<In
       previousCloseCurrency: previousNormalised?.currency || null,
       previousCloseQuoteUnit: previousNormalised?.priceQuoteUnit || null,
       previousCloseAt: null,
+      observedAt: data?.latestTrade?.t || data?.dailyBar?.t || null,
     };
   } catch {
     return null;
@@ -369,22 +371,30 @@ async function yahooQuote(ticker: string, exchange?: string | null): Promise<Inv
       const postMarketPrice = Number(meta.postMarketPrice || 0);
       const regularMarketPrice = Number(meta.regularMarketPrice || 0);
       const previousClose = Number(meta.previousClose || meta.chartPreviousClose || 0);
+      const declaredDelayMinutes = Number(meta.exchangeDataDelayedBy);
+      const delaySuffix = Number.isFinite(declaredDelayMinutes) && declaredDelayMinutes > 0
+        ? ` · ${declaredDelayMinutes}m exchange delay`
+        : "";
       let rawPrice = regularMarketPrice || previousClose || 0;
-      let sourceLabel = "Yahoo delayed/EOD";
+      let sourceLabel = `Yahoo 1-minute market feed${delaySuffix}`;
       if (session.session === "pre" && Number.isFinite(preMarketPrice) && preMarketPrice > 0) {
         rawPrice = preMarketPrice;
-        sourceLabel = "Yahoo pre-market delayed";
+        sourceLabel = `Yahoo pre-market 1-minute feed${delaySuffix}`;
       } else if (session.session === "after" && Number.isFinite(postMarketPrice) && postMarketPrice > 0) {
         rawPrice = postMarketPrice;
-        sourceLabel = "Yahoo post-market delayed";
+        sourceLabel = `Yahoo post-market 1-minute feed${delaySuffix}`;
       } else if (session.session === "closed" && Number.isFinite(regularMarketPrice) && regularMarketPrice > 0) {
-        sourceLabel = "Yahoo regular close/delayed";
+        sourceLabel = `Yahoo regular close${delaySuffix}`;
       }
       if (!Number.isFinite(rawPrice) || rawPrice <= 0) continue;
       const normalised = normaliseMarketPrice(rawPrice, ex, symbol);
       const previousNormalised = Number.isFinite(previousClose) && previousClose > 0 ? normaliseMarketPrice(previousClose, ex, symbol) : null;
       const common = COMMON_INVESTMENTS[cleanTicker(ticker).replace(/\.L$/i, "")];
       const yahooFund = isYahooFundCode(symbol);
+      if (yahooFund) sourceLabel = "Yahoo daily fund quote";
+      const lastTimestamp = Array.isArray(result?.timestamp) && result.timestamp.length
+        ? Number(result.timestamp[result.timestamp.length - 1])
+        : Number(meta.regularMarketTime || 0);
       const sessionNote = session.isExtended ? `Using ${session.label} price; regular close remains separate for daily movement.` : session.session === "closed" ? "Market is closed; using latest regular/close quote from provider." : "Live/delayed quote from active regular session where available.";
       return {
         price: normalised.price,
@@ -402,6 +412,7 @@ async function yahooQuote(ticker: string, exchange?: string | null): Promise<Inv
         previousCloseCurrency: previousNormalised?.currency || null,
         previousCloseQuoteUnit: previousNormalised?.priceQuoteUnit || null,
         previousCloseAt: meta.regularMarketTime ? new Date(Number(meta.regularMarketTime) * 1000).toISOString() : null,
+        observedAt: lastTimestamp > 0 ? new Date(lastTimestamp * 1000).toISOString() : null,
       };
     } catch {}
   }

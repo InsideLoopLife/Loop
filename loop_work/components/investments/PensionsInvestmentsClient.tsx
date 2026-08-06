@@ -35,6 +35,7 @@ import { CollapsibleSection } from "@/components/ui/CollapsibleSection";
 import { SubmitButton } from "@/components/SubmitButton";
 import { formatMoney } from "@/lib/format/money";
 import { InvestmentHistoryChart } from "@/components/investments/InvestmentHistoryChart";
+import { marketDataQuality } from "@/lib/investments/market-data-quality";
 import { AmplifiedInvestmentsDashboard } from "@/components/investments/AmplifiedInvestmentsDashboard";
 import { calculatePensionSalarySacrifice } from "@/lib/investments/pension-contribution-math";
 import {
@@ -82,7 +83,14 @@ import {
   updateDefinedBenefitPension,
   updateInvestmentHoldingGroups,
   saveMoneyboxInvestmentAccountSetup,
+  addPensionContributionEvent,
+  updatePensionContributionEvent,
 } from "@/lib/investments/actions";
+import {
+  pensionAccountValue,
+  pensionFundValue,
+  totalPensionValue,
+} from "@/lib/investments/pension-valuation";
 
 type Person = {
   id: string;
@@ -456,8 +464,7 @@ const inputClass =
 const today = new Date().toISOString().slice(0, 10);
 
 function valueOfFund(fund: PensionFund) {
-  if (Number(fund.current_value) > 0) return Number(fund.current_value);
-  return Number(fund.units ?? 0) * Number(fund.unit_price ?? 0);
+  return pensionFundValue(fund);
 }
 function isGbxHolding(holding: InvestmentHolding) {
   const exchange = normalisedExchange(
@@ -1069,10 +1076,10 @@ function marketStatus(
 }
 
 function MarketStatusPill({ holding }: { holding: InvestmentHolding }) {
-  const [, setClockTick] = useState(0);
+  const [clockNow, setClockNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(
-      () => setClockTick((tick) => tick + 1),
+      () => setClockNow(Date.now()),
       60_000,
     );
     return () => window.clearInterval(timer);
@@ -1083,13 +1090,14 @@ function MarketStatusPill({ holding }: { holding: InvestmentHolding }) {
     holding.asset_kind,
     holding.ticker,
   );
+  const dataQuality = marketDataQuality(holding.source_url);
   const updatedAt =
     holding.last_price_check_at ||
     holding.latest_price_date ||
     holding.updated_at ||
     null;
   const checkedMs = updatedAt
-    ? Date.now() - new Date(updatedAt).getTime()
+    ? clockNow - new Date(updatedAt).getTime()
     : Infinity;
   // The worker runs every minute, but one complete sweep can take several minutes on free
   // delayed providers. Avoid flagging a live market as stale while the worker is still
@@ -1107,11 +1115,11 @@ function MarketStatusPill({ holding }: { holding: InvestmentHolding }) {
     status.venue?.name ||
     exchangeLabel(holding.exchange || holding.native_exchange || "market");
   const displayLabel = isStaleWhileTradable
-    ? `${status.label} · stale`
-    : status.label;
+    ? `${status.label} · stale · ${dataQuality.label}`
+    : `${status.label} · ${dataQuality.label}`;
   const dotClass = isStaleWhileTradable ? "bg-amber-400" : status.className;
   const textClass = isStaleWhileTradable ? "text-amber-700" : status.textClass;
-  const title = `${displayLabel} · ${venueName} · last price check ${shortRelativeTime(updatedAt)} · local ${status.state.localTimeLabel} · ${status.state.openLabel}-${status.state.closeLabel}${holding.price_check_status ? ` · ${holding.price_check_status}` : ""}`;
+  const title = `${displayLabel} · ${venueName} · last price check ${shortRelativeTime(updatedAt)} · ${dataQuality.detail} · local ${status.state.localTimeLabel} · ${status.state.openLabel}-${status.state.closeLabel}${holding.price_check_status ? ` · ${holding.price_check_status}` : ""}`;
   return (
     <span
       className={`group relative inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-black ${textClass}`}
@@ -1121,6 +1129,7 @@ function MarketStatusPill({ holding }: { holding: InvestmentHolding }) {
       {displayLabel}
       <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 hidden w-72 -translate-x-1/2 rounded-2xl bg-slate-950 px-3 py-2 text-left text-[11px] font-bold leading-5 text-white shadow-2xl group-hover:block">
         <span className="block font-black">{venueName}</span>
+        <span className="block text-blue-200">{dataQuality.detail}</span>
         <span
           className={
             isStaleWhileTradable
@@ -2123,7 +2132,6 @@ function HoldingCard({
             compact
             bare
             showRange={false}
-            refreshMs={60_000}
           />
         </div>
         <div
@@ -5643,13 +5651,16 @@ function personAssetSummary(
       .filter((account) => account.person_id === personId)
       .map((account) => account.id),
   );
-  const pensionValue =
-    pensionAccounts
-      .filter((account) => account.person_id === personId)
-      .reduce((sum, account) => sum + Number(account.current_value || 0), 0) +
-    pensionFunds
-      .filter((fund) => pensionAccountIds.has(fund.pension_account_id))
-      .reduce((sum, fund) => sum + valueOfFund(fund), 0);
+  const ownedPensionAccounts = pensionAccounts.filter(
+    (account) => account.person_id === personId,
+  );
+  const ownedPensionFunds = pensionFunds.filter((fund) =>
+    pensionAccountIds.has(fund.pension_account_id),
+  );
+  const pensionValue = totalPensionValue(
+    ownedPensionAccounts,
+    ownedPensionFunds,
+  );
   const ownedInvestmentAccountIds = new Set(
     investmentAccountOwners
       .filter((owner) => owner.person_id === personId)
@@ -7240,12 +7251,7 @@ export function PensionsInvestmentsClient({
     experience,
   ]);
 
-  const pensionTotal =
-    pensionFunds.reduce((sum, fund) => sum + valueOfFund(fund), 0) +
-    pensionAccounts.reduce(
-      (sum, account) => sum + Number(account.current_value || 0),
-      0,
-    );
+  const pensionTotal = totalPensionValue(pensionAccounts, pensionFunds);
   const investmentTotal = investmentAccounts.reduce(
     (sum, account) =>
       sum +
@@ -8458,7 +8464,7 @@ export function PensionsInvestmentsClient({
                 event.pension_account_id === account.id ||
                 funds.some((fund) => fund.id === event.pension_fund_id),
             );
-            const total = fundTotal || Number(account.current_value || 0);
+            const total = pensionAccountValue(account, funds);
             return (
               <div
                 key={account.id}
@@ -8511,8 +8517,8 @@ export function PensionsInvestmentsClient({
                       <AllocationBar funds={funds} />
                     </div>
                     <CollapsibleSection
-                      title="Pension thread"
-                      subtitle="Contributions, unit price and last investment"
+                      title="Pension contribution summary"
+                      subtitle="Combined employee, employer and NI contributions across this pension"
                       badge={
                         <span className="rounded-full bg-teal-600 px-3 py-1.5 text-xs font-black text-white">
                           {accountContributionEvents.filter((event) => event.pension_account_id === account.id || (event.pension_fund_id ? funds.some((fund) => fund.id === event.pension_fund_id) : false)).length
@@ -8533,6 +8539,28 @@ export function PensionsInvestmentsClient({
                           key={fund.id}
                           className="group rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-slate-200/70"
                         >
+                          {(() => {
+                            const fundEvents = accountContributionEvents
+                              .filter((event) => event.pension_fund_id === fund.id)
+                              .sort((a, b) => String(b.investment_date || b.contribution_date || "").localeCompare(String(a.investment_date || a.contribution_date || "")));
+                            const latestFundEvent = fundEvents[0];
+                            return (
+                              <div className="mb-4 grid gap-2 sm:grid-cols-3">
+                                <div className="rounded-2xl bg-teal-50 px-3 py-2 ring-1 ring-teal-100">
+                                  <p className="text-[10px] font-black uppercase tracking-wide text-teal-700">Latest purchase</p>
+                                  <p className="mt-1 text-sm font-black text-slate-950">{latestFundEvent ? formatMoney(Number(latestFundEvent.contribution_amount || 0)) : "No purchase yet"}</p>
+                                </div>
+                                <div className="rounded-2xl bg-blue-50 px-3 py-2 ring-1 ring-blue-100">
+                                  <p className="text-[10px] font-black uppercase tracking-wide text-blue-700">Purchase date</p>
+                                  <p className="mt-1 text-sm font-black text-slate-950">{latestFundEvent ? formatThreadDate(latestFundEvent.investment_date || latestFundEvent.contribution_date) : "Pending"}</p>
+                                </div>
+                                <div className="rounded-2xl bg-orange-50 px-3 py-2 ring-1 ring-orange-100">
+                                  <p className="text-[10px] font-black uppercase tracking-wide text-orange-700">Thread records</p>
+                                  <p className="mt-1 text-sm font-black text-slate-950">{fundEvents.length}</p>
+                                </div>
+                              </div>
+                            );
+                          })()}
                           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                             <div>
                               <p className="text-lg font-black text-slate-950">
@@ -8596,6 +8624,17 @@ export function PensionsInvestmentsClient({
                               </form>
                             </div>
                           </div>
+                          <CollapsibleSection
+                            title={`${fund.fund_name} purchase thread`}
+                            subtitle="Dated purchase amounts, unit prices and units—editable against the provider statement"
+                          >
+                            <PensionContributionThread
+                              account={account}
+                              funds={[fund]}
+                              events={accountContributionEvents.filter((event) => event.pension_fund_id === fund.id)}
+                              fund={fund}
+                            />
+                          </CollapsibleSection>
                         </article>
                       ))}
                       {funds.length === 0 ? (
@@ -9145,8 +9184,10 @@ export function PensionsInvestmentsClient({
                           <InvestmentHistoryChart
                             accountId={account.id}
                             title="Pot value history"
-                            mode="value"
-                          />
+                          mode="value"
+                          prefetchRanges
+                          refreshMs={60_000}
+                        />
                           <AccountSideInsights
                             holdings={holdings}
                             snapshots={investmentSnapshots}
@@ -10089,17 +10130,21 @@ function PensionContributionThread({
   account,
   funds,
   events,
+  fund,
 }: {
   account: PensionAccount;
   funds: PensionFund[];
   events: PensionContributionEvent[];
+  fund?: PensionFund;
 }) {
   const fundIds = new Set(funds.map((fund) => fund.id));
   const rows = events
     .filter(
       (event) =>
-        event.pension_account_id === account.id ||
-        (event.pension_fund_id ? fundIds.has(event.pension_fund_id) : false),
+        fund
+          ? event.pension_fund_id === fund.id
+          : event.pension_account_id === account.id ||
+            (event.pension_fund_id ? fundIds.has(event.pension_fund_id) : false),
     )
     .sort((a, b) =>
       String(
@@ -10108,7 +10153,7 @@ function PensionContributionThread({
         String(a.investment_date || a.contribution_date || a.created_at || ""),
       ),
     )
-    .slice(0, 8);
+    .slice(0, 36);
   const latest = rows[0];
   const accountValue =
     funds.reduce((sum, fund) => sum + valueOfFund(fund), 0) ||
@@ -10165,40 +10210,96 @@ function PensionContributionThread({
           </p>
         </div>
       </div>
+      {funds.length ? (
+        <details className="rounded-2xl border border-dashed border-teal-200 bg-teal-50/60 p-4">
+          <summary className="cursor-pointer text-sm font-black text-teal-900">
+            Add a dated pension purchase
+          </summary>
+          <form action={addPensionContributionEvent} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <input type="hidden" name="pension_account_id" value={account.id} />
+            <label className="text-xs font-black uppercase text-slate-500">
+              Fund
+              {fund ? (
+                <><input type="hidden" name="pension_fund_id" value={fund.id} /><span className={`${inputClass} block bg-slate-50 normal-case`}>{fund.fund_name}</span></>
+              ) : (
+                <select name="pension_fund_id" required className={inputClass}>
+                  {funds.map((item) => (
+                    <option key={item.id} value={item.id}>{item.fund_name}</option>
+                  ))}
+                </select>
+              )}
+            </label>
+            <label className="text-xs font-black uppercase text-slate-500">
+              Contribution date
+              <input name="contribution_date" type="date" required defaultValue={today} className={inputClass} />
+            </label>
+            <label className="text-xs font-black uppercase text-slate-500">
+              Investment date
+              <input name="investment_date" type="date" required defaultValue={today} className={inputClass} />
+            </label>
+            <label className="text-xs font-black uppercase text-slate-500">
+              Purchase amount (£)
+              <input name="contribution_amount" type="number" min="0" step="0.01" required className={inputClass} />
+            </label>
+            <label className="text-xs font-black uppercase text-slate-500">
+              Unit price (£)
+              <input name="unit_price" type="number" min="0" step="0.000001" className={inputClass} />
+            </label>
+            <label className="text-xs font-black uppercase text-slate-500">
+              Units bought
+              <input name="units_bought" type="number" min="0" step="0.000001" className={inputClass} />
+            </label>
+            <label className="text-xs font-black uppercase text-slate-500 sm:col-span-2">
+              Reconciliation note
+              <input name="notes" placeholder="Matched to provider statement…" className={inputClass} />
+            </label>
+            <div className="flex items-end lg:col-span-4">
+              <SubmitButton pendingLabel="Adding purchase…">Add to pension thread</SubmitButton>
+            </div>
+          </form>
+          <p className="mt-3 text-xs font-bold text-slate-600">
+            This records the provider purchase evidence. It does not add the amount to today&apos;s pot again.
+          </p>
+        </details>
+      ) : null}
       <div className="mt-4 space-y-2">
         {rows.map((event) => {
           const fund = funds.find((item) => item.id === event.pension_fund_id);
           return (
-            <div
+            <details
               key={event.id}
-              className="grid gap-3 rounded-2xl bg-white p-3 text-sm ring-1 ring-slate-100 sm:grid-cols-[150px_1fr_130px] sm:items-center"
+              className="rounded-2xl bg-white p-3 text-sm ring-1 ring-slate-100"
             >
-              <div>
-                <p className="font-black text-slate-950">
-                  {formatThreadDate(
-                    event.investment_date || event.contribution_date,
-                  )}
-                </p>
-                <p className="text-xs font-bold text-slate-500">
-                  {String(event.event_status || "invested").replace(/_/g, " ")}
-                </p>
-              </div>
-              <div>
-                <p className="font-bold text-slate-700">
-                  {fund?.fund_name || account.label} ·{" "}
-                  {Number(event.allocation_percent || 0).toFixed(2)}% allocation
-                </p>
-                <p className="text-xs font-bold text-slate-500">
-                  Employee {formatMoney(Number(event.employee_amount || 0))} ·
-                  employer {formatMoney(Number(event.employer_amount || 0))} ·
-                  NI top-up{" "}
-                  {formatMoney(Number(event.employer_ni_topup_amount || 0))}
-                </p>
-              </div>
-              <p className="font-black text-slate-950 sm:text-right">
-                {formatMoney(Number(event.contribution_amount || 0))}
-              </p>
-            </div>
+              <summary className="grid cursor-pointer list-none gap-3 sm:grid-cols-[150px_1fr_130px] sm:items-center">
+                <div>
+                  <p className="font-black text-slate-950">{formatThreadDate(event.investment_date || event.contribution_date)}</p>
+                  <p className="text-xs font-bold text-slate-500">{String(event.event_status || "invested").replace(/_/g, " ")}</p>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-700">{fund?.fund_name || account.label} · {Number(event.units_bought || 0).toFixed(4)} units</p>
+                  <p className="text-xs font-bold text-slate-500">Employee {formatMoney(Number(event.employee_amount || 0))} · employer {formatMoney(Number(event.employer_amount || 0))} · NI top-up {formatMoney(Number(event.employer_ni_topup_amount || 0))}</p>
+                </div>
+                <p className="font-black text-slate-950 sm:text-right">{formatMoney(Number(event.contribution_amount || 0))}</p>
+              </summary>
+              <form action={updatePensionContributionEvent} className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-4">
+                <input type="hidden" name="id" value={event.id} />
+                <input type="hidden" name="pension_account_id" value={account.id} />
+                <input type="hidden" name="employee_amount" value={Number(event.employee_amount || 0)} />
+                <input type="hidden" name="employer_amount" value={Number(event.employer_amount || 0)} />
+                <input type="hidden" name="employer_ni_topup_amount" value={Number(event.employer_ni_topup_amount || 0)} />
+                <input type="hidden" name="fixed_amount" value={Number(event.fixed_amount || 0)} />
+                <input type="hidden" name="allocation_percent" value={Number(event.allocation_percent ?? 100)} />
+                <input type="hidden" name="event_status" value={event.event_status || "invested"} />
+                <label className="text-xs font-black uppercase text-slate-500">Fund<select name="pension_fund_id" required defaultValue={event.pension_fund_id || fund?.id} className={inputClass}>{funds.map((item) => <option key={item.id} value={item.id}>{item.fund_name}</option>)}</select></label>
+                <label className="text-xs font-black uppercase text-slate-500">Contribution date<input name="contribution_date" type="date" required defaultValue={event.contribution_date || today} className={inputClass} /></label>
+                <label className="text-xs font-black uppercase text-slate-500">Investment date<input name="investment_date" type="date" required defaultValue={event.investment_date || event.contribution_date || today} className={inputClass} /></label>
+                <label className="text-xs font-black uppercase text-slate-500">Purchase amount (£)<input name="contribution_amount" type="number" min="0" step="0.01" required defaultValue={Number(event.contribution_amount || 0)} className={inputClass} /></label>
+                <label className="text-xs font-black uppercase text-slate-500">Unit price (£)<input name="unit_price" type="number" min="0" step="0.000001" defaultValue={event.unit_price ?? ""} className={inputClass} /></label>
+                <label className="text-xs font-black uppercase text-slate-500">Units bought<input name="units_bought" type="number" min="0" step="0.000001" defaultValue={event.units_bought ?? ""} className={inputClass} /></label>
+                <label className="text-xs font-black uppercase text-slate-500 sm:col-span-2">Reconciliation note<input name="notes" defaultValue={event.notes || ""} className={inputClass} /></label>
+                <div className="flex items-end lg:col-span-4"><SubmitButton pendingLabel="Updating purchase…">Update thread record</SubmitButton></div>
+              </form>
+            </details>
           );
         })}
         {rows.length === 0 ? (
@@ -10247,6 +10348,7 @@ function HoldingInfoPanel({
           title={`${holding.asset_name} market price history`}
           mode="price"
           refreshMs={60_000}
+          prefetchRanges
         />
       </CollapsibleSection>
 

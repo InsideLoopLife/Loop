@@ -2,6 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes loop-skeleton-sweep {
+  0% { transform: translateX(-120%); opacity: 0; }
+  35% { opacity: 0.7; }
+  100% { transform: translateX(220%); opacity: 0; }
+}
+
+.loop-chart-skeleton,
+.loop-page-skeleton {
+  position: relative;
+  isolation: isolate;
+}
+
+.loop-chart-skeleton::after,
+.loop-page-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 42%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.84), transparent);
+  animation: loop-skeleton-sweep 1.7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loop-chart-skeleton::after,
+  .loop-page-skeleton::after { animation: none; }
+}
+
 :root {
   color-scheme: light;
   --lt-ink: #061225;

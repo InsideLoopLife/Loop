@@ -4,7 +4,7 @@ import { Nav } from "@/components/Nav";
 import { createClient } from "@/lib/supabase/server";
 
 type Props = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 function first(value: string | string[] | undefined) {
@@ -12,7 +12,7 @@ function first(value: string | string[] | undefined) {
 }
 
 export default async function SnapTradeCallbackPage({ searchParams }: Props) {
-  const params = await Promise.resolve(searchParams || {});
+  const params = (await searchParams) ?? {};
   const status = String(first(params.status) || first(params.connection_status) || "unknown").toUpperCase();
   const connectionId = String(first(params.connection_id) || first(params.connectionId) || first(params.brokerage_authorization_id) || first(params.brokerageAuthorizationId) || "");
   const errorMessage = String(first(params.error) || first(params.message) || "");

@@ -38,6 +38,7 @@ type PensionAccountRow = {
   contribution_paused?: boolean | null;
   contribution_auto_apply_enabled?: boolean | null;
   current_value?: number | null;
+  last_contribution_projection_at?: string | null;
 };
 
 type PensionFundRow = {
@@ -56,13 +57,13 @@ type PensionFundRow = {
   annual_fund_fee_percent?: number | null;
   price_as_of_date?: string | null;
   fee_source_url?: string | null;
+  glossary_id?: string | null;
 };
 
 type PayEventRow = {
   user_id: string;
   person_id: string | null;
   gross_annual_salary?: number | null;
-  pensionable_pay?: number | null;
   effective_from?: string | null;
   effective_until?: string | null;
 };
@@ -221,7 +222,7 @@ function periodsPerYear(frequency: string) {
 function contributionBreakdown(account: PensionAccountRow, pay: PayEventRow | null) {
   const frequency = contributionFrequency(account.contribution_frequency);
   const periods = periodsPerYear(frequency);
-  const grossAnnual = n(pay?.pensionable_pay, n(pay?.gross_annual_salary, 0));
+  const grossAnnual = n(pay?.gross_annual_salary, 0);
   const fixedMonthly = n(account.fixed_monthly_contribution);
 
   // BUGFIX: this used to only reinvest the employer's NI saving when
@@ -258,8 +259,8 @@ function contributionBreakdown(account: PensionAccountRow, pay: PayEventRow | nu
 }
 
 function asGbpUnitPrice(row: any) {
-  const raw = n(row?.latest_unit_price, 0);
-  const unit = String(row?.price_unit || "GBP").toUpperCase();
+  const raw = n(row?.unit_price, 0);
+  const unit = String(row?.unit_price_quote_unit || "GBP").toUpperCase();
   if (!raw) return null;
   return unit === "GBX" || unit.includes("PENCE") ? raw / 100 : raw;
 }
@@ -267,7 +268,7 @@ function asGbpUnitPrice(row: any) {
 async function getLatestGlossaryPrice(supabase: SupabaseAdmin, fund: PensionFundRow): Promise<GlossaryPrice | null> {
   const code = String(fund.fund_code || "").trim();
   const name = String(fund.fund_name || "").trim();
-  const select = "fund_name,fund_code,isin,latest_unit_price,latest_unit_price_date,price_unit,fund_fee_percent,source_url,factsheet_url,confidence";
+  const select = "id,internal_fund_name,internal_fund_code,underlying_isin,unit_price,unit_price_quote_unit,annual_fund_fee_percent,source_url,confidence,updated_at";
   const read = async (column: string, value: string, exact = false) => {
     const query = supabase.from("provider_fund_glossary").select(select).order("confidence", { ascending: false }).limit(1);
     const result = exact ? await query.eq(column, value).maybeSingle() : await query.ilike(column, `%${value}%`).maybeSingle();
@@ -275,14 +276,25 @@ async function getLatestGlossaryPrice(supabase: SupabaseAdmin, fund: PensionFund
   };
 
   let data: any = null;
-  if (code) data = await read("fund_code", code, true) || await read("isin", code, true);
-  if (!data && name) data = await read("fund_name", name, false);
+  if (fund.glossary_id) data = await read("id", fund.glossary_id, true);
+  if (!data && code) data = await read("internal_fund_code", code, true) || await read("underlying_isin", code, true);
+  if (!data && name) data = await read("internal_fund_name", name, false);
   if (!data) return null;
+  const { data: latestAppliedChange } = await supabase
+    .from("provider_fund_price_change_log")
+    .select("checked_at")
+    .eq("glossary_id", data.id)
+    .eq("applied", true)
+    .order("checked_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
   return {
     unitPrice: asGbpUnitPrice(data),
-    priceDate: data.latest_unit_price_date || null,
-    fee: data.fund_fee_percent ?? null,
-    sourceUrl: data.source_url || data.factsheet_url || null,
+    priceDate: latestAppliedChange?.checked_at
+      ? String(latestAppliedChange.checked_at).slice(0, 10)
+      : null,
+    fee: data.annual_fund_fee_percent ?? null,
+    sourceUrl: data.source_url || null,
     confidence: data.confidence ?? null,
   };
 }
@@ -334,7 +346,7 @@ export async function runPensionContributionProjection(
 
   const { data: accounts, error: accountError } = await supabase
     .from("pension_accounts")
-    .select("id,user_id,person_id,label,provider,contribution_method,employee_contribution_percent,employer_contribution_percent,employer_ni_topup_enabled,employer_ni_topup_percent,employer_ni_topup_mode,employer_ni_rate_percent,employer_ni_passback_percent,employer_base_salary_basis,fixed_monthly_contribution,contribution_frequency,contribution_day,regular_pay_day,pension_payment_timing,contribution_delay_days,pension_investment_day,pension_investment_timing,contribution_started_on,contribution_ended_on,contribution_paused,contribution_auto_apply_enabled,current_value")
+    .select("id,user_id,person_id,label,provider,contribution_method,employee_contribution_percent,employer_contribution_percent,employer_ni_topup_enabled,employer_ni_topup_percent,employer_ni_topup_mode,employer_ni_rate_percent,employer_ni_passback_percent,employer_base_salary_basis,fixed_monthly_contribution,contribution_frequency,contribution_day,regular_pay_day,pension_payment_timing,contribution_delay_days,pension_investment_day,pension_investment_timing,contribution_started_on,contribution_ended_on,contribution_paused,contribution_auto_apply_enabled,current_value,last_contribution_projection_at")
     .returns<PensionAccountRow[]>();
   if (accountError) throw accountError;
 
@@ -343,13 +355,13 @@ export async function runPensionContributionProjection(
     accountIds.length
       ? supabase
           .from("pension_funds")
-          .select("id,user_id,pension_account_id,fund_name,fund_code,group_label,target_allocation_percent,monthly_contribution_percent,contribution_active,current_value,units,unit_price,annual_fund_fee_percent,price_as_of_date,fee_source_url")
+          .select("id,user_id,pension_account_id,fund_name,fund_code,group_label,target_allocation_percent,monthly_contribution_percent,contribution_active,current_value,units,unit_price,annual_fund_fee_percent,price_as_of_date,fee_source_url,glossary_id")
           .in("pension_account_id", accountIds)
           .returns<PensionFundRow[]>()
       : Promise.resolve({ data: [] as PensionFundRow[], error: null as any }),
     supabase
       .from("pay_events")
-      .select("user_id,person_id,gross_annual_salary,pensionable_pay,effective_from,effective_until")
+      .select("user_id,person_id,gross_annual_salary,effective_from,effective_until")
       .returns<PayEventRow[]>(),
   ]);
   if (fundError) throw fundError;
@@ -361,6 +373,17 @@ export async function runPensionContributionProjection(
     fundsByAccount.get(fund.pension_account_id)!.push(fund);
   }
 
+  const glossaryByFund = new Map<string, Promise<GlossaryPrice | null>>();
+  const glossaryFor = (fund: PensionFundRow) => {
+    if (!glossaryByFund.has(fund.id)) {
+      glossaryByFund.set(
+        fund.id,
+        getLatestGlossaryPrice(supabase, fund).catch(() => null),
+      );
+    }
+    return glossaryByFund.get(fund.id)!;
+  };
+
   // Refresh every fund's live price unconditionally, independent of whether a contribution gets
   // created below. Previously this only ever happened as a side effect of a successful
   // contribution match, so a pension whose contributions were silently stuck (e.g. no matching pay
@@ -369,9 +392,13 @@ export async function runPensionContributionProjection(
   // that's actually reflected.
   let pricesRefreshed = 0;
   for (const fund of funds || []) {
-    const glossary = await getLatestGlossaryPrice(supabase, fund).catch(() => null);
+    const glossary = await glossaryFor(fund);
     if (!glossary?.unitPrice || glossary.unitPrice <= 0) continue;
     if (glossary.priceDate && fund.price_as_of_date && glossary.priceDate <= fund.price_as_of_date) continue;
+    if (
+      !glossary.priceDate &&
+      Math.abs(glossary.unitPrice - n(fund.unit_price, 0)) < 0.0000001
+    ) continue;
     const units = n(fund.units, 0);
     const nextValue = units > 0 ? units * glossary.unitPrice : n(fund.current_value, 0);
     const updatePayload: Record<string, any> = {
@@ -397,6 +424,13 @@ export async function runPensionContributionProjection(
   for (const account of accounts || []) {
     result.checked_accounts += 1;
     const accountFunds = fundsByAccount.get(account.id) || [];
+    // On the first successful run, older thread rows are audit history only:
+    // the provider-confirmed units/value already include them. Subsequent runs
+    // may apply only purchases after this watermark, preventing first-run
+    // backfills from inflating the current pot.
+    const projectionWatermark = parseDate(
+      account.last_contribution_projection_at?.slice(0, 10),
+    );
     const allocations = normaliseAllocations(accountFunds);
     result.checked_funds += accountFunds.length;
     if (!allocations.length) {
@@ -438,12 +472,16 @@ export async function runPensionContributionProjection(
           .select("id,event_status")
           .eq("external_transaction_id", txId)
           .maybeSingle();
-        if (existing && !options.force) {
+        if (
+          existing &&
+          !options.force &&
+          !(existing.event_status === "pending_investment" && status === "invested")
+        ) {
           result.contribution_events_existing += 1;
           continue;
         }
 
-        const glossary = await getLatestGlossaryPrice(supabase, fund);
+        const glossary = await glossaryFor(fund);
         const unitPrice = glossary?.unitPrice || n(fund.unit_price, 0) || null;
         const unitsBought = status === "invested" && unitPrice && unitPrice > 0 ? contributionAmount / unitPrice : 0;
 
@@ -485,6 +523,13 @@ export async function runPensionContributionProjection(
           continue;
         }
 
+        if (!projectionWatermark || investmentDate <= projectionWatermark) {
+          result.notes.push(
+            `${fund.fund_name || fund.id}: recorded ${isoDate(investmentDate)} in the thread without adding it to current units because it predates the last confirmed projection balance.`,
+          );
+          continue;
+        }
+
         const previousUnits = n(fund.units, 0);
         const previousValue = n(fund.current_value, previousUnits * n(fund.unit_price, 0));
         const nextUnits = previousUnits + unitsBought;
@@ -519,10 +564,14 @@ export async function runPensionContributionProjection(
     // Always snapshot and roll up account current_value after updating fund rows.
     const refreshedFunds = fundsByAccount.get(account.id) || [];
     const totalValue = refreshedFunds.reduce((sum, fund) => sum + n(fund.current_value, n(fund.units) * n(fund.unit_price)), 0);
+    const rollupDates = refreshedFunds
+      .filter((fund) => n(fund.current_value, n(fund.units) * n(fund.unit_price)) > 0 && fund.price_as_of_date)
+      .map((fund) => String(fund.price_as_of_date).slice(0, 10))
+      .sort();
     if (totalValue > 0) {
       await supabase.from("pension_accounts").update({
         current_value: Math.round(totalValue * 100) / 100,
-        value_as_of_date: today,
+        value_as_of_date: rollupDates[0] || today,
         last_contribution_projection_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       } as any).eq("id", account.id).eq("user_id", account.user_id);

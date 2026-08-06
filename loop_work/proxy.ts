@@ -39,7 +39,7 @@ function isPublicCallback(pathname: string) {
   return pathname === "/auth/callback" || pathname === "/reset-password/verify";
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   if (accessGateRequired() && !isPublicAsset(pathname) && !pathname.startsWith("/api/") && !publicWithoutAccess.has(pathname) && !isPublicCallback(pathname)) {
     const unlocked = request.cookies.get(ACCESS_COOKIE_NAME)?.value === await accessCookieValue();
