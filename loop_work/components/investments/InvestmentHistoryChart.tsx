@@ -11,6 +11,8 @@ type Point = {
   source?: string;
 };
 
+const EMPTY_POINTS: Point[] = [];
+
 type HistoryQuality = {
   reliable: boolean;
   reconstructedLegacy?: boolean;
@@ -32,6 +34,7 @@ type Props = {
   className?: string;
   showRange?: boolean;
   refreshMs?: number;
+  prefetchRanges?: boolean;
 };
 
 const RANGES = [
@@ -44,6 +47,10 @@ const RANGES = [
   { value: "5y", label: "5Y" },
   { value: "max", label: "Max" },
 ];
+
+function historyCacheKey(range: string, holdingId?: string, accountId?: string) {
+  return `${range}|${holdingId || ""}|${accountId || ""}`;
+}
 
 function money(value: number) {
   return new Intl.NumberFormat("en-GB", {
@@ -213,6 +220,7 @@ export function InvestmentHistoryChart({
   className = "",
   showRange = true,
   refreshMs,
+  prefetchRanges = false,
 }: Props) {
   type RangeEntry = { points: Point[]; quality: HistoryQuality | null; sourceMode: string; status: string; fetchedAt: number };
   // BUGFIX (the "flash to a different chart" complaint): previously this
@@ -228,18 +236,38 @@ export function InvestmentHistoryChart({
   // already sitting there ready.
   const cacheRef = useRef<Map<string, RangeEntry>>(new Map());
   const [range, setRange] = useState("1m");
-  const [, forceRerender] = useState(0);
+  const [renderedRange, setRenderedRange] = useState<{
+    key: string;
+    entry: RangeEntry;
+  } | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
-  function cacheKey(r: string) {
-    return `${r}|${holdingId || ""}|${accountId || ""}`;
-  }
+  useEffect(() => {
+    const node = wrapRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      const timer = window.setTimeout(() => setIsVisible(true), 0);
+      return () => window.clearTimeout(timer);
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "240px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
+    if (!isVisible) return;
     let cancelled = false;
     async function loadRange(targetRange: string, silent: boolean) {
-      const key = cacheKey(targetRange);
+      const key = historyCacheKey(targetRange, holdingId, accountId);
       const existing = cacheRef.current.get(key);
       // Already have this one — nothing to fetch, nothing to show as
       // loading. This is what makes clicking back to a seen range instant.
@@ -248,7 +276,9 @@ export function InvestmentHistoryChart({
       if (holdingId) params.set("holdingId", holdingId);
       if (accountId) params.set("accountId", accountId);
       try {
-        const response = await fetch(`/api/investments/history?${params.toString()}`, { cache: "default" });
+        const response = await fetch(`/api/investments/history?${params.toString()}`, {
+          cache: refreshMs ? "no-store" : "default",
+        });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || "Could not load history");
         if (cancelled) return;
@@ -261,7 +291,9 @@ export function InvestmentHistoryChart({
           status: rows.length ? "" : nextQuality?.note || "No reliable history yet",
           fetchedAt: Date.now(),
         });
-        forceRerender((n) => n + 1);
+        if (targetRange === range) {
+          setRenderedRange({ key, entry: cacheRef.current.get(key)! });
+        }
       } catch (caught) {
         if (cancelled) return;
         cacheRef.current.set(key, {
@@ -271,7 +303,9 @@ export function InvestmentHistoryChart({
           status: caught instanceof Error ? caught.message : "Could not load history",
           fetchedAt: Date.now(),
         });
-        forceRerender((n) => n + 1);
+        if (targetRange === range) {
+          setRenderedRange({ key, entry: cacheRef.current.get(key)! });
+        }
       }
     }
 
@@ -282,25 +316,29 @@ export function InvestmentHistoryChart({
     // Then quietly prefetch every other range in the background, spaced
     // out a little so this doesn't fire 8 requests at once competing
     // with the one that actually matters right now.
-    const otherRanges = RANGES.map((r) => r.value).filter((r) => r !== range);
+    const otherRanges = prefetchRanges
+      ? RANGES.map((r) => r.value).filter((r) => r !== range)
+      : [];
     const prefetchTimers = otherRanges.map((r, index) =>
-      window.setTimeout(() => { if (!cancelled) loadRange(r, false); }, 400 + index * 350),
+      window.setTimeout(() => { if (!cancelled) loadRange(r, true); }, 600 + index * 450),
     );
 
     // Keep the existing background-refresh behaviour for the active range
     // specifically, so numbers still stay live while the page is open.
-    const interval = Math.max(30_000, refreshMs ?? 60_000);
-    const refreshTimer = window.setInterval(() => loadRange(range, true), interval);
+    const refreshTimer = refreshMs && refreshMs > 0
+      ? window.setInterval(() => loadRange(range, true), Math.max(30_000, refreshMs))
+      : null;
 
     return () => {
       cancelled = true;
       prefetchTimers.forEach((t) => window.clearTimeout(t));
-      window.clearInterval(refreshTimer);
+      if (refreshTimer) window.clearInterval(refreshTimer);
     };
-  }, [holdingId, accountId, range, compact, refreshMs]);
+  }, [holdingId, accountId, range, compact, refreshMs, prefetchRanges, isVisible]);
 
-  const active = cacheRef.current.get(cacheKey(range));
-  const points = active?.points || [];
+  const currentKey = historyCacheKey(range, holdingId, accountId);
+  const active = renderedRange?.key === currentKey ? renderedRange.entry : null;
+  const points = active?.points ?? EMPTY_POINTS;
   const status = active ? active.status : "Loading history...";
   const quality = active?.quality || null;
   const sourceMode = active?.sourceMode || "";
@@ -440,7 +478,12 @@ export function InvestmentHistoryChart({
                 <button
                   key={item.value}
                   type="button"
-                  onClick={() => setRange(item.value)}
+                  onClick={() => {
+                    const nextKey = historyCacheKey(item.value, holdingId, accountId);
+                    const cached = cacheRef.current.get(nextKey);
+                    setRange(item.value);
+                    setRenderedRange(cached ? { key: nextKey, entry: cached } : null);
+                  }}
                   className={`rounded-full px-3 py-1.5 text-xs font-black transition ${range === item.value ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}
                 >
                   {item.label}
@@ -602,6 +645,23 @@ export function InvestmentHistoryChart({
             1 snapshot · {numberLabel(latest, mode)}
             <br />
             next refresh will draw the line
+          </div>
+        ) : !active ? (
+          <div
+            className="loop-chart-skeleton h-full overflow-hidden rounded-[1.25rem] border border-blue-100 bg-gradient-to-br from-blue-50/90 via-white to-teal-50/80"
+            role="status"
+            aria-label="Loading investment history"
+          >
+            <div className="flex h-full items-end gap-2 px-4 pb-4 pt-8 opacity-70">
+              {[38, 54, 46, 68, 57, 78, 70, 86, 74].map((height, index) => (
+                <span
+                  key={`${height}-${index}`}
+                  className="flex-1 rounded-t-full bg-gradient-to-t from-blue-200 to-teal-200"
+                  style={{ height: `${height}%` }}
+                />
+              ))}
+            </div>
+            <span className="sr-only">Loading history…</span>
           </div>
         ) : (
           <div className="flex h-full items-center justify-center text-center text-xs font-bold text-slate-400">

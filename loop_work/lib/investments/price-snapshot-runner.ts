@@ -11,12 +11,14 @@ import { loadInvestmentSnapshotSettings } from "@/lib/investments/snapshot-setti
 import { investmentDataEntitlementForProfile } from "@/lib/wealth/user-tiers";
 import { quoteUnitForVenue, venueFor } from "@/lib/investments/market-venues";
 import { findMoneyboxAsset } from "@/lib/investments/moneybox-funds";
+import { quoteObservationTime } from "@/lib/investments/market-data-quality";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 
 type Holding = {
   id: string;
   user_id: string;
+  investment_account_id?: string | null;
   ticker: string | null;
   exchange: string | null;
   units: number | null;
@@ -92,6 +94,13 @@ type GlobalPoint = {
   observed_at?: string | null;
   price_minute?: string | null;
   fx_rate_to_gbp?: number | null;
+};
+
+type GlobalPointContext = {
+  listingId: string;
+  latestPoint: GlobalPoint | null;
+  previousClosePoint: GlobalPoint | null;
+  openingPoint: GlobalPoint | null;
 };
 
 function workerPositiveInt(
@@ -178,6 +187,11 @@ function floorMinuteIso(date: Date) {
   return d.toISOString();
 }
 
+function floorCadenceIso(date: Date, cadenceMinutes: number) {
+  const cadenceMs = Math.max(1, cadenceMinutes) * 60 * 1000;
+  return new Date(Math.floor(date.getTime() / cadenceMs) * cadenceMs).toISOString();
+}
+
 function previousTradingCloseIso(
   now: Date,
   exchange?: string | null,
@@ -255,7 +269,8 @@ function isDue(
     ? Date.parse(holding.last_price_check_at)
     : 0;
   if (!Number.isFinite(last) || last <= 0) return true;
-  return now.getTime() - last >= cadence * 60 * 1000;
+  const cadenceMs = cadence * 60 * 1000;
+  return Math.floor(last / cadenceMs) < Math.floor(now.getTime() / cadenceMs);
 }
 
 function pointGbp(point: GlobalPoint | null | undefined) {
@@ -287,6 +302,12 @@ async function ensureCatalogueForGroup(
 
   let instrumentId = args.sample.instrument_id || null;
   let listingId = args.sample.listing_id || null;
+
+  // Resolved holdings do not need their catalogue, alias and holding links
+  // rewritten on every worker cycle.
+  if (instrumentId && listingId) {
+    return { instrumentId, listingId, ticker, exchange, venueCode };
+  }
 
   if (!instrumentId) {
     const { data, error } = await supabase
@@ -387,6 +408,47 @@ async function ensureCatalogueForGroup(
   }
 
   return { instrumentId, listingId, ticker, exchange, venueCode };
+}
+
+async function loadGlobalPointContexts(
+  supabase: SupabaseAdmin,
+  args: {
+    listingIds: string[];
+    snapshotDate: string;
+    sinceIso: string;
+  },
+) {
+  const listingIds = Array.from(new Set(args.listingIds.filter(Boolean)));
+  const contexts = new Map<string, GlobalPointContext>();
+  if (!listingIds.length) return contexts;
+
+  const { data, error } = await supabase.rpc(
+    "loop_worker_market_price_context",
+    {
+      p_listing_ids: listingIds,
+      p_snapshot_date: args.snapshotDate,
+      p_since: args.sinceIso,
+    },
+  );
+  if (error) throw error;
+
+  for (const row of (data || []) as any[]) {
+    const listingId = String(row.listing_id || "");
+    if (!listingId) continue;
+    contexts.set(listingId, {
+      listingId,
+      latestPoint: (row.latest_point as GlobalPoint | null) || null,
+      previousClosePoint:
+        (row.previous_close_point as GlobalPoint | null) || null,
+      openingPoint: (row.opening_point as GlobalPoint | null) || null,
+    });
+  }
+  return contexts;
+}
+
+function globalPointIsFresh(point: GlobalPoint | null, sinceIso: string) {
+  const timestamp = Date.parse(pointAt(point));
+  return Number.isFinite(timestamp) && timestamp >= Date.parse(sinceIso);
 }
 
 async function latestGlobalPricePoint(
@@ -598,7 +660,6 @@ async function createCoverageRequiredAlert(
         "planned",
         "queued",
         "needs_review",
-        "coverage_required",
         "in_progress",
       ])
       .limit(1)
@@ -608,7 +669,7 @@ async function createCoverageRequiredAlert(
       await supabase
         .from("loop_investment_ai_market_requests")
         .update({
-          status: "coverage_required",
+          status: "needs_review",
           progress,
           match_confidence: 0,
           updated_at: args.nowIso,
@@ -625,7 +686,7 @@ async function createCoverageRequiredAlert(
         request_query: requestQuery,
         exchange_hint: exchange || null,
         inferred_market_code: exchange || null,
-        status: "coverage_required",
+        status: "needs_review",
         created_by: sample?.user_id || null,
         match_confidence: 0,
         progress,
@@ -736,7 +797,7 @@ export async function runInvestmentPriceSnapshotJob(
     const { data: holdings, error } = await supabase
       .from("investment_holdings")
       .select(
-        "id, user_id, ticker, exchange, units, average_buy_price, latest_price, price_polling_enabled, last_price_check_at, import_source_type, external_provider, asset_name, asset_kind, isin, listing_id, instrument_id, instrument_resolution_status",
+        "id, user_id, investment_account_id, ticker, exchange, units, average_buy_price, latest_price, price_polling_enabled, last_price_check_at, import_source_type, external_provider, asset_name, asset_kind, isin, listing_id, instrument_id, instrument_resolution_status",
       )
       .not("ticker", "is", null)
       .neq("record_status", "archived")
@@ -803,6 +864,37 @@ export async function runInvestmentPriceSnapshotJob(
       `[investment-price-job] distinct ticker/exchange groups: ${groups.size}`,
     );
 
+    const contextLookbackMinutes = Math.max(
+      12 * 60,
+      Number(settings.freeMinutes || 0),
+      Number(settings.plusProMinutes || 0),
+      Number(settings.realtimeMinutes || 0),
+    );
+    const contextSinceIso = new Date(
+      now.getTime() - contextLookbackMinutes * 60 * 1000,
+    ).toISOString();
+    let contextByListing = new Map<string, GlobalPointContext>();
+    if (settings.globalRawPricePoints) {
+      try {
+        contextByListing = await loadGlobalPointContexts(supabase, {
+          listingIds: activeHoldings
+            .map((holding) => holding.listing_id || "")
+            .filter(Boolean),
+          snapshotDate,
+          sinceIso: contextSinceIso,
+        });
+        logger.log(
+          `[investment-price-job] prefetched price context for ${contextByListing.size} listing(s) in one database call`,
+        );
+      } catch (caught) {
+        logger.warn(
+          `[investment-price-job] bulk price context unavailable; using per-listing fallback`,
+          caught,
+        );
+      }
+    }
+
+    const touchedUserIds = new Set<string>();
     const groupEntries = Array.from(groups.entries());
     await mapLimit(
       groupEntries,
@@ -862,15 +954,34 @@ export async function runInvestmentPriceSnapshotJob(
         const globalSince = new Date(
           now.getTime() - fastestCadence * 60 * 1000,
         ).toISOString();
-        const cachedPoint =
+        const prefetchedContext = link.listingId
+          ? contextByListing.get(link.listingId)
+          : undefined;
+        const prefetchedLatest = prefetchedContext?.latestPoint || null;
+        const cachedCandidate =
           settings.globalRawPricePoints && !options.force
-            ? await latestGlobalPricePoint(supabase, {
-                listingId: link.listingId,
-                ticker,
-                exchange,
-                sinceIso: globalSince,
-              })
+            ? prefetchedContext
+              ? prefetchedLatest
+              : await latestGlobalPricePoint(supabase, {
+                  listingId: link.listingId,
+                  ticker,
+                  exchange,
+                  sinceIso: globalSince,
+                })
             : null;
+        // A one-minute entitlement means one provider check in every new clock
+        // minute. A rolling "you checked 59 seconds ago" cache could otherwise
+        // skip alternate minute buckets when worker start times drift slightly.
+        const cachedCandidateMinute = cachedCandidate
+          ? cachedCandidate.price_minute ||
+            floorMinuteIso(new Date(pointAt(cachedCandidate)))
+          : null;
+        const cachedPoint = cachedCandidate &&
+          (fastestCadence <= 1
+            ? cachedCandidateMinute === pointMinute
+            : globalPointIsFresh(cachedCandidate, globalSince))
+          ? cachedCandidate
+          : null;
 
         const quote = cachedPoint
           ? null
@@ -960,6 +1071,10 @@ export async function runInvestmentPriceSnapshotJob(
         const pointSource = cachedPoint
           ? `${cachedPoint.source || "global price point"}; reused`
           : `${quote!.source}; ${converted.fxSource}`;
+        const quotePointAt = cachedPoint
+          ? String(cachedPoint.observed_at || cachedPoint.point_at || startedAt)
+          : quoteObservationTime(quote!.observedAt, startedAt);
+        const quotePointMinute = floorMinuteIso(new Date(quotePointAt));
 
         if (!cachedPoint && settings.globalRawPricePoints) {
           await upsertGlobalPoint(supabase, {
@@ -975,17 +1090,19 @@ export async function runInvestmentPriceSnapshotJob(
             source: `${quote!.source}; ${converted.fxSource}`,
             sourceUrl: quote!.sourceUrl || null,
             confidence: 85,
-            pointAt: startedAt,
-            pointMinute,
+            pointAt: quotePointAt,
+            pointMinute: quotePointMinute,
           });
         }
 
-        let previousClose = await previousCloseGlobalPoint(supabase, {
-          listingId: link.listingId,
-          ticker,
-          exchange,
-          snapshotDate,
-        });
+        let previousClose = prefetchedContext
+          ? prefetchedContext.previousClosePoint
+          : await previousCloseGlobalPoint(supabase, {
+              listingId: link.listingId,
+              ticker,
+              exchange,
+              snapshotDate,
+            });
         if (!previousClose && !cachedPoint && quote?.previousClose) {
           previousClose = await seedProviderPreviousClosePoint(supabase, {
             link,
@@ -1007,12 +1124,34 @@ export async function runInvestmentPriceSnapshotJob(
         // v28.54: user-facing daily movement now tracks movement since market open / first
         // stored point today. Previous close is retained where providers give it, but it is
         // no longer required for cards to show movement during the current session.
-        let openingPoint = await openingGlobalPoint(supabase, {
-          listingId: link.listingId,
-          ticker,
-          exchange,
-          snapshotDate,
-        });
+        const currentPoint: GlobalPoint =
+          cachedPoint || {
+            listing_id: link.listingId,
+            instrument_id: link.instrumentId,
+            ticker: link.ticker,
+            exchange_code: link.venueCode || link.exchange || "",
+            price_gbp: Number(converted.gbpPrice),
+            gbp_price: Number(converted.gbpPrice),
+            native_price: nativePrice,
+            native_currency: nativeCurrency,
+            quote_unit: quoteUnit,
+            source: pointSource,
+            point_at: startedAt,
+            observed_at: startedAt,
+            price_minute: pointMinute,
+            fx_rate_to_gbp: Number((converted as any).fxRate || 1),
+          };
+        let openingPoint = prefetchedContext
+          ? prefetchedContext.openingPoint
+          : await openingGlobalPoint(supabase, {
+              listingId: link.listingId,
+              ticker,
+              exchange,
+              snapshotDate,
+            });
+        if (!openingPoint && pointAt(currentPoint).slice(0, 10) === snapshotDate) {
+          openingPoint = currentPoint;
+        }
         let openingGbp = pointGbp(openingPoint) || Number(converted.gbpPrice);
         let openingNative =
           Number(openingPoint?.native_price || 0) || nativePrice;
@@ -1084,7 +1223,15 @@ export async function runInvestmentPriceSnapshotJob(
           }
         }
 
-        const rows = dueHoldings.map((holding) => {
+        // Per-holding rows are now a daily/event ledger. Intraday chart history comes
+        // from the shared listing series plus one aggregate value row per user scope.
+        const dailyHoldings = dueHoldings.filter(
+          (holding) =>
+            !holding.last_price_check_at ||
+            holding.last_price_check_at.slice(0, 10) !== snapshotDate,
+        );
+        const dailySnapshotAt = `${snapshotDate}T00:00:00.000Z`;
+        const rows = dailyHoldings.map((holding) => {
           const units = Number(holding.units || 0);
           const nativeValue = units * Number(nativePrice || 0);
           const gbpValue = nativeValue * Number((converted as any).fxRate || 1);
@@ -1113,34 +1260,36 @@ export async function runInvestmentPriceSnapshotJob(
             day_change_native: dayChangeNative,
             day_change_native_percent: dayChangeNativePercent,
             snapshot_date: snapshotDate,
-            snapshot_at: startedAt,
-            snapshot_minute: pointMinute,
+            snapshot_at: dailySnapshotAt,
+            snapshot_minute: dailySnapshotAt,
             snapshot_batch_id: snapshotBatchId,
             source: pointSource,
-            bucket_interval: "raw",
+            bucket_interval: "1d",
           } as any;
         });
 
-        const insert = await supabase
-          .from("investment_price_snapshots")
-          .upsert(rows, { onConflict: "user_id,holding_id,snapshot_minute" });
-        if (insert.error) {
-          result.failed += dueHoldings.length;
-          result.failures.push({
-            ticker,
-            exchange,
-            reason: insert.error.message,
-          });
-          logger.error(
-            `[investment-price-job] insert failed ${ticker}: ${insert.error.message}`,
-          );
-          return;
+        if (rows.length) {
+          const insert = await supabase
+            .from("investment_price_snapshots")
+            .upsert(rows, { onConflict: "user_id,holding_id,snapshot_minute" });
+          if (insert.error) {
+            result.failures.push({
+              ticker,
+              exchange,
+              reason: `daily_holding_snapshot_failed: ${insert.error.message}`,
+            });
+            logger.warn(
+              `[investment-price-job] daily holding snapshot failed ${ticker}: ${insert.error.message}`,
+            );
+          } else {
+            result.inserted += rows.length;
+          }
         }
-
-        result.inserted += rows.length;
         logger.log(
-          `[investment-price-job] stored ${cachedPoint ? "reused" : "new"} global quote for ${ticker} and wrote ${rows.length} holding value snapshot(s) @ ${converted.gbpPrice} GBP (${cachedPoint ? "cached" : quote!.price} ${nativeCurrency}) cadence=${fastestCadence}m listing=${link.listingId || "legacy"}`,
+          `[investment-price-job] stored ${cachedPoint ? "reused" : "new"} global quote for ${ticker}; daily holding rows=${rows.length} @ ${converted.gbpPrice} GBP (${cachedPoint ? "cached" : quote!.price} ${nativeCurrency}) cadence=${fastestCadence}m listing=${link.listingId || "legacy"}`,
         );
+
+        for (const holding of dueHoldings) touchedUserIds.add(holding.user_id);
 
         const steadyHoldings = dueHoldings.filter((holding) => !transitioningHoldingIds.has(holding.id));
         const transitioningHoldings = dueHoldings.filter((holding) => transitioningHoldingIds.has(holding.id));
@@ -1178,8 +1327,7 @@ export async function runInvestmentPriceSnapshotJob(
               day_change_native_percent: dayChangeNativePercent,
               source_url: cachedPoint
                 ? `market-data:${cachedPoint.source || "global"}:${ticker}`
-                : quote!.sourceUrl ||
-                  `market-data:${quote!.source}:${quote!.rawSymbol}`,
+                : `market-data:${quote!.source}:${quote!.rawSymbol}${quote!.sourceUrl ? `|${quote!.sourceUrl}` : ""}`,
               last_price_check_at: startedAt,
               price_check_status: "ok",
               updated_at: startedAt,
@@ -1238,8 +1386,7 @@ export async function runInvestmentPriceSnapshotJob(
               day_change_native_percent: 0,
               source_url: cachedPoint
                 ? `market-data:${cachedPoint.source || "global"}:${ticker}`
-                : quote!.sourceUrl ||
-                  `market-data:${quote!.source}:${quote!.rawSymbol}`,
+                : `market-data:${quote!.source}:${quote!.rawSymbol}${quote!.sourceUrl ? `|${quote!.sourceUrl}` : ""}`,
               last_price_check_at: startedAt,
               price_check_status: "ok",
               updated_at: startedAt,
@@ -1264,7 +1411,125 @@ export async function runInvestmentPriceSnapshotJob(
       },
     );
 
-    if (options.prune !== false) {
+    // One value point per user/account cadence replaces minute-by-minute rows for
+    // every holding. This is deliberately one pair of bulk reads and one bulk write,
+    // independent of the number of ticker groups processed above.
+    if (touchedUserIds.size) {
+      const touched = Array.from(touchedUserIds);
+      const [{ data: valueHoldings, error: valueHoldingsError }, { data: valueAccounts, error: valueAccountsError }] =
+        await Promise.all([
+          supabase
+            .from("investment_holdings")
+            .select("id, user_id, investment_account_id, units, latest_price, imported_current_value")
+            .in("user_id", touched)
+            .neq("record_status", "archived"),
+          supabase
+            .from("investment_accounts")
+            .select("id, user_id, provider_cash_value")
+            .in("user_id", touched)
+            .neq("record_status", "archived"),
+        ]);
+
+      if (valueHoldingsError || valueAccountsError) {
+        result.failures.push({
+          ticker: "portfolio",
+          exchange: null,
+          reason: `aggregate_snapshot_inputs_failed: ${valueHoldingsError?.message || valueAccountsError?.message}`,
+        });
+      } else {
+        const holdingsByUser = new Map<string, any[]>();
+        for (const holding of valueHoldings || []) {
+          const rows = holdingsByUser.get(holding.user_id) || [];
+          rows.push(holding);
+          holdingsByUser.set(holding.user_id, rows);
+        }
+        const accountsByUser = new Map<string, any[]>();
+        for (const account of valueAccounts || []) {
+          const rows = accountsByUser.get(account.user_id) || [];
+          rows.push(account);
+          accountsByUser.set(account.user_id, rows);
+        }
+
+        const aggregateRows: any[] = [];
+        for (const userId of touched) {
+          const cadence = userCadenceMinutes(profileByUser.get(userId), settings);
+          const bucketAt = floorCadenceIso(now, cadence);
+          const userHoldings = holdingsByUser.get(userId) || [];
+          const userAccounts = accountsByUser.get(userId) || [];
+          const accountCash = new Map(
+            userAccounts.map((account) => [account.id, Number(account.provider_cash_value || 0)]),
+          );
+          const accountIds = new Set<string>([
+            ...userAccounts.map((account) => account.id),
+            ...userHoldings.map((holding) => holding.investment_account_id).filter(Boolean),
+          ]);
+          const holdingValue = (holding: any) => {
+            const marketValue = Number(holding.units || 0) * Number(holding.latest_price || 0);
+            return marketValue > 0 ? marketValue : Number(holding.imported_current_value || 0);
+          };
+          const portfolioHoldingsValue = userHoldings.reduce(
+            (sum, holding) => sum + holdingValue(holding),
+            0,
+          );
+          const portfolioCash = Array.from(accountCash.values()).reduce((sum, value) => sum + value, 0);
+          aggregateRows.push({
+            user_id: userId,
+            investment_account_id: null,
+            scope_key: "portfolio",
+            snapshot_at: startedAt,
+            snapshot_minute: bucketAt,
+            total_value_gbp: portfolioHoldingsValue + portfolioCash,
+            holdings_value_gbp: portfolioHoldingsValue,
+            cash_value_gbp: portfolioCash,
+            holdings_count: userHoldings.length,
+            source: "market worker aggregate",
+            bucket_interval: `${cadence}m`,
+          });
+          for (const accountId of accountIds) {
+            const accountHoldings = userHoldings.filter(
+              (holding) => holding.investment_account_id === accountId,
+            );
+            const holdingsValue = accountHoldings.reduce(
+              (sum, holding) => sum + holdingValue(holding),
+              0,
+            );
+            const cashValue = Number(accountCash.get(accountId) || 0);
+            aggregateRows.push({
+              user_id: userId,
+              investment_account_id: accountId,
+              scope_key: `account:${accountId}`,
+              snapshot_at: startedAt,
+              snapshot_minute: bucketAt,
+              total_value_gbp: holdingsValue + cashValue,
+              holdings_value_gbp: holdingsValue,
+              cash_value_gbp: cashValue,
+              holdings_count: accountHoldings.length,
+              source: "market worker aggregate",
+              bucket_interval: `${cadence}m`,
+            });
+          }
+        }
+
+        const aggregateInsert = await supabase
+          .from("investment_portfolio_value_snapshots")
+          .upsert(aggregateRows, { onConflict: "user_id,scope_key,snapshot_minute" });
+        if (aggregateInsert.error) {
+          result.failures.push({
+            ticker: "portfolio",
+            exchange: null,
+            reason: `aggregate_snapshot_failed: ${aggregateInsert.error.message}`,
+          });
+        } else {
+          result.inserted += aggregateRows.length;
+          logger.log(`[investment-price-job] wrote ${aggregateRows.length} aligned portfolio/account aggregate snapshot(s)`);
+        }
+      }
+    }
+
+    // Retention is database-scheduled. Only explicit admin/maintenance calls
+    // should run it here; the minute-level price endpoint must not compact the
+    // same tables on every cycle.
+    if (options.prune === true) {
       const maintenance = await runInvestmentSnapshotMaintenance(supabase, {
         logger,
         now,
@@ -1306,7 +1571,6 @@ export async function runInvestmentSnapshotMaintenance(
 }> {
   const logger = options.logger || console;
   const now = options.now || new Date();
-  const settings = await loadInvestmentSnapshotSettings(supabase);
   const failures: Array<{
     ticker: string;
     exchange: string | null;
@@ -1316,60 +1580,25 @@ export async function runInvestmentSnapshotMaintenance(
 
   logger.log(`[investment-maintenance] start ${now.toISOString()}`);
 
-  let compactGlobal: { data: any; error: any };
+  let retention: { data: any; error: any };
   try {
-    compactGlobal = (await supabase.rpc(
-      "loop_admin_compact_investment_instrument_price_points",
+    retention = (await supabase.rpc(
+      "loop_downsample_instrument_prices",
     )) as any;
   } catch (error: any) {
-    compactGlobal = { data: null, error };
+    retention = { data: null, error };
   }
-  if (compactGlobal.error) {
+  if (retention.error) {
     failures.push({
-      ticker: "global-prune",
+      ticker: "retention",
       exchange: null,
-      reason: compactGlobal.error.message || String(compactGlobal.error),
+      reason: retention.error.message || String(retention.error),
     });
     logger.warn(
-      `[investment-maintenance] global point compaction failed: ${compactGlobal.error.message || compactGlobal.error}`,
+      `[investment-maintenance] unified retention failed: ${retention.error.message || retention.error}`,
     );
-  }
-
-  let prune: { data: any; error: any };
-  try {
-    prune = (await supabase.rpc(
-      "loop_admin_prune_investment_price_snapshots",
-    )) as any;
-  } catch (error: any) {
-    prune = { data: null, error };
-  }
-
-  if (prune.error) {
-    const cutoff = new Date(
-      now.getTime() - settings.retainDays * 24 * 60 * 60 * 1000,
-    ).toISOString();
-    const { count, error: pruneError } = await supabase
-      .from("investment_price_snapshots")
-      .delete({ count: "exact" })
-      .lt("snapshot_at", cutoff);
-    if (pruneError) {
-      failures.push({
-        ticker: "prune",
-        exchange: null,
-        reason: pruneError.message,
-      });
-      logger.warn(
-        `[investment-maintenance] snapshot prune failed: ${pruneError.message}`,
-      );
-    } else {
-      pruned += count || 0;
-    }
   } else {
-    const data: any = prune.data || {};
-    pruned +=
-      Number(data.deleted_by_age || 0) +
-      Number(data.deleted_by_cap || 0) +
-      Number(data.deleted || 0);
+    pruned += Number(retention.data?.rows_removed || 0);
   }
 
   logger.log(
@@ -1378,8 +1607,8 @@ export async function runInvestmentSnapshotMaintenance(
   return {
     ok: failures.length === 0,
     pruned,
-    global: compactGlobal.data || null,
-    snapshots: prune.data || null,
+    global: retention.data || null,
+    snapshots: retention.data || null,
     failures,
   };
 }

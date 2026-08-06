@@ -120,8 +120,8 @@ function CoveragePill({ status }: { status?: string | null }) {
   return <span className={`rounded-full px-2.5 py-1 text-[11px] font-black uppercase ${cls}`}>{status || "covered"}</span>;
 }
 
-export default async function InvestmentCoveragePage({ searchParams }: { searchParams?: Promise<SearchParams> | SearchParams }) {
-  const resolvedParams = searchParams && typeof (searchParams as any).then === "function" ? await searchParams as SearchParams : (searchParams || {}) as SearchParams;
+export default async function InvestmentCoveragePage({ searchParams }: { searchParams?: Promise<SearchParams> }) {
+  const resolvedParams = (await searchParams) ?? {};
   const q = String(resolvedParams.q || "").trim();
   const showAll = resolvedParams.show === "all" || q.length > 0;
   const supabase = await createClient();
@@ -210,7 +210,7 @@ export default async function InvestmentCoveragePage({ searchParams }: { searchP
         <h2 className="text-2xl font-black">Quote sources / pricing coverage</h2>
         <p className="mt-1 text-sm font-bold text-slate-500">Markets describe where securities trade. Sources describe how LOOP prices them.</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <article className="rounded-3xl bg-slate-50 p-4"><p className="font-black">Yahoo / deterministic delayed quotes</p><p className="text-sm font-bold text-slate-500">Used for mapped share and ETF listings. No AI spend.</p></article>
+          <article className="rounded-3xl bg-slate-50 p-4"><p className="font-black">Yahoo timestamped market quotes</p><p className="text-sm font-bold text-slate-500">One-minute observations where supplied; any exchange-declared delay is retained and shown. No AI spend.</p></article>
           <article className="rounded-3xl bg-slate-50 p-4"><p className="font-black">SnapTrade provider values</p><p className="text-sm font-bold text-slate-500">Used for provider units/accounts, then mapped to market listings where possible.</p></article>
           <article className="rounded-3xl bg-slate-50 p-4"><p className="font-black">Provider fund NAV</p><p className="text-sm font-bold text-slate-500">Daily fund/unit prices where the asset is not exchange traded.</p></article>
           {sources.map((source: any) => <article key={source.id || source.source_name} className="rounded-3xl bg-slate-50 p-4"><p className="font-black">{source.source_name}</p><p className="text-sm font-bold text-slate-500">{source.source_kind} · every {source.check_frequency_minutes || 1440} mins</p><p className="text-sm text-slate-500">Markets: {(source.markets || []).join(", ") || "none"}</p></article>)}

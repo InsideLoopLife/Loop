@@ -24,6 +24,8 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  outputFileTracingRoot: process.cwd(),
+  turbopack: { root: process.cwd() },
   async headers() {
     return [
       {
