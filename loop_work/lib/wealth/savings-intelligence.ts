@@ -1,8 +1,15 @@
 import { calculateSavingsAccruedBalance } from "@/lib/wealth/savings-accrual";
+import {
+  classifyIsaWrapper,
+  isaAllowanceRule,
+  isaPersonEligibility,
+  type IsaPerson,
+} from "@/lib/wealth/isa-allowance";
 
 export type SavingsAccountLike = {
   id: string;
   name?: string | null;
+  savings_product_name?: string | null;
   provider?: string | null;
   provider_slug?: string | null;
   account_type?: string | null;
@@ -15,6 +22,8 @@ export type SavingsAccountLike = {
   owner_person_id?: string | null;
   ownership_scope?: string | null;
   owner_is_child?: boolean;
+  owner_relationship?: string | null;
+  owner_birth_date?: string | null;
   interest_rate_end_date?: string | null;
   end_date?: string | null;
   updated_at?: string | null;
@@ -106,7 +115,6 @@ export type SavingsTaxPosition = {
   estimatedSavingsTax: number;
 };
 
-const ISA_ALLOWANCE_DEFAULT = 20000;
 const BASIC_SAVINGS_ALLOWANCE = 1000;
 const HIGHER_SAVINGS_ALLOWANCE = 500;
 
@@ -166,6 +174,17 @@ export function isChildSavingsDeal(deal: SavingsDealLike) {
   ].filter(Boolean).join(" "));
 }
 
+export function savingsDealIsaWrapper(deal: SavingsDealLike) {
+  return classifyIsaWrapper(deal.product_name, deal.account_type, deal.access_type, deal.eligibility_note);
+}
+
+function savingsAccountOwner(account: SavingsAccountLike): IsaPerson {
+  return {
+    id: account.owner_person_id,
+    relationship: account.owner_relationship || (account.owner_is_child ? "child" : null),
+    birth_date: account.owner_birth_date,
+  };
+}
 export function isChildSavingsAccount(account: SavingsAccountLike) {
   if (account.owner_is_child || String(account.ownership_scope || "").toLowerCase() === "child") return true;
   return CHILD_SAVINGS_PATTERN.test([account.name, account.account_type, account.savings_limit_scope].filter(Boolean).join(" "));
@@ -197,8 +216,12 @@ export function savingsDealEligibleBalance(account: SavingsAccountLike, deal: Sa
 
 export function savingsDealMatchesAccount(account: SavingsAccountLike, deal: SavingsDealLike) {
   if (!isActionableSavingsDeal(deal)) return false;
-  // Never present a child-only product as an upgrade for an adult account.
-  if (isChildSavingsDeal(deal) && !isChildSavingsAccount(account)) return false;
+  const wrapper = savingsDealIsaWrapper(deal);
+  const eligibility = isaPersonEligibility(savingsAccountOwner(account), wrapper);
+  // This covers both directions: no Junior ISA for an adult and no adult Cash
+  // ISA for a child. Birth date wins; relationship is the safe legacy fallback.
+  if (!eligibility.eligible) return false;
+  if (isChildSavingsDeal(deal) !== isChildSavingsAccount(account) && isChildSavingsDeal(deal)) return false;
   if (!accountKindMatches(account.account_type, deal.account_type)) return false;
   return savingsDealEligibleBalance(account, deal) > 0;
 }
@@ -422,6 +445,8 @@ export function buildSavingsIntelligence(params: {
   pensionMonthlyContribution?: number;
   subjectPersonId?: string | null;
   adultPersonIds?: string[];
+  subjectIsaSubscribedAmount?: number;
+  subjectIsaAllowance?: number;
 }) {
   const accounts = params.accounts || [];
   const totalSavings = accounts.reduce((sum, account) => sum + calculateSavingsAccruedBalance(account as any).estimatedBalance, 0);
@@ -459,7 +484,9 @@ export function buildSavingsIntelligence(params: {
   const estimatedSavingsTax = subjectPosition.estimatedSavingsTax;
   const subjectNonIsaInterest = subjectPosition.attributedNonIsaInterest;
   const subjectIsaBalance = subjectPosition.attributedIsaBalance;
-  const isaRoom = Math.max(0, ISA_ALLOWANCE_DEFAULT - subjectIsaBalance);
+  const isaAllowance = Math.max(0, n(params.subjectIsaAllowance) || isaAllowanceRule().adultTotalLimit);
+  const isaSubscribedAmount = Math.max(0, n(params.subjectIsaSubscribedAmount));
+  const isaRoom = Math.max(0, isaAllowance - isaSubscribedAmount);
   const subjectTaxableBalance = taxableAccounts.reduce((sum, account) => {
     if (account.owner_person_id && account.owner_person_id !== subjectPosition.personId) return sum;
     const balance = calculateSavingsAccruedBalance(account as any).estimatedBalance;
@@ -493,11 +520,11 @@ export function buildSavingsIntelligence(params: {
       metric: `+${(bestEligibleRate - weightedRate).toFixed(2)}%`,
     });
   }
-  if (subjectNonIsaInterest > savingsAllowance * 0.75 && subjectIsaBalance < ISA_ALLOWANCE_DEFAULT) {
+  if (subjectNonIsaInterest > savingsAllowance * 0.75 && isaSubscribedAmount < isaAllowance) {
     opportunities.push({
       key: "isa-shield",
       title: "ISA allowance check",
-      body: `Estimated non-ISA interest attributed to this person is approaching their Personal Savings Allowance. They have about £${Math.max(0, ISA_ALLOWANCE_DEFAULT - subjectIsaBalance).toLocaleString("en-GB")} of ISA room to review.`,
+      body: `Estimated non-ISA interest attributed to this person is approaching their Personal Savings Allowance. Known current-tax-year subscriptions leave about £${isaRoom.toLocaleString("en-GB")} of ISA room to review.`,
       tone: "warning",
       metric: "Tax check",
     });
@@ -569,7 +596,8 @@ export function buildSavingsIntelligence(params: {
     weightedRate,
     isaBalance: subjectIsaBalance,
     householdIsaBalance: isaBalance,
-    isaAllowance: ISA_ALLOWANCE_DEFAULT,
+    isaAllowance,
+    isaSubscribedAmount,
     nonIsaInterest: subjectNonIsaInterest,
     householdNonIsaInterest: nonIsaInterest,
     savingsAllowance,

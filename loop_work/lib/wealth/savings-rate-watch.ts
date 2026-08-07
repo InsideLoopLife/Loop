@@ -43,10 +43,10 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
   const hasSavingsWatch = createFeatureCache(supabase, "savings_rate_watch");
 
   try {
-    const [{ data: accounts, error: accountsError }, { data: deals, error: dealsError }, { data: relationships }, { data: people }] = await Promise.all([
+    const [{ data: accounts, error: accountsError }, { data: deals, error: dealsError }, { data: relationships }] = await Promise.all([
       supabase
         .from("financial_accounts")
-        .select("id, user_id, name, provider, provider_slug, account_type, current_balance, interest_rate, monthly_top_up_amount, savings_watch_enabled, owner_person_id, ownership_scope, savings_limit_scope")
+        .select("id, user_id, name, provider, provider_slug, account_type, current_balance, interest_rate, monthly_top_up_amount, savings_watch_enabled, owner_person_id, ownership_scope, savings_limit_scope, owner:people!financial_accounts_owner_person_id_fkey(id,relationship,birth_date)")
         .eq("is_liability", false)
         .neq("account_type", "current_account")
         .limit(limit),
@@ -60,17 +60,12 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
         .from("user_financial_provider_relationships")
         .select("user_id, provider_slug, provider_name, relationship_type, is_active")
         .eq("is_active", true),
-      supabase
-        .from("people")
-        .select("id, relationship")
-        .eq("relationship", "child"),
     ]);
 
     if (accountsError) throw new Error(accountsError.message);
     if (dealsError) throw new Error(dealsError.message);
 
     const relationshipsByUser = new Map<string, Set<string>>();
-    const childPersonIds = new Set((people || []).map((person: any) => String(person.id)));
     const shadowedDealIds = new Set<string>();
     for (const rel of relationships || []) {
       const set = relationshipsByUser.get(rel.user_id) || new Set<string>();
@@ -81,7 +76,9 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
     for (const account of accounts || []) {
       const accountForMatching = {
         ...account,
-        owner_is_child: childPersonIds.has(String(account.owner_person_id || "")),
+        owner_is_child: String(account.owner?.relationship || "").toLowerCase() === "child",
+        owner_relationship: account.owner?.relationship || null,
+        owner_birth_date: account.owner?.birth_date || null,
       };
       if (account.savings_watch_enabled === false) continue;
       // Basic daily matching is available to every saver. Tiers control alerts,
@@ -176,8 +173,35 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
       await supabase.from("financial_accounts").update({ savings_last_recommendation_at: now }).eq("id", account.id);
     }
 
+    // Recommendations are persisted, so a matcher fix must also retire rows
+    // created by older code. Otherwise an adult can keep seeing a Junior ISA
+    // until it happens to be replaced by a later run.
+    const accountById = new Map<string, any>((accounts || []).map((account: any) => [String(account.id), account]));
+    const dealById = new Map<string, any>((deals || []).map((deal: any) => [String(deal.id), deal]));
+    const { data: activeRecommendations, error: activeRecommendationError } = await supabase
+      .from("savings_rate_recommendations")
+      .select("id,financial_account_id,savings_rate_deal_id")
+      .in("status", ["new", "seen", "watching"]);
+    if (activeRecommendationError) throw new Error(activeRecommendationError.message);
+    const invalidIds = (activeRecommendations || []).filter((recommendation: any) => {
+      const account = accountById.get(String(recommendation.financial_account_id || ""));
+      const deal = dealById.get(String(recommendation.savings_rate_deal_id || ""));
+      if (!account) return false;
+      if (!deal) return true;
+      return !savingsDealMatchesAccount({
+        ...account,
+        owner_is_child: String(account.owner?.relationship || "").toLowerCase() === "child",
+        owner_relationship: account.owner?.relationship || null,
+        owner_birth_date: account.owner?.birth_date || null,
+      }, deal);
+    }).map((recommendation: any) => recommendation.id);
+    if (invalidIds.length) {
+      const { error } = await supabase.from("savings_rate_recommendations").update({ status: "expired", updated_at: now }).in("id", invalidIds);
+      if (error) throw new Error(error.message);
+    }
+
     await supabase.from("savings_rate_watch_runs").update({ status: "completed", finished_at: new Date().toISOString(), accounts_checked: checked, recommendations_created: recommendations, payload: { detail: detail.slice(0, 100), skippedNoTier, settings } }).eq("id", run.id);
-    return { ok: true, checked, recommendations_created: recommendations, skipped_no_tier: skippedNoTier };
+    return { ok: true, checked, recommendations_created: recommendations, invalid_recommendations_expired: invalidIds.length, skipped_no_tier: skippedNoTier };
   } catch (error: any) {
     await supabase.from("savings_rate_watch_runs").update({ status: "failed", finished_at: new Date().toISOString(), accounts_checked: checked, recommendations_created: recommendations, error: error?.message || "failed", payload: { detail, skippedNoTier, settings } }).eq("id", run.id);
     throw error;

@@ -27,7 +27,7 @@ function shortDate(value?: string | null) {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-export function SavingsLiveBalance({ account }: { account: SavingsAccrualInput }) {
+export function SavingsLiveBalance({ account, ledgerBalance }: { account: SavingsAccrualInput; ledgerBalance?: number | null }) {
   const [tick, setTick] = useState(() => Date.now());
 
   useEffect(() => {
@@ -37,12 +37,15 @@ export function SavingsLiveBalance({ account }: { account: SavingsAccrualInput }
 
   const accrual = useMemo(() => calculateSavingsAccruedBalance(account, new Date(tick)), [account, tick]);
   const positiveInterest = accrual.interestAccrued > 0.004;
+  const displayedBalance = ledgerBalance != null && Number.isFinite(Number(ledgerBalance))
+    ? Math.max(accrual.estimatedBalance, Number(ledgerBalance))
+    : accrual.estimatedBalance;
 
   return (
     <div>
-      <p className="text-xl font-black text-slate-950">{formatGbp(accrual.estimatedBalance)}</p>
+      <p className="text-xl font-black text-slate-950">{formatGbp(displayedBalance)}</p>
       <p className="mt-1 text-[11px] font-black text-slate-500">
-        {positiveInterest ? `${formatGbpPence(accrual.interestAccrued)} est. interest since ${shortDate(accrual.lastConfirmedAt)}` : `Base confirmed ${shortDate(accrual.lastConfirmedAt)}`}
+        {positiveInterest ? `${formatGbpPence(accrual.interestAccrued)} est. interest since ${shortDate(accrual.lastConfirmedAt)}` : `Base confirmed ${shortDate(accrual.lastConfirmedAt)}`}{displayedBalance > accrual.estimatedBalance + 0.004 ? " · due top-ups included" : ""}
       </p>
       <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">{accrual.label}</p>
     </div>

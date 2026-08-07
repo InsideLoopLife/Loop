@@ -28,6 +28,7 @@ export type SavingsLedgerMovement = {
   effective_at?: string | null;
   created_at?: string | null;
   note?: string | null;
+  source_type?: string | null;
 };
 
 export type SavingsTrajectoryPoint = {
@@ -130,14 +131,41 @@ function accountActualLedger(account: SavingsLedgerAccount, movements: SavingsLe
     points.push({ date: movement.ledgerDate, balance });
   }
 
-  const estimatedToday = calculateSavingsAccruedBalance(account as any).estimatedBalance;
-  if (today >= baselineDate) points.push({ date: today, balance: Math.max(0, estimatedToday) });
+  // Scheduled top-ups and completed modelled-interest periods are real dated
+  // ledger points. For the unfinished period, add only the interest accrued
+  // since the latest interest posting so today's line rises smoothly without
+  // double-counting a completed month.
+  const latestInterestDate = accountMovements
+    .filter((movement) => String(movement.movement_type || "").toLowerCase() === "interest" && movement.ledgerDate <= today)
+    .map((movement) => movement.ledgerDate)
+    .sort()
+    .at(-1);
+  const accrualStart = latestInterestDate
+    ? new Date(`${latestInterestDate}T00:00:00Z`)
+    : new Date(`${cleanDate(account.balance_last_confirmed_at || account.start_date || account.created_at) || baselineDate}T00:00:00Z`);
+  const todayDate = new Date(`${today}T00:00:00Z`);
+  const elapsedDays = Math.max(0, (todayDate.getTime() - accrualStart.getTime()) / 86_400_000 - (latestInterestDate ? 0 : 0));
+  const aer = Math.max(0, Number(account.interest_rate || 0)) / 100;
+  const unfinishedInterest = balance > 0 && aer > 0
+    ? balance * (Math.pow(1 + aer, elapsedDays / 365) - 1)
+    : 0;
+  if (today >= baselineDate) points.push({ date: today, balance: Math.max(0, balance + unfinishedInterest) });
 
   const byDate = new Map<string, number>();
   for (const point of points) byDate.set(point.date, point.balance);
   return Array.from(byDate.entries())
     .sort(([a], [b]) => compareDate(a, b))
     .map(([date, value]) => ({ date, balance: value }));
+}
+
+export function estimatedSavingsBalanceFromLedger(
+  account: SavingsLedgerAccount,
+  movements: SavingsLedgerMovement[],
+  now = new Date(),
+) {
+  const today = yyyyMmDd(now);
+  return accountActualLedger(account, movements, today).at(-1)?.balance
+    ?? calculateSavingsAccruedBalance(account as any, now).estimatedBalance;
 }
 
 function valueAtDate(points: Array<{ date: string; balance: number }>, date: string) {

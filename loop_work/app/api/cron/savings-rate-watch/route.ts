@@ -6,6 +6,7 @@ import { refreshSavingsCatalogueFromSources } from "@/lib/wealth/savings-catalog
 import { ensureDefaultSourceUniverse } from "@/lib/wealth/default-source-catalogue";
 import { expireStaleSavingsDeals, runSavingsRateWatch } from "@/lib/wealth/savings-rate-watch";
 import { acquireRatesWorkerLock, releaseRatesWorkerLock, runRatesWorkerPreflight } from "@/lib/wealth/rates-worker-runtime";
+import { runSavingsAccountMaintenance } from "@/lib/wealth/savings-schedule";
 
 function runKey(date = new Date()) {
   return `savings-rate-watch:${date.toISOString().slice(0, 10)}`;
@@ -38,6 +39,14 @@ export async function GET(request: NextRequest) {
     const watchLimit = Number(request.nextUrl.searchParams.get("limit") || 500);
     const triggeredBy = `cron:${guard.mode}`;
 
+    // Account maintenance is independent of catalogue health. Due top-ups and
+    // completed interest periods must still be posted if a provider site is
+    // unavailable or a rates refresh is deliberately watch-only.
+    const accountMaintenance = await runSavingsAccountMaintenance(mainSupabase, {
+      today: new Date(),
+      limit: watchLimit,
+    });
+
     const seed = mode === "watch_only" ? null : await ensureDefaultSourceUniverse(supabase);
     const refresh = mode === "watch_only" ? null : await refreshSavingsCatalogueFromSources(supabase, {
       runKey: `savings-catalogue:cron:${Date.now()}`,
@@ -60,7 +69,7 @@ export async function GET(request: NextRequest) {
 
     const withdrawalsSafe = mode !== "watch_only" && Boolean(refresh?.health?.withdrawals_safe);
     const expire = withdrawalsSafe ? await expireStaleSavingsDeals(mainSupabase, supabase, Number(request.nextUrl.searchParams.get("stale_days") || 7), triggeredBy) : null;
-    return NextResponse.json({ ok: true, preflight, seed, refresh, watch, watch_skipped: catalogueHealthy ? null : "Catalogue health gate did not pass; existing recommendations were left unchanged.", expire, expiry_skipped: mode !== "watch_only" && !withdrawalsSafe ? "Catalogue health gate did not pass; no products were expired." : null });
+    return NextResponse.json({ ok: true, preflight, account_maintenance: accountMaintenance, seed, refresh, watch, watch_skipped: catalogueHealthy ? null : "Catalogue health gate did not pass; existing recommendations were left unchanged.", expire, expiry_skipped: mode !== "watch_only" && !withdrawalsSafe ? "Catalogue health gate did not pass; no products were expired." : null });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || "Savings rate watch failed" }, { status: 500 });
   } finally {

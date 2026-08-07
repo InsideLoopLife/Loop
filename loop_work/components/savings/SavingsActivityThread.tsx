@@ -159,7 +159,7 @@ export function SavingsActivityThread({
             <article key={movement.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-black text-slate-950">{movementLabel(movement.movement_type)}</p>
+                  <div className="flex flex-wrap items-center gap-2"><p className="text-sm font-black text-slate-950">{movementLabel(movement.movement_type)}</p>{movement.source_type === "scheduled_top_up" ? <span className="rounded-full bg-emerald-50 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-700">Scheduled</span> : null}{movement.source_type === "modelled_interest" ? <span className="rounded-full bg-blue-50 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-blue-700">Modelled</span> : null}</div>
                   <p className="mt-1 text-xs font-bold text-slate-500">{dateLabel(movement.effective_at || movement.created_at)}</p>
                 </div>
                 <p className={`text-lg font-black ${direction === "out" ? "text-orange-700" : direction === "interest" ? "text-blue-700" : "text-emerald-700"}`}>{amountLabel}</p>
@@ -177,7 +177,7 @@ export function SavingsActivityThread({
         })}
         {rows.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500">
-            No ledger movement was logged in {monthLabel(selectedMonth)}. Daily accounts can still show completed-day accrual and today's estimate above.
+            No ledger movement was logged in {monthLabel(selectedMonth)}. Daily accounts can still show completed-day accrual and today&apos;s estimate above.
           </div>
         ) : null}
       </div>

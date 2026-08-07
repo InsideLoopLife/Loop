@@ -37,11 +37,19 @@ import { PageLandingExperience } from "@/components/landing/PageLandingExperienc
 import { calculateSavingsAccruedBalance } from "@/lib/wealth/savings-accrual";
 import {
   buildSavingsTrajectory,
+  estimatedSavingsBalanceFromLedger,
   movementDelta,
   movementDirection,
   savingsMonthSummary,
 } from "@/lib/wealth/savings-ledger";
 import { estimateSavingsInterestForMonth } from "@/lib/wealth/savings-interest";
+import {
+  classifyIsaWrapper,
+  isaAllowanceLimitForPerson,
+  isaAllowanceRule,
+  isaPersonEligibility,
+  isJuniorIsaWrapper,
+} from "@/lib/wealth/isa-allowance";
 import {
   deriveIncomePensionContribution,
   deriveMonthlyPensionContribution,
@@ -112,6 +120,16 @@ type FinancialAccount = {
   savings_goal_priority?: number | null;
   savings_goal_status?: string | null;
   owner_is_child?: boolean;
+  owner_relationship?: string | null;
+  owner_birth_date?: string | null;
+};
+
+type InvestmentIsaAccount = {
+  id: string;
+  person_id?: string | null;
+  account_type?: string | null;
+  provider_isa_subscribed_amount?: number | null;
+  provider_isa_allowance_year?: string | null;
 };
 
 type SavingsOwner = {
@@ -202,6 +220,7 @@ type SavingsMovement = {
   note: string | null;
   created_at: string | null;
   source_type?: string | null;
+  tax_year?: string | null;
 };
 
 type PlannedItem = {
@@ -614,6 +633,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     { data: savingsPots },
     { data: savingsPotAllocations },
     { data: dealEligibilityRows },
+    { data: investmentIsaAccounts },
   ] = await Promise.all([
     supabase
       .from("financial_accounts")
@@ -669,7 +689,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       : Promise.resolve({ data: null }),
     supabase
       .from("savings_account_movements")
-      .select("id, financial_account_id, movement_type, amount, previous_balance, balance_delta, resulting_balance, effective_at, note, created_at, source_type")
+      .select("id, financial_account_id, movement_type, amount, previous_balance, balance_delta, resulting_balance, effective_at, note, created_at, source_type, tax_year")
       .or(householdVisibleFilter)
       .order("effective_at", { ascending: false })
       .limit(1000)
@@ -725,6 +745,12 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       .from("user_savings_deal_eligibility")
       .select("savings_rate_deal_id, eligibility_status, used_before")
       .eq("user_id", user.id),
+    supabase
+      .from("investment_accounts")
+      .select("id,person_id,account_type,provider_isa_subscribed_amount,provider_isa_allowance_year")
+      .in("user_id", memberUserIds)
+      .neq("record_status", "archived")
+      .returns<InvestmentIsaAccount[]>(),
   ]);
 
   let payEvents = payEventsInitial ?? [];
@@ -767,17 +793,25 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   const childPersonIds = new Set(ownerOptions.filter((person) => String(person.relationship || "").toLowerCase() === "child").map((person) => person.id));
   const accountRows: FinancialAccount[] = (accounts ?? [])
     .filter((account) => !["current_account"].includes(account.account_type))
-    .map((account) => ({ ...account, owner_is_child: childPersonIds.has(String(account.owner_person_id || "")) } as FinancialAccount));
+    .map((account) => {
+      const owner = ownerById.get(String(account.owner_person_id || ""));
+      return {
+        ...account,
+        owner_is_child: childPersonIds.has(String(account.owner_person_id || "")),
+        owner_relationship: owner?.relationship || null,
+        owner_birth_date: owner?.birth_date || null,
+      } as FinancialAccount;
+    });
   // Everyday / current accounts aren't savings vehicles (no rate, no goal), but they still need to exist
   // as financial_accounts rows so they can be picked as a "paid into" / "paid from" account elsewhere
   // in Financial Flow (spending, income, planner). Surface them here so people can add/manage them.
   const everydayAccountRows = (accounts ?? []).filter((account) => account.account_type === "current_account");
   const personalSavings = accountRows.filter((account) => account.owner_person_id || account.ownership_scope === "personal" || account.ownership_scope === "child");
   const sharedSavings = accountRows.filter((account) => !account.owner_person_id || ["household", "joint"].includes(String(account.ownership_scope || "")));
-  const totalSavings = accountRows.reduce((sum, account) => sum + calculateSavingsAccruedBalance(account).estimatedBalance, 0);
+  const totalSavings = accountRows.reduce((sum, account) => sum + estimatedSavingsBalanceFromLedger(account, movements ?? []), 0);
   const monthlyTopUps = accountRows.reduce((sum, account) => sum + Number(account.monthly_top_up_amount || 0), 0);
   const weightedRate = totalSavings > 0
-    ? accountRows.reduce((sum, account) => sum + calculateSavingsAccruedBalance(account).estimatedBalance * Number(account.interest_rate || 0), 0) / totalSavings
+    ? accountRows.reduce((sum, account) => sum + estimatedSavingsBalanceFromLedger(account, movements ?? []) * Number(account.interest_rate || 0), 0) / totalSavings
     : 0;
 
   const allHeldProviders = providerSlugsFromAccounts(accountRows, heldProviders ?? []);
@@ -789,6 +823,44 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   const adultPersonIds = ownerOptions
     .filter((person) => String(person.relationship || "").toLowerCase() !== "child")
     .map((person) => person.id);
+  const activeIsaRule = isaAllowanceRule();
+  const isaAccountById = new Map(accountRows.map((account) => [
+    account.id,
+    classifyIsaWrapper(account.savings_product_name, account.name, account.savings_limit_scope, account.account_type),
+  ]));
+  const isaPositions = ownerOptions.map((person) => {
+    const isDefault = person.id === defaultOwnerPerson?.id;
+    const savingsSubscriptions = (movements ?? []).reduce((sum, movement) => {
+      const account = accountRows.find((row) => row.id === movement.financial_account_id);
+      if (!account) return sum;
+      const wrapper = isaAccountById.get(account.id) || "not_isa";
+      if (wrapper === "not_isa" || String(movement.movement_type).toLowerCase() !== "deposit") return sum;
+      if (movement.tax_year !== activeIsaRule.taxYear) return sum;
+      const belongsToPerson = account.owner_person_id === person.id || (isDefault && !account.owner_person_id);
+      return belongsToPerson ? sum + Math.max(0, movementDelta(movement)) : sum;
+    }, 0);
+    const providerSubscriptions = (investmentIsaAccounts ?? []).reduce((sum, account) => {
+      const wrapper = classifyIsaWrapper(account.account_type);
+      if (wrapper === "not_isa" || account.provider_isa_allowance_year !== activeIsaRule.taxYear) return sum;
+      const belongsToPerson = account.person_id === person.id || (isDefault && !account.person_id);
+      return belongsToPerson ? sum + Math.max(0, Number(account.provider_isa_subscribed_amount || 0)) : sum;
+    }, 0);
+    const representativeWrapper = String(person.relationship || "").toLowerCase() === "child" ? "junior_cash_isa" as const : "cash_isa" as const;
+    const eligibility = isaPersonEligibility(person, representativeWrapper);
+    const allowance = isaAllowanceLimitForPerson(person, representativeWrapper, activeIsaRule.taxYear);
+    const used = savingsSubscriptions + providerSubscriptions;
+    return {
+      person,
+      wrapper: representativeWrapper,
+      eligibility,
+      allowance,
+      used,
+      remaining: Math.max(0, allowance - used),
+      savingsSubscriptions,
+      providerSubscriptions,
+    };
+  });
+  const subjectIsaPosition = isaPositions.find((position) => position.person.id === (defaultOwnerPerson?.id || adultPersonIds[0]));
   const intelligence = buildSavingsIntelligence({
     accounts: accountRows,
     deals: savingsDeals ?? [],
@@ -797,6 +869,8 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     payEvents: payEvents ?? [],
     subjectPersonId: defaultOwnerPerson?.id || adultPersonIds[0] || null,
     adultPersonIds,
+    subjectIsaSubscribedAmount: subjectIsaPosition?.used || 0,
+    subjectIsaAllowance: subjectIsaPosition?.allowance || activeIsaRule.adultTotalLimit,
   });
 
   const movementsByAccount = new Map<string, SavingsMovement[]>();
@@ -857,7 +931,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   const projectionAccounts = accountRows.map((account) => ({
     id: account.id,
     name: account.name || account.savings_product_name || account.provider || "Savings account",
-    balance: calculateSavingsAccruedBalance(account).estimatedBalance,
+    balance: estimatedSavingsBalanceFromLedger(account, movements ?? []),
     annualRate: Number(account.interest_rate || 0),
     monthlyTopUp: Number(account.monthly_top_up_amount || 0),
   }));
@@ -916,7 +990,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
         savingsAccounts: personSavings.map((account) => ({
           id: account.id,
           name: account.name || account.savings_product_name || account.provider || "Savings account",
-          balance: calculateSavingsAccruedBalance(account).estimatedBalance,
+          balance: estimatedSavingsBalanceFromLedger(account, movements ?? []),
           annualRate: Number(account.interest_rate || 0),
           monthlyTopUp: Number(account.monthly_top_up_amount || 0),
         })),
@@ -976,7 +1050,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       ? allocations.reduce((sum, allocation) => {
           const account = allocation.financial_account_id ? accountById.get(allocation.financial_account_id) : null;
           const percent = Number(allocation.allocation_percent || 0);
-          if (account && percent > 0) return sum + calculateSavingsAccruedBalance(account).estimatedBalance * Math.min(100, percent) / 100;
+          if (account && percent > 0) return sum + estimatedSavingsBalanceFromLedger(account, movements ?? []) * Math.min(100, percent) / 100;
           return sum + Math.max(0, Number(allocation.amount || 0));
         }, 0)
       : Math.max(0, Number(pot.current_allocated_amount || 0));
@@ -1066,7 +1140,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   const attentionPotCount = potRows.filter((row) => row.attentionStatus === "attention").length;
 
   const optimiserRows = accountRows.map((account) => {
-    const balance = calculateSavingsAccruedBalance(account).estimatedBalance;
+    const balance = estimatedSavingsBalanceFromLedger(account, movementsByAccount.get(account.id) || []);
     const currentRate = Number(account.interest_rate || 0);
     const best = dealMatches
       .filter((deal) => deal.eligible_now && savingsDealMatchesAccount(account, deal))
@@ -1217,7 +1291,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                     <input type="hidden" name="ownership_scope" value={account.ownership_scope || (account.owner_person_id ? "personal" : "household")} />
                     <input type="hidden" name="visibility_scope" value={account.visibility_scope || "household"} />
                     <input type="hidden" name="savings_limit_scope" value={account.savings_limit_scope || "individual"} />
-                    <FormInput label="Confirmed balance" name="current_balance" type="number" step="0.01" defaultValue={calculateSavingsAccruedBalance(account).estimatedBalance} />
+                    <FormInput label="Confirmed balance" name="current_balance" type="number" step="0.01" defaultValue={account.balance_last_confirmed_value ?? account.current_balance} />
                     <FormInput label="Rate %" name="interest_rate" type="number" step="0.001" defaultValue={account.interest_rate ?? ""} />
                     <label className="text-sm font-bold text-slate-700">
                       Interest accrues
@@ -1262,7 +1336,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
             <dl className="grid grid-cols-2 gap-3 px-5 pb-4">
               <div className="rounded-2xl bg-slate-50 p-3">
                 <dt className="text-xs font-bold text-slate-500">Est. balance</dt>
-                <dd><SavingsLiveBalance account={account} /></dd>
+                <dd><SavingsLiveBalance account={account} ledgerBalance={estimatedSavingsBalanceFromLedger(account, movementsByAccount.get(account.id) || [])} /></dd>
               </div>
               <div className="rounded-2xl bg-slate-50 p-3">
                 <dt className="text-xs font-bold text-slate-500">Rate</dt>
@@ -1379,6 +1453,21 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
               <BalanceHistoryChart data={savingsTrajectory} />
             </SectionCard>
             <SectionCard title="LoopWatch" description="LoopWatch checks the whole savings portfolio for rate drag, tax exposure, stale balances and unused Financial Flow.">
+              <div className="mb-5 rounded-3xl border border-blue-100 bg-blue-50/70 p-4">
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  <div><p className="text-xs font-black uppercase tracking-[0.16em] text-blue-700">Central ISA allowance · {activeIsaRule.taxYear}</p><p className="mt-1 text-sm font-bold text-slate-600">Known current-year subscriptions across savings and investment accounts. Existing ISA balances and ISA-to-ISA transfers do not consume this year&apos;s allowance.</p></div>
+                  <a href={activeIsaRule.sourceUrl} target="_blank" rel="noreferrer" className="text-xs font-black text-blue-800 underline">UK rules ↗</a>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {isaPositions.map((position) => (
+                    <article key={position.person.id} className="rounded-2xl bg-white p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-3"><div><p className="font-black text-slate-950">{position.person.name}</p><p className="text-xs font-bold text-slate-500">{isJuniorIsaWrapper(position.wrapper) ? "Junior ISA" : "Adult ISA"} allowance</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${position.eligibility.eligible ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{position.eligibility.eligible ? "Eligible" : "Not eligible"}</span></div>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-400" style={{ width: `${Math.min(100, position.allowance > 0 ? position.used / position.allowance * 100 : 0)}%` }} /></div>
+                      <div className="mt-2 flex justify-between text-xs font-black"><span className="text-slate-500">Known used {formatMoney(position.used)}</span><span className="text-blue-800">{formatMoney(position.remaining)} left</span></div>
+                    </article>
+                  ))}
+                </div>
+              </div>
               <div className="space-y-3">
                 <OpportunityCard
                   title="Opportunity cost"
@@ -1388,7 +1477,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                 />
                 <OpportunityCard
                   title={`${defaultOwnerPerson?.name || "Your"} interest allowance watch`}
-                  body={intelligence.taxableInterest > 0 ? `Your Personal Savings Allowance is ${formatMoney(intelligence.savingsAllowance)}/yr. Estimated non-ISA interest is ${formatMoney(intelligence.nonIsaInterest)}/yr, leaving ${formatMoney(intelligence.taxableInterest)}/yr taxable. At ${intelligence.savingsTaxRate}% that is about ${formatMoney(intelligence.estimatedSavingsTax)}/yr. Review moving roughly ${formatMoney(intelligence.cashToShelter)} into an ISA, subject to access needs and eligibility. Remaining ISA room: ${formatMoney(Math.max(0, intelligence.isaAllowance - intelligence.isaBalance))}.` : `Your Personal Savings Allowance is ${formatMoney(intelligence.savingsAllowance)}/yr. Estimated non-ISA interest is ${formatMoney(intelligence.nonIsaInterest)}/yr, so no taxable excess is currently projected. Remaining ISA room: ${formatMoney(Math.max(0, intelligence.isaAllowance - intelligence.isaBalance))}.`}
+                  body={intelligence.taxableInterest > 0 ? `Your Personal Savings Allowance is ${formatMoney(intelligence.savingsAllowance)}/yr. Estimated non-ISA interest is ${formatMoney(intelligence.nonIsaInterest)}/yr, leaving ${formatMoney(intelligence.taxableInterest)}/yr taxable. At ${intelligence.savingsTaxRate}% that is about ${formatMoney(intelligence.estimatedSavingsTax)}/yr. Review moving roughly ${formatMoney(intelligence.cashToShelter)} into an ISA, subject to access needs and eligibility. Known current-year ISA room: ${formatMoney(Math.max(0, intelligence.isaAllowance - intelligence.isaSubscribedAmount))}.` : `Your Personal Savings Allowance is ${formatMoney(intelligence.savingsAllowance)}/yr. Estimated non-ISA interest is ${formatMoney(intelligence.nonIsaInterest)}/yr, so no taxable excess is currently projected. Known current-year ISA room: ${formatMoney(Math.max(0, intelligence.isaAllowance - intelligence.isaSubscribedAmount))}.`}
                   metric={intelligence.nonIsaInterest > intelligence.savingsAllowance ? "Review now" : "Watching"}
                   tone={intelligence.nonIsaInterest > intelligence.savingsAllowance * 0.75 ? "warning" : "good"}
                 />

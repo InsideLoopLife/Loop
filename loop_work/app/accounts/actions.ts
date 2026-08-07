@@ -617,6 +617,19 @@ export async function addSavingsAccountMovement(formData: FormData) {
   } as any);
 
   if (movementError) throw new Error(movementError.message);
+  if (movementType === "interest") {
+    const [year, month] = effectiveAt.slice(0, 7).split("-").map(Number);
+    const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+    const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+    const { error: replacementError } = await supabase
+      .from("savings_account_movements")
+      .delete()
+      .eq("financial_account_id", accountId)
+      .eq("source_type", "modelled_interest")
+      .gte("effective_at", monthStart)
+      .lte("effective_at", monthEnd);
+    if (replacementError) throw new Error(replacementError.message);
+  }
   revalidatePath("/accounts");
   revalidatePath("/spending");
   revalidatePath("/financial-flow");

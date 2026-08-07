@@ -34,6 +34,7 @@ import { AddInvestmentHoldingWizard } from "@/components/investments/AddInvestme
 import { CollapsibleSection } from "@/components/ui/CollapsibleSection";
 import { SubmitButton } from "@/components/SubmitButton";
 import { formatMoney } from "@/lib/format/money";
+import { classifyIsaWrapper, isaAllowanceLimitForPerson, isaAllowanceRule } from "@/lib/wealth/isa-allowance";
 import { InvestmentHistoryChart } from "@/components/investments/InvestmentHistoryChart";
 import { marketDataQuality } from "@/lib/investments/market-data-quality";
 import { AmplifiedInvestmentsDashboard } from "@/components/investments/AmplifiedInvestmentsDashboard";
@@ -1746,7 +1747,7 @@ function accountUnmappedValue(
 function providerIsaInfoFromRaw(account: InvestmentAccount) {
   const raw = account.external_account_raw || {};
   const year = String(
-    raw?.loop_isa_allowance_year || raw?.isa_allowance_year || "2026/27",
+    account.provider_isa_allowance_year || raw?.loop_isa_allowance_year || raw?.isa_allowance_year || isaAllowanceRule().taxYear,
   );
   const subscribed = Number(
     account.provider_isa_subscribed_amount ??
@@ -1762,9 +1763,9 @@ function providerIsaInfoFromRaw(account: InvestmentAccount) {
       raw?.isa_remaining_amount ??
       NaN,
   );
-  const allowance = Number(
-    raw?.loop_isa_allowance ?? raw?.isa_allowance ?? 20000,
-  );
+  const wrapper = classifyIsaWrapper(account.account_type, account.label);
+  const centralAllowance = isaAllowanceLimitForPerson(null, wrapper, year);
+  const allowance = Number(raw?.loop_isa_allowance ?? raw?.isa_allowance ?? centralAllowance);
   const safeSubscribed = Number.isFinite(subscribed) ? subscribed : 0;
   const safeRemaining = Number.isFinite(remaining)
     ? remaining
@@ -8979,8 +8980,7 @@ export function PensionsInvestmentsClient({
             const cashBreakdown = providerCashBreakdown(account, holdings);
             const providerCash = providerCashLabel(account, holdings);
             const isaInfo = providerIsaInfoFromRaw(account);
-            const isIsaAccount =
-              String(account.account_type || "").toLowerCase() === "isa";
+            const isIsaAccount = classifyIsaWrapper(account.account_type, account.label) !== "not_isa";
             const fundCount = holdings.filter(
               (holding) =>
                 holding.asset_kind === "fund" || holding.asset_kind === "etf",
