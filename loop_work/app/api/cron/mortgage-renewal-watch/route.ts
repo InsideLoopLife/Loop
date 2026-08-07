@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
+import { createAdminClient } from "@/platform/database/admin-client";
 import { verifyCronRequest } from "@/lib/security/cron";
 import { runMortgageRenewalWatch } from "@/lib/wealth/mortgage-renewal-watch";
 
@@ -13,7 +14,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = createWorkerDatabaseClient("rates");
-    const result = await runMortgageRenewalWatch(supabase, {
+    const mainSupabase = createAdminClient();
+    const result = await runMortgageRenewalWatch(mainSupabase, supabase, {
       runKey: request.nextUrl.searchParams.get("run_key") || runKey(),
       runKind: request.nextUrl.searchParams.get("run_kind") || "daily_mortgage_watch",
       limit: Number(request.nextUrl.searchParams.get("limit") || 250),

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdminAccess, createBestAdminClient } from "@/lib/admin/access";
 import { describeSupabaseAdminKey } from "@/lib/supabase/admin";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import { writeAdminAuditEvent } from "@/lib/admin/audit";
 import { normaliseProviderSlug } from "@/lib/wealth/provider-normalise";
 import { refreshMortgageCatalogueFromSources } from "@/lib/wealth/mortgage-catalogue";
@@ -16,6 +17,13 @@ function adminClient() {
     throw new Error(`${status.reason} House admin jobs need SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY set server-side as a service_role JWT or Supabase sb_secret_ key.`);
   }
   return supabase;
+}
+
+// mortgage_lender_sources and mortgage_rate_deals now live in the
+// separate rates-catalogue Supabase project. mortgage_rate_deal_flags
+// and app_notifications remain genuine main-app data.
+function ratesClient() {
+  return createWorkerDatabaseClient("rates");
 }
 
 function clean(value: FormDataEntryValue | null) {
@@ -35,7 +43,7 @@ function bool(value: FormDataEntryValue | null) {
 
 export async function saveMortgageCatalogueSource(formData: FormData) {
   const access = await requireAdminAccess();
-  const supabase = adminClient();
+  const supabase = ratesClient();
   const lenderName = clean(formData.get("lender_name"));
   const sourceUrl = clean(formData.get("source_url"));
   if (!lenderName || !sourceUrl) throw new Error("Lender and source URL are required.");
@@ -61,7 +69,7 @@ export async function runMortgageCatalogueRefreshNow(formData: FormData) {
   const access = await requireAdminAccess();
   const supabase = adminClient();
   const settings = await loadWealthWatchSettings(supabase).catch(() => null);
-  const result = await refreshMortgageCatalogueFromSources(supabase, {
+  const result = await refreshMortgageCatalogueFromSources(ratesClient(), {
     runKey: `mortgage-catalogue:admin:${Date.now()}`,
     limit: numberOrNull(formData.get("limit")) ?? Number((settings as any)?.mortgageCatalogueRefreshLimit || 12),
     sourceId: clean(formData.get("source_id")) || null,
@@ -76,7 +84,7 @@ export async function runMortgageCatalogueRefreshNow(formData: FormData) {
 export async function runHouseMortgageWatchNow(formData: FormData) {
   const access = await requireAdminAccess();
   const supabase = adminClient();
-  const result = await runMortgageRenewalWatch(supabase, {
+  const result = await runMortgageRenewalWatch(supabase, ratesClient(), {
     runKey: `mortgage-renewal-watch:house-admin:${Date.now()}`,
     runKind: "house_admin_manual",
     limit: numberOrNull(formData.get("limit")) ?? 250,
@@ -89,7 +97,7 @@ export async function runHouseMortgageWatchNow(formData: FormData) {
 
 export async function updateMortgageCatalogueDealStatus(formData: FormData) {
   const access = await requireAdminAccess();
-  const supabase = adminClient();
+  const supabase = ratesClient();
   const id = clean(formData.get("deal_id"));
   const status = clean(formData.get("status"));
   if (!id || !status) throw new Error("Deal and status are required.");
@@ -114,11 +122,12 @@ export async function updateMortgageCatalogueDealStatus(formData: FormData) {
 export async function markMortgageDealFixedAndNotify(formData: FormData) {
   const access = await requireAdminAccess();
   const supabase = adminClient();
+  const rates = ratesClient();
   const id = clean(formData.get("deal_id"));
   if (!id) throw new Error("Deal id is required.");
   const now = new Date().toISOString();
 
-  const { data: deal, error: dealError } = await supabase
+  const { data: deal, error: dealError } = await rates
     .from("mortgage_rate_deals")
     .select("id,lender_name,product_name,source_url,direct_apply_url")
     .eq("id", id)
@@ -151,7 +160,7 @@ export async function markMortgageDealFixedAndNotify(formData: FormData) {
   }
 
   await supabase.from("mortgage_rate_deal_flags").update({ status: "resolved", resolved_at: now, resolved_by: access.user.id, fixed_notified_at: now, updated_at: now }).eq("mortgage_rate_deal_id", id).in("status", ["open", "checking"]);
-  const { error } = await supabase.from("mortgage_rate_deals").update({ status: "active", catalogue_status: "active", fixed_at: now, fixed_by: access.user.id, fixed_notification_sent_at: userIds.length ? now : null, broken_report_count: 0, last_admin_checked_at: now, updated_at: now }).eq("id", id);
+  const { error } = await rates.from("mortgage_rate_deals").update({ status: "active", catalogue_status: "active", fixed_at: now, fixed_by: access.user.id, fixed_notification_sent_at: userIds.length ? now : null, broken_report_count: 0, last_admin_checked_at: now, updated_at: now }).eq("id", id);
   if (error) throw new Error(error.message);
 
   await writeAdminAuditEvent({ actionKey: "house_mortgage_deal_fixed_notify", entityKind: "mortgage_rate_deals", entityId: id, afterPayload: { notified_users: userIds.length } });
@@ -161,7 +170,7 @@ export async function markMortgageDealFixedAndNotify(formData: FormData) {
 
 export async function saveMortgageCatalogueDeal(formData: FormData) {
   const access = await requireAdminAccess();
-  const supabase = adminClient();
+  const supabase = ratesClient();
   const lenderName = clean(formData.get("lender_name"));
   if (!lenderName) throw new Error("Lender is required.");
   const id = clean(formData.get("deal_id"));

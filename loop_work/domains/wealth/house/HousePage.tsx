@@ -6,6 +6,7 @@ import {
   householdPeopleOrFilter,
 } from "@/lib/auth/household-context";
 import { requireWealthPageAccess } from "@/domains/wealth/access";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import {
   MortgagePlannerClient,
   type Home,
@@ -40,6 +41,9 @@ export default async function MortgagePage() {
     deniedRedirect: "/account?tab=wealth&feature=mortgage",
   });
   const dataOwnerUserId = householdContext.dataOwnerUserId || user.id;
+  // mortgage_rate_deals now lives in the separate rates-catalogue
+  // Supabase project.
+  const ratesSupabase = createWorkerDatabaseClient("rates");
   const householdVisibleFilter = householdMemberDataOrFilter(householdContext);
   const householdPeopleFilter = householdPeopleOrFilter(householdContext);
 
@@ -178,7 +182,7 @@ export default async function MortgagePage() {
       })
       .limit(12)
       .returns<MortgageRenewalRecommendation[]>(),
-    supabase
+    ratesSupabase
       .from("mortgage_rate_deals")
       .select(
         "id, lender_name, product_name, rate_percent, initial_term_months, product_fee, ltv_max, source_url, status, catalogue_status, existing_customer_only",

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { AlertTriangle, Banknote, Bot, Clock3, PlayCircle, RefreshCw, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { AdminTabs } from "@/components/admin/AdminTabs";
 import { createBestAdminClient, getAdminAccess } from "@/lib/admin/access";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import { describeSupabaseAdminKey } from "@/lib/supabase/admin";
 import { cronSecretConfigured } from "@/lib/security/cron";
 import { defaultWealthWatchSettings, loadWealthWatchSettings } from "@/lib/wealth/watch-settings";
@@ -51,16 +52,22 @@ export default async function AdminWealthWatchPage() {
     );
   }
 
+  // savings_rate_deals, mortgage_rate_deals, mortgage_lender_sources and
+  // wealth_watch_source_jobs now live in the separate rates-catalogue
+  // Supabase project. Runs, recommendations and settings are genuine
+  // main-app data and stay on the regular admin client.
+  const ratesSupabase = createWorkerDatabaseClient("rates");
+
   const [settings, savingsRuns, mortgageRuns, savingsDeals, mortgageDeals, lenderSources, savingsRecs, mortgageRecs, sourceJobs] = await Promise.all([
     loadWealthWatchSettings(supabase).catch(() => defaultWealthWatchSettings),
     safe<any[]>(supabase.from("savings_rate_watch_runs").select("*").order("started_at", { ascending: false }).limit(5), []),
     safe<any[]>(supabase.from("mortgage_renewal_watch_runs").select("*").order("started_at", { ascending: false }).limit(5), []),
-    safe<any[]>(supabase.from("savings_rate_deals").select("*").order("gross_aer", { ascending: false, nullsFirst: false }).limit(20), []),
-    safe<any[]>(supabase.from("mortgage_rate_deals").select("*").order("rate_percent", { ascending: true, nullsFirst: false }).limit(20), []),
-    safe<any[]>(supabase.from("mortgage_lender_sources").select("*").order("updated_at", { ascending: false }).limit(20), []),
+    safe<any[]>(ratesSupabase.from("savings_rate_deals").select("*").order("gross_aer", { ascending: false, nullsFirst: false }).limit(20), []),
+    safe<any[]>(ratesSupabase.from("mortgage_rate_deals").select("*").order("rate_percent", { ascending: true, nullsFirst: false }).limit(20), []),
+    safe<any[]>(ratesSupabase.from("mortgage_lender_sources").select("*").order("updated_at", { ascending: false }).limit(20), []),
     safe<any[]>(supabase.from("savings_rate_recommendations").select("id,status,created_at,estimated_annual_gain").in("status", ["new", "seen", "watching"]).limit(200), []),
     safe<any[]>(supabase.from("mortgage_renewal_recommendations").select("id,status,created_at,estimated_monthly_saving").in("status", ["new", "seen", "watching", "saved"]).limit(200), []),
-    safe<any[]>(supabase.from("wealth_watch_source_jobs").select("*").order("created_at", { ascending: false }).limit(8), []),
+    safe<any[]>(ratesSupabase.from("wealth_watch_source_jobs").select("*").order("created_at", { ascending: false }).limit(8), []),
   ]);
 
   const activeSavingsDeals = savingsDeals.filter((deal) => deal.status === "active").length;

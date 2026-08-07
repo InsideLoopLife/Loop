@@ -5,6 +5,7 @@ import { AlertTriangle, Bot, CheckCircle2, ExternalLink, Home, PlayCircle, Refre
 import { AdminTabs } from "@/components/admin/AdminTabs";
 import { createBestAdminClient, getAdminAccess } from "@/lib/admin/access";
 import { createClient } from "@/lib/supabase/server";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import { describeSupabaseAdminKey } from "@/lib/supabase/admin";
 import { cronSecretConfigured } from "@/lib/security/cron";
 import { markMortgageDealFixedAndNotify, runHouseMortgageWatchNow, runMortgageCatalogueRefreshNow, saveMortgageCatalogueDeal, saveMortgageCatalogueSource, updateMortgageCatalogueDealStatus } from "./actions";
@@ -60,14 +61,20 @@ export default async function AdminHousesPage({ searchParams }: { searchParams: 
   const adminSupabase = createBestAdminClient();
   const supabase = adminSupabase || await createClient();
   const usingAdminSupabase = Boolean(adminSupabase);
+  // mortgage_rate_deals, mortgage_lender_sources and wealth_watch_source_jobs
+  // now live in the separate rates-catalogue Supabase project. Everything
+  // else in this admin view (flags, renewal-watch runs, homes, future
+  // integration tasks) is genuine main-app data and stays on the regular
+  // client.
+  const ratesSupabase = createWorkerDatabaseClient("rates");
 
   const [deals, flaggedDeals, flags, sources, runs, sourceJobs, homes, futureTasks] = await Promise.all([
-    safe<any[]>(supabase.from("mortgage_rate_deals").select("*").order("broken_report_count", { ascending: false }).order("updated_at", { ascending: false }).limit(80), []),
-    safe<any[]>(supabase.from("mortgage_rate_deals").select("id,status,catalogue_status,lender_name,product_name,rate_percent,source_url,broken_report_count,last_broken_report_at").gt("broken_report_count", 0).order("last_broken_report_at", { ascending: false }).limit(30), []),
+    safe<any[]>(ratesSupabase.from("mortgage_rate_deals").select("*").order("broken_report_count", { ascending: false }).order("updated_at", { ascending: false }).limit(80), []),
+    safe<any[]>(ratesSupabase.from("mortgage_rate_deals").select("id,status,catalogue_status,lender_name,product_name,rate_percent,source_url,broken_report_count,last_broken_report_at").gt("broken_report_count", 0).order("last_broken_report_at", { ascending: false }).limit(30), []),
     safe<any[]>(supabase.from("mortgage_rate_deal_flags").select("id,user_id,mortgage_rate_deal_id,issue_kind,detail,status,created_at").in("status", ["open", "checking"]).order("created_at", { ascending: false }).limit(40), []),
-    safe<any[]>(supabase.from("mortgage_lender_sources").select("*").order("last_checked_at", { ascending: true, nullsFirst: true }).limit(80), []),
+    safe<any[]>(ratesSupabase.from("mortgage_lender_sources").select("*").order("last_checked_at", { ascending: true, nullsFirst: true }).limit(80), []),
     safe<any[]>(supabase.from("mortgage_renewal_watch_runs").select("*").order("started_at", { ascending: false }).limit(6), []),
-    safe<any[]>(supabase.from("wealth_watch_source_jobs").select("*").eq("job_kind", "mortgage_catalogue_refresh").order("created_at", { ascending: false }).limit(8), []),
+    safe<any[]>(ratesSupabase.from("wealth_watch_source_jobs").select("*").eq("job_kind", "mortgage_catalogue_refresh").order("created_at", { ascending: false }).limit(8), []),
     safe<any[]>(supabase.from("homes").select("id,property_value,estimated_value_mid,postcode,uprn,lookup_source,last_lookup_at").limit(200), []),
     safe<any[]>(supabase.from("app_future_integration_tasks").select("*").in("product_key", ["mortgage_catalogue", "property_enrichment", "valuation_automation", "admin_rework"]).order("priority", { ascending: true }).limit(80), []),
   ]);

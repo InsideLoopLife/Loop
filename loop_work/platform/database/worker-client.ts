@@ -1,3 +1,4 @@
+import { createClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/platform/database/admin-client";
 
 export type WorkerDatabaseDomain =
@@ -13,20 +14,44 @@ export type WorkerDatabaseClient = ReturnType<typeof createAdminClient> & {
   readonly __loopWorkerDomain?: WorkerDatabaseDomain;
 };
 
+let cachedRatesClient: WorkerDatabaseClient | null = null;
+
+/**
+ * The rates domain (savings/mortgage catalogue) now lives in its own,
+ * separate Supabase project — moved off the main database specifically
+ * because the rates worker's own scraping/write volume was contributing
+ * to the main project's usage overage. This is exactly the "later" the
+ * original comment on this file anticipated: only this one function
+ * needed to change; every call site that already went through
+ * createWorkerDatabaseClient("rates") is fixed automatically.
+ */
+function createRatesDatabaseClient(): WorkerDatabaseClient {
+  if (cachedRatesClient) return cachedRatesClient;
+  const url = process.env.SUPABASE_URL_Savings;
+  const key = process.env.SUPABASE_SECRET_KEY_Savings;
+  if (!url || !key) {
+    throw new Error(
+      "Missing SUPABASE_URL_Savings / SUPABASE_SECRET_KEY_Savings — the rates domain now requires its own Supabase project's credentials, separate from the main database's."
+    );
+  }
+  cachedRatesClient = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  }) as WorkerDatabaseClient;
+  return cachedRatesClient;
+}
+
 /**
  * Creates a privileged client for a named worker boundary.
  *
- * The current Supabase project still uses one server secret, so this marker is
- * an application boundary rather than a database role. Keeping the purpose
- * explicit lets LOOP move each worker to restricted credentials later without
- * changing worker business logic.
+ * Every domain except "rates" still uses the main project's one server
+ * secret, so for those the domain marker remains an application
+ * boundary rather than a real database split — exactly as the original
+ * design intended, ready for the same treatment later without changing
+ * any worker's business logic.
  */
 export function createWorkerDatabaseClient(
   domain: WorkerDatabaseDomain,
 ): WorkerDatabaseClient {
-  // The domain argument is intentionally explicit at each call site. The later
-  // database phase can map it to a restricted key/role without changing those
-  // workers. Do not mutate the Supabase client object at runtime.
-  void domain;
+  if (domain === "rates") return createRatesDatabaseClient();
   return createAdminClient() as WorkerDatabaseClient;
 }

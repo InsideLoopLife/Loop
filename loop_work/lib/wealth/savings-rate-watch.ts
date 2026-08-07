@@ -14,7 +14,7 @@ function runKey(date = new Date()) {
   return `savings-rate-watch:${date.toISOString().slice(0, 10)}`;
 }
 
-export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOptions = {}) {
+export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, options: SavingsWatchOptions = {}) {
   const settings = await loadWealthWatchSettings(supabase);
   const key = options.runKey || runKey();
   const limit = Math.max(1, Math.min(Number(options.limit || 500), 1000));
@@ -49,7 +49,7 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
         .eq("is_liability", false)
         .neq("account_type", "current_account")
         .limit(limit),
-      supabase
+      ratesSupabase
         .from("savings_rate_deals")
         .select("id, provider_slug, provider_name, product_name, account_type, gross_aer, bonus_rate, minimum_balance, maximum_balance, monthly_min_deposit, monthly_max_deposit, requires_existing_customer, eligible_provider_slug, eligibility_note, access_type, withdrawal_rules, notice_period_days, term_length_months, rate_type, source_url, status, last_checked_at, confidence")
         .eq("status", "active")
@@ -168,10 +168,10 @@ export async function runSavingsRateWatch(supabase: any, options: SavingsWatchOp
   }
 }
 
-export async function expireStaleSavingsDeals(supabase: any, staleDays: number, triggeredBy?: string | null) {
+export async function expireStaleSavingsDeals(supabase: any, ratesSupabase: any, staleDays: number, triggeredBy?: string | null) {
   const now = new Date().toISOString();
   const threshold = new Date(Date.now() - Math.max(1, staleDays) * 24 * 60 * 60 * 1000).toISOString();
-  const { data: staleRows, error: readError } = await supabase
+  const { data: staleRows, error: readError } = await ratesSupabase
     .from("savings_rate_deals")
     .select("id,status,lifecycle_status,missing_observation_count,gross_aer,source_payload,source_url,verification_status")
     .in("status", ["active", "needs_review"])
@@ -184,7 +184,7 @@ export async function expireStaleSavingsDeals(supabase: any, staleDays: number, 
     const missingCount = Number(deal.missing_observation_count || 0) + 1;
     const shouldWithdraw = missingCount >= 3;
     const lifecycleStatus = shouldWithdraw ? "WITHDRAWN" : "PENDING_WITHDRAWAL";
-    const { error } = await supabase.from("savings_rate_deals").update({
+    const { error } = await ratesSupabase.from("savings_rate_deals").update({
       status: shouldWithdraw ? "expired" : deal.status,
       lifecycle_status: lifecycleStatus,
       missing_observation_count: missingCount,

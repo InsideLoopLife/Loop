@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdminAccess, createBestAdminClient } from "@/lib/admin/access";
 import { describeSupabaseAdminKey } from "@/lib/supabase/admin";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import { writeAdminAuditEvent } from "@/lib/admin/audit";
 import { normaliseProviderSlug } from "@/lib/wealth/provider-normalise";
 import { runSavingsRateWatch, expireStaleSavingsDeals } from "@/lib/wealth/savings-rate-watch";
@@ -17,6 +18,14 @@ function adminClient() {
     throw new Error(`${status.reason} Wealth Watch admin jobs need SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY set server-side as a service_role JWT or Supabase sb_secret_ key.`);
   }
   return supabase;
+}
+
+// savings_rate_deals, mortgage_rate_deals, mortgage_lender_sources and
+// wealth_watch_source_jobs now live in a separate Supabase project —
+// moved off the main database due to usage overage. Every function
+// below that touches those specific tables uses this client instead.
+function ratesClient() {
+  return createWorkerDatabaseClient("rates");
 }
 
 function clean(value: FormDataEntryValue | null) {
@@ -55,7 +64,7 @@ export async function saveWealthWatchSettings(formData: FormData) {
 export async function runSavingsWatchNow(formData: FormData) {
   const access = await requireAdminAccess();
   const supabase = adminClient();
-  const result = await runSavingsRateWatch(supabase, {
+  const result = await runSavingsRateWatch(supabase, ratesClient(), {
     runKey: `savings-rate-watch:admin:${Date.now()}`,
     runKind: "admin_manual",
     limit: numberOrNull(formData.get("limit")) ?? 500,
@@ -69,7 +78,7 @@ export async function runSavingsWatchNow(formData: FormData) {
 export async function runMortgageWatchNow(formData: FormData) {
   const access = await requireAdminAccess();
   const supabase = adminClient();
-  const result = await runMortgageRenewalWatch(supabase, {
+  const result = await runMortgageRenewalWatch(supabase, ratesClient(), {
     runKey: `mortgage-renewal-watch:admin:${Date.now()}`,
     runKind: "admin_manual",
     limit: numberOrNull(formData.get("limit")) ?? 250,
@@ -88,15 +97,15 @@ export async function expireStaleDealsNow(formData: FormData) {
   const savingsDays = numberOrNull(formData.get("savings_days")) ?? settings.savingsStaleDays;
   const mortgageDays = numberOrNull(formData.get("mortgage_days")) ?? settings.mortgageSourceFreshnessDays;
   const result: any = {};
-  if (kind === "both" || kind === "savings") result.savings = await expireStaleSavingsDeals(supabase, savingsDays, access.user.email || access.user.id);
-  if (kind === "both" || kind === "mortgage") result.mortgages = await expireStaleMortgageRateDeals(supabase, mortgageDays, access.user.email || access.user.id);
+  if (kind === "both" || kind === "savings") result.savings = await expireStaleSavingsDeals(supabase, ratesClient(), savingsDays, access.user.email || access.user.id);
+  if (kind === "both" || kind === "mortgage") result.mortgages = await expireStaleMortgageRateDeals(ratesClient(), mortgageDays, access.user.email || access.user.id);
   await writeAdminAuditEvent({ actionKey: "wealth_watch_stale_deals_expired", entityKind: "wealth_watch", afterPayload: result, severity: "warning" });
   revalidatePath("/admin/wealth-watch");
 }
 
 export async function saveSavingsRateDeal(formData: FormData) {
   const access = await requireAdminAccess();
-  const supabase = adminClient();
+  const supabase = ratesClient();
   const providerName = clean(formData.get("provider_name"));
   const productName = clean(formData.get("product_name"));
   if (!providerName || !productName) throw new Error("Provider and product are required.");
@@ -141,7 +150,7 @@ export async function saveSavingsRateDeal(formData: FormData) {
 
 export async function checkSavingsSource(formData: FormData) {
   const access = await requireAdminAccess();
-  const supabase = adminClient();
+  const supabase = ratesClient();
   const sourceUrl = clean(formData.get("source_url"));
   const providerName = clean(formData.get("provider_name"));
   const productName = clean(formData.get("product_name"));
@@ -193,7 +202,7 @@ export async function checkSavingsSource(formData: FormData) {
 
 export async function saveMortgageRateDeal(formData: FormData) {
   const access = await requireAdminAccess();
-  const supabase = adminClient();
+  const supabase = ratesClient();
   const lenderName = clean(formData.get("lender_name"));
   if (!lenderName) throw new Error("Lender is required.");
   const id = clean(formData.get("deal_id"));
@@ -226,7 +235,7 @@ export async function saveMortgageRateDeal(formData: FormData) {
 
 export async function checkMortgageSource(formData: FormData) {
   const access = await requireAdminAccess();
-  const supabase = adminClient();
+  const supabase = ratesClient();
   const sourceUrl = clean(formData.get("source_url"));
   const lenderName = clean(formData.get("lender_name"));
   if (!sourceUrl || !lenderName) throw new Error("Lender and source URL are required.");

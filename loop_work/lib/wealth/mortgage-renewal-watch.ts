@@ -29,7 +29,7 @@ function dealMatchesLtv(deal: any, ltv: number) {
   return ltv <= max && ltv >= min && Number(deal.rate_percent || 0) > 0;
 }
 
-export async function runMortgageRenewalWatch(supabase: any, options: MortgageWatchOptions = {}) {
+export async function runMortgageRenewalWatch(supabase: any, ratesSupabase: any, options: MortgageWatchOptions = {}) {
   const settings = await loadWealthWatchSettings(supabase);
   const key = options.runKey || runKey();
   const limit = Math.max(1, Math.min(Number(options.limit || 250), 500));
@@ -66,7 +66,7 @@ export async function runMortgageRenewalWatch(supabase: any, options: MortgageWa
       supabase
         .from("homes")
         .select("id, user_id, property_value, estimated_value_mid"),
-      supabase
+      ratesSupabase
         .from("mortgage_rate_deals")
         .select("id, lender_slug, lender_name, product_name, rate_type, initial_term_months, ltv_max, ltv_min, rate_percent, product_fee, existing_customer_only, new_customer_available, source_url, status, catalogue_status, source_checked_at, confidence")
         .eq("status", "active")
@@ -163,9 +163,9 @@ export async function runMortgageRenewalWatch(supabase: any, options: MortgageWa
   }
 }
 
-export async function expireStaleMortgageRateDeals(supabase: any, staleDays: number, triggeredBy?: string | null) {
+export async function expireStaleMortgageRateDeals(ratesSupabase: any, staleDays: number, triggeredBy?: string | null) {
   const threshold = new Date(Date.now() - Math.max(1, staleDays) * 24 * 60 * 60 * 1000).toISOString();
-  const { data, error } = await supabase
+  const { data, error } = await ratesSupabase
     .from("mortgage_rate_deals")
     .update({ status: "expired", updated_at: new Date().toISOString(), payload: { expired_by: triggeredBy || "system", stale_threshold: threshold } })
     .in("status", ["active", "needs_review"])

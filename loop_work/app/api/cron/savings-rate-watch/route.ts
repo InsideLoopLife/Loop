@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
+import { createAdminClient } from "@/platform/database/admin-client";
 import { verifyCronRequest } from "@/lib/security/cron";
 import { refreshSavingsCatalogueFromSources } from "@/lib/wealth/savings-catalogue";
 import { ensureDefaultSourceUniverse } from "@/lib/wealth/default-source-catalogue";
@@ -24,6 +25,7 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = createWorkerDatabaseClient("rates");
+    const mainSupabase = createAdminClient();
     const preflight = await runRatesWorkerPreflight(supabase);
     const lock = await acquireRatesWorkerLock(supabase);
     if (!lock.acquired) {
@@ -47,7 +49,7 @@ export async function GET(request: NextRequest) {
 
     const catalogueHealthy = mode === "watch_only" || Boolean(refresh?.health?.recommendations_safe);
     const watch = catalogueHealthy
-      ? await runSavingsRateWatch(supabase, {
+      ? await runSavingsRateWatch(mainSupabase, supabase, {
           runKey: request.nextUrl.searchParams.get("run_key") || runKey(),
           runKind: request.nextUrl.searchParams.get("run_kind") || (mode === "watch_only" ? "daily_8am" : "catalogue_then_daily_watch"),
           limit: watchLimit,
@@ -57,7 +59,7 @@ export async function GET(request: NextRequest) {
       : null;
 
     const withdrawalsSafe = mode !== "watch_only" && Boolean(refresh?.health?.withdrawals_safe);
-    const expire = withdrawalsSafe ? await expireStaleSavingsDeals(supabase, Number(request.nextUrl.searchParams.get("stale_days") || 7), triggeredBy) : null;
+    const expire = withdrawalsSafe ? await expireStaleSavingsDeals(mainSupabase, supabase, Number(request.nextUrl.searchParams.get("stale_days") || 7), triggeredBy) : null;
     return NextResponse.json({ ok: true, preflight, seed, refresh, watch, watch_skipped: catalogueHealthy ? null : "Catalogue health gate did not pass; existing recommendations were left unchanged.", expire, expiry_skipped: mode !== "watch_only" && !withdrawalsSafe ? "Catalogue health gate did not pass; no products were expired." : null });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || "Savings rate watch failed" }, { status: 500 });

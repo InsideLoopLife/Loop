@@ -7,6 +7,7 @@ import { FormInput } from "@/components/FormInput";
 import { SubmitButton } from "@/components/SubmitButton";
 import { BalanceHistoryChart } from "@/components/BalanceHistoryChart";
 import { createClient } from "@/lib/supabase/server";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import {
   dedupeHouseholdPeople,
   getActiveHouseholdContext,
@@ -480,6 +481,10 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   const activeTab = tabs.some((tab) => tab.key === resolvedSearchParams.tab) ? (resolvedSearchParams.tab as SavingsTab) : "overview";
 
   const supabase = await createClient();
+  // The rates catalogue (savings_rate_deals below) now lives in its own,
+  // separate Supabase project — moved off the main database due to usage
+  // overage. Everything else on this page still uses the regular client.
+  const ratesSupabase = createWorkerDatabaseClient("rates");
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -524,7 +529,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       .eq("is_liability", false)
       .order("created_at", { ascending: false })
       .returns<FinancialAccount[]>(),
-    supabase
+    ratesSupabase
       .from("savings_rate_deals")
       .select(
         "id, provider_slug, provider_name, product_name, account_type, gross_aer, bonus_rate, minimum_balance, maximum_balance, monthly_min_deposit, monthly_max_deposit, access_type, withdrawal_rules, notice_period_days, term_length_months, rate_type, requires_existing_customer, eligible_provider_slug, eligibility_note, source_url, status, last_checked_at",

@@ -36,6 +36,7 @@ import {
   visibleDataOrFilter,
 } from "@/lib/auth/household-context";
 import { requireWealthPageAccess } from "@/domains/wealth/access";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 
 type TabKey = "flow" | "income" | "spending" | "savings";
 type Tone = "orange" | "green" | "blue" | "slate";
@@ -821,6 +822,9 @@ export default async function FinancialFlowPage({ searchParams }: { searchParams
   const activeTab: TabKey = tabs.some((tab) => tab.key === params.tab) ? (params.tab as TabKey) : "flow";
   const month = parseMonth(params.month);
   const { supabase, user, householdContext } = await requireWealthPageAccess();
+  // savings_rate_deals now lives in the separate rates-catalogue
+  // Supabase project.
+  const ratesSupabase = createWorkerDatabaseClient("rates");
   const memberFilter = householdMemberDataOrFilter(householdContext);
   const visibleFilter = visibleDataOrFilter(householdContext);
   const allocationFilter = householdContext.householdId
@@ -841,7 +845,7 @@ export default async function FinancialFlowPage({ searchParams }: { searchParams
     supabase.from("savings_account_movements").select("id, financial_account_id, movement_type, amount, previous_balance, balance_delta, resulting_balance, effective_at, created_at, note, source_type").or(visibleFilter).order("effective_at", { ascending: false }).limit(1500).returns<SavingsMovement[]>(),
     supabase.from("savings_pots").select("id, person_id, name, target_amount, target_date, monthly_target, current_allocated_amount, priority, status, goal_type, reference_image_url").or(visibleFilter).in("status", ["active", "paused", "completed"]).order("priority", { ascending: true }).returns<SavingsPot[]>(),
     supabase.from("savings_pot_allocations").select("id, savings_pot_id, financial_account_id, amount, allocation_percent").or(allocationFilter).returns<SavingsPotAllocation[]>(),
-    supabase.from("savings_rate_deals").select("id, provider_slug, provider_name, product_name, account_type, gross_aer, minimum_balance, maximum_balance, monthly_min_deposit, monthly_max_deposit, access_type, withdrawal_rules, notice_period_days, term_length_months, requires_existing_customer, last_checked_at, status").eq("status", "active").order("gross_aer", { ascending: false }).limit(150).returns<SavingsRateDeal[]>(),
+    ratesSupabase.from("savings_rate_deals").select("id, provider_slug, provider_name, product_name, account_type, gross_aer, minimum_balance, maximum_balance, monthly_min_deposit, monthly_max_deposit, access_type, withdrawal_rules, notice_period_days, term_length_months, requires_existing_customer, last_checked_at, status").eq("status", "active").order("gross_aer", { ascending: false }).limit(150).returns<SavingsRateDeal[]>(),
     supabase.from("child_costs").select("id, child_id, label, cost_kind, category_id, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on").or(memberFilter).returns<ChildCostForPlan[]>(),
   ]);
 
