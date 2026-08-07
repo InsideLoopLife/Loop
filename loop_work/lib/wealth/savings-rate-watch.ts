@@ -1,6 +1,7 @@
 import { createFeatureCache } from "@/lib/wealth/watch-entitlements";
 import { loadWealthWatchSettings } from "@/lib/wealth/watch-settings";
 import { savingsDealEligibleBalance, savingsDealMatchesAccount } from "@/lib/wealth/savings-intelligence";
+import { ensureSavingsDealShadow } from "@/lib/wealth/savings-deal-shadow";
 
 export type SavingsWatchOptions = {
   runKey?: string;
@@ -42,10 +43,10 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
   const hasSavingsWatch = createFeatureCache(supabase, "savings_rate_watch");
 
   try {
-    const [{ data: accounts, error: accountsError }, { data: deals, error: dealsError }, { data: relationships }] = await Promise.all([
+    const [{ data: accounts, error: accountsError }, { data: deals, error: dealsError }, { data: relationships }, { data: people }] = await Promise.all([
       supabase
         .from("financial_accounts")
-        .select("id, user_id, name, provider, provider_slug, account_type, current_balance, interest_rate, monthly_top_up_amount, savings_watch_enabled")
+        .select("id, user_id, name, provider, provider_slug, account_type, current_balance, interest_rate, monthly_top_up_amount, savings_watch_enabled, owner_person_id, ownership_scope, savings_limit_scope")
         .eq("is_liability", false)
         .neq("account_type", "current_account")
         .limit(limit),
@@ -59,12 +60,18 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
         .from("user_financial_provider_relationships")
         .select("user_id, provider_slug, provider_name, relationship_type, is_active")
         .eq("is_active", true),
+      supabase
+        .from("people")
+        .select("id, relationship")
+        .eq("relationship", "child"),
     ]);
 
     if (accountsError) throw new Error(accountsError.message);
     if (dealsError) throw new Error(dealsError.message);
 
     const relationshipsByUser = new Map<string, Set<string>>();
+    const childPersonIds = new Set((people || []).map((person: any) => String(person.id)));
+    const shadowedDealIds = new Set<string>();
     for (const rel of relationships || []) {
       const set = relationshipsByUser.get(rel.user_id) || new Set<string>();
       if (rel.provider_slug) set.add(String(rel.provider_slug));
@@ -72,6 +79,10 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
     }
 
     for (const account of accounts || []) {
+      const accountForMatching = {
+        ...account,
+        owner_is_child: childPersonIds.has(String(account.owner_person_id || "")),
+      };
       if (account.savings_watch_enabled === false) continue;
       // Basic daily matching is available to every saver. Tiers control alerts,
       // automation and advanced modelling, not whether a useful comparison exists.
@@ -90,7 +101,7 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
 
       for (const deal of deals || []) {
         if (createdForAccount >= settings.savingsMaxRecommendationsPerAccount) break;
-        if (!savingsDealMatchesAccount(account, deal)) continue;
+        if (!savingsDealMatchesAccount(accountForMatching, deal)) continue;
         const suggestedRate = Number(deal.gross_aer || 0);
         if (!suggestedRate || suggestedRate <= currentRate + settings.savingsMinimumRateDelta) continue;
         const needsExisting = Boolean(deal.requires_existing_customer);
@@ -99,7 +110,7 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
         if (!eligible) continue;
 
         const delta = suggestedRate - currentRate;
-        const eligibleBalance = savingsDealEligibleBalance(account, deal);
+        const eligibleBalance = savingsDealEligibleBalance(accountForMatching, deal);
         const isRegularSaver = String(deal.account_type || deal.access_type || "").toLowerCase().includes("regular");
         const monthlyAllowance = Number(deal.monthly_max_deposit || 0) > 0
           ? Math.min(monthlyTopUp, Number(deal.monthly_max_deposit))
@@ -110,6 +121,11 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
         const eligibilityStatus = needsExisting ? "eligible_existing" : "eligible_open_market";
         const accessBits = [deal.access_type ? String(deal.access_type).replaceAll("_", " ") : null, deal.notice_period_days ? `${deal.notice_period_days} days notice` : null, deal.term_length_months ? `${deal.term_length_months} month term` : null, deal.withdrawal_rules ? String(deal.withdrawal_rules).slice(0, 140) : null].filter(Boolean).join(" · ");
         const reason = `${deal.provider_name || deal.provider_slug} is showing ${suggestedRate.toFixed(2)}% vs this account at ${currentRate.toFixed(2)}%. ${needsExisting ? "Included because you have marked the required provider as held." : "Included because it appears open-market rather than existing-customer only."}${accessBits ? ` Access: ${accessBits}.` : ""}`;
+
+        if (!shadowedDealIds.has(String(deal.id))) {
+          await ensureSavingsDealShadow(supabase, deal);
+          shadowedDealIds.add(String(deal.id));
+        }
 
         const { error } = await supabase.from("savings_rate_recommendations").upsert({
           user_id: account.user_id,
@@ -193,7 +209,10 @@ export async function expireStaleSavingsDeals(supabase: any, ratesSupabase: any,
       admin_notes: `${shouldWithdraw ? "Withdrawn" : "Pending withdrawal"} after ${missingCount} missing/stale observation(s). Last-check threshold ${threshold}. Triggered by ${triggeredBy || "system"}.`,
     }).eq("id", deal.id);
     if (error) throw new Error(error.message);
-    await supabase.from("savings_rate_deal_versions").insert({
+    // Deal history belongs beside the catalogue. Since the catalogue moved to
+    // the rates project, writing this through the main client would either
+    // version a stale local row or fail for a newly-created external deal ID.
+    await ratesSupabase.from("savings_rate_deal_versions").insert({
       savings_rate_deal_id: deal.id,
       lifecycle_status: lifecycleStatus,
       verification_status: deal.verification_status || "UNVERIFIED",

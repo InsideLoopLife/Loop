@@ -4,55 +4,36 @@ function Line({ className = "" }: { className?: string }) {
   return <div className={`rounded-full bg-slate-200/80 ${className}`} />;
 }
 
-function HoldingSkeleton({ accent }: { accent: "blue" | "teal" | "orange" }) {
-  const border = accent === "teal" ? "border-teal-200" : accent === "orange" ? "border-orange-200" : "border-blue-200";
-  const disc = accent === "teal" ? "bg-teal-100" : accent === "orange" ? "bg-orange-100" : "bg-blue-100";
-  return (
-    <div className={`loop-page-skeleton overflow-hidden rounded-[2rem] border ${border} bg-white/85 p-5 shadow-sm`}>
-      <div className="grid gap-5 xl:grid-cols-[minmax(300px,1fr)_minmax(300px,420px)_220px] xl:items-center">
-        <div className="flex gap-3">
-          <div className={`h-12 w-12 shrink-0 rounded-2xl ${disc}`} />
-          <div className="w-full space-y-3 pt-1">
-            <Line className="h-5 w-2/3" />
-            <Line className="h-3 w-1/2" />
-            <Line className="h-3 w-4/5" />
-          </div>
-        </div>
-        <div className="h-28 rounded-[1.5rem] border border-slate-100 bg-gradient-to-br from-blue-50 via-white to-teal-50 p-4">
-          <div className="mt-8 h-10 rounded-full border-b-4 border-blue-200/80" />
-        </div>
-        <div className="space-y-3 xl:text-right">
-          <Line className="ml-auto h-8 w-36" />
-          <Line className="ml-auto h-4 w-24" />
-        </div>
-      </div>
-    </div>
-  );
+function SummaryCard({ accent = "blue" }: { accent?: "blue" | "teal" | "orange" | "slate" }) {
+  const wash = accent === "teal" ? "bg-teal-50" : accent === "orange" ? "bg-orange-50" : accent === "slate" ? "bg-slate-50" : "bg-blue-50";
+  return <div className="loop-page-skeleton min-h-64 rounded-[2rem] border border-slate-100 bg-white p-6 shadow-sm"><Line className="h-3 w-24" /><Line className="mt-5 h-8 w-36" /><Line className="mt-3 h-3 w-28" /><div className={`mt-7 h-24 rounded-3xl ${wash}`} /></div>;
+}
+
+function PersonRow({ accent = "blue" }: { accent?: "blue" | "teal" }) {
+  return <div className="rounded-3xl border border-slate-100 bg-white p-4"><div className="flex items-center gap-3"><div className={`h-10 w-10 rounded-full ${accent === "teal" ? "bg-teal-100" : "bg-blue-100"}`} /><div className="flex-1"><Line className="h-4 w-28" /><Line className="mt-2 h-3 w-36" /></div></div><div className="mt-4 h-14 rounded-2xl bg-slate-50" /></div>;
 }
 
 export default function InvestmentsLoading() {
   return (
     <>
       <Nav />
-      <main className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
-        <div className="loop-page-skeleton overflow-hidden rounded-[2.25rem] border border-blue-200 bg-gradient-to-br from-slate-950 via-blue-950 to-teal-950 p-6 text-white shadow-xl">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-4">
-              <div className="h-3 w-36 rounded-full bg-blue-200/30" />
-              <div className="h-10 w-72 max-w-full rounded-full bg-white/20" />
-              <div className="h-4 w-96 max-w-full rounded-full bg-white/15" />
-            </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {[0, 1, 2].map((item) => <div key={item} className="h-20 w-32 rounded-3xl bg-white/10 ring-1 ring-white/15" />)}
-            </div>
+      <main className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8" aria-label="Loading pensions and investments" role="status">
+        <section className="loop-page-skeleton overflow-hidden rounded-[2.25rem] border border-blue-200 bg-gradient-to-r from-teal-950 via-slate-950 to-orange-950 p-7 text-white shadow-xl">
+          <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr] lg:items-center">
+            <div><div className="h-3 w-44 rounded-full bg-teal-200/35" /><div className="mt-5 h-12 w-72 max-w-full rounded-full bg-white/25" /><div className="mt-4 h-4 w-[34rem] max-w-full rounded-full bg-white/15" /><div className="mt-2 h-4 w-80 max-w-full rounded-full bg-white/10" /></div>
+            <div className="grid grid-cols-3 gap-3">{[0, 1, 2].map((item) => <div key={item} className="h-28 rounded-3xl bg-white/10 ring-1 ring-white/10"><div className="m-4 h-3 w-16 rounded-full bg-white/15" /><div className="mx-4 mt-4 h-7 rounded-full bg-white/20" /></div>)}</div>
           </div>
-        </div>
-        <div className="mt-6 space-y-3" aria-label="Loading investments" role="status">
-          <HoldingSkeleton accent="blue" />
-          <HoldingSkeleton accent="teal" />
-          <HoldingSkeleton accent="orange" />
-          <span className="sr-only">Loading investments…</span>
-        </div>
+        </section>
+
+        <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard accent="slate" /><SummaryCard accent="teal" /><SummaryCard accent="blue" /><SummaryCard accent="orange" />
+        </section>
+
+        <section className="mt-6 grid gap-5 xl:grid-cols-2">
+          <div className="loop-page-skeleton min-h-80 rounded-[2rem] border border-slate-100 bg-white p-6 shadow-sm"><div className="flex items-center justify-between"><div><Line className="h-3 w-40" /><Line className="mt-3 h-6 w-72 max-w-full" /></div><Line className="h-9 w-28" /></div><div className="mt-5 grid gap-3 sm:grid-cols-2"><PersonRow accent="blue" /><PersonRow accent="blue" /></div></div>
+          <div className="loop-page-skeleton min-h-80 rounded-[2rem] border border-slate-100 bg-white p-6 shadow-sm"><div className="flex items-center justify-between"><div><Line className="h-3 w-44" /><Line className="mt-3 h-6 w-80 max-w-full" /></div><Line className="h-9 w-28" /></div><div className="mt-5 grid gap-3 sm:grid-cols-2"><PersonRow accent="teal" /><PersonRow accent="teal" /><PersonRow accent="teal" /></div></div>
+        </section>
+        <span className="sr-only">Loading pensions and investments…</span>
       </main>
     </>
   );

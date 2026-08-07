@@ -56,6 +56,8 @@ import {
   providerSlugsFromAccounts,
   savingsDealEligibleBalance,
   savingsDealMatchesAccount,
+  isChildSavingsDeal,
+  type SavingsDealLike,
 } from "@/lib/wealth/savings-intelligence";
 import {
   addFinancialAccount,
@@ -109,6 +111,7 @@ type FinancialAccount = {
   savings_goal_monthly_contribution_override?: number | null;
   savings_goal_priority?: number | null;
   savings_goal_status?: string | null;
+  owner_is_child?: boolean;
 };
 
 type SavingsOwner = {
@@ -162,9 +165,15 @@ type HeldProvider = {
   relationship_type: string | null;
 };
 
+type DealFeedback = {
+  eligibility_status?: string | null;
+  used_before?: boolean | null;
+};
+
 type SavingsRateRecommendation = {
   id: string;
   financial_account_id: string | null;
+  savings_rate_deal_id: string | null;
   provider_slug: string | null;
   provider_name: string | null;
   product_name: string | null;
@@ -400,7 +409,7 @@ function daysOld(value?: string | null) {
   return Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
 }
 
-function dealInfoRows(deal: any) {
+function dealInfoRows(deal: SavingsDealLike) {
   return [
     { label: "Rate type", value: cleanDealLabel(deal.rate_type) },
     { label: "Access", value: cleanDealLabel(deal.access_type || deal.account_type) },
@@ -443,6 +452,92 @@ function maximumDealReturn(deal: {
   }
   if (balanceCap > 0) return { deposit: balanceCap, interest: balanceCap * rate * (months / 12) };
   return null;
+}
+
+function dealMaximumDeposit(deal: SavingsDealLike) {
+  const maximum = Number(deal.maximum_balance || 0);
+  const minimum = Number(deal.minimum_balance || 0);
+  // Tiny extracted maxima (for example £2 beside a £1 minimum) are commonly
+  // page-navigation artefacts, not genuine product limits. Do not headline them.
+  if (maximum > 0 && !(maximum < 100 && maximum <= Math.max(2, minimum * 2))) return maximum;
+  const monthly = Number(deal.monthly_max_deposit || 0);
+  const months = Number(deal.term_length_months || 12);
+  return monthly > 0 ? monthly * Math.max(1, months) : null;
+}
+
+function dealAccessLabel(deal: SavingsDealLike) {
+  if (deal.notice_period_days) return `${deal.notice_period_days} days' notice`;
+  if (deal.term_length_months) return `${deal.term_length_months}-month term`;
+  return cleanDealLabel(deal.access_type || deal.rate_type || "Check access");
+}
+
+function SavingsDealCard({
+  deal,
+  personLabel,
+  feedback,
+}: {
+  deal: SavingsDealLike & { eligible_now?: boolean; best_gain?: number };
+  personLabel: string;
+  feedback?: { eligibility_status?: string | null; used_before?: boolean | null } | null;
+}) {
+  const maximumDeposit = dealMaximumDeposit(deal);
+  const returnModel = maximumDealReturn(deal);
+  const childOnly = isChildSavingsDeal(deal);
+  const tone = childOnly ? "border-violet-200 bg-violet-50/60" : deal.eligible_now ? "border-emerald-200 bg-emerald-50/60" : "border-orange-200 bg-orange-50/50";
+  const personTone = childOnly ? "bg-violet-700" : deal.eligible_now ? "bg-emerald-700" : "bg-orange-600";
+  return (
+    <article className={`relative rounded-[1.75rem] border p-5 pt-7 shadow-sm ${tone}`}>
+      <span className={`absolute -top-3 left-5 rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-white shadow-sm ${personTone}`}>{personLabel}</span>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">{deal.provider_name ?? deal.provider_slug ?? "Provider"}</p>
+          <h4 className="mt-1 text-lg font-black leading-tight text-slate-950">{deal.product_name ?? "Savings account"}</h4>
+          <p className="mt-1 text-sm font-bold text-slate-500">{cleanDealLabel(deal.account_type || deal.access_type || "Savings account")}</p>
+        </div>
+        <div className="shrink-0 text-right"><p className="text-3xl font-black text-slate-950">{deal.gross_aer != null ? `${Number(deal.gross_aer).toFixed(2)}%` : "TBC"}</p><p className="text-[10px] font-black uppercase tracking-wide text-slate-400">AER</p></div>
+      </div>
+      <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="rounded-2xl bg-white/90 p-3"><p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Save overall</p><p className="mt-1 text-sm font-black text-slate-950">{maximumDeposit ? `Up to ${formatMoney(maximumDeposit)}` : "No maximum stated"}</p></div>
+        <div className="rounded-2xl bg-white/90 p-3"><p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Pay in monthly</p><p className="mt-1 text-sm font-black text-slate-950">{deal.monthly_max_deposit != null ? `Up to ${formatMoney(deal.monthly_max_deposit)}` : "No monthly cap stated"}</p></div>
+        <div className="col-span-2 rounded-2xl bg-white/90 p-3 sm:col-span-1"><p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Access</p><p className="mt-1 text-sm font-black text-slate-950">{dealAccessLabel(deal)}</p></div>
+      </div>
+      {returnModel ? <p className="mt-3 text-sm font-bold text-slate-600">Could earn about <span className="font-black text-slate-950">{formatMoney(returnModel.interest)}</span> at the maximum modelled deposit.</p> : null}
+      <details className="mt-4 border-t border-slate-200/80 pt-3">
+        <summary className="ml-auto w-fit cursor-pointer list-none rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white">Explore further →</summary>
+        <div className="mt-4 rounded-2xl bg-white/80 p-4">
+          <div className="grid grid-cols-2 gap-x-5 gap-y-3 text-sm sm:grid-cols-4">{dealInfoRows(deal).map((row) => <div key={row.label}><p className="text-[10px] font-black uppercase tracking-wide text-slate-400">{row.label}</p><p className="mt-1 font-bold text-slate-700">{row.value}</p></div>)}</div>
+          {deal.requires_existing_customer ? <p className="mt-4 text-xs font-bold text-orange-700">Requires an existing relationship with {deal.eligible_provider_slug || deal.provider_name || deal.provider_slug}.</p> : null}
+          {deal.withdrawal_rules ? <p className="mt-3 text-xs font-bold leading-5 text-slate-600">{deal.withdrawal_rules}</p> : null}
+          <form action={saveSavingsDealEligibility} className="mt-4 flex flex-wrap items-center gap-2">
+            <input type="hidden" name="savings_rate_deal_id" value={deal.id} />
+            <span className="text-xs font-black text-slate-700">Applicable?</span>
+            <button name="eligibility_status" value="eligible" className={`rounded-full px-3 py-1.5 text-xs font-black ${feedback?.eligibility_status === "eligible" ? "bg-emerald-800 text-white" : "bg-emerald-50 text-emerald-800"}`}>Yes</button>
+            <button name="eligibility_status" value="not_eligible" className={`rounded-full px-3 py-1.5 text-xs font-black ${feedback?.eligibility_status === "not_eligible" ? "bg-rose-600 text-white" : "bg-rose-50 text-rose-700"}`}>No</button>
+            <label className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700"><input type="checkbox" name="used_before" value="true" defaultChecked={Boolean(feedback?.used_before)} className="h-4 w-4 accent-blue-700" /> Used before</label>
+          </form>
+          {deal.source_url ? <a href={deal.source_url} target="_blank" rel="noreferrer" className="mt-4 inline-block text-xs font-black text-slate-800 underline">View provider/source details ↗</a> : null}
+        </div>
+      </details>
+    </article>
+  );
+}
+
+function SavingsRecommendationCard({ recommendation, account, deal, personLabel }: { recommendation: SavingsRateRecommendation; account?: FinancialAccount | null; deal?: SavingsDealLike | null; personLabel: string }) {
+  return (
+    <article className="relative rounded-[1.75rem] border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-5 pt-7 shadow-sm">
+      <span className="absolute -top-3 left-5 rounded-full bg-slate-950 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-white shadow-sm">{personLabel}</span>
+      <p className="text-xs font-black uppercase tracking-[0.14em] text-orange-700">{recommendation.provider_name || recommendation.provider_slug || "Provider"}</p>
+      <h3 className="mt-1 text-xl font-black text-slate-950">{recommendation.product_name || "Better-rate account"}</h3>
+      <p className="mt-1 text-sm font-bold text-slate-500">{deal ? cleanDealLabel(deal.account_type || deal.access_type) : "Savings account"}</p>
+      <div className="mt-5 grid grid-cols-3 gap-2">
+        <div className="rounded-2xl bg-white p-3"><p className="text-[10px] font-black uppercase text-slate-400">Now</p><p className="font-black text-slate-950">{Number(recommendation.current_rate || 0).toFixed(2)}%</p></div>
+        <div className="rounded-2xl bg-white p-3"><p className="text-[10px] font-black uppercase text-slate-400">Better rate</p><p className="font-black text-slate-950">{Number(recommendation.suggested_rate || 0).toFixed(2)}%</p></div>
+        <div className="rounded-2xl bg-white p-3"><p className="text-[10px] font-black uppercase text-slate-400">Could add</p><p className="font-black text-slate-950">{formatMoney(recommendation.estimated_annual_gain)}/yr</p></div>
+      </div>
+      {deal ? <div className="mt-3 grid grid-cols-2 gap-2"><div className="rounded-2xl bg-white/90 p-3"><p className="text-[10px] font-black uppercase text-slate-400">Save overall</p><p className="text-sm font-black">{dealMaximumDeposit(deal) ? `Up to ${formatMoney(dealMaximumDeposit(deal))}` : "No maximum stated"}</p></div><div className="rounded-2xl bg-white/90 p-3"><p className="text-[10px] font-black uppercase text-slate-400">Pay in monthly</p><p className="text-sm font-black">{deal.monthly_max_deposit ? `Up to ${formatMoney(deal.monthly_max_deposit)}` : "No cap stated"}</p></div></div> : null}
+      <details className="mt-4 border-t border-orange-200 pt-3"><summary className="ml-auto w-fit cursor-pointer list-none rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white">Explore further →</summary><div className="mt-4 rounded-2xl bg-white p-4"><p className="text-sm font-bold leading-6 text-slate-600">{recommendation.reason || "Check the eligibility, access and deposit rules before moving money."}</p>{account ? <p className="mt-3 text-xs font-bold text-slate-500">Compared with {account.provider || "your provider"} · {account.name || "tracked account"}</p> : null}{recommendation.source_url ? <a href={recommendation.source_url} target="_blank" rel="noreferrer" className="mt-3 inline-block text-xs font-black text-orange-700 underline">View provider/source details ↗</a> : null}</div></details>
+    </article>
+  );
 }
 
 function TabLink({ tab, activeTab }: { tab: SavingsTab; activeTab: SavingsTab }) {
@@ -547,7 +642,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     supabase
       .from("savings_rate_recommendations")
       .select(
-        "id, financial_account_id, provider_slug, provider_name, product_name, recommendation_kind, eligibility_status, current_rate, suggested_rate, rate_delta, balance_checked, estimated_annual_gain, source_url, reason, status, created_at",
+        "id, financial_account_id, savings_rate_deal_id, provider_slug, provider_name, product_name, recommendation_kind, eligibility_status, current_rate, suggested_rate, rate_delta, balance_checked, estimated_annual_gain, source_url, reason, status, created_at",
       )
       .eq("user_id", user.id)
       .in("status", ["new", "seen", "watching"])
@@ -669,7 +764,10 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     null;
   const ownerById = new Map(ownerOptions.map((person) => [person.id, person]));
 
-  const accountRows = (accounts ?? []).filter((account) => !["current_account"].includes(account.account_type));
+  const childPersonIds = new Set(ownerOptions.filter((person) => String(person.relationship || "").toLowerCase() === "child").map((person) => person.id));
+  const accountRows: FinancialAccount[] = (accounts ?? [])
+    .filter((account) => !["current_account"].includes(account.account_type))
+    .map((account) => ({ ...account, owner_is_child: childPersonIds.has(String(account.owner_person_id || "")) } as FinancialAccount));
   // Everyday / current accounts aren't savings vehicles (no rate, no goal), but they still need to exist
   // as financial_accounts rows so they can be picked as a "paid into" / "paid from" account elsewhere
   // in Financial Flow (spending, income, planner). Surface them here so people can add/manage them.
@@ -684,9 +782,10 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
 
   const allHeldProviders = providerSlugsFromAccounts(accountRows, heldProviders ?? []);
   const dealMatches = classifySavingsDeals(accountRows, savingsDeals ?? [], allHeldProviders);
-  const eligibleDeals = dealMatches.filter((deal) => deal.eligible_now);
-  const needsProviderDeals = dealMatches.filter((deal) => !deal.eligible_now);
-  const eligibilityByDeal = new Map((dealEligibilityRows ?? []).map((row: any) => [row.savings_rate_deal_id, row]));
+  const adultEligibleDeals = dealMatches.filter((deal) => deal.eligible_now && !isChildSavingsDeal(deal));
+  const adultNeedsProviderDeals = dealMatches.filter((deal) => !deal.eligible_now && !isChildSavingsDeal(deal));
+  const childDeals = dealMatches.filter((deal) => isChildSavingsDeal(deal));
+  const eligibilityByDeal = new Map<string, DealFeedback>((dealEligibilityRows ?? []).map((row) => [String(row.savings_rate_deal_id), row as DealFeedback]));
   const adultPersonIds = ownerOptions
     .filter((person) => String(person.relationship || "").toLowerCase() !== "child")
     .map((person) => person.id);
@@ -837,6 +936,27 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     .sort((a, b) => Number(a.account.savings_goal_priority || 99) - Number(b.account.savings_goal_priority || 99));
 
   const accountById = new Map(accountRows.map((account) => [account.id, account]));
+  const dealById = new Map((savingsDeals ?? []).map((deal) => [deal.id, deal]));
+  const visibleSavingsRecommendations = (savingsRecommendations ?? []).filter((recommendation) => {
+    const account = recommendation.financial_account_id ? accountById.get(recommendation.financial_account_id) : null;
+    const deal = recommendation.savings_rate_deal_id ? dealById.get(recommendation.savings_rate_deal_id) : null;
+    return !account || !deal || savingsDealMatchesAccount(account, deal);
+  });
+  const adultRecommendations = visibleSavingsRecommendations.filter((recommendation) => {
+    const deal = recommendation.savings_rate_deal_id ? dealById.get(recommendation.savings_rate_deal_id) : null;
+    return !deal || !isChildSavingsDeal(deal);
+  });
+  const childRecommendations = visibleSavingsRecommendations.filter((recommendation) => {
+    const deal = recommendation.savings_rate_deal_id ? dealById.get(recommendation.savings_rate_deal_id) : null;
+    return Boolean(deal && isChildSavingsDeal(deal));
+  });
+  const personLabelForAccount = (account?: FinancialAccount | null) => {
+    if (account?.owner_person_id) return ownerById.get(account.owner_person_id)?.name || (account.owner_is_child ? "Child" : "Account owner");
+    return account?.owner_is_child ? "Child" : defaultOwnerPerson?.name || "You";
+  };
+  const childAudienceLabel = ownerOptions.filter((person) => String(person.relationship || "").toLowerCase() === "child").length === 1
+    ? ownerOptions.find((person) => String(person.relationship || "").toLowerCase() === "child")?.name || "Child"
+    : "Children";
   const allocationsByPot = new Map<string, SavingsPotAllocation[]>();
   for (const allocation of savingsPotAllocations ?? []) {
     const rows = allocationsByPot.get(allocation.savings_pot_id) || [];
@@ -979,7 +1099,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     };
   });
   const totalOpportunityCost = optimiserRows.reduce((sum, row) => sum + row.annualGain, 0);
-  const latestRecommendationAt = (savingsRecommendations ?? [])
+  const latestRecommendationAt = visibleSavingsRecommendations
     .map((row) => row.created_at)
     .filter((value): value is string => Boolean(value))
     .sort()
@@ -1383,81 +1503,35 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="rounded-3xl bg-slate-950 p-4 text-white"><p className="text-xs font-black uppercase tracking-wide text-white/50">Latest saved match</p><p className="mt-2 text-xl font-black">{latestRecommendationAt ? `${daysOld(latestRecommendationAt) ?? 0} day(s) ago` : "None yet"}</p><p className="mt-1 text-xs font-bold text-white/60">The worker only saves a row when it finds a positive compatible rate gap.</p></div>
                 <div className="rounded-3xl bg-blue-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-blue-700">Accounts watched</p><p className="mt-2 text-2xl font-black text-slate-950">{accountRows.length}</p><p className="mt-1 text-xs font-bold text-slate-500">tracked savers eligible for checks</p></div>
-                <div className="rounded-3xl bg-emerald-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-emerald-700">Saved actions</p><p className="mt-2 text-2xl font-black text-slate-950">{savingsRecommendations?.length ?? 0}</p><p className="mt-1 text-xs font-bold text-slate-500">active recommendations</p></div>
-                <div className="rounded-3xl bg-orange-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-orange-700">Opportunity</p><p className="mt-2 text-2xl font-black text-slate-950">{intelligence.catalogue.status === "healthy" ? `${formatMoney((savingsRecommendations ?? []).reduce((sum, row) => sum + Number(row.estimated_annual_gain || 0), 0))}/yr` : "Check incomplete"}</p><p className="mt-1 text-xs font-bold text-slate-500">{intelligence.catalogue.activeDeals} active · {intelligence.catalogue.completeDeals} complete · {intelligence.catalogue.freshDeals} fresh</p></div>
+                <div className="rounded-3xl bg-emerald-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-emerald-700">Saved actions</p><p className="mt-2 text-2xl font-black text-slate-950">{visibleSavingsRecommendations.length}</p><p className="mt-1 text-xs font-bold text-slate-500">compatible recommendations</p></div>
+                <div className="rounded-3xl bg-orange-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-orange-700">Opportunity</p><p className="mt-2 text-2xl font-black text-slate-950">{intelligence.catalogue.status === "healthy" ? `${formatMoney(visibleSavingsRecommendations.reduce((sum, row) => sum + Number(row.estimated_annual_gain || 0), 0))}/yr` : "Check incomplete"}</p><p className="mt-1 text-xs font-bold text-slate-500">{intelligence.catalogue.activeDeals} active · {intelligence.catalogue.completeDeals} complete · {intelligence.catalogue.freshDeals} fresh</p></div>
               </div>
             </SectionCard>
 
-            <SectionCard title="Recommended reviews" description="These are generated by the morning worker from your actual balance, current rate, provider relationships and the reviewed savings deal catalogue.">
+            <SectionCard title="Best options for you" description="A short list for adult accounts. Child-only products are kept separate so they cannot be mistaken for a switch for your own savings.">
               <div className="grid gap-4 lg:grid-cols-2">
-                {(savingsRecommendations ?? []).map((recommendation) => {
+                {adultRecommendations.map((recommendation) => {
                   const account = recommendation.financial_account_id ? accountById.get(recommendation.financial_account_id) : null;
-                  return (
-                    <article key={recommendation.id} className="rounded-3xl border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-5 shadow-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <div><p className="text-xs font-black uppercase tracking-wide text-orange-700">{account?.provider || "Tracked saver"} · {account?.name || "Account"}</p><h3 className="mt-1 text-xl font-black text-slate-950">{recommendation.provider_name || recommendation.provider_slug} · {recommendation.product_name || "Better-rate option"}</h3></div>
-                        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-orange-800">+{Number(recommendation.rate_delta || 0).toFixed(2)}%</span>
-                      </div>
-                      <div className="mt-4 grid grid-cols-3 gap-2">
-                        <div className="rounded-2xl bg-white p-3"><p className="text-[10px] font-black uppercase text-slate-400">Current</p><p className="font-black text-slate-950">{Number(recommendation.current_rate || 0).toFixed(2)}%</p></div>
-                        <div className="rounded-2xl bg-white p-3"><p className="text-[10px] font-black uppercase text-slate-400">Alternative</p><p className="font-black text-slate-950">{Number(recommendation.suggested_rate || 0).toFixed(2)}%</p></div>
-                        <div className="rounded-2xl bg-white p-3"><p className="text-[10px] font-black uppercase text-slate-400">Annual gain</p><p className="font-black text-slate-950">{formatMoney(recommendation.estimated_annual_gain)}</p></div>
-                      </div>
-                      <p className="mt-3 text-sm font-bold text-slate-600">{recommendation.reason || "Review product access, limits and eligibility before moving money."}</p>
-                      {recommendation.source_url ? <a href={recommendation.source_url} target="_blank" rel="noreferrer" className="mt-3 inline-block text-xs font-black text-orange-700 underline">Open evidence source</a> : null}
-                    </article>
-                  );
+                  const deal = recommendation.savings_rate_deal_id ? dealById.get(recommendation.savings_rate_deal_id) : null;
+                  return <SavingsRecommendationCard key={recommendation.id} recommendation={recommendation} account={account} deal={deal} personLabel={personLabelForAccount(account)} />;
                 })}
-                {(savingsRecommendations ?? []).length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-bold text-slate-500">{intelligence.catalogue.status === "healthy" ? "No positive compatible rate gap was found in the reviewed catalogue." : "Market check incomplete. This is not a £0 opportunity result: the catalogue needs more fresh, complete products before LOOP can make a reliable comparison."}</div> : null}
+                {adultRecommendations.length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-bold text-slate-500">{intelligence.catalogue.status === "healthy" ? "No better compatible adult rate was found." : "The adult market check needs more fresh, complete products before LOOP can make a reliable comparison."}</div> : null}
               </div>
             </SectionCard>
 
-            <SectionCard title="Current deal catalogue" description="Likely eligible products are separated from existing-customer products that require another provider relationship.">
-              <div className="grid gap-6 xl:grid-cols-2">
-                <div>
-                  <h3 className="text-xl font-black text-slate-950">Likely eligible now</h3>
-                  <div className="mt-4 grid gap-3">
-                    {eligibleDeals.slice(0, 8).map((deal) => {
-                      const returnModel = maximumDealReturn(deal);
-                      const feedback = eligibilityByDeal.get(deal.id) as any;
-                      return (
-                      <article key={deal.id} className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
-                        <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">{deal.provider_name ?? deal.provider_slug}</p><h4 className="mt-1 text-lg font-black text-slate-950">{deal.product_name ?? "Savings deal"}</h4></div><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-emerald-800">Eligible</span></div>
-                        <p className="mt-2 text-3xl font-black text-slate-950">{deal.gross_aer != null ? `${Number(deal.gross_aer).toFixed(2)}%` : "Rate TBC"}</p>
-                        <p className="mt-2 text-sm font-bold text-slate-600">Best estimated uplift: {formatMoney(deal.best_gain || 0)} / year</p>
-                        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">{dealInfoRows(deal).map((row) => <div key={row.label} className="rounded-2xl bg-white/80 p-3"><p className="text-[10px] font-black uppercase tracking-wide text-slate-500">{row.label}</p><p className="mt-1 text-xs font-black text-slate-950">{row.value}</p></div>)}</div>
-                        {returnModel ? <div className="mt-3 rounded-2xl bg-emerald-900 p-3 text-white"><p className="text-[10px] font-black uppercase tracking-wide text-emerald-200">Maximum modelled return</p><p className="mt-1 text-sm font-black">Up to {formatMoney(returnModel.interest)} interest on {formatMoney(returnModel.deposit)}</p><p className="mt-1 text-[11px] font-semibold text-emerald-100">Estimate from the published rate, deposit cap and term; product timing and rate changes may alter it.</p></div> : null}
-                        <form action={saveSavingsDealEligibility} className="mt-3 flex flex-wrap items-center gap-2">
-                          <input type="hidden" name="savings_rate_deal_id" value={deal.id} />
-                          <span className="text-xs font-black text-emerald-900">Eligible?</span>
-                          <button name="eligibility_status" value="eligible" className={`rounded-full px-3 py-1.5 text-xs font-black ${feedback?.eligibility_status === "eligible" ? "bg-emerald-900 text-white" : "bg-white text-emerald-800"}`}>✓ Yes</button>
-                          <button name="eligibility_status" value="not_eligible" className={`rounded-full px-3 py-1.5 text-xs font-black ${feedback?.eligibility_status === "not_eligible" ? "bg-rose-600 text-white" : "bg-white text-rose-700"}`}>× No</button>
-                          <label className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black ${feedback?.used_before ? "bg-blue-700 text-white" : "bg-white text-blue-700"}`}><input type="checkbox" name="used_before" value="true" defaultChecked={Boolean(feedback?.used_before)} className="h-4 w-4 accent-blue-700" /> Used before</label>
-                        </form>
-                        {deal.withdrawal_rules ? <p className="mt-3 rounded-2xl bg-white/80 p-3 text-xs font-bold text-slate-600">Withdrawals/access: {deal.withdrawal_rules}</p> : null}
-                        {deal.source_url ? <a href={deal.source_url} target="_blank" rel="noreferrer" className="mt-3 inline-block text-xs font-black text-emerald-800 underline">Open source</a> : null}
-                      </article>
-                      );
-                    })}
-                    {eligibleDeals.length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-bold text-slate-500">No active reviewed eligible deals are logged. Add or refresh rows in Admin → Savings catalogue.</div> : null}
-                  </div>
-                </div>
-                <div>
-                  <h3 className="text-xl font-black text-slate-950">Could unlock with another provider</h3>
-                  <div className="mt-4 grid gap-3">
-                    {needsProviderDeals.slice(0, 8).map((deal) => (
-                      <article key={deal.id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                        <p className="text-xs font-black uppercase tracking-[0.16em] text-orange-600">Needs relationship</p>
-                        <h4 className="mt-1 text-lg font-black text-slate-950">{deal.provider_name ?? deal.provider_slug} · {deal.product_name ?? "Savings deal"}</h4>
-                        <p className="mt-2 text-2xl font-black text-slate-950">{deal.gross_aer != null ? `${Number(deal.gross_aer).toFixed(2)}%` : "Rate TBC"}</p>
-                        <p className="mt-2 text-sm font-bold text-slate-500">Requires: {deal.eligible_provider_slug || deal.provider_slug || "provider relationship"}</p>
-                        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">{dealInfoRows(deal).slice(0, 6).map((row) => <div key={row.label} className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase tracking-wide text-slate-500">{row.label}</p><p className="mt-1 text-xs font-black text-slate-950">{row.value}</p></div>)}</div>
-                        {deal.source_url ? <a href={deal.source_url} target="_blank" rel="noreferrer" className="mt-3 inline-block text-xs font-black text-orange-600 underline">Open source</a> : null}
-                      </article>
-                    ))}
-                    {needsProviderDeals.length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-bold text-slate-500">No locked provider-only deals at the moment.</div> : null}
-                  </div>
-                </div>
+            {childRecommendations.length || childDeals.length ? <SectionCard title="For the children" description="Junior and child-only products live here. They are never compared with an adult account.">
+              {childRecommendations.length ? <div className="mb-6 grid gap-4 lg:grid-cols-2">{childRecommendations.map((recommendation) => {
+                const account = recommendation.financial_account_id ? accountById.get(recommendation.financial_account_id) : null;
+                const deal = recommendation.savings_rate_deal_id ? dealById.get(recommendation.savings_rate_deal_id) : null;
+                return <SavingsRecommendationCard key={recommendation.id} recommendation={recommendation} account={account} deal={deal} personLabel={personLabelForAccount(account) || childAudienceLabel} />;
+              })}</div> : null}
+              <div className="grid gap-4 lg:grid-cols-2">{childDeals.slice(0, 6).map((deal) => <SavingsDealCard key={deal.id} deal={deal} personLabel={childAudienceLabel} feedback={eligibilityByDeal.get(deal.id)} />)}</div>
+            </SectionCard> : null}
+
+            <SectionCard title="Explore adult savings accounts" description="Start with the practical limits. Open a card only when the headline rate, pay-in limit and access fit what you need.">
+              <div className="grid gap-8 xl:grid-cols-2">
+                <div><h3 className="text-xl font-black text-slate-950">Available now</h3><p className="mt-1 text-sm font-bold text-slate-500">Open-market or already eligible through a relationship.</p><div className="mt-5 grid gap-5">{adultEligibleDeals.slice(0, 8).map((deal) => <SavingsDealCard key={deal.id} deal={deal} personLabel={defaultOwnerPerson?.name || "You"} feedback={eligibilityByDeal.get(deal.id)} />)}{adultEligibleDeals.length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-bold text-slate-500">No reviewed adult deals are currently marked as available.</div> : null}</div></div>
+                <div><h3 className="text-xl font-black text-slate-950">Needs another relationship</h3><p className="mt-1 text-sm font-bold text-slate-500">Useful to see, but not immediately available to you.</p><div className="mt-5 grid gap-5">{adultNeedsProviderDeals.slice(0, 8).map((deal) => <SavingsDealCard key={deal.id} deal={deal} personLabel={defaultOwnerPerson?.name || "You"} feedback={eligibilityByDeal.get(deal.id)} />)}{adultNeedsProviderDeals.length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-bold text-slate-500">No relationship-only adult deals at the moment.</div> : null}</div></div>
               </div>
             </SectionCard>
           </div>

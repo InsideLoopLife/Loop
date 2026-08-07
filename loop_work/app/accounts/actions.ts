@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parseNumber } from "@/lib/format/money";
 import { calculateSavingsAccruedBalance } from "@/lib/wealth/savings-accrual";
+import { ensureSavingsDealShadow } from "@/lib/wealth/savings-deal-shadow";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import {
   applyMutableRecordFilter,
   getActiveHouseholdContext,
@@ -977,6 +979,20 @@ export async function saveSavingsDealEligibility(formData: FormData) {
   const status = String(formData.get("eligibility_status") || "unknown");
   if (!dealId) throw new Error("Savings deal missing.");
   if (!["unknown", "eligible", "not_eligible"].includes(status)) throw new Error("Unknown eligibility status.");
+
+  // The catalogue is now held in the rates project, while personal feedback
+  // remains in the main project. Preserve the main project's foreign key by
+  // materialising one lightweight parent row before saving the feedback.
+  const ratesSupabase = createWorkerDatabaseClient("rates");
+  const { data: deal, error: dealError } = await ratesSupabase
+    .from("savings_rate_deals")
+    .select("id,provider_slug,provider_name,product_name,account_type,gross_aer,bonus_rate,minimum_balance,maximum_balance,monthly_min_deposit,monthly_max_deposit,access_type,withdrawal_rules,notice_period_days,term_length_months,rate_type,requires_existing_customer,eligible_provider_slug,eligibility_note,source_url,last_checked_at")
+    .eq("id", dealId)
+    .maybeSingle();
+  if (dealError) throw new Error(dealError.message);
+  if (!deal) throw new Error("This savings deal is no longer available in the rates catalogue.");
+  await ensureSavingsDealShadow(createWorkerDatabaseClient("wealth"), deal);
+
   const { error } = await supabase.from("user_savings_deal_eligibility").upsert({
     user_id: user.id,
     savings_rate_deal_id: dealId,

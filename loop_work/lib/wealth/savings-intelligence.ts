@@ -14,6 +14,7 @@ export type SavingsAccountLike = {
   savings_limit_scope?: string | null;
   owner_person_id?: string | null;
   ownership_scope?: string | null;
+  owner_is_child?: boolean;
   interest_rate_end_date?: string | null;
   end_date?: string | null;
   updated_at?: string | null;
@@ -154,6 +155,33 @@ function accountKindMatches(accountType: string | null | undefined, dealAccountT
   return !account.includes("mortgage") && !account.includes("investment") && !account.includes("current_account");
 }
 
+const CHILD_SAVINGS_PATTERN = /\b(junior|child|children|kids?|young saver|under[ -]?18|jisa)\b/i;
+
+export function isChildSavingsDeal(deal: SavingsDealLike) {
+  return CHILD_SAVINGS_PATTERN.test([
+    deal.product_name,
+    deal.account_type,
+    deal.access_type,
+    deal.eligibility_note,
+  ].filter(Boolean).join(" "));
+}
+
+export function isChildSavingsAccount(account: SavingsAccountLike) {
+  if (account.owner_is_child || String(account.ownership_scope || "").toLowerCase() === "child") return true;
+  return CHILD_SAVINGS_PATTERN.test([account.name, account.account_type, account.savings_limit_scope].filter(Boolean).join(" "));
+}
+
+export function isActionableSavingsDeal(deal: SavingsDealLike) {
+  const provider = String(deal.provider_name || deal.provider_slug || "").trim();
+  const product = String(deal.product_name || "").trim();
+  if (!provider || !product || n(deal.gross_aer) <= 0) return false;
+  // Editorial/index pages are useful evidence sources, not products someone can open.
+  // Keep them out until the extractor has identified the actual bank and account.
+  const genericListing = /^(market best buy|best buys?|savings rates?|best savings accounts?|savings accounts?)$/i.test(product);
+  const editorialProvider = /\b(moneyfacts|money saving expert|moneysavingexpert|which\??)\b/i.test(provider);
+  return !(genericListing || editorialProvider);
+}
+
 export function savingsDealEligibleBalance(account: SavingsAccountLike, deal: SavingsDealLike) {
   const balance = Math.max(0, calculateSavingsAccruedBalance(account as any).estimatedBalance);
   const minimum = Math.max(0, n(deal.minimum_balance));
@@ -168,6 +196,9 @@ export function savingsDealEligibleBalance(account: SavingsAccountLike, deal: Sa
 }
 
 export function savingsDealMatchesAccount(account: SavingsAccountLike, deal: SavingsDealLike) {
+  if (!isActionableSavingsDeal(deal)) return false;
+  // Never present a child-only product as an upgrade for an adult account.
+  if (isChildSavingsDeal(deal) && !isChildSavingsAccount(account)) return false;
   if (!accountKindMatches(account.account_type, deal.account_type)) return false;
   return savingsDealEligibleBalance(account, deal) > 0;
 }
@@ -211,7 +242,7 @@ export function providerSlugsFromAccounts(accounts: SavingsAccountLike[], relati
 
 export function classifySavingsDeals(accounts: SavingsAccountLike[], deals: SavingsDealLike[], heldProviders: ProviderRelationshipLike[]): SavingsDealMatch[] {
   const held = new Set(providerSlugsFromAccounts(accounts, heldProviders).map((item) => item.provider_slug));
-  return (deals || []).map((deal) => {
+  return (deals || []).filter(isActionableSavingsDeal).map((deal) => {
     const providerSlug = String(deal.provider_slug || "");
     const eligibleProvider = String(deal.eligible_provider_slug || providerSlug || "");
     const needsProvider = Boolean(deal.requires_existing_customer);
