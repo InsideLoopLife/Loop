@@ -389,14 +389,15 @@ export async function runLoopWatchForItem(supabase: SupabaseLike, item: LoopWatc
 
   if (itemType === "savings_terms" && item.interest_rate_percent) {
     const currentRate = Number(item.interest_rate_percent || 0);
-    const { data: betterDeals } = await createWorkerDatabaseClient("rates")
+    const { data: betterDealsRaw } = await createWorkerDatabaseClient("rates")
       .from("savings_rate_deals")
       .select("id,provider_name,product_name,rate_aer,rate_gross,source_url")
       .eq("status", "active")
       .gt("rate_aer", currentRate + 0.1)
       .order("rate_aer", { ascending: false })
       .limit(3);
-    if ((betterDeals || []).length > 0) {
+    const betterDeals = betterDealsRaw || [];
+    if (betterDeals.length > 0) {
       const best = betterDeals[0];
       await upsertOpportunity(supabase, buildOpportunityBase(
         item,
