@@ -70,6 +70,19 @@ export function NavigationLayoutSettings({
 
   return (
     <div className="space-y-4">
+      {isMobileViewport ? (
+        <div className="rounded-3xl border border-slate-200 bg-white p-5">
+          <span className="flex items-start gap-4">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-slate-100 text-slate-700"><PanelTop className="h-5 w-5" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="font-black text-slate-900">Mobile layout</span>
+              <span className="mt-2 block text-xs font-semibold leading-5 text-slate-500">
+                "Top" and "side" navigation are desktop-only layouts — on a phone you're always on Loop's mobile navigation. More mobile layout options are on the way.
+              </span>
+            </span>
+          </span>
+        </div>
+      ) : (
       <div className="grid gap-3 sm:grid-cols-2">
         <button
           type="button"
@@ -88,23 +101,24 @@ export function NavigationLayoutSettings({
         <button
           type="button"
           onClick={() => choose("side")}
-          disabled={saving || isMobileViewport}
-          className={`rounded-3xl border p-5 text-left transition ${layout === "side" ? "border-indigo-600 bg-indigo-600 text-white shadow-xl shadow-indigo-600/20" : "border-slate-200 bg-white text-slate-800 hover:border-indigo-300 hover:bg-indigo-50"} ${isMobileViewport ? "cursor-not-allowed opacity-50 hover:border-slate-200 hover:bg-white" : ""}`}
+          disabled={saving}
+          className={`rounded-3xl border p-5 text-left transition ${layout === "side" ? "border-indigo-600 bg-indigo-600 text-white shadow-xl shadow-indigo-600/20" : "border-slate-200 bg-white text-slate-800 hover:border-indigo-300 hover:bg-indigo-50"}`}
         >
           <span className="flex items-start gap-4">
             <span className={`grid h-11 w-11 place-items-center rounded-2xl ${layout === "side" ? "bg-white/10" : "bg-indigo-50 text-indigo-700"}`}><PanelLeft className="h-5 w-5" /></span>
             <span className="min-w-0 flex-1">
               <span className="flex items-center justify-between gap-2 font-black">Side navigation {layout === "side" ? <Check className="h-4 w-4" /> : null}</span>
-              <span className={`mt-2 block text-xs font-semibold leading-5 ${layout === "side" ? "text-white/75" : "text-slate-500"}`}>
-                {isMobileViewport ? "Not available on a phone-width screen — you'll always get top navigation here regardless." : "Uses the premium left-hand menu with a Wealth and Health switch."}
-              </span>
+              <span className={`mt-2 block text-xs font-semibold leading-5 ${layout === "side" ? "text-white/75" : "text-slate-500"}`}>Uses the premium left-hand menu with a Wealth and Health switch.</span>
             </span>
           </span>
         </button>
       </div>
-      <div className="rounded-2xl bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
-        {message || (chosen ? "Your selection is saved to your account and follows you across devices." : "Choose a layout to stop LOOP asking on your next sign-in.")}
-      </div>
+      )}
+      {!isMobileViewport && (
+        <div className="rounded-2xl bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
+          {message || (chosen ? "Your selection is saved to your account and follows you across devices." : "Choose a layout to stop LOOP asking on your next sign-in.")}
+        </div>
+      )}
     </div>
   );
 }
