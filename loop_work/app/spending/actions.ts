@@ -47,7 +47,31 @@ function revalidateSpendingViews(personId?: string | null) {
   revalidatePath("/financial-flow");
   revalidatePath("/account");
   revalidatePath("/dashboard");
+  revalidatePath("/accounts");
   if (personId) revalidatePath(`/household/${personId}`);
+}
+
+export async function setEmergencyFundEssential(formData: FormData) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const householdContext = await getActiveHouseholdContext(supabase, user);
+  const id = String(formData.get("id") || "");
+  const entityType = String(formData.get("entity_type") || "");
+  const enabled = String(formData.get("enabled") || "false") === "true";
+  if (!id || !["group", "category"].includes(entityType)) throw new Error("Invalid emergency-fund selection.");
+
+  const table = entityType === "group" ? "spending_category_groups" : "spending_categories";
+  const { error } = await applyMutableRecordFilter(
+    supabase.from(table).update({ emergency_fund_essential: enabled, updated_at: new Date().toISOString() } as any),
+    id,
+    householdContext,
+  );
+  if (error) throw new Error(error.message);
+
+  revalidateSpendingViews();
+  revalidatePath("/spending/categories");
 }
 
 const COMMON_BRAND_DOMAINS: { match: RegExp; brandName: string; domain: string }[] = [
