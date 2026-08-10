@@ -10,12 +10,13 @@ import {
   deleteSpendingCategory,
   addSpendingCategory,
   updateFinancialFlowLineCategories,
+  setEmergencyFundEssential,
 } from "@/app/spending/actions";
 import { formatMoney } from "@/lib/format/money";
 
 export type BoardPerson = { id: string; name: string; relationship: string; user_id?: string | null; linked_user_id?: string | null; account_status?: string | null };
-export type BoardGroup = { id: string; name: string; icon?: string | null };
-export type BoardCategory = { id: string; name: string; type: "fixed" | "variable" | "saving" | "debt"; category_icon?: string | null; group_id?: string | null };
+export type BoardGroup = { id: string; name: string; icon?: string | null; emergency_fund_essential?: boolean | null };
+export type BoardCategory = { id: string; name: string; type: "fixed" | "variable" | "saving" | "debt"; category_icon?: string | null; group_id?: string | null; emergency_fund_essential?: boolean | null };
 export type BoardItem = { id: string; person_id: string | null; category_id: string | null; direction: "income" | "outgoing"; label: string; amount: number; recurrence: string; item_type: string; pet_id?: string | null };
 export type BoardChildCost = { id: string; child_id: string | null; category_id: string | null; label: string; cost_kind: string | null; monthly_cost: number | null };
 export type BoardPet = { id: string; name: string; species: string };
@@ -350,6 +351,12 @@ export function CategoryGroupsBoard({ people, groups, categories, items, childCo
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {groupColour ? <span className={`h-3 w-3 rounded-full ${groupColour.dot}`} title="This category's group" /> : null}
+            <form action={setEmergencyFundEssential} title={category.emergency_fund_essential ? "Included in the emergency-fund target" : "Include this category in the emergency-fund target"}>
+              <input type="hidden" name="id" value={category.id} />
+              <input type="hidden" name="entity_type" value="category" />
+              <input type="hidden" name="enabled" value={category.emergency_fund_essential ? "false" : "true"} />
+              <button aria-label={`${category.emergency_fund_essential ? "Remove" : "Add"} ${category.name} ${category.emergency_fund_essential ? "from" : "to"} emergency-fund costs`} className={`grid h-7 w-7 place-items-center rounded-full text-sm font-black transition ${category.emergency_fund_essential ? "bg-rose-600 text-white shadow-sm shadow-rose-200" : "bg-slate-100 text-slate-300 hover:bg-rose-50 hover:text-rose-500"}`}>!</button>
+            </form>
             <button type="button" onClick={() => handleDeleteCategory(category.id)} className="text-[11px] font-semibold text-red-500 hover:text-red-700">Delete</button>
           </div>
         </div>
@@ -396,7 +403,15 @@ export function CategoryGroupsBoard({ people, groups, categories, items, childCo
               {group ? <p className="mt-1 text-xs font-medium text-slate-500">Drag a category card here to add it to this group. Bills can belong to different people or joint accounts — that's fine, groups just bundle categories.</p> : null}
             </div>
           </div>
-          {group ? <button type="button" onClick={() => handleDeleteGroup(group.id)} className="shrink-0 rounded-full bg-red-50 px-3 py-1.5 text-[11px] font-semibold text-red-600 hover:bg-red-100">Delete group</button> : null}
+          {group ? <div className="flex shrink-0 items-center gap-2">
+            <form action={setEmergencyFundEssential} title={group.emergency_fund_essential ? "This whole group is included in the emergency-fund target" : "Include this whole group in the emergency-fund target"}>
+              <input type="hidden" name="id" value={group.id} />
+              <input type="hidden" name="entity_type" value="group" />
+              <input type="hidden" name="enabled" value={group.emergency_fund_essential ? "false" : "true"} />
+              <button className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-black transition ${group.emergency_fund_essential ? "bg-rose-600 text-white shadow-sm shadow-rose-200" : "bg-slate-100 text-slate-400 hover:bg-rose-50 hover:text-rose-600"}`}><span className="text-sm">!</span>{group.emergency_fund_essential ? "Emergency essential" : "Not essential"}</button>
+            </form>
+            <button type="button" onClick={() => handleDeleteGroup(group.id)} className="rounded-full bg-red-50 px-3 py-1.5 text-[11px] font-semibold text-red-600 hover:bg-red-100">Delete group</button>
+          </div> : null}
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {groupCategories.map((category) => <CategoryBox key={category.id} category={category} />)}
