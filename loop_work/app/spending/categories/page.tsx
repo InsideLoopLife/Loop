@@ -27,14 +27,14 @@ export default async function ManageCategoriesPage() {
       .returns<BoardPerson[]>(),
     supabase
       .from("spending_category_groups")
-      .select("id, name, icon")
+      .select("id, name, icon, emergency_fund_essential")
       .or(householdVisibleFilter)
       .order("sort_order")
       .order("name")
       .returns<BoardGroup[]>(),
     supabase
       .from("spending_categories")
-      .select("id, name, type, category_icon, group_id")
+      .select("id, name, type, category_icon, group_id, emergency_fund_essential")
       .or(householdVisibleFilter)
       .order("name")
       .returns<BoardCategory[]>(),
@@ -72,7 +72,7 @@ export default async function ManageCategoriesPage() {
             Drag any bill onto a category to file it there. Drag a category onto a group to bundle it — a group like
             "Household bills" can span bills belonging to different people and joint accounts, so this works whether
             it's just you or the whole household. Every category can only belong to one group, so a bill's group is
-            always unambiguous.
+            always unambiguous. Use the red ! on a group or category to include those costs in Loop&apos;s emergency-fund target.
           </p>
         </div>
         <CategoryGroupsBoard
