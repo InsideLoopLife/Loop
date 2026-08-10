@@ -79,6 +79,7 @@ export type PlannedItemLike = {
   end_date?: string | null;
   end_behavior?: string | null;
   standard_category_key?: string | null;
+  emergency_fund_essential?: boolean | null;
 };
 
 export type SavingsOpportunity = {
@@ -311,9 +312,6 @@ export function estimateMonthlyFlow(plannedItems: PlannedItemLike[]) {
 // it's daily-commute-essential or a nice-to-have runabout. Kept as one
 // clearly-named list specifically so it's easy to find and adjust later
 // rather than buried inline.
-const ESSENTIAL_SPENDING_CATEGORY_KEYS = new Set([
-  "house", "bills", "insurance", "debt", "childcare", "car",
-]);
 // Savings/investment/pension "outgoings" aren't a cost to cover in an
 // emergency at all — if anything they're the first thing you'd pause,
 // not something a fund needs to replace. Excluded from BOTH totals.
@@ -327,7 +325,7 @@ export function estimateEssentialMonthlyOutgoings(plannedItems: PlannedItemLike[
     const key = String(item.standard_category_key || "").toLowerCase();
     if (NON_SPENDING_CATEGORY_KEYS.has(key)) continue;
     const amount = monthlyAmount(item);
-    if (ESSENTIAL_SPENDING_CATEGORY_KEYS.has(key)) essential += amount;
+    if (item.emergency_fund_essential) essential += amount;
     else discretionary += amount;
   }
   return { essential, discretionary };
