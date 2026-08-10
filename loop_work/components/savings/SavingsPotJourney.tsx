@@ -44,11 +44,13 @@ export function SavingsPotJourney({
   people,
   accounts,
   essentialMonthlyOutgoings = 0,
+  essentialItemCount = 0,
 }: {
   action: (formData: FormData) => void | Promise<void>;
   people: Person[];
   accounts: Account[];
   essentialMonthlyOutgoings?: number;
+  essentialItemCount?: number;
 }) {
   const [step, setStep] = useState(0);
   const [goalType, setGoalType] = useState("other");
@@ -58,6 +60,7 @@ export function SavingsPotJourney({
   const [priorityImportant, setPriorityImportant] = useState(false);
   const [priorityScore, setPriorityScore] = useState(75);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [emergencyMonths, setEmergencyMonths] = useState(3);
   const requiredMonthly = useMemo(() => {
     const months = monthsUntil(date);
     return months > 0 && target > 0 ? target / months : 0;
@@ -66,7 +69,10 @@ export function SavingsPotJourney({
   function chooseTemplate(template: Template) {
     setGoalType(template.key);
     setName(template.label.replace(/ · .*/, ""));
-    if (template.months && essentialMonthlyOutgoings > 0) setTarget(Math.round(essentialMonthlyOutgoings * template.months));
+    if (template.months) {
+      setEmergencyMonths(template.months);
+      if (essentialMonthlyOutgoings > 0) setTarget(Math.round(essentialMonthlyOutgoings * template.months));
+    }
     setStep(1);
   }
 
@@ -120,10 +126,34 @@ export function SavingsPotJourney({
               What should we call it?
               <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Holiday, emergency fund…" className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-lg font-black text-slate-950 outline-none focus:border-emerald-400" />
             </label>
-            <label className="block text-sm font-black text-slate-700">
-              Target amount
-              <input type="number" min="0" step="0.01" value={target || ""} onChange={(event) => setTarget(Number(event.target.value || 0))} placeholder="£2,500" className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-lg font-black text-slate-950" />
-            </label>
+            {goalType === "emergency" && essentialMonthlyOutgoings > 0 ? (
+              <div className="rounded-3xl border border-rose-100 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wide text-rose-600">Calculated from Financial Flow</p>
+                    <p className="mt-1 text-2xl font-black text-slate-950">{formatMoney(target)}</p>
+                    <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">{formatMoney(essentialMonthlyOutgoings)} of essential monthly costs × {emergencyMonths} months{essentialItemCount > 0 ? ` · ${essentialItemCount} selected cost${essentialItemCount === 1 ? "" : "s"}` : ""}.</p>
+                  </div>
+                  <label className="text-xs font-black text-slate-600">Months
+                    <select value={emergencyMonths} onChange={(event) => { const months = Number(event.target.value); setEmergencyMonths(months); setTarget(Math.round(essentialMonthlyOutgoings * months)); }} className="mt-1 block rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-950">
+                      <option value={3}>3</option>
+                      <option value={6}>6</option>
+                      <option value={9}>9</option>
+                      <option value={12}>12</option>
+                    </select>
+                  </label>
+                </div>
+                <details className="mt-3 text-xs font-semibold text-slate-500">
+                  <summary className="cursor-pointer font-black text-slate-700">Adjust the suggested amount</summary>
+                  <input type="number" min="0" step="0.01" value={target || ""} onChange={(event) => setTarget(Number(event.target.value || 0))} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-black text-slate-950" />
+                </details>
+              </div>
+            ) : (
+              <label className="block text-sm font-black text-slate-700">
+                Target amount
+                <input type="number" min="0" step="0.01" value={target || ""} onChange={(event) => setTarget(Number(event.target.value || 0))} placeholder="£2,500" className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-lg font-black text-slate-950" />
+              </label>
+            )}
             <label className="block text-sm font-black text-slate-700">
               Date you need it by <span className="font-semibold text-slate-400">(optional — leave blank to save at your own pace)</span>
               <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-lg font-black text-slate-950" />
