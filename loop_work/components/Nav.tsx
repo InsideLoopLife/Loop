@@ -164,15 +164,15 @@ function NavItem({
                 ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-950/25"
                 : "text-slate-300 hover:bg-white/10 hover:text-white"
             }`
-          : `group flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-black transition ${
+          : `group relative flex items-center gap-1.5 px-2.5 py-2 text-[13px] font-black transition ${
               active
-                ? "bg-slate-950 text-white shadow-lg shadow-slate-950/15"
-                : "text-slate-600 hover:bg-white hover:text-slate-950 hover:shadow-sm"
+                ? "text-slate-950 after:absolute after:inset-x-2 after:-bottom-0.5 after:h-0.5 after:rounded-full after:bg-slate-950"
+                : "text-slate-500 hover:text-slate-950"
             }`
       }
     >
       <Icon className={side ? "h-[18px] w-[18px]" : "h-4 w-4"} />
-      <span className={side ? "" : "hidden xl:inline"}>{link.label}</span>
+      <span className={side ? "" : "hidden lg:inline"}>{link.label}</span>
     </Link>
   );
 }
@@ -758,14 +758,19 @@ function NavInner() {
   return (
     <>
       {overlays}
-      <header className="sticky top-0 z-40 border-b border-white/70 bg-white/82 shadow-[0_18px_70px_-48px_rgba(15,23,42,.75)] backdrop-blur-2xl">
-        <div className="mx-auto w-[95vw] max-w-none py-3">
-          {/* Row 1: Loop on the left, toggle + account on the right —
-              always this arrangement, on every screen size, not just
-              once you cross into a wide viewport. */}
-          <div className="flex items-center justify-between gap-3">
+      <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/88 backdrop-blur-2xl">
+        <div className="mx-auto grid w-[95vw] max-w-none grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 py-3 lg:grid-cols-[1fr_auto_1fr]">
+          <div className="flex items-center">
             <Brand />
-            <div className="flex shrink-0 items-center gap-2">
+          </div>
+          <div className="col-span-2 row-start-2 min-w-0 overflow-x-auto lg:col-span-1 lg:col-start-2 lg:row-start-1">
+            <nav className="mx-auto flex w-max items-center justify-center gap-2" aria-label={`${domain} navigation`}>
+              {currentLinks.map((link) => (
+                <NavItem key={link.href} link={link} active={isActiveLink(pathname, searchParams, link.href, currentLinks)} />
+              ))}
+            </nav>
+          </div>
+          <div className="col-start-2 row-start-1 flex shrink-0 items-center justify-end gap-2 lg:col-start-3">
               <div className="flex shrink-0 items-center overflow-hidden rounded-full border border-slate-200 bg-white p-1 text-xs font-black shadow-sm">
                 <Link
                   href={wealthHome}
@@ -793,30 +798,6 @@ function NavInner() {
                   <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-violet-600 ring-2 ring-white" />
                 ) : null}
               </button>
-            </div>
-          </div>
-
-          {/* Row 2: the section nav gets the full width to itself,
-              instead of being squeezed in alongside the toggle/account —
-              this is what was making it feel cramped and forcing a tiny
-              horizontal-scroll strip on mobile. */}
-          <div className="mt-3 min-w-0 overflow-x-auto pb-1">
-            <div className="flex min-w-max items-center gap-2 rounded-full border border-slate-200/80 bg-slate-50/85 p-1 shadow-inner">
-              <nav className="flex items-center gap-1.5">
-                {currentLinks.map((link) => (
-                  <NavItem
-                    key={link.href}
-                    link={link}
-                    active={isActiveLink(
-                      pathname,
-                      searchParams,
-                      link.href,
-                      currentLinks,
-                    )}
-                  />
-                ))}
-              </nav>
-            </div>
           </div>
         </div>
       </header>
