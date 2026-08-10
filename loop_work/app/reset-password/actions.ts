@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient, hasSupabaseAdminKey } from "@/lib/supabase/admin";
 import { sendTransactionalEmail } from "@/lib/notifications/send";
+import { renderBrandedEmail, renderCodeEmailBody } from "@/lib/notifications/email-template";
 
 const RESET_CODE_EXPIRY_MINUTES = 10;
 
@@ -108,7 +109,17 @@ export async function requestPasswordResetCode(formData: FormData) {
     const result = await sendTransactionalEmail({
       to: email,
       subject: "Your Loop password reset code",
-      html: `<div style="font-family:Arial,sans-serif;line-height:1.5"><h2>Reset your Loop password</h2><p>Your 8 digit reset code is:</p><p style="font-size:28px;font-weight:800;letter-spacing:4px">${code}</p><p>This code expires in ${RESET_CODE_EXPIRY_MINUTES} minutes.</p><p>If you did not request this, you can ignore this email.</p></div>`,
+      html: renderBrandedEmail({
+        preheader: `Your Loop password reset code is inside — expires in ${RESET_CODE_EXPIRY_MINUTES} minutes.`,
+        eyebrow: "Reset password",
+        heading: "Your reset code",
+        bodyHtml: renderCodeEmailBody({
+          intro: "Enter this code to reset your Loop password:",
+          code,
+          expiryMinutes: RESET_CODE_EXPIRY_MINUTES,
+        }),
+        footerNote: "If you didn't request this, you can ignore this email — your password won't change.",
+      }),
       text: `Reset your Loop password\n\nYour 8 digit reset code is: ${code}\n\nThis code expires in ${RESET_CODE_EXPIRY_MINUTES} minutes. If you did not request this, you can ignore this email.`,
     });
 

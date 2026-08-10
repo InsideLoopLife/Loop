@@ -650,6 +650,62 @@ function FlowSankeyDiagram({ model, people }: { model: MonthModel; people: Perso
     <div className="overflow-x-auto rounded-3xl border border-white/70 bg-white/92 p-5 shadow-sm">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">This month's flow</p>
       <h2 className="mb-3 text-base font-bold text-slate-900">Where {formatMoney(model.totalIncome)} of income goes</h2>
+
+      {/* mobile: a vertical waterfall instead of the wide horizontal ribbon diagram below —
+          same underlying stage1/spendGroups/incomeBySource data, just laid out top-to-bottom
+          so nothing needs a sideways scroll to read on a phone */}
+      <div className="md:hidden">
+        <div className="flex h-8 w-full overflow-hidden rounded-full">
+          {incomeBySource.map((source) => (
+            <div key={source.personId || "household"} title={`${source.label}: ${formatMoney(source.amount)}`} style={{ width: `${(source.amount / total) * 100}%`, backgroundColor: source.colour }} className="flex items-center justify-center text-[10px] font-black text-white truncate px-1">
+              {source.label}
+            </div>
+          ))}
+        </div>
+        <p className="mt-1.5 text-xs font-bold text-slate-400">👥 Income · {formatMoney(model.totalIncome)}</p>
+
+        <div className="flex justify-center my-2"><div className="h-5 w-0.5 bg-slate-200" /></div>
+
+        <div className="flex h-10 w-full overflow-hidden rounded-2xl">
+          {stage1.map((row) => (
+            <div key={row.key} title={`${row.label}: ${formatMoney(row.amount)}`} style={{ width: `${(row.amount / total) * 100}%`, backgroundColor: row.colour }} className="flex items-center justify-center text-[10px] font-black text-white truncate px-1">
+              {Math.round((row.amount / total) * 100)}%
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
+          {stage1.map((row) => (
+            <div key={row.key} className="flex items-center gap-2 text-xs font-bold text-slate-600">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.colour }} />
+              <span className="truncate">{NODE_ICON[row.key] || ""} {row.label} · {formatMoney(row.amount)}</span>
+            </div>
+          ))}
+        </div>
+
+        {hasStage2 && (
+          <>
+            <div className="flex justify-center my-3"><ArrowDownRight className="h-4 w-4 text-slate-300" /></div>
+            <p className="text-xs font-black uppercase tracking-wide text-slate-400 mb-2">Spending breaks down into</p>
+            <div className="flex h-9 w-full overflow-hidden rounded-2xl">
+              {spendGroups.map((group, i) => (
+                <div key={i} title={`${group.label}: ${formatMoney(group.amount)}`} style={{ width: `${(group.amount / Math.max(1, model.committedSpending)) * 100}%`, backgroundColor: group.colour }} />
+              ))}
+            </div>
+            <div className="mt-2 space-y-1.5">
+              {spendGroups.map((group, i) => (
+                <div key={i} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
+                  <span className="flex items-center gap-2 truncate"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: group.colour }} />{group.label.toLowerCase() === "ungrouped" ? "📁" : "🏷️"} {group.label}</span>
+                  <span className="shrink-0">{formatMoney(group.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {!model.hasAnyRealGroups ? <p className="mt-3 text-xs font-medium text-slate-400">Set up groups on "Manage categories and groups" to break Spending down further here.</p> : null}
+      </div>
+
+      {/* desktop: the full ribbon diagram */}
+      <div className="hidden md:block">
       <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label="Diagram of income splitting into spending, savings, investments and cashflow, with spending broken down by group">
         {stage1Ribbons.map((ribbon) => (
           <path key={ribbon.key} d={ribbon.path} fill={ribbon.colour} opacity={0.18}>
@@ -696,6 +752,7 @@ function FlowSankeyDiagram({ model, people }: { model: MonthModel; people: Perso
         ))}
       </svg>
       {!model.hasAnyRealGroups ? <p className="mt-2 text-xs font-medium text-slate-400">Set up groups on "Manage categories and groups" to break Spending down further here.</p> : null}
+      </div>
     </div>
   );
 }

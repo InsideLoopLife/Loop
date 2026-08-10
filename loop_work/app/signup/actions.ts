@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { redirect } from "next/navigation";
 import { createAdminClient, hasSupabaseAdminKey } from "@/lib/supabase/admin";
 import { sendTransactionalEmail } from "@/lib/notifications/send";
+import { renderBrandedEmail, renderCodeEmailBody } from "@/lib/notifications/email-template";
 import { processPendingHouseholdLinksForUser } from "@/lib/auth/invite-linking";
 import { createClient } from "@/lib/supabase/server";
 import { sendWelcomeEmailForUser } from "@/lib/notifications/welcome";
@@ -83,7 +84,16 @@ export async function requestSignupCode(formData: FormData) {
   const emailResult = await sendTransactionalEmail({
     to: email,
     subject: "Your Loop account code",
-    html: `<div style="font-family:Arial,sans-serif;line-height:1.5"><h2>Create your Loop account</h2><p>Your 8 digit sign-up code is:</p><p style="font-size:28px;font-weight:800;letter-spacing:4px">${code}</p><p>This code expires in 10 minutes.</p></div>`,
+    html: renderBrandedEmail({
+      preheader: "Your Loop sign-up code is inside — expires in 10 minutes.",
+      eyebrow: "Create account",
+      heading: "Your sign-up code",
+      bodyHtml: renderCodeEmailBody({
+        intro: "Enter this code to finish creating your Loop account:",
+        code,
+        expiryMinutes: 10,
+      }),
+    }),
     text: `Create your Loop account\n\nYour 8 digit sign-up code is: ${code}\n\nThis code expires in 10 minutes.`,
   });
 

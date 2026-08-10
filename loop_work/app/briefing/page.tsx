@@ -6,8 +6,9 @@ import { createClient } from "@/lib/supabase/server";
 import { buildFinancialBriefing } from "@/lib/briefing/build-financial-briefing";
 import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
 import { featureEnabled, getEffectiveEntitlements } from "@/lib/tiers/entitlements";
+import { formatMoney } from "@/lib/format/money";
 
-const money = (v:number) => new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",maximumFractionDigits:0}).format(v);
+const money = (v: number) => formatMoney(v);
 const signed = (v:number) => `${v>=0?"+":"−"}${money(Math.abs(v))}`;
 function tone(v:number){return v>0?"text-emerald-700 bg-emerald-50 border-emerald-200":v<0?"text-rose-700 bg-rose-50 border-rose-200":"text-slate-600 bg-slate-50 border-slate-200"}
 

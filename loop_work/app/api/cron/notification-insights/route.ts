@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
+import { formatMoney } from "@/lib/format/money";
 
 function unauthorised() {
   return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
@@ -11,7 +12,7 @@ function num(value: unknown) {
 }
 
 function money(value: number) {
-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(value);
+  return formatMoney(value);
 }
 
 export async function GET(request: NextRequest) {

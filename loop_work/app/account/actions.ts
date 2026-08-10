@@ -3,6 +3,7 @@
 import crypto from "crypto";
 import { createAdminClient, hasSupabaseAdminKey } from "@/lib/supabase/admin";
 import { sendTransactionalEmail } from "@/lib/notifications/send";
+import { renderBrandedEmail, renderCodeEmailBody } from "@/lib/notifications/email-template";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -283,15 +284,27 @@ export async function sendPasswordResetEmail() {
   });
   if (codeError) throw new Error(codeError.message);
 
+  const verifyUrl = `${process.env.APP_BASE_URL || "http://localhost:3000"}/reset-password/verify?email=${encodeURIComponent(email)}`;
   const result = await sendTransactionalEmail({
     to: email,
     subject: "Your Loop password reset code",
-    html: `<div style="font-family:Arial,sans-serif;line-height:1.5"><h2>Reset your Loop password</h2><p>Your 8 digit reset code is:</p><p style="font-size:28px;font-weight:800;letter-spacing:4px">${code}</p><p>This code expires in 10 minutes.</p><p>Enter the code at ${process.env.APP_BASE_URL || "http://localhost:3000"}/reset-password/verify?email=${encodeURIComponent(email)}</p></div>`,
+    html: renderBrandedEmail({
+      preheader: "Your Loop password reset code is inside — expires in 10 minutes.",
+      eyebrow: "Reset password",
+      heading: "Your reset code",
+      bodyHtml: renderCodeEmailBody({
+        intro: "Enter this code to reset your Loop password:",
+        code,
+        expiryMinutes: 10,
+      }),
+      cta: { label: "Enter your code", href: verifyUrl },
+      footerNote: "If you didn't request this, you can ignore this email — your password won't change.",
+    }),
     text: `Reset your Loop password
 
 Your 8 digit reset code is: ${code}
 
-This code expires in 10 minutes. Enter it at ${process.env.APP_BASE_URL || "http://localhost:3000"}/reset-password/verify?email=${encodeURIComponent(email)}`,
+This code expires in 10 minutes. Enter it at ${verifyUrl}`,
   });
 
   await supabase.from("app_security_events").insert({

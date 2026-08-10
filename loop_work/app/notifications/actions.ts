@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { formatMoney } from "@/lib/format/money";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -122,7 +123,7 @@ function num(value: unknown) {
 }
 
 function money(value: number) {
-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(value);
+  return formatMoney(value);
 }
 
 export async function createWeeklyPreview() {

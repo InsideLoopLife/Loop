@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { X } from "lucide-react";
+import { formatMoney } from "@/lib/format/money";
 
 type FlowLine = {
   key: string;
@@ -13,9 +14,6 @@ type FlowLine = {
   href?: string;
 };
 
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(Number.isFinite(value) ? value : 0);
-}
 
 function toneClasses(tone?: FlowLine["tone"]) {
   if (tone === "green") return "bg-emerald-50 text-emerald-800 border-emerald-100";

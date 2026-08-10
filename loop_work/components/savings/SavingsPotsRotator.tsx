@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { formatMoney } from "@/lib/format/money";
 
 type PotGoal = {
   id: string;
@@ -14,10 +15,6 @@ type PotGoal = {
   timeLabel: string;
   href?: string;
 };
-
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(Number.isFinite(value) ? value : 0);
-}
 
 export function SavingsPotsRotator({ goals }: { goals: PotGoal[] }) {
   const rows = useMemo(() => goals.filter((goal) => goal.target > 0), [goals]);

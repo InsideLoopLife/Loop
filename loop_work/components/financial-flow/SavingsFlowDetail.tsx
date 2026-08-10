@@ -189,7 +189,34 @@ export function SavingsFlowDetail({
 
         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
           <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-black text-slate-950">Lines in this month</h2><p className="mt-1 text-sm font-semibold text-slate-500">This month / total balance, rate, maximised score and end date.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{monthKey}</span></div>
-          <div className="mt-4 overflow-x-auto">
+
+          {/* mobile: cards, no horizontal scroll needed to read a rate or score */}
+          <div className="mt-4 space-y-2.5 md:hidden">
+            {accounts.map((account) => (
+              <div key={account.id} className="rounded-2xl border border-slate-100 bg-white p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-9 w-9 rounded-xl" />
+                    <div>
+                      <p className="font-black text-slate-950">{account.name}</p>
+                      <p className="text-xs font-bold text-slate-400">{account.provider}{account.endDate ? ` · ends ${account.endDate}` : ""}</p>
+                    </div>
+                  </div>
+                  <span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore}</span>
+                </div>
+                <div className="mt-3 flex items-end justify-between">
+                  <div>
+                    <p className="text-lg font-black text-slate-950">{formatMoney(account.balance)}</p>
+                    <p className="text-xs font-bold text-slate-400">{formatMoney(account.savedThisMonth)} this month</p>
+                  </div>
+                  <p className="text-sm font-black text-slate-950">{account.interestRate.toFixed(2)}% AER</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* desktop: unchanged */}
+          <div className="mt-4 hidden overflow-x-auto md:block">
             <table className="w-full min-w-[700px] text-left text-sm">
               <thead><tr className="border-b border-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-400"><th className="pb-3">Account</th><th className="pb-3">This month / total</th><th className="pb-3">Interest rate</th><th className="pb-3">Max score</th><th className="pb-3">End date</th></tr></thead>
               <tbody>{accounts.map((account) => <tr key={account.id} className="border-b border-slate-50"><td className="py-3"><div className="flex items-center gap-3"><FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-9 w-9 rounded-xl" /><div><p className="font-black text-slate-950">{account.name}</p><p className="text-xs font-bold text-slate-400">{account.provider}</p></div></div></td><td className="py-3 font-black text-slate-950">{formatMoney(account.savedThisMonth)} / {formatMoney(account.balance)}</td><td className="py-3 font-black text-slate-950">{account.interestRate.toFixed(2)}% AER</td><td className="py-3"><span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`rounded-full px-3 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore}</span></td><td className="py-3 font-bold text-slate-500">{account.endDate || "—"}</td></tr>)}</tbody>

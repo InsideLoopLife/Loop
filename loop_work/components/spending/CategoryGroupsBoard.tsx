@@ -11,6 +11,7 @@ import {
   addSpendingCategory,
   updateFinancialFlowLineCategories,
 } from "@/app/spending/actions";
+import { formatMoney } from "@/lib/format/money";
 
 export type BoardPerson = { id: string; name: string; relationship: string; user_id?: string | null; linked_user_id?: string | null; account_status?: string | null };
 export type BoardGroup = { id: string; name: string; icon?: string | null };
@@ -33,7 +34,7 @@ const GROUP_COLOURS = [
 
 type PoolItem = { dragId: string; id: string; kind: "planned" | "child"; personId: string | null; categoryId: string | null; label: string; amount: number; sublabel: string; isSavingsOrInvestment: boolean };
 
-const money = (value: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(value || 0);
+const money = (value: number) => formatMoney(value || 0);
 
 function personName(people: BoardPerson[], personId: string | null) {
   if (!personId) return "🏠 Household / shared";

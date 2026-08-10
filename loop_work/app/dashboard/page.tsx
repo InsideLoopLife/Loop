@@ -938,7 +938,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             <Link href={`/dashboard?year=${selectedYear - 1}&month=${selectedYear - 1}-${selectedMonth.slice(5, 7)}`} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50">← {selectedYear - 1}</Link>
             <Link href={`/dashboard?year=${selectedYear + 1}&month=${selectedYear + 1}-${selectedMonth.slice(5, 7)}`} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50">{selectedYear + 1} →</Link>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div
+            className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 sm:grid sm:gap-3 sm:overflow-visible sm:pb-0 sm:mx-0 sm:px-0 sm:grid-cols-2 lg:grid-cols-4"
+            style={{ scrollSnapType: "x mandatory" }}
+          >
             {yearPlans.map((plan) => {
               const theme = monthTheme(plan.month);
               const spendingPct = plan.income > 0 ? Math.min(100, Math.round((plan.outgoings / plan.income) * 100)) : 0;
@@ -947,7 +950,8 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                 <Link
                   key={plan.month}
                   href={`/dashboard?year=${selectedYear}&month=${plan.month}`}
-                  className={`relative overflow-hidden rounded-2xl border bg-gradient-to-br p-4 transition hover:-translate-y-0.5 hover:shadow-sm ${theme.gradient} ${selected ? "border-orange-300 ring-2 ring-orange-200" : "border-slate-200"}`}
+                  className={`relative w-[210px] shrink-0 overflow-hidden rounded-2xl border bg-gradient-to-br p-4 transition hover:-translate-y-0.5 hover:shadow-sm sm:w-auto ${theme.gradient} ${selected ? "border-orange-300 ring-2 ring-orange-200" : "border-slate-200"}`}
+                  style={{ scrollSnapAlign: "start" }}
                 >
                   <span className="pointer-events-none absolute -right-2 -top-1 text-3xl opacity-30">{theme.emoji}</span>
                   <div className="relative flex items-start justify-between gap-3">

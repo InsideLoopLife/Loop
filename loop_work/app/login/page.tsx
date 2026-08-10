@@ -14,7 +14,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons";
+import { SocialAuthButtons, socialAuthAnyEnabled } from "@/components/auth/SocialAuthButtons";
 
 type Message = { text: string; tone: "success" | "error" };
 
@@ -130,13 +130,16 @@ function LoginForm() {
             <p className="mt-3 text-sm font-medium text-slate-500">Everything you track, ready where you left it.</p>
           </div>
 
-          <SocialAuthButtons next={next} mode="login" />
-
-          <div className="my-7 flex items-center gap-4 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
-            <span className="h-px flex-1 bg-slate-200" />
-            Continue with email
-            <span className="h-px flex-1 bg-slate-200" />
-          </div>
+          {socialAuthAnyEnabled && (
+            <>
+              <SocialAuthButtons next={next} mode="login" />
+              <div className="my-7 flex items-center gap-4 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                <span className="h-px flex-1 bg-slate-200" />
+                Continue with email
+                <span className="h-px flex-1 bg-slate-200" />
+              </div>
+            </>
+          )}
 
           <form className="space-y-5" method="post" onSubmit={handleSubmit} autoComplete="on">
             <label className="block">

@@ -8,8 +8,19 @@ type SocialAuthButtonsProps = {
   mode?: "login" | "signup";
 };
 
-const googleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_AUTH !== "false";
-const appleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_APPLE_AUTH !== "false";
+// Default posture is OFF: a provider only shows once it's actually
+// configured in Supabase and the env var explicitly opts it in. The old
+// default (enabled unless explicitly disabled) meant an unconfigured
+// provider was live and clickable, and failed with a raw Supabase error
+// message in the UI instead of not being there at all.
+const googleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_AUTH === "true";
+const appleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_APPLE_AUTH === "true";
+
+/** Whether any social provider is enabled — pages use this to decide
+ *  whether to render SocialAuthButtons and its "or continue with email"
+ *  divider at all, rather than showing an orphaned divider with no
+ *  buttons above it. */
+export const socialAuthAnyEnabled = googleAuthEnabled || appleAuthEnabled;
 
 function ProviderIcon({ provider }: { provider: "google" | "apple" }) {
   if (provider === "apple") {
@@ -35,6 +46,8 @@ export function SocialAuthButtons({ next = "/dashboard", mode = "login" }: Socia
   const [message, setMessage] = useState<string | null>(null);
   const googleEnabled = googleAuthEnabled;
   const appleEnabled = appleAuthEnabled;
+
+  if (!googleEnabled && !appleEnabled) return null;
 
   async function oauth(provider: "google" | "apple") {
     const enabled = provider === "google" ? googleEnabled : appleEnabled;
