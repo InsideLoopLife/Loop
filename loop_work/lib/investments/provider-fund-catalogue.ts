@@ -2149,7 +2149,7 @@ export const PROVIDER_FUND_CATALOGUE: ReadonlyArray<ProviderFund> = [
     "id": "ishares-overseas-corporate-bond-index-uk-d-acc",
     "provider_id": "ishares",
     "fund_name": "iShares Overseas Corporate Bond Index Fund (UK) Class D Acc",
-    "fund_code": "GB00B84DSH94",
+    "fund_code": "GB00B58YKH53",
     "group_label": "Corporate bonds",
     "annual_fund_fee_percent": 0.11,
     "unit_price": null,

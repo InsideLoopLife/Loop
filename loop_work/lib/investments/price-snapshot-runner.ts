@@ -12,7 +12,7 @@ import { investmentDataEntitlementForProfile } from "@/lib/wealth/user-tiers";
 import { quoteUnitForVenue, venueFor } from "@/lib/investments/market-venues";
 import { findMoneyboxAsset } from "@/lib/investments/moneybox-funds";
 import { quoteObservationTime } from "@/lib/investments/market-data-quality";
-import { verifiedYahooFundSymbol } from "@/lib/investments/verified-fund-symbols";
+import { verifiedFundIdentity, verifiedYahooFundSymbol } from "@/lib/investments/verified-fund-symbols";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 
@@ -27,6 +27,7 @@ type Holding = {
   latest_price?: number | null;
   price_polling_enabled: boolean | null;
   last_price_check_at?: string | null;
+  price_check_status?: string | null;
   import_source_type?: string | null;
   external_provider?: string | null;
   asset_name?: string | null;
@@ -265,7 +266,8 @@ function isDue(
 ) {
   if (force) return true;
   const isProviderFund = String(holding.asset_kind || "").toLowerCase() === "fund" || /^GB00[A-Z0-9]{8}$/i.test(String(holding.ticker || "")) || /vanguard|fund/i.test(String(holding.exchange || ""));
-  const cadence = isProviderFund ? 12 * 60 : userCadenceMinutes(profile, settings);
+  const isMappedCoverageRetry = holding.price_check_status === "coverage_retry" && Boolean(verifiedFundIdentity(holding.isin || holding.ticker));
+  const cadence = isMappedCoverageRetry ? 15 : isProviderFund ? 12 * 60 : userCadenceMinutes(profile, settings);
   const last = holding.last_price_check_at
     ? Date.parse(holding.last_price_check_at)
     : 0;
@@ -299,15 +301,39 @@ async function ensureCatalogueForGroup(
   const venueCode = venue?.venueCode || exchange || null;
   const assetName = args.sample.asset_name || ticker;
   const assetKind = args.sample.asset_kind || "share";
-  const isin = args.sample.isin || null;
+  const verifiedIdentity = verifiedFundIdentity(args.sample.isin || ticker);
+  const isin = verifiedIdentity?.isin || args.sample.isin || null;
 
   let instrumentId = args.sample.instrument_id || null;
   let listingId = args.sample.listing_id || null;
 
-  // Resolved holdings do not need their catalogue, alias and holding links
-  // rewritten on every worker cycle.
+  // Reuse a resolved listing only when it still points at the symbol we are
+  // about to price. This is especially important when a reviewed fund mapping
+  // supersedes a bad provider symbol: retaining the stale listing would write
+  // the new NAV under the old instrument.
   if (instrumentId && listingId) {
-    return { instrumentId, listingId, ticker, exchange, venueCode };
+    const existing = await supabase
+      .from("investment_instrument_listings")
+      .select("symbol,data_provider_symbol")
+      .eq("id", listingId)
+      .maybeSingle();
+    const existingSymbol = normaliseSnapshotTicker(
+      existing.data?.data_provider_symbol || existing.data?.symbol,
+    );
+    if (existing.error) {
+      return { instrumentId, listingId, ticker, exchange, venueCode };
+    }
+    if (existing.data && existingSymbol === ticker) {
+      if (verifiedIdentity && args.sample.isin !== verifiedIdentity.isin) {
+        await supabase
+          .from("investment_holdings")
+          .update({ isin: verifiedIdentity.isin, updated_at: args.nowIso } as any)
+          .eq("id", args.sample.id);
+      }
+      return { instrumentId, listingId, ticker, exchange, venueCode };
+    }
+    instrumentId = null;
+    listingId = null;
   }
 
   if (!instrumentId) {
@@ -397,6 +423,7 @@ async function ensureCatalogueForGroup(
     await supabase
       .from("investment_holdings")
       .update({
+        isin,
         instrument_id: instrumentId,
         listing_id: listingId,
         instrument_resolution_status: "resolved",
@@ -798,7 +825,7 @@ export async function runInvestmentPriceSnapshotJob(
     const { data: holdings, error } = await supabase
       .from("investment_holdings")
       .select(
-        "id, user_id, investment_account_id, ticker, exchange, units, average_buy_price, latest_price, price_polling_enabled, last_price_check_at, import_source_type, external_provider, asset_name, asset_kind, isin, listing_id, instrument_id, instrument_resolution_status",
+        "id, user_id, investment_account_id, ticker, exchange, units, average_buy_price, latest_price, price_polling_enabled, last_price_check_at, price_check_status, import_source_type, external_provider, asset_name, asset_kind, isin, listing_id, instrument_id, instrument_resolution_status",
       )
       .neq("record_status", "archived")
       .order("asset_name")
@@ -808,7 +835,7 @@ export async function runInvestmentPriceSnapshotJob(
 
     let activeHoldings = (holdings || [])
       .map((holding) => {
-        const resolvedTicker = normaliseSnapshotTicker(holding.ticker) || verifiedYahooFundSymbol(holding.isin);
+        const resolvedTicker = verifiedYahooFundSymbol(holding.isin || holding.ticker) || normaliseSnapshotTicker(holding.ticker);
         return resolvedTicker ? { ...holding, ticker: resolvedTicker } : holding;
       })
       .filter(
@@ -988,6 +1015,7 @@ export async function runInvestmentPriceSnapshotJob(
           ? cachedCandidate
           : null;
 
+        const quoteDiagnostics: string[] = [];
         const quote = cachedPoint
           ? null
           : await fetchInvestmentQuote(
@@ -995,6 +1023,7 @@ export async function runInvestmentPriceSnapshotJob(
               first.user_id,
               ticker,
               exchange,
+              { record: (message) => quoteDiagnostics.push(message) },
             ).catch((caught) => {
               logger.error(
                 `[investment-price-job] quote error ${ticker}`,
@@ -1013,7 +1042,7 @@ export async function runInvestmentPriceSnapshotJob(
           result.failures.push({
             ticker,
             exchange,
-            reason: "coverage_required_quote_not_found",
+            reason: quoteDiagnostics.join(" ").slice(0, 500) || "coverage_required_quote_not_found",
           });
           logger.warn(
             `[investment-price-job] coverage required ${ticker} ${exchange || ""}; AI/web-search is disabled in worker. Polling will ${PAUSE_ON_COVERAGE_REQUIRED ? "pause" : "retry on the next cycle"} for affected holdings`,
@@ -1022,7 +1051,7 @@ export async function runInvestmentPriceSnapshotJob(
             ticker,
             exchange,
             holdings: dueHoldings,
-            reason: "quote_not_found",
+            reason: quoteDiagnostics.join(" ").slice(0, 500) || "quote_not_found",
             nowIso: startedAt,
           });
           await supabase
@@ -1035,8 +1064,8 @@ export async function runInvestmentPriceSnapshotJob(
               price_polling_enabled: PAUSE_ON_COVERAGE_REQUIRED ? false : true,
               instrument_resolution_status: "coverage_required",
               instrument_resolution_notes: requestId
-                ? `No deterministic quote found. Admin coverage request ${requestId} created; ${PAUSE_ON_COVERAGE_REQUIRED ? "polling paused" : "polling will retry each worker cycle"}.`
-                : `No deterministic quote found. Admin coverage required; ${PAUSE_ON_COVERAGE_REQUIRED ? "polling paused" : "polling will retry each worker cycle"}.`,
+                ? `No deterministic quote found${quoteDiagnostics.length ? `: ${quoteDiagnostics.join(" ").slice(0, 350)}` : ""}. Admin coverage request ${requestId} created; ${PAUSE_ON_COVERAGE_REQUIRED ? "polling paused" : "mapped funds retry within 15 minutes"}.`
+                : `No deterministic quote found${quoteDiagnostics.length ? `: ${quoteDiagnostics.join(" ").slice(0, 350)}` : ""}. Admin coverage required; ${PAUSE_ON_COVERAGE_REQUIRED ? "polling paused" : "mapped funds retry within 15 minutes"}.`,
               updated_at: startedAt,
             } as any)
             .in(

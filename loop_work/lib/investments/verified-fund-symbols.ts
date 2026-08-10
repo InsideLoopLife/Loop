@@ -1,5 +1,6 @@
 export type VerifiedFundIdentity = {
   isin: string;
+  legacyIsins?: string[];
   yahooSymbol: string;
   expectedName: string;
   requiredTokenGroups: string[][];
@@ -17,19 +18,20 @@ const VERIFIED_FUNDS: readonly VerifiedFundIdentity[] = [
     isin: "GB00BJS8SJ34",
     yahooSymbol: "0P000125KV.L",
     expectedName: "Fidelity Index World Fund P Acc",
-    requiredTokenGroups: [["fidelity"], ["index"], ["world"], ["acc", "accumulation"]],
+    requiredTokenGroups: [["fidelity"], ["index"], ["world"]],
   },
   {
     isin: "GB00B5BFJG71",
-    yahooSymbol: "0P0000XUDF.L",
+    yahooSymbol: "0P0000WGT2.L",
     expectedName: "iShares Environment & Low Carbon Tilt Real Estate Index Fund",
-    requiredTokenGroups: [["ishares"], ["real"], ["estate"]],
+    requiredTokenGroups: [["ishares"], ["reidx", "real", "estate"]],
   },
   {
-    isin: "GB00B84DSH94",
-    yahooSymbol: "0P0000W38W.L",
-    expectedName: "L&G Corporate Bond ESG Fund",
-    requiredTokenGroups: [["corporate"], ["bond"]],
+    isin: "GB00B58YKH53",
+    legacyIsins: ["GB00B84DSH94"],
+    yahooSymbol: "0P0000WGTM.L",
+    expectedName: "iShares ESG Screened Overseas Corporate Bond Index Fund (UK) D Acc",
+    requiredTokenGroups: [["ishares"], ["corp", "corporate"], ["bd", "bond"]],
   },
   {
     isin: "GB00B4PQW151",
@@ -56,7 +58,7 @@ export function verifiedFundIdentity(reference?: string | null) {
   const normalized = String(reference || "").trim().toUpperCase();
   if (!normalized) return null;
   return VERIFIED_FUNDS.find(
-    (fund) => fund.isin === normalized || fund.yahooSymbol.toUpperCase() === normalized,
+    (fund) => fund.isin === normalized || fund.legacyIsins?.includes(normalized) || fund.yahooSymbol.toUpperCase() === normalized,
   ) || null;
 }
 
@@ -75,7 +77,7 @@ export function validateVerifiedFundQuote(
   }
 
   const symbol = String(providerSymbol || "").trim().toUpperCase();
-  const allowedSymbols = new Set([identity.yahooSymbol.toUpperCase(), identity.isin]);
+  const allowedSymbols = new Set([identity.yahooSymbol.toUpperCase(), identity.isin, ...(identity.legacyIsins || [])]);
   if (!allowedSymbols.has(symbol)) {
     return {
       status: "conflict",

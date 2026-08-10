@@ -446,7 +446,7 @@ export const MONEYBOX_ASSETS: MoneyboxAsset[] = [
     name: "Overseas Corporate Bonds ESG",
     provider: "iShares (BlackRock)",
     assetKind: "fund",
-    isin: "GB00B84DSH94", // Enriched from institutional data
+    isin: "GB00B58YKH53", // iShares Class D GBP Acc, verified against BlackRock/Fidelity
     annualFeePercent: 0.11,
     priceQuoteUnit: "gbp",
     sourceUrl: FUNDS_SOURCE,

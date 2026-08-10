@@ -27,6 +27,10 @@ export type InvestmentQuote = {
   identityNote?: string | null;
 };
 
+export type InvestmentQuoteDiagnostics = {
+  record: (message: string) => void;
+};
+
 export function normaliseExchangeCode(exchange?: string | null, symbol?: string | null) {
   return normaliseVenueCode(exchange, symbol);
 }
@@ -366,10 +370,14 @@ async function alpacaQuote(ticker: string, exchange?: string | null): Promise<In
   }
 }
 
-async function yahooQuote(ticker: string, exchange?: string | null, identityReference?: string | null): Promise<InvestmentQuote | null> {
+async function yahooQuote(ticker: string, exchange?: string | null, identityReference?: string | null, diagnostics?: InvestmentQuoteDiagnostics): Promise<InvestmentQuote | null> {
   for (const symbol of yahooSymbols(ticker, exchange)) {
     try {
       const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
+      if (!response.ok) {
+        diagnostics?.record(`Yahoo ${symbol} returned HTTP ${response.status}.`);
+        continue;
+      }
       const data = await response.json().catch(() => ({}));
       const result = data?.chart?.result?.[0];
       const meta = result?.meta || {};
@@ -394,7 +402,10 @@ async function yahooQuote(ticker: string, exchange?: string | null, identityRefe
       } else if (session.session === "closed" && Number.isFinite(regularMarketPrice) && regularMarketPrice > 0) {
         sourceLabel = `Yahoo regular close${delaySuffix}`;
       }
-      if (!Number.isFinite(rawPrice) || rawPrice <= 0) continue;
+      if (!Number.isFinite(rawPrice) || rawPrice <= 0) {
+        diagnostics?.record(`Yahoo ${symbol} returned no positive fund price.`);
+        continue;
+      }
       const normalised = normaliseMarketPrice(rawPrice, ex, symbol);
       const previousNormalised = Number.isFinite(previousClose) && previousClose > 0 ? normaliseMarketPrice(previousClose, ex, symbol) : null;
       const common = COMMON_INVESTMENTS[cleanTicker(ticker).replace(/\.L$/i, "")];
@@ -408,7 +419,10 @@ async function yahooQuote(ticker: string, exchange?: string | null, identityRefe
       const identity = validateVerifiedFundQuote(identityReference, providerAssetName, symbol);
       // A valid price for the wrong fund is worse than no new price. Keep the
       // last trusted valuation and let the holding surface as needing review.
-      if (identity.status === "conflict") continue;
+      if (identity.status === "conflict") {
+        diagnostics?.record(`Yahoo ${symbol} identity rejected: ${identity.note}`);
+        continue;
+      }
       return {
         price: normalised.price,
         source: sourceLabel,
@@ -429,7 +443,9 @@ async function yahooQuote(ticker: string, exchange?: string | null, identityRefe
         identityStatus: identity.status,
         identityNote: identity.note,
       };
-    } catch {}
+    } catch (caught) {
+      diagnostics?.record(`Yahoo ${symbol} request failed: ${caught instanceof Error ? caught.message : String(caught)}.`);
+    }
   }
   return null;
 }
@@ -694,7 +710,7 @@ async function openAiInvestmentSearch(supabase: any, userId: string, query: stri
   }
 }
 
-export async function fetchInvestmentQuote(supabase: any, userId: string, tickerOrQuery: string, exchange?: string | null): Promise<InvestmentQuote | null> {
+export async function fetchInvestmentQuote(supabase: any, userId: string, tickerOrQuery: string, exchange?: string | null, diagnostics?: InvestmentQuoteDiagnostics): Promise<InvestmentQuote | null> {
   const query = tickerOrQuery.trim();
   if (!query) return null;
 
@@ -782,7 +798,7 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
     }
   }
 
-  const yahoo = await yahooQuote(symbol, exchange || glossary?.exchange, effectiveQuery);
+  const yahoo = await yahooQuote(symbol, exchange || glossary?.exchange, effectiveQuery, diagnostics);
   if (yahoo) return yahoo;
   // Do not fall through to a fuzzy/manual candidate after a known fund failed
   // identity verification. Returning null preserves the last trusted price.
