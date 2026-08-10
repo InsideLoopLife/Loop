@@ -6,6 +6,7 @@ import { StatCard } from "@/components/StatCard";
 import { FormInput } from "@/components/FormInput";
 import { SubmitButton } from "@/components/SubmitButton";
 import { BalanceHistoryChart } from "@/components/BalanceHistoryChart";
+import { SavingsMovementChart, type SavingsMovementPoint } from "@/components/savings/SavingsMovementChart";
 import { createClient } from "@/lib/supabase/server";
 import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import {
@@ -224,6 +225,7 @@ type SavingsMovement = {
 };
 
 type PlannedItem = {
+  label?: string | null;
   direction: string | null;
   amount: number | null;
   monthly_cost?: number | null;
@@ -231,7 +233,11 @@ type PlannedItem = {
   start_date: string | null;
   end_date: string | null;
   end_behavior?: string | null;
-  spending_categories?: { standard_category_key: string | null } | null;
+  spending_categories?: {
+    standard_category_key: string | null;
+    emergency_fund_essential?: boolean | null;
+    spending_category_groups?: { emergency_fund_essential?: boolean | null } | Array<{ emergency_fund_essential?: boolean | null }> | null;
+  } | null;
 };
 
 type PayEvent = {
@@ -415,6 +421,29 @@ function buildSavingsGoal(account: FinancialAccount) {
 function movementLabel(type: string) {
   const clean = String(type || "movement").replaceAll("_", " ");
   return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
+
+function buildSavingsMovementSeries(movements: SavingsMovement[], months = 12): SavingsMovementPoint[] {
+  const now = new Date();
+  const rows: SavingsMovementPoint[] = [];
+  const byMonth = new Map<string, SavingsMovementPoint>();
+  for (let offset = months - 1; offset >= 0; offset -= 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const row = { month, saved: 0, interest: 0, withdrawn: 0 };
+    rows.push(row);
+    byMonth.set(month, row);
+  }
+  for (const movement of movements) {
+    const month = String(movement.effective_at || movement.created_at || "").slice(0, 7);
+    const row = byMonth.get(month);
+    if (!row || movement.movement_type === "opening_balance") continue;
+    const amount = Math.abs(movementDelta(movement));
+    if (movement.movement_type === "interest") row.interest += amount;
+    else if (["withdrawal", "fee"].includes(movement.movement_type) || movementDirection(movement) === "out") row.withdrawn += amount;
+    else row.saved += amount;
+  }
+  return rows;
 }
 
 function cleanDealLabel(value?: string | null) {
@@ -696,7 +725,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       .returns<SavingsMovement[]>(),
     supabase
       .from("planned_items")
-      .select("direction, amount, monthly_cost, recurrence, start_date, end_date, end_behavior, spending_categories(standard_category_key)")
+      .select("label, direction, amount, monthly_cost, recurrence, start_date, end_date, end_behavior, spending_categories(standard_category_key, emergency_fund_essential, spending_category_groups(emergency_fund_essential))")
       .or(householdMemberFilter)
       .returns<PlannedItem[]>(),
     supabase
@@ -865,7 +894,15 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     accounts: accountRows,
     deals: savingsDeals ?? [],
     relationships: allHeldProviders,
-    plannedItems: (plannedItems ?? []).map((item) => ({ ...item, standard_category_key: item.spending_categories?.standard_category_key ?? null })),
+    plannedItems: (plannedItems ?? []).map((item) => {
+      const groupRelation = item.spending_categories?.spending_category_groups;
+      const groupEssential = Array.isArray(groupRelation) ? groupRelation.some((group) => group.emergency_fund_essential) : Boolean(groupRelation?.emergency_fund_essential);
+      return {
+        ...item,
+        standard_category_key: item.spending_categories?.standard_category_key ?? null,
+        emergency_fund_essential: Boolean(item.spending_categories?.emergency_fund_essential || groupEssential),
+      };
+    }),
     payEvents: payEvents ?? [],
     subjectPersonId: defaultOwnerPerson?.id || adultPersonIds[0] || null,
     adultPersonIds,
@@ -886,6 +923,12 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   const currentMonthKey = intelligence.today.slice(0, 7);
   const currentMonthSummary = savingsMonthSummary(movements ?? [], currentMonthKey);
   const currentMonthInterest = estimateSavingsInterestForMonth(accountRows, movements ?? [], currentMonthKey);
+  const savingsMovementSeries = buildSavingsMovementSeries(movements ?? [], 12);
+  const essentialItemCount = (plannedItems ?? []).filter((item) => {
+    const groupRelation = item.spending_categories?.spending_category_groups;
+    const groupEssential = Array.isArray(groupRelation) ? groupRelation.some((group) => group.emergency_fund_essential) : Boolean(groupRelation?.emergency_fund_essential);
+    return item.direction !== "income" && Boolean(item.spending_categories?.emergency_fund_essential || groupEssential);
+  }).length;
 
   const pensionFundValueByAccount = new Map<string, number>();
   let unassignedPensionFundValue = 0;
@@ -1441,16 +1484,16 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
 
         {activeTab === "overview" ? (
           <div className="grid gap-7 xl:grid-cols-[1.15fr_0.85fr]">
-            <SectionCard title="Savings trajectory" description="Recorded movements drive the solid line; scheduled top-ups and current account rates drive the dotted projection.">
+            <SectionCard title="Savings activity" description="A clean monthly view of what you saved, withdrew and earned in interest. Hover for exact values.">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div className="grid grid-cols-3 gap-2">
-                  <div className="rounded-2xl bg-emerald-50 px-4 py-3"><p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">In this month</p><p className="mt-1 font-black text-slate-950">{formatMoney(currentMonthSummary.in)}</p></div>
-                  <div className="rounded-2xl bg-orange-50 px-4 py-3"><p className="text-[10px] font-black uppercase tracking-wide text-orange-700">Out this month</p><p className="mt-1 font-black text-slate-950">{formatMoney(currentMonthSummary.out)}</p></div>
+                  <div className="rounded-2xl bg-orange-50 px-4 py-3"><p className="text-[10px] font-black uppercase tracking-wide text-orange-700">Withdrawn</p><p className="mt-1 font-black text-slate-950">{formatMoney(currentMonthSummary.out)}</p></div>
                   <div className="rounded-2xl bg-blue-50 px-4 py-3"><p className="text-[10px] font-black uppercase tracking-wide text-blue-700">Interest</p><p className="mt-1 font-black text-slate-950">{formatMoney(currentMonthInterest.total)}</p><p className="mt-1 text-xs font-black text-blue-700/70">Provider paid {formatMoney(currentMonthInterest.providerConfirmed)} · through yesterday {formatMoney(currentMonthInterest.accruedThroughYesterday)} · today est. {formatMoney(currentMonthInterest.estimated)}</p></div>
+                  <div className="rounded-2xl bg-emerald-50 px-4 py-3"><p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">Saved</p><p className="mt-1 font-black text-slate-950">{formatMoney(currentMonthSummary.in)}</p></div>
                 </div>
                 <Link href="/accounts?tab=projection" className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">Expand projection</Link>
               </div>
-              <BalanceHistoryChart data={savingsTrajectory} />
+              <SavingsMovementChart data={savingsMovementSeries} />
             </SectionCard>
             <SectionCard title="LoopWatch" description="LoopWatch checks the whole savings portfolio for rate drag, tax exposure, stale balances and unused Financial Flow.">
               <div className="mb-5 rounded-3xl border border-blue-100 bg-blue-50/70 p-4">
@@ -1497,6 +1540,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
               people={ownerOptions.map((person) => ({ id: person.id, name: person.name, relationship: person.relationship }))}
               accounts={accountRows.map((account) => ({ id: account.id, name: account.name, provider: account.provider }))}
               essentialMonthlyOutgoings={Math.max(0, intelligence.essentialOutgoings.essential)}
+              essentialItemCount={essentialItemCount}
             />
 
             <SectionCard title="Your savings pots" description="The visual adapts to the goal. Custom images take priority; otherwise LOOP uses a holiday, emergency, home, car, education, gift or repairs visual. The top-right thread records monthly allocations.">
