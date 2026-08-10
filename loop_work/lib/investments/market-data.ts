@@ -1,6 +1,7 @@
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { isAiFeatureEnabled, recordOpenAiUsageFromPayload } from "@/lib/ai/usage";
 import { currencyForVenue, isMarketOpenForVenue, knownVenueCodes, marketSessionForVenue, normaliseVenueCode, quoteUnitForVenue, yahooProviderSymbols, stooqProviderSymbols } from "@/lib/investments/market-venues";
+import { validateVerifiedFundQuote, verifiedFundIdentity, verifiedYahooFundSymbol } from "@/lib/investments/verified-fund-symbols";
 
 export type InvestmentQuote = {
   price: number;
@@ -22,6 +23,8 @@ export type InvestmentQuote = {
   previousCloseQuoteUnit?: string | null;
   previousCloseAt?: string | null;
   observedAt?: string | null;
+  identityStatus?: "verified" | "unverified";
+  identityNote?: string | null;
 };
 
 export function normaliseExchangeCode(exchange?: string | null, symbol?: string | null) {
@@ -92,13 +95,6 @@ const BROKER_WRAPPER_EXCHANGES = new Set([
   "FIDELITY INTERNATIONAL",
 ]);
 
-const ISIN_TO_YAHOO_MAP: Record<string, string> = {
-  "GB00BJS8SJ34": "0P000125KV.L", // Fidelity Index World Fund P Acc
-  "GB00B5BFJG71": "0P0000XUDF.L", // iShares Env & Low Carbon Real Estate Index Fund
-  "GB00B84DSH94": "0P0000W38W.L", // L&G Corporate Bond ESG Fund
-  "GB00B4PQW151": "0P0000TKZO.L", // Vanguard LifeStrategy 80% Equity Fund Acc
-};
-
 /**
  * Resolves a usable market quote symbol by prioritizing ISINs when retail brokers 
  * poison the exchange field, or when internal glossary names are passed.
@@ -124,11 +120,13 @@ export function resolveHoldingMarketSymbol(holding: {
   const looksLikeIsin = /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/i.test(ticker);
   const isPoisonedBrokerExchange = BROKER_WRAPPER_EXCHANGES.has(exchange);
 
-  // 3. ISIN PRIORITY: Map ISINs directly to Yahoo Fund codes (e.g. GB00B4PQW151 -> 0P0000TKZO.L)
+  // 3. ISIN PRIORITY: Map ISINs directly to verified Yahoo Fund codes.
+  // GB00B4PQW151 is LifeStrategy 80%; TKZO is the separate 100% fund.
   const targetIsin = isin || (looksLikeIsin ? ticker : "");
-  if (targetIsin && ISIN_TO_YAHOO_MAP[targetIsin]) {
+  const verifiedYahooSymbol = verifiedYahooFundSymbol(targetIsin);
+  if (verifiedYahooSymbol) {
     return {
-      quoteSymbol: ISIN_TO_YAHOO_MAP[targetIsin],
+      quoteSymbol: verifiedYahooSymbol,
       provider: "yahoo",
       isFund: true,
     };
@@ -176,6 +174,16 @@ export function cleanTicker(ticker: string) {
 
 export function isYahooFundCode(ticker: string) {
   return /^0P[0-9A-Z]+\.L$/i.test(cleanTicker(ticker));
+}
+
+function acceptVerifiedFundIdentity(reference: string, quote: InvestmentQuote) {
+  const identity = validateVerifiedFundQuote(reference, quote.assetName, quote.rawSymbol);
+  if (identity.status === "conflict") return null;
+  return {
+    ...quote,
+    identityStatus: identity.status,
+    identityNote: identity.note,
+  } as InvestmentQuote;
 }
 
 function normaliseInvestmentSearch(value: string) {
@@ -358,7 +366,7 @@ async function alpacaQuote(ticker: string, exchange?: string | null): Promise<In
   }
 }
 
-async function yahooQuote(ticker: string, exchange?: string | null): Promise<InvestmentQuote | null> {
+async function yahooQuote(ticker: string, exchange?: string | null, identityReference?: string | null): Promise<InvestmentQuote | null> {
   for (const symbol of yahooSymbols(ticker, exchange)) {
     try {
       const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
@@ -396,11 +404,16 @@ async function yahooQuote(ticker: string, exchange?: string | null): Promise<Inv
         ? Number(result.timestamp[result.timestamp.length - 1])
         : Number(meta.regularMarketTime || 0);
       const sessionNote = session.isExtended ? `Using ${session.label} price; regular close remains separate for daily movement.` : session.session === "closed" ? "Market is closed; using latest regular/close quote from provider." : "Live/delayed quote from active regular session where available.";
+      const providerAssetName = meta.longName || meta.shortName || common?.assetName || assetNameFor(ticker, symbol);
+      const identity = validateVerifiedFundQuote(identityReference, providerAssetName, symbol);
+      // A valid price for the wrong fund is worse than no new price. Keep the
+      // last trusted valuation and let the holding surface as needing review.
+      if (identity.status === "conflict") continue;
       return {
         price: normalised.price,
         source: sourceLabel,
         rawSymbol: symbol,
-        assetName: meta.longName || meta.shortName || common?.assetName || assetNameFor(ticker, symbol),
+        assetName: providerAssetName,
         exchange: yahooFund ? "Yahoo Fund" : common?.exchange || ex || meta.exchangeName || "",
         currency: normalised.currency,
         priceQuoteUnit: normalised.priceQuoteUnit,
@@ -413,6 +426,8 @@ async function yahooQuote(ticker: string, exchange?: string | null): Promise<Inv
         previousCloseQuoteUnit: previousNormalised?.priceQuoteUnit || null,
         previousCloseAt: meta.regularMarketTime ? new Date(Number(meta.regularMarketTime) * 1000).toISOString() : null,
         observedAt: lastTimestamp > 0 ? new Date(lastTimestamp * 1000).toISOString() : null,
+        identityStatus: identity.status,
+        identityNote: identity.note,
       };
     } catch {}
   }
@@ -709,7 +724,10 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
   // supplementary metadata (asset name, fee %, source URL) either way.
   const symbol = wantsExchangeTraded ? effectiveQuery : glossary?.rawSymbol || effectiveQuery;
   const providerFund = wantsExchangeTraded ? null : await providerFundQuoteFromSource(glossary);
-  if (providerFund) return providerFund;
+  if (providerFund) {
+    const acceptedProviderFund = acceptVerifiedFundIdentity(effectiveQuery, providerFund);
+    if (acceptedProviderFund) return acceptedProviderFund;
+  }
 
   // BUGFIX (market data audit): Alpaca credentials were configured (as
   // Render env vars) but never actually referenced anywhere in the
@@ -738,7 +756,9 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
         if (rawPrice > 0) {
           const ex = exchangeFromSymbol(candidate, exchange || glossary?.exchange);
           const normalised = normaliseMarketPrice(rawPrice, ex, candidate);
-          return { ...glossary, price: normalised.price, source: "Alpha Vantage", rawSymbol: q["01. symbol"] || candidate, assetName: glossary?.assetName || assetNameFor(effectiveQuery, candidate), exchange: ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit };
+          const alphaQuote = { ...glossary, price: normalised.price, source: "Alpha Vantage", rawSymbol: q["01. symbol"] || candidate, assetName: glossary?.assetName || assetNameFor(effectiveQuery, candidate), exchange: ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit } as InvestmentQuote;
+          const acceptedAlphaQuote = acceptVerifiedFundIdentity(effectiveQuery, alphaQuote);
+          if (acceptedAlphaQuote) return acceptedAlphaQuote;
         }
       } catch {}
     }
@@ -754,14 +774,19 @@ export async function fetchInvestmentQuote(supabase: any, userId: string, ticker
         if (rawPrice > 0) {
           const ex = exchangeFromSymbol(candidate, exchange || glossary?.exchange);
           const normalised = normaliseMarketPrice(rawPrice, ex, candidate);
-          return { ...glossary, price: normalised.price, source: "Financial Modeling Prep", rawSymbol: first?.symbol || candidate, assetName: first?.name || glossary?.assetName || assetNameFor(effectiveQuery, candidate), exchange: ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit };
+          const fmpQuote = { ...glossary, price: normalised.price, source: "Financial Modeling Prep", rawSymbol: first?.symbol || candidate, assetName: first?.name || glossary?.assetName || assetNameFor(effectiveQuery, candidate), exchange: ex, currency: normalised.currency, priceQuoteUnit: normalised.priceQuoteUnit } as InvestmentQuote;
+          const acceptedFmpQuote = acceptVerifiedFundIdentity(effectiveQuery, fmpQuote);
+          if (acceptedFmpQuote) return acceptedFmpQuote;
         }
       } catch {}
     }
   }
 
-  const yahoo = await yahooQuote(symbol, exchange || glossary?.exchange);
+  const yahoo = await yahooQuote(symbol, exchange || glossary?.exchange, effectiveQuery);
   if (yahoo) return yahoo;
+  // Do not fall through to a fuzzy/manual candidate after a known fund failed
+  // identity verification. Returning null preserves the last trusted price.
+  if (verifiedFundIdentity(effectiveQuery)) return null;
   const stooq = await stooqQuote(symbol, exchange || glossary?.exchange);
   if (stooq) return stooq;
   return glossary || null;

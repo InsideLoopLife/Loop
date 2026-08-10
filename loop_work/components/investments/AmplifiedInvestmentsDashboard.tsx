@@ -346,7 +346,10 @@ export function primaryHoldingLabel(holding: InvestmentHolding) {
   if (ticker && !looksLikeIsin(ticker) && ticker.length <= 8) return ticker.toUpperCase();
   const name = String(holding.asset_name || "").trim();
   if (!name) return assetInitials(holding);
-  const firstChunk = name.split(/[-–|]/)[0]?.trim() || name; const providerish = firstChunk.split(/\s+/).slice(0, 2).join(" ").trim();
+  const firstChunk = name.split(/[-–|]/)[0]?.trim() || name;
+  const providerish = firstChunk.split(/\s+/).slice(0, 2).join(" ").trim();
+  const fundMix = firstChunk.match(/\b(?:Global\s+)?\d{1,3}%\s+Equity\b/i)?.[0];
+  if (fundMix && providerish) return `${providerish} ${fundMix}`;
   return providerish || name;
 }
 
@@ -610,7 +613,7 @@ function DiversificationBars({ holdings, snapshots, totalValue, period, dark, on
                 </div>
                 <div className="mt-1 min-w-0 px-0.5">
                   <p className={`truncate text-xs font-bold ${dark ? "text-white group-hover:text-emerald-400" : "text-slate-900"}`}>{primaryHoldingLabel(item.holding)}</p>
-                  <p className={`text-[10px] ${dark ? "text-white/40" : "text-slate-400"}`}>{item.share.toFixed(1)}%</p>
+                  <p className={`text-[10px] ${dark ? "text-white/40" : "text-slate-400"}`}>{item.share.toFixed(1)}% of selected view</p>
                 </div>
               </button>
             );

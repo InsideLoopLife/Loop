@@ -1,0 +1,538 @@
+diff --git a/app/account/actions.ts b/app/account/actions.ts
+index 7c69037..9886957 100644
+--- a/app/account/actions.ts
++++ b/app/account/actions.ts
+@@ -3,6 +3,7 @@
+ import crypto from "crypto";
+ import { createAdminClient, hasSupabaseAdminKey } from "@/lib/supabase/admin";
+ import { sendTransactionalEmail } from "@/lib/notifications/send";
++import { renderBrandedEmail, renderCodeEmailBody } from "@/lib/notifications/email-template";
+ import { revalidatePath } from "next/cache";
+ import { redirect } from "next/navigation";
+ import { createClient } from "@/lib/supabase/server";
+@@ -283,15 +284,27 @@ export async function sendPasswordResetEmail() {
+   });
+   if (codeError) throw new Error(codeError.message);
+ 
++  const verifyUrl = `${process.env.APP_BASE_URL || "http://localhost:3000"}/reset-password/verify?email=${encodeURIComponent(email)}`;
+   const result = await sendTransactionalEmail({
+     to: email,
+     subject: "Your Loop password reset code",
+-    html: `<div style="font-family:Arial,sans-serif;line-height:1.5"><h2>Reset your Loop password</h2><p>Your 8 digit reset code is:</p><p style="font-size:28px;font-weight:800;letter-spacing:4px">${code}</p><p>This code expires in 10 minutes.</p><p>Enter the code at ${process.env.APP_BASE_URL || "http://localhost:3000"}/reset-password/verify?email=${encodeURIComponent(email)}</p></div>`,
++    html: renderBrandedEmail({
++      preheader: "Your Loop password reset code is inside — expires in 10 minutes.",
++      eyebrow: "Reset password",
++      heading: "Your reset code",
++      bodyHtml: renderCodeEmailBody({
++        intro: "Enter this code to reset your Loop password:",
++        code,
++        expiryMinutes: 10,
++      }),
++      cta: { label: "Enter your code", href: verifyUrl },
++      footerNote: "If you didn't request this, you can ignore this email — your password won't change.",
++    }),
+     text: `Reset your Loop password
+ 
+ Your 8 digit reset code is: ${code}
+ 
+-This code expires in 10 minutes. Enter it at ${process.env.APP_BASE_URL || "http://localhost:3000"}/reset-password/verify?email=${encodeURIComponent(email)}`,
++This code expires in 10 minutes. Enter it at ${verifyUrl}`,
+   });
+ 
+   await supabase.from("app_security_events").insert({
+diff --git a/app/api/cron/notification-insights/route.ts b/app/api/cron/notification-insights/route.ts
+index c31b052..67e8341 100644
+--- a/app/api/cron/notification-insights/route.ts
++++ b/app/api/cron/notification-insights/route.ts
+@@ -1,5 +1,6 @@
+ import { NextResponse, type NextRequest } from "next/server";
+ import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
++import { formatMoney } from "@/lib/format/money";
+ 
+ function unauthorised() {
+   return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+@@ -11,7 +12,7 @@ function num(value: unknown) {
+ }
+ 
+ function money(value: number) {
+-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(value);
++  return formatMoney(value);
+ }
+ 
+ export async function GET(request: NextRequest) {
+diff --git a/app/briefing/page.tsx b/app/briefing/page.tsx
+index 7a66aa5..31ecdbf 100644
+--- a/app/briefing/page.tsx
++++ b/app/briefing/page.tsx
+@@ -6,8 +6,9 @@ import { createClient } from "@/lib/supabase/server";
+ import { buildFinancialBriefing } from "@/lib/briefing/build-financial-briefing";
+ import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
+ import { featureEnabled, getEffectiveEntitlements } from "@/lib/tiers/entitlements";
++import { formatMoney } from "@/lib/format/money";
+ 
+-const money = (v:number) => new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",maximumFractionDigits:0}).format(v);
++const money = (v: number) => formatMoney(v);
+ const signed = (v:number) => `${v>=0?"+":"−"}${money(Math.abs(v))}`;
+ function tone(v:number){return v>0?"text-emerald-700 bg-emerald-50 border-emerald-200":v<0?"text-rose-700 bg-rose-50 border-rose-200":"text-slate-600 bg-slate-50 border-slate-200"}
+ 
+diff --git a/app/dashboard/page.tsx b/app/dashboard/page.tsx
+index d336f9b..29f0309 100644
+--- a/app/dashboard/page.tsx
++++ b/app/dashboard/page.tsx
+@@ -938,7 +938,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
+             <Link href={`/dashboard?year=${selectedYear - 1}&month=${selectedYear - 1}-${selectedMonth.slice(5, 7)}`} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50">← {selectedYear - 1}</Link>
+             <Link href={`/dashboard?year=${selectedYear + 1}&month=${selectedYear + 1}-${selectedMonth.slice(5, 7)}`} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50">{selectedYear + 1} →</Link>
+           </div>
+-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
++          <div
++            className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 sm:grid sm:gap-3 sm:overflow-visible sm:pb-0 sm:mx-0 sm:px-0 sm:grid-cols-2 lg:grid-cols-4"
++            style={{ scrollSnapType: "x mandatory" }}
++          >
+             {yearPlans.map((plan) => {
+               const theme = monthTheme(plan.month);
+               const spendingPct = plan.income > 0 ? Math.min(100, Math.round((plan.outgoings / plan.income) * 100)) : 0;
+@@ -947,7 +950,8 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
+                 <Link
+                   key={plan.month}
+                   href={`/dashboard?year=${selectedYear}&month=${plan.month}`}
+-                  className={`relative overflow-hidden rounded-2xl border bg-gradient-to-br p-4 transition hover:-translate-y-0.5 hover:shadow-sm ${theme.gradient} ${selected ? "border-orange-300 ring-2 ring-orange-200" : "border-slate-200"}`}
++                  className={`relative w-[210px] shrink-0 overflow-hidden rounded-2xl border bg-gradient-to-br p-4 transition hover:-translate-y-0.5 hover:shadow-sm sm:w-auto ${theme.gradient} ${selected ? "border-orange-300 ring-2 ring-orange-200" : "border-slate-200"}`}
++                  style={{ scrollSnapAlign: "start" }}
+                 >
+                   <span className="pointer-events-none absolute -right-2 -top-1 text-3xl opacity-30">{theme.emoji}</span>
+                   <div className="relative flex items-start justify-between gap-3">
+diff --git a/app/login/page.tsx b/app/login/page.tsx
+index c7c8feb..d71161e 100644
+--- a/app/login/page.tsx
++++ b/app/login/page.tsx
+@@ -14,7 +14,7 @@ import {
+   Wallet,
+ } from "lucide-react";
+ import { createClient } from "@/lib/supabase/client";
+-import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons";
++import { SocialAuthButtons, socialAuthAnyEnabled } from "@/components/auth/SocialAuthButtons";
+ 
+ type Message = { text: string; tone: "success" | "error" };
+ 
+@@ -130,13 +130,16 @@ function LoginForm() {
+             <p className="mt-3 text-sm font-medium text-slate-500">Everything you track, ready where you left it.</p>
+           </div>
+ 
+-          <SocialAuthButtons next={next} mode="login" />
+-
+-          <div className="my-7 flex items-center gap-4 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+-            <span className="h-px flex-1 bg-slate-200" />
+-            Continue with email
+-            <span className="h-px flex-1 bg-slate-200" />
+-          </div>
++          {socialAuthAnyEnabled && (
++            <>
++              <SocialAuthButtons next={next} mode="login" />
++              <div className="my-7 flex items-center gap-4 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
++                <span className="h-px flex-1 bg-slate-200" />
++                Continue with email
++                <span className="h-px flex-1 bg-slate-200" />
++              </div>
++            </>
++          )}
+ 
+           <form className="space-y-5" method="post" onSubmit={handleSubmit} autoComplete="on">
+             <label className="block">
+diff --git a/app/notifications/actions.ts b/app/notifications/actions.ts
+index fd9b499..d29397d 100644
+--- a/app/notifications/actions.ts
++++ b/app/notifications/actions.ts
+@@ -3,6 +3,7 @@
+ import { revalidatePath } from "next/cache";
+ import { redirect } from "next/navigation";
+ import { createClient } from "@/lib/supabase/server";
++import { formatMoney } from "@/lib/format/money";
+ 
+ async function requireUser() {
+   const supabase = await createClient();
+@@ -122,7 +123,7 @@ function num(value: unknown) {
+ }
+ 
+ function money(value: number) {
+-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(value);
++  return formatMoney(value);
+ }
+ 
+ export async function createWeeklyPreview() {
+diff --git a/app/reset-password/actions.ts b/app/reset-password/actions.ts
+index d32ebf4..adca849 100644
+--- a/app/reset-password/actions.ts
++++ b/app/reset-password/actions.ts
+@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
+ import { createClient } from "@/lib/supabase/server";
+ import { createAdminClient, hasSupabaseAdminKey } from "@/lib/supabase/admin";
+ import { sendTransactionalEmail } from "@/lib/notifications/send";
++import { renderBrandedEmail, renderCodeEmailBody } from "@/lib/notifications/email-template";
+ 
+ const RESET_CODE_EXPIRY_MINUTES = 10;
+ 
+@@ -108,7 +109,17 @@ export async function requestPasswordResetCode(formData: FormData) {
+     const result = await sendTransactionalEmail({
+       to: email,
+       subject: "Your Loop password reset code",
+-      html: `<div style="font-family:Arial,sans-serif;line-height:1.5"><h2>Reset your Loop password</h2><p>Your 8 digit reset code is:</p><p style="font-size:28px;font-weight:800;letter-spacing:4px">${code}</p><p>This code expires in ${RESET_CODE_EXPIRY_MINUTES} minutes.</p><p>If you did not request this, you can ignore this email.</p></div>`,
++      html: renderBrandedEmail({
++        preheader: `Your Loop password reset code is inside — expires in ${RESET_CODE_EXPIRY_MINUTES} minutes.`,
++        eyebrow: "Reset password",
++        heading: "Your reset code",
++        bodyHtml: renderCodeEmailBody({
++          intro: "Enter this code to reset your Loop password:",
++          code,
++          expiryMinutes: RESET_CODE_EXPIRY_MINUTES,
++        }),
++        footerNote: "If you didn't request this, you can ignore this email — your password won't change.",
++      }),
+       text: `Reset your Loop password\n\nYour 8 digit reset code is: ${code}\n\nThis code expires in ${RESET_CODE_EXPIRY_MINUTES} minutes. If you did not request this, you can ignore this email.`,
+     });
+ 
+diff --git a/app/signup/actions.ts b/app/signup/actions.ts
+index cf35eef..eec0af0 100644
+--- a/app/signup/actions.ts
++++ b/app/signup/actions.ts
+@@ -4,6 +4,7 @@ import crypto from "crypto";
+ import { redirect } from "next/navigation";
+ import { createAdminClient, hasSupabaseAdminKey } from "@/lib/supabase/admin";
+ import { sendTransactionalEmail } from "@/lib/notifications/send";
++import { renderBrandedEmail, renderCodeEmailBody } from "@/lib/notifications/email-template";
+ import { processPendingHouseholdLinksForUser } from "@/lib/auth/invite-linking";
+ import { createClient } from "@/lib/supabase/server";
+ import { sendWelcomeEmailForUser } from "@/lib/notifications/welcome";
+@@ -83,7 +84,16 @@ export async function requestSignupCode(formData: FormData) {
+   const emailResult = await sendTransactionalEmail({
+     to: email,
+     subject: "Your Loop account code",
+-    html: `<div style="font-family:Arial,sans-serif;line-height:1.5"><h2>Create your Loop account</h2><p>Your 8 digit sign-up code is:</p><p style="font-size:28px;font-weight:800;letter-spacing:4px">${code}</p><p>This code expires in 10 minutes.</p></div>`,
++    html: renderBrandedEmail({
++      preheader: "Your Loop sign-up code is inside — expires in 10 minutes.",
++      eyebrow: "Create account",
++      heading: "Your sign-up code",
++      bodyHtml: renderCodeEmailBody({
++        intro: "Enter this code to finish creating your Loop account:",
++        code,
++        expiryMinutes: 10,
++      }),
++    }),
+     text: `Create your Loop account\n\nYour 8 digit sign-up code is: ${code}\n\nThis code expires in 10 minutes.`,
+   });
+ 
+diff --git a/components/auth/SocialAuthButtons.tsx b/components/auth/SocialAuthButtons.tsx
+index 0674f40..2f1d970 100644
+--- a/components/auth/SocialAuthButtons.tsx
++++ b/components/auth/SocialAuthButtons.tsx
+@@ -8,8 +8,19 @@ type SocialAuthButtonsProps = {
+   mode?: "login" | "signup";
+ };
+ 
+-const googleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_AUTH !== "false";
+-const appleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_APPLE_AUTH !== "false";
++// Default posture is OFF: a provider only shows once it's actually
++// configured in Supabase and the env var explicitly opts it in. The old
++// default (enabled unless explicitly disabled) meant an unconfigured
++// provider was live and clickable, and failed with a raw Supabase error
++// message in the UI instead of not being there at all.
++const googleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_AUTH === "true";
++const appleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_APPLE_AUTH === "true";
++
++/** Whether any social provider is enabled — pages use this to decide
++ *  whether to render SocialAuthButtons and its "or continue with email"
++ *  divider at all, rather than showing an orphaned divider with no
++ *  buttons above it. */
++export const socialAuthAnyEnabled = googleAuthEnabled || appleAuthEnabled;
+ 
+ function ProviderIcon({ provider }: { provider: "google" | "apple" }) {
+   if (provider === "apple") {
+@@ -36,6 +47,8 @@ export function SocialAuthButtons({ next = "/dashboard", mode = "login" }: Socia
+   const googleEnabled = googleAuthEnabled;
+   const appleEnabled = appleAuthEnabled;
+ 
++  if (!googleEnabled && !appleEnabled) return null;
++
+   async function oauth(provider: "google" | "apple") {
+     const enabled = provider === "google" ? googleEnabled : appleEnabled;
+     if (!enabled) {
+diff --git a/components/financial-flow/FlowBreakdownModal.tsx b/components/financial-flow/FlowBreakdownModal.tsx
+index 43d514d..1713531 100644
+--- a/components/financial-flow/FlowBreakdownModal.tsx
++++ b/components/financial-flow/FlowBreakdownModal.tsx
+@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
+ import { createPortal } from "react-dom";
+ import Link from "next/link";
+ import { X } from "lucide-react";
++import { formatMoney } from "@/lib/format/money";
+ 
+ type FlowLine = {
+   key: string;
+@@ -13,9 +14,6 @@ type FlowLine = {
+   href?: string;
+ };
+ 
+-function formatMoney(value: number) {
+-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(Number.isFinite(value) ? value : 0);
+-}
+ 
+ function toneClasses(tone?: FlowLine["tone"]) {
+   if (tone === "green") return "bg-emerald-50 text-emerald-800 border-emerald-100";
+diff --git a/components/financial-flow/SavingsFlowDetail.tsx b/components/financial-flow/SavingsFlowDetail.tsx
+index 16f91ca..8816b19 100644
+--- a/components/financial-flow/SavingsFlowDetail.tsx
++++ b/components/financial-flow/SavingsFlowDetail.tsx
+@@ -189,7 +189,34 @@ export function SavingsFlowDetail({
+ 
+         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
+           <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-black text-slate-950">Lines in this month</h2><p className="mt-1 text-sm font-semibold text-slate-500">This month / total balance, rate, maximised score and end date.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{monthKey}</span></div>
+-          <div className="mt-4 overflow-x-auto">
++
++          {/* mobile: cards, no horizontal scroll needed to read a rate or score */}
++          <div className="mt-4 space-y-2.5 md:hidden">
++            {accounts.map((account) => (
++              <div key={account.id} className="rounded-2xl border border-slate-100 bg-white p-4">
++                <div className="flex items-start justify-between gap-3">
++                  <div className="flex items-center gap-3">
++                    <FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-9 w-9 rounded-xl" />
++                    <div>
++                      <p className="font-black text-slate-950">{account.name}</p>
++                      <p className="text-xs font-bold text-slate-400">{account.provider}{account.endDate ? ` · ends ${account.endDate}` : ""}</p>
++                    </div>
++                  </div>
++                  <span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore}</span>
++                </div>
++                <div className="mt-3 flex items-end justify-between">
++                  <div>
++                    <p className="text-lg font-black text-slate-950">{formatMoney(account.balance)}</p>
++                    <p className="text-xs font-bold text-slate-400">{formatMoney(account.savedThisMonth)} this month</p>
++                  </div>
++                  <p className="text-sm font-black text-slate-950">{account.interestRate.toFixed(2)}% AER</p>
++                </div>
++              </div>
++            ))}
++          </div>
++
++          {/* desktop: unchanged */}
++          <div className="mt-4 hidden overflow-x-auto md:block">
+             <table className="w-full min-w-[700px] text-left text-sm">
+               <thead><tr className="border-b border-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-400"><th className="pb-3">Account</th><th className="pb-3">This month / total</th><th className="pb-3">Interest rate</th><th className="pb-3">Max score</th><th className="pb-3">End date</th></tr></thead>
+               <tbody>{accounts.map((account) => <tr key={account.id} className="border-b border-slate-50"><td className="py-3"><div className="flex items-center gap-3"><FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-9 w-9 rounded-xl" /><div><p className="font-black text-slate-950">{account.name}</p><p className="text-xs font-bold text-slate-400">{account.provider}</p></div></div></td><td className="py-3 font-black text-slate-950">{formatMoney(account.savedThisMonth)} / {formatMoney(account.balance)}</td><td className="py-3 font-black text-slate-950">{account.interestRate.toFixed(2)}% AER</td><td className="py-3"><span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`rounded-full px-3 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore}</span></td><td className="py-3 font-bold text-slate-500">{account.endDate || "—"}</td></tr>)}</tbody>
+diff --git a/components/savings/SavingsPotsRotator.tsx b/components/savings/SavingsPotsRotator.tsx
+index 1063232..d3703b2 100644
+--- a/components/savings/SavingsPotsRotator.tsx
++++ b/components/savings/SavingsPotsRotator.tsx
+@@ -2,6 +2,7 @@
+ 
+ import Link from "next/link";
+ import { useEffect, useMemo, useState } from "react";
++import { formatMoney } from "@/lib/format/money";
+ 
+ type PotGoal = {
+   id: string;
+@@ -15,10 +16,6 @@ type PotGoal = {
+   href?: string;
+ };
+ 
+-function formatMoney(value: number) {
+-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(Number.isFinite(value) ? value : 0);
+-}
+-
+ export function SavingsPotsRotator({ goals }: { goals: PotGoal[] }) {
+   const rows = useMemo(() => goals.filter((goal) => goal.target > 0), [goals]);
+   const [index, setIndex] = useState(0);
+diff --git a/components/spending/CategoryGroupsBoard.tsx b/components/spending/CategoryGroupsBoard.tsx
+index 2e494f9..708293a 100644
+--- a/components/spending/CategoryGroupsBoard.tsx
++++ b/components/spending/CategoryGroupsBoard.tsx
+@@ -11,6 +11,7 @@ import {
+   addSpendingCategory,
+   updateFinancialFlowLineCategories,
+ } from "@/app/spending/actions";
++import { formatMoney } from "@/lib/format/money";
+ 
+ export type BoardPerson = { id: string; name: string; relationship: string; user_id?: string | null; linked_user_id?: string | null; account_status?: string | null };
+ export type BoardGroup = { id: string; name: string; icon?: string | null };
+@@ -33,7 +34,7 @@ const GROUP_COLOURS = [
+ 
+ type PoolItem = { dragId: string; id: string; kind: "planned" | "child"; personId: string | null; categoryId: string | null; label: string; amount: number; sublabel: string; isSavingsOrInvestment: boolean };
+ 
+-const money = (value: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(value || 0);
++const money = (value: number) => formatMoney(value || 0);
+ 
+ function personName(people: BoardPerson[], personId: string | null) {
+   if (!personId) return "🏠 Household / shared";
+diff --git a/domains/wealth/financial-flow/FinancialFlowPage.tsx b/domains/wealth/financial-flow/FinancialFlowPage.tsx
+index 9ee6144..058963e 100644
+--- a/domains/wealth/financial-flow/FinancialFlowPage.tsx
++++ b/domains/wealth/financial-flow/FinancialFlowPage.tsx
+@@ -650,6 +650,62 @@ function FlowSankeyDiagram({ model, people }: { model: MonthModel; people: Perso
+     <div className="overflow-x-auto rounded-3xl border border-white/70 bg-white/92 p-5 shadow-sm">
+       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">This month's flow</p>
+       <h2 className="mb-3 text-base font-bold text-slate-900">Where {formatMoney(model.totalIncome)} of income goes</h2>
++
++      {/* mobile: a vertical waterfall instead of the wide horizontal ribbon diagram below —
++          same underlying stage1/spendGroups/incomeBySource data, just laid out top-to-bottom
++          so nothing needs a sideways scroll to read on a phone */}
++      <div className="md:hidden">
++        <div className="flex h-8 w-full overflow-hidden rounded-full">
++          {incomeBySource.map((source) => (
++            <div key={source.personId || "household"} title={`${source.label}: ${formatMoney(source.amount)}`} style={{ width: `${(source.amount / total) * 100}%`, backgroundColor: source.colour }} className="flex items-center justify-center text-[10px] font-black text-white truncate px-1">
++              {source.label}
++            </div>
++          ))}
++        </div>
++        <p className="mt-1.5 text-xs font-bold text-slate-400">👥 Income · {formatMoney(model.totalIncome)}</p>
++
++        <div className="flex justify-center my-2"><div className="h-5 w-0.5 bg-slate-200" /></div>
++
++        <div className="flex h-10 w-full overflow-hidden rounded-2xl">
++          {stage1.map((row) => (
++            <div key={row.key} title={`${row.label}: ${formatMoney(row.amount)}`} style={{ width: `${(row.amount / total) * 100}%`, backgroundColor: row.colour }} className="flex items-center justify-center text-[10px] font-black text-white truncate px-1">
++              {Math.round((row.amount / total) * 100)}%
++            </div>
++          ))}
++        </div>
++        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
++          {stage1.map((row) => (
++            <div key={row.key} className="flex items-center gap-2 text-xs font-bold text-slate-600">
++              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.colour }} />
++              <span className="truncate">{NODE_ICON[row.key] || ""} {row.label} · {formatMoney(row.amount)}</span>
++            </div>
++          ))}
++        </div>
++
++        {hasStage2 && (
++          <>
++            <div className="flex justify-center my-3"><ArrowDownRight className="h-4 w-4 text-slate-300" /></div>
++            <p className="text-xs font-black uppercase tracking-wide text-slate-400 mb-2">Spending breaks down into</p>
++            <div className="flex h-9 w-full overflow-hidden rounded-2xl">
++              {spendGroups.map((group, i) => (
++                <div key={i} title={`${group.label}: ${formatMoney(group.amount)}`} style={{ width: `${(group.amount / Math.max(1, model.committedSpending)) * 100}%`, backgroundColor: group.colour }} />
++              ))}
++            </div>
++            <div className="mt-2 space-y-1.5">
++              {spendGroups.map((group, i) => (
++                <div key={i} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
++                  <span className="flex items-center gap-2 truncate"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: group.colour }} />{group.label.toLowerCase() === "ungrouped" ? "📁" : "🏷️"} {group.label}</span>
++                  <span className="shrink-0">{formatMoney(group.amount)}</span>
++                </div>
++              ))}
++            </div>
++          </>
++        )}
++        {!model.hasAnyRealGroups ? <p className="mt-3 text-xs font-medium text-slate-400">Set up groups on "Manage categories and groups" to break Spending down further here.</p> : null}
++      </div>
++
++      {/* desktop: the full ribbon diagram */}
++      <div className="hidden md:block">
+       <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label="Diagram of income splitting into spending, savings, investments and cashflow, with spending broken down by group">
+         {stage1Ribbons.map((ribbon) => (
+           <path key={ribbon.key} d={ribbon.path} fill={ribbon.colour} opacity={0.18}>
+@@ -696,6 +752,7 @@ function FlowSankeyDiagram({ model, people }: { model: MonthModel; people: Perso
+         ))}
+       </svg>
+       {!model.hasAnyRealGroups ? <p className="mt-2 text-xs font-medium text-slate-400">Set up groups on "Manage categories and groups" to break Spending down further here.</p> : null}
++      </div>
+     </div>
+   );
+ }
+diff --git a/lib/notifications/email-template.ts b/lib/notifications/email-template.ts
+new file mode 100644
+index 0000000..003f0a3
+--- /dev/null
++++ b/lib/notifications/email-template.ts
+@@ -0,0 +1,94 @@
++// Shared visual shell for transactional emails, so a sign-up code or a
++// password-reset code looks like it came from the same product as the
++// welcome email — not a plain unstyled system message.
++//
++// Pulled out of welcome.ts's gradient header / white card / dark footer
++// pattern rather than invented fresh, so anything sent through this stays
++// visually consistent with the one email that was already properly
++// branded.
++
++function escapeHtml(value: string) {
++  return value
++    .replace(/&/g, "&amp;")
++    .replace(/</g, "&lt;")
++    .replace(/>/g, "&gt;")
++    .replace(/"/g, "&quot;")
++    .replace(/'/g, "&#039;");
++}
++
++function baseUrl() {
++  return (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
++}
++
++const buttonStyle = "display:inline-block;text-decoration:none;border-radius:999px;padding:14px 22px;font-size:14px;font-weight:900;";
++
++export type BrandedEmailArgs = {
++  /** Hidden preview text shown in inbox lists before the email is opened. */
++  preheader: string;
++  /** Small uppercase label above the heading, e.g. "Create account". */
++  eyebrow: string;
++  /** The big headline in the gradient header. */
++  heading: string;
++  /** Raw HTML for the message body, rendered inside the white card.
++   *  Caller is responsible for escaping any user-supplied values. */
++  bodyHtml: string;
++  /** Optional call-to-action button in the dark footer band. */
++  cta?: { label: string; href: string };
++  /** Small print at the very bottom, e.g. "If you didn't request this...". */
++  footerNote?: string;
++};
++
++export function renderBrandedEmail({ preheader, eyebrow, heading, bodyHtml, cta, footerNote }: BrandedEmailArgs) {
++  const appUrl = baseUrl();
++
++  return `<!doctype html>
++<html lang="en">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1.0">
++  <meta name="x-apple-disable-message-reformatting">
++  <title>${escapeHtml(heading)}</title>
++</head>
++<body style="margin:0;padding:0;background:#eaf1f8;font-family:Inter,Arial,Helvetica,sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased;">
++  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(preheader)}</div>
++
++  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eaf1f8;margin:0;padding:28px 14px;">
++    <tr>
++      <td align="center">
++        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:30px;overflow:hidden;border:1px solid #dbe6f2;box-shadow:0 24px 70px rgba(15,23,42,.16);">
++          <tr>
++            <td style="background:linear-gradient(135deg,#020617 0%,#073b3a 44%,#ff5a14 100%);padding:32px 32px 28px;color:#ffffff;">
++              <div style="font-size:12px;font-weight:900;letter-spacing:.28em;text-transform:uppercase;color:#7dd3fc;">LOOP</div>
++              <div style="margin-top:10px;font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#dbeafe;opacity:.85;">${escapeHtml(eyebrow)}</div>
++              <h1 style="margin:10px 0 0;font-size:28px;line-height:1.15;font-weight:950;color:#ffffff;">${escapeHtml(heading)}</h1>
++            </td>
++          </tr>
++
++          <tr>
++            <td style="padding:30px 32px 28px;background:#ffffff;">
++              ${bodyHtml}
++              ${cta ? `<div style="margin-top:22px;"><a href="${cta.href}" style="${buttonStyle}background:#020617;color:#ffffff;">${escapeHtml(cta.label)}</a></div>` : ""}
++            </td>
++          </tr>
++
++          <tr>
++            <td style="padding:0 32px 30px;background:#ffffff;">
++              <div style="height:1px;background:#e2e8f0;margin-bottom:18px;"></div>
++              <p style="margin:0;font-size:12px;line-height:1.7;color:#64748b;">${footerNote ? footerNote : "If you didn't request this, you can safely ignore this email."}</p>
++              <p style="margin:10px 0 0;font-size:12px;color:#94a3b8;">Loop · <a href="${appUrl}" style="color:#94a3b8;">${appUrl.replace(/^https?:\/\//, "")}</a></p>
++            </td>
++          </tr>
++        </table>
++      </td>
++    </tr>
++  </table>
++</body>
++</html>`;
++}
++
++/** For the very common "here's your N-digit code" shape. */
++export function renderCodeEmailBody({ intro, code, expiryMinutes }: { intro: string; code: string; expiryMinutes: number }) {
++  return `<p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#334155;font-weight:600;">${intro}</p>
++<p style="margin:0 0 18px;font-size:34px;font-weight:950;letter-spacing:6px;color:#020617;">${escapeHtml(code)}</p>
++<p style="margin:0;font-size:13px;line-height:1.6;color:#64748b;">This code expires in ${expiryMinutes} minutes.</p>`;
++}

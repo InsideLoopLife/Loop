@@ -1273,49 +1273,78 @@ export async function updateInvestmentHolding(formData: FormData) {
   const { supabase, user } = await currentUser();
   const id = String(formData.get("id") || "");
   const units = parseNumber(formData.get("units")) ?? 0;
-  const priceUnit = asPriceInputUnit(formData.get("price_input_unit"));
-  const manualCurrency = currencyFromPriceUnit(formData.get("price_input_unit"), formData.get("currency"));
-  const manualFx = await fxToGbp(manualCurrency);
-  const enteredLatestPrice = priceFromInput(formData.get("latest_price"), formData.get("price_input_unit")) * manualFx.rate;
-  const avgPrice = priceFromInput(formData.get("average_buy_price"), formData.get("price_input_unit")) * manualFx.rate;
+  const remapConfirmed = String(formData.get("remap_confirmed") || "") === "1";
+  const costPriceUnit = asPriceInputUnit(formData.get("price_input_unit"));
+  const latestPriceUnit = asPriceInputUnit(remapConfirmed ? formData.get("remap_price_input_unit") : formData.get("price_input_unit"));
+  const costCurrency = currencyFromPriceUnit(formData.get("price_input_unit"), formData.get("currency"));
+  const latestCurrency = currencyFromPriceUnit(
+    remapConfirmed ? formData.get("remap_price_input_unit") : formData.get("price_input_unit"),
+    remapConfirmed ? formData.get("remap_currency") : formData.get("currency"),
+  );
+  const costFx = await fxToGbp(costCurrency);
+  const latestFx = latestCurrency === costCurrency ? costFx : await fxToGbp(latestCurrency);
+  const latestPriceInput = remapConfirmed ? formData.get("remap_latest_price") : formData.get("latest_price");
+  const enteredLatestPrice = priceFromInput(latestPriceInput, latestPriceUnit) * latestFx.rate;
+  const avgPrice = priceFromInput(formData.get("average_buy_price"), costPriceUnit) * costFx.rate;
   const priceDate = String(formData.get("latest_price_date") || new Date().toISOString().slice(0, 10));
-  const updateTicker = nullableString(formData.get("ticker"));
-  const updateExchange = nullableString(formData.get("exchange"));
-  const updateAssetKind = String(formData.get("asset_kind") || "share");
+  const updateTicker = nullableString(formData.get(remapConfirmed ? "remap_ticker" : "ticker"));
+  const updateExchange = nullableString(formData.get(remapConfirmed ? "remap_exchange" : "exchange"));
+  const updateAssetKind = String(formData.get(remapConfirmed ? "remap_asset_kind" : "asset_kind") || "share");
   const updateYahooFundCode = updateTicker ? isYahooFundCode(updateTicker) : false;
-  const updateSourceUrl = nullableString(formData.get("source_url"));
+  const updateSourceUrl = nullableString(formData.get(remapConfirmed ? "remap_source_url" : "source_url"));
+  const updateIsin = nullableString(formData.get(remapConfirmed ? "remap_isin" : "isin"));
   const exchangeTraded = isExchangeTradedAsset(updateAssetKind, updateExchange);
   const sourceLooksLikeFund = exchangeTraded && looksLikeProviderFundUrl(updateSourceUrl);
   const priceLooksWrong = priceLooksWrongForKnownTicker(updateTicker, updateExchange, enteredLatestPrice);
+  const remapQuote = remapConfirmed && updateTicker
+    ? await fetchQuote(supabase, user.id, updateTicker, updateExchange).catch(() => null)
+    : null;
+  if (remapConfirmed && (!remapQuote || Number(remapQuote.price || 0) <= 0)) {
+    throw new Error("The selected price source could not be verified. The existing mapping and price were left unchanged.");
+  }
   const repairQuote = updateTicker && !updateYahooFundCode && (sourceLooksLikeFund || priceLooksWrong)
     ? await fetchQuote(supabase, user.id, updateTicker, updateExchange).catch(() => null)
     : null;
-  const repairPricing = await quotePricingForGbp(repairQuote, updateExchange);
-  const latestPrice = repairQuote ? repairPricing.gbpPrice : enteredLatestPrice;
+  const acceptedQuote = remapQuote || repairQuote;
+  const repairPricing = await quotePricingForGbp(acceptedQuote, updateExchange);
+  const latestPrice = acceptedQuote ? repairPricing.gbpPrice : enteredLatestPrice;
   const safeUpdateSourceUrl = sourceLooksLikeFund ? null : updateSourceUrl;
   const updateSuspiciousNote = suspiciousStockPriceNote(updateTicker, updateExchange, latestPrice, updateSourceUrl);
-  const repairNote = repairQuote ? `Market quote repair used ${repairQuote.source} ${repairQuote.rawSymbol}; provider/factsheet source was ignored for this exchange-traded holding.` : null;
+  const repairNote = repairQuote && !remapQuote ? `Market quote repair used ${repairQuote.source} ${repairQuote.rawSymbol}; provider/factsheet source was ignored for this exchange-traded holding.` : null;
+  const remapSource = nullableString(formData.get("remap_source"));
+  const remapNote = remapConfirmed ? `Price source remapped by the user to ${updateTicker || "a selected instrument"}${updateIsin ? ` (${updateIsin})` : ""}. Existing units and purchase threads were preserved.` : null;
   const holdingPayload = {
-    asset_name: String(formData.get("asset_name") || "Holding"),
+    asset_name: String(formData.get(remapConfirmed ? "remap_asset_name" : "asset_name") || "Holding"),
     ticker: updateTicker,
-    exchange: updateYahooFundCode ? "Yahoo Fund" : (repairQuote?.exchange || updateExchange),
+    exchange: updateYahooFundCode ? "Yahoo Fund" : (acceptedQuote?.exchange || updateExchange),
     group_label: nullableString(formData.get("group_label")),
     units,
     average_buy_price: avgPrice,
     latest_price: latestPrice,
     latest_price_date: priceDate,
     currency: "GBP",
-    price_quote_unit: updateYahooFundCode ? "gbp" : (repairQuote?.priceQuoteUnit || priceUnit),
-    native_latest_price: repairQuote ? repairPricing.nativePrice : parseNumber(formData.get("latest_price")),
-    native_currency: repairQuote ? repairPricing.nativeCurrency : (priceUnit === "gbx" ? "GBX" : manualCurrency),
-    native_exchange: updateYahooFundCode ? "Yahoo Fund" : (repairQuote?.exchange || updateExchange),
+    price_quote_unit: updateYahooFundCode ? "gbp" : (acceptedQuote?.priceQuoteUnit || latestPriceUnit),
+    native_latest_price: acceptedQuote ? repairPricing.nativePrice : parseNumber(latestPriceInput),
+    native_currency: acceptedQuote ? repairPricing.nativeCurrency : (latestPriceUnit === "gbx" ? "GBX" : latestCurrency),
+    native_exchange: updateYahooFundCode ? "Yahoo Fund" : (acceptedQuote?.exchange || updateExchange),
     asset_kind: updateYahooFundCode ? "fund" : updateAssetKind,
-    isin: nullableString(formData.get("isin")) || repairQuote?.isin || null,
-    annual_asset_fee_percent: parseNumber(formData.get("annual_asset_fee_percent")) ?? repairQuote?.annualAssetFeePercent ?? 0,
+    isin: updateIsin || acceptedQuote?.isin || null,
+    annual_asset_fee_percent: parseNumber(formData.get(remapConfirmed ? "remap_annual_asset_fee_percent" : "annual_asset_fee_percent")) ?? acceptedQuote?.annualAssetFeePercent ?? 0,
     target_allocation_percent: parseNumber(formData.get("target_allocation_percent")) ?? 0,
-    source_url: safeUpdateSourceUrl || (repairQuote ? `market-data:${repairQuote.source}:${repairQuote.rawSymbol}` : null),
+    source_url: remapConfirmed
+      ? `market-data:${remapSource || "verified search"}:${updateTicker || "unknown"}`
+      : safeUpdateSourceUrl || (repairQuote ? `market-data:${repairQuote.source}:${repairQuote.rawSymbol}` : null),
     price_polling_enabled: formData.get("price_polling_enabled") !== "off",
-    notes: [updateSuspiciousNote, repairNote, nullableString(formData.get("notes"))].filter(Boolean).join("\n") || null,
+    ...(remapConfirmed ? { price_check_status: "ok" } : {}),
+    ...(remapConfirmed
+      ? {
+          instrument_id: null,
+          listing_id: null,
+          instrument_resolution_status: "pending",
+          instrument_resolution_notes: `Price source changed to ${updateTicker || "a selected instrument"}; the worker will create a fresh canonical listing link.`,
+        }
+      : {}),
+    notes: [updateSuspiciousNote, repairNote, remapNote, nullableString(formData.get("notes"))].filter(Boolean).join("\n") || null,
     updated_at: new Date().toISOString(),
   };
 
@@ -1334,7 +1363,7 @@ export async function updateInvestmentHolding(formData: FormData) {
     value: units * latestPrice,
     snapshot_date: priceDate,
     snapshot_at: new Date().toISOString(),
-    source: repairQuote?.source || "manual",
+    source: remapConfirmed ? `remap:${remapQuote?.source || remapSource || "verified search"}:${updateTicker || "unknown"}` : repairQuote?.source || "manual",
   });
   revalidatePath("/investments");
   revalidatePath("/net-worth");
@@ -1385,13 +1414,18 @@ export async function saveInvestmentCostBasisBatch(formData: FormData) {
     if (error) throw new Error(error.message);
 
     const lotDate = String(formData.get(`purchase_date:${holdingId}`) || new Date().toISOString().slice(0, 10));
-    const { data: existingLot } = await supabase
+    const { data: existingLots, error: existingLotsError } = await supabase
       .from("investment_purchase_lots")
-      .select("id")
+      .select("id,external_source")
       .eq("user_id", user.id)
-      .eq("holding_id", holdingId)
-      .eq("external_source", "manual_cost_basis")
-      .maybeSingle();
+      .eq("holding_id", holdingId);
+    if (existingLotsError) throw new Error(existingLotsError.message);
+    const hasRealPurchaseLot = (existingLots || []).some(
+      (lot: any) => String(lot.external_source || "").toLowerCase() !== "manual_cost_basis",
+    );
+    const existingManualLot = (existingLots || []).find(
+      (lot: any) => String(lot.external_source || "").toLowerCase() === "manual_cost_basis",
+    );
     const lotPayload = {
       user_id: user.id,
       holding_id: holdingId,
@@ -1407,9 +1441,14 @@ export async function saveInvestmentCostBasisBatch(formData: FormData) {
       external_source: "manual_cost_basis",
       notes: "Manual average cost supplied from the portfolio cost-basis drawer.",
     };
-    if (existingLot?.id) {
+    // The cost-basis drawer confirms an average; it must not invent a second
+    // purchase when a real/imported purchase thread already exists.
+    if (hasRealPurchaseLot) {
+      // The holding average was updated above. Keep the evidenced purchase
+      // thread untouched.
+    } else if (existingManualLot?.id) {
       const { user_id: _userId, holding_id: _holdingId, ...updatePayload } = lotPayload;
-      const { error: lotUpdateError } = await supabase.from("investment_purchase_lots").update(updatePayload).eq("id", existingLot.id).eq("user_id", user.id);
+      const { error: lotUpdateError } = await supabase.from("investment_purchase_lots").update(updatePayload).eq("id", existingManualLot.id).eq("user_id", user.id);
       if (lotUpdateError) throw new Error(lotUpdateError.message);
     } else {
       const { error: lotInsertError } = await supabase.from("investment_purchase_lots").insert(lotPayload);

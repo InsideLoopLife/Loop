@@ -1791,12 +1791,22 @@ function performanceUnavailableLabel(holding?: InvestmentHolding) {
   return "Cost price missing";
 }
 
+function evidencedInvestmentLots(lots: InvestmentLot[]) {
+  const evidenced = lots.filter(
+    (lot) => String(lot.external_source || "").toLowerCase() !== "manual_cost_basis",
+  );
+  // A manual cost-basis row is only a fallback when there is no genuine
+  // purchase/import thread. It is not an additional purchase.
+  return evidenced.length ? evidenced : lots;
+}
+
 function originalCostSummary(
   holding: InvestmentHolding,
   lots: InvestmentLot[],
 ) {
+  const purchaseLots = evidencedInvestmentLots(lots);
   const importedCost = Number(holding.imported_invested_value || 0);
-  const lotCost = lots.reduce((sum, lot) => {
+  const lotCost = purchaseLots.reduce((sum, lot) => {
     const explicitCost = Number(lot.total_cost ?? 0);
     const units = Number(lot.units ?? 0);
     const purchasePrice = Number(lot.purchase_price ?? 0);
@@ -1816,7 +1826,7 @@ function originalCostSummary(
           : 0;
   const source =
     lotCost > 0
-      ? `${lots.length} purchase lot${lots.length === 1 ? "" : "s"}`
+      ? `${purchaseLots.length} purchase lot${purchaseLots.length === 1 ? "" : "s"}`
       : importedCost > 0
         ? "broker/imported cost"
         : averageCost > 0
@@ -2367,8 +2377,8 @@ function PieStackCard({
             <HoldingCard
               key={holding.id}
               holding={holding}
-              lots={investmentLots.filter(
-                (lot) => lot.holding_id === holding.id,
+              lots={evidencedInvestmentLots(
+                investmentLots.filter((lot) => lot.holding_id === holding.id),
               )}
               investmentViewMode={investmentViewMode}
               onInfo={() => onInfo(holding)}
@@ -4912,6 +4922,147 @@ function AddInvestmentHoldingForm({
     </form>
   );
 }
+function HoldingPriceSourceRemapper({ holding }: { holding: InvestmentHolding }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(
+    [holding.asset_name, holding.isin].filter(Boolean).join(" "),
+  );
+  const [searching, setSearching] = useState(false);
+  const [matches, setMatches] = useState<QuoteCandidate[]>([]);
+  const [selected, setSelected] = useState<QuoteCandidate | null>(null);
+  const [message, setMessage] = useState("");
+
+  async function search() {
+    if (!query.trim()) return;
+    setSearching(true);
+    setSelected(null);
+    setMessage("");
+    try {
+      const response = await fetch("/api/investments/quote-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: query.trim(), exchange: "" }),
+      });
+      const payload = await response.json();
+      const candidates: QuoteCandidate[] = Array.isArray(payload.matches)
+        ? payload.matches
+        : payload.quote
+          ? [payload.quote]
+          : [];
+      const ranked = candidates
+        .map((candidate) => ({
+          ...candidate,
+          confidence: tokenOverlapConfidence(candidate, query),
+        }))
+        .filter((candidate) => Number(candidate.price || 0) > 0)
+        .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))
+        .slice(0, 8);
+      setMatches(ranked);
+      setMessage(
+        ranked.length
+          ? "Select the exact instrument. Nothing changes until you save the holding."
+          : "No priced match was found. Keep the current source and request instrument coverage rather than guessing.",
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Fund search failed.");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  return (
+    <div className="md:col-span-2 rounded-3xl border border-violet-200 bg-violet-50 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-black text-violet-950">Price source and fund mapping</p>
+          <p className="mt-1 text-xs font-bold text-violet-700">
+            Search and remap this holding without deleting its units, purchase threads or account history.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="rounded-full bg-violet-950 px-4 py-2 text-xs font-black text-white"
+        >
+          {open ? "Close search" : "Find correct price source"}
+        </button>
+      </div>
+
+      {open ? (
+        <div className="mt-4 space-y-3">
+          <div className="flex gap-2">
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void search();
+                }
+              }}
+              className="min-w-0 flex-1 rounded-2xl border border-violet-200 bg-white px-4 py-3 text-sm font-bold outline-none ring-violet-500 focus:ring-2"
+              placeholder="Fund name, ISIN or provider code"
+            />
+            <button
+              type="button"
+              onClick={() => void search()}
+              disabled={searching || !query.trim()}
+              className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white disabled:opacity-50"
+            >
+              {searching ? "Searching…" : "Search"}
+            </button>
+          </div>
+          {message ? <p className="text-xs font-bold text-violet-800">{message}</p> : null}
+          {matches.map((candidate) => {
+            const active = selected?.rawSymbol === candidate.rawSymbol && selected?.assetName === candidate.assetName;
+            return (
+              <button
+                type="button"
+                key={`${candidate.rawSymbol}-${candidate.assetName}`}
+                onClick={() => setSelected(candidate)}
+                className={`w-full rounded-2xl border p-3 text-left ${active ? "border-emerald-400 bg-emerald-50" : "border-violet-100 bg-white hover:border-violet-300"}`}
+              >
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+                  <div>
+                    <p className="font-black text-slate-950">{candidate.assetName || candidate.rawSymbol}</p>
+                    <p className="mt-1 text-xs font-bold text-slate-500">
+                      {candidate.isin || "No ISIN returned"} · {candidate.rawSymbol} · {candidate.exchange || "Provider"}
+                    </p>
+                  </div>
+                  <div className="text-left sm:text-right">
+                    <p className="font-black text-emerald-700">{formatMoney(Number(candidate.price || 0))}</p>
+                    <p className="text-[11px] font-bold text-slate-500">{Number(candidate.confidence || 0).toFixed(0)}% name match</p>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {selected ? (
+        <div className="mt-4 rounded-2xl border border-emerald-300 bg-white p-3">
+          <p className="text-xs font-black uppercase tracking-wider text-emerald-700">New source selected</p>
+          <p className="mt-1 font-black text-slate-950">{selected.assetName}</p>
+          <p className="text-xs font-bold text-slate-500">{selected.rawSymbol} · {selected.isin || "ISIN not supplied"}</p>
+          <input type="hidden" name="remap_confirmed" value="1" />
+          <input type="hidden" name="remap_asset_name" value={selected.assetName || holding.asset_name} />
+          <input type="hidden" name="remap_ticker" value={selected.rawSymbol} />
+          <input type="hidden" name="remap_exchange" value={selected.exchange || "Provider"} />
+          <input type="hidden" name="remap_asset_kind" value={selected.assetType || "fund"} />
+          <input type="hidden" name="remap_isin" value={selected.isin || holding.isin || ""} />
+          <input type="hidden" name="remap_latest_price" value={selected.price} />
+          <input type="hidden" name="remap_price_input_unit" value={selected.priceQuoteUnit || "gbp"} />
+          <input type="hidden" name="remap_currency" value={selected.currency || "GBP"} />
+          <input type="hidden" name="remap_annual_asset_fee_percent" value={selected.annualAssetFeePercent ?? ""} />
+          <input type="hidden" name="remap_source" value={selected.source || "verified search"} />
+          <input type="hidden" name="remap_source_url" value={selected.sourceUrl || ""} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function EditInvestmentHoldingForm({
   holding,
 }: {
@@ -5044,6 +5195,7 @@ function EditInvestmentHoldingForm({
         name="source_url"
         defaultValue={holding.source_url ?? ""}
       />
+      <HoldingPriceSourceRemapper holding={holding} />
       {sourceLooksWrong || knownTickerLooksWrong ? (
         <div className="md:col-span-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
           This holding looks like it may have inherited a provider/fund NAV
@@ -9300,8 +9452,8 @@ export function PensionsInvestmentsClient({
                           <HoldingCard
                             key={holding.id}
                             holding={holding}
-                            lots={investmentLots.filter(
-                              (lot) => lot.holding_id === holding.id,
+                            lots={evidencedInvestmentLots(
+                              investmentLots.filter((lot) => lot.holding_id === holding.id),
                             )}
                             snapshots={investmentSnapshots}
                             investmentViewMode={investmentViewMode}
@@ -9654,8 +9806,8 @@ export function PensionsInvestmentsClient({
         >
           <HoldingInfoPanel
             holding={modal.holding}
-            lots={investmentLots.filter(
-              (lot) => lot.holding_id === modal.holding.id,
+            lots={evidencedInvestmentLots(
+              investmentLots.filter((lot) => lot.holding_id === modal.holding.id),
             )}
           />
         </ModalShell>
