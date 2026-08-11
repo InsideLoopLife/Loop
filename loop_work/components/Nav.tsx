@@ -784,7 +784,7 @@ function NavInner() {
             <Brand />
           </div>
           <div className="col-span-2 row-start-2 min-w-0 2xl:col-span-1 2xl:col-start-2 2xl:row-start-1">
-            <nav className="mx-auto flex max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1" aria-label={`${domain} navigation`}>
+            <nav className="loop-top-nav mx-auto flex max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1" aria-label={`${domain} navigation`}>
               {currentLinks.map((link) => (
                 <NavItem key={link.href} link={link} active={isActiveLink(pathname, searchParams, link.href, currentLinks)} />
               ))}
