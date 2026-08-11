@@ -273,6 +273,14 @@ body[data-loop-nav="side"] main.max-w-5xl {
 
 body[data-loop-nav="side"] > header { display: none !important; }
 
+/* Keep the main top navigation flat. The separate Wealth/Health switch retains
+   its selected pill background so the current domain remains obvious. */
+.loop-top-nav > a,
+.loop-top-nav > a:hover,
+.loop-top-nav > a:focus-visible {
+  background: transparent !important;
+}
+
 /* Make existing screens visually consistent with the chosen premium concept. */
 main [class*="rounded-3xl"][class*="border"],
 main [class*="rounded-2xl"][class*="border"] {
