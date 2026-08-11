@@ -230,8 +230,24 @@ function aggregateSnapshots(snapshots: InvestmentSnapshot[], holdingIds: Set<str
   return Array.from(byKey.entries()).filter(([, entry]) => { if (expectedHoldings <= 1) return true; return entry.holdings.size >= minimumCoverage || (minimumValue > 0 && entry.value >= minimumValue); }).sort(([a], [b]) => a.localeCompare(b)).map(([date, entry]) => ({ date, value: entry.value }));
 }
 
+// BUGFIX (chart/headline day-move mismatch): this used to only look at
+// day_open_price_gbp / day_change_gbp / day_change_percent — a completely
+// different set of fields from previousCloseMovement() below, which the
+// headline "Day move" stat uses and checks previous_close_price_gbp
+// first. Recently-fixed holdings (e.g. the Moneybox market-data worker
+// fix) can have previous_close_price_gbp populated correctly while the
+// day_open_*/day_change_* fields are still empty — the headline number
+// was right, but the chart fell through every check to 0 and rendered
+// flat. Checking the same field first, with the same sanity-bound guard
+// previousCloseMovement() already trusts, fixes that without needing any
+// backend/worker change.
 function openingValueForOneDay(holding: InvestmentHolding) {
   const units = Number(holding.units || 0); const current = holdingValue(holding); if (current <= 0) return 0;
+  const previousGbpPerUnit = Number(holding.previous_close_price_gbp || 0);
+  if (units > 0 && previousGbpPerUnit > 0) {
+    const previousValue = previousGbpPerUnit * units;
+    if (previousValue / current > 0.2 && previousValue / current < 5) return previousValue;
+  }
   const openPrice = Number(holding.day_open_price_gbp || 0); if (units > 0 && openPrice > 0) return openPrice * units;
   let changePerUnit = Number(holding.day_change_gbp);
   if (!Number.isFinite(changePerUnit) || holding.day_change_gbp === null) {
