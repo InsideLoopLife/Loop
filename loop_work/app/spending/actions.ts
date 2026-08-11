@@ -63,8 +63,14 @@ export async function setEmergencyFundEssential(formData: FormData) {
   if (!id || !["group", "category"].includes(entityType)) throw new Error("Invalid emergency-fund selection.");
 
   const table = entityType === "group" ? "spending_category_groups" : "spending_categories";
+  // spending_category_groups has updated_at, while the legacy spending_categories
+  // table does not. Writing the absent column made a category "!" submission throw
+  // from the server action and replace the whole page with the error boundary.
+  const update = entityType === "group"
+    ? { emergency_fund_essential: enabled, updated_at: new Date().toISOString() }
+    : { emergency_fund_essential: enabled };
   const { error } = await applyMutableRecordFilter(
-    supabase.from(table).update({ emergency_fund_essential: enabled, updated_at: new Date().toISOString() } as any),
+    supabase.from(table).update(update as any),
     id,
     householdContext,
   );

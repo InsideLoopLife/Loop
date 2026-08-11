@@ -22,11 +22,14 @@ import {
   yahooIntervalForChart,
   yahooRangeForChart,
 } from "@/lib/investments/history-range";
+import { snapshotMatchesCurrentIdentity } from "@/lib/investments/history-identity";
 
 export const runtime = "nodejs";
 
 type SnapshotRow = {
   holding_id: string;
+  listing_id?: string | null;
+  instrument_id?: string | null;
   snapshot_at: string | null;
   snapshot_date: string | null;
   price: number | null;
@@ -736,6 +739,7 @@ export async function GET(request: NextRequest) {
   if (portfolio && portfolioAccountIds.length) holdingsQuery = holdingsQuery.in("investment_account_id", portfolioAccountIds);
   const holdingsResult = await holdingsQuery;
   const currentHoldings = (holdingsResult.data || []) as HoldingRow[];
+  const currentHoldingsById = new Map(currentHoldings.map((holding) => [holding.id, holding]));
   const holdingsError = holdingsResult.error;
   if (holdingsError)
     return NextResponse.json({ error: holdingsError.message }, { status: 500 });
@@ -765,7 +769,7 @@ export async function GET(request: NextRequest) {
     let query: any = supabase
       .from("investment_price_snapshots")
       .select(
-        "holding_id, snapshot_at, snapshot_date, snapshot_batch_id, price, units, value, native_price, native_value, native_currency, fx_rate_to_gbp, source, investment_holdings!inner(investment_account_id, asset_name)",
+        "holding_id, listing_id, instrument_id, snapshot_at, snapshot_date, snapshot_batch_id, price, units, value, native_price, native_value, native_currency, fx_rate_to_gbp, source, investment_holdings!inner(investment_account_id, asset_name)",
       )
       .eq("user_id", dataOwnerUserId)
       .gte("snapshot_at", since)
@@ -784,7 +788,7 @@ export async function GET(request: NextRequest) {
         { status: 500 },
       );
     const rows = (snapshotPage.data || []) as SnapshotRow[];
-    data.push(...rows);
+    data.push(...rows.filter((row) => snapshotMatchesCurrentIdentity(row, currentHoldingsById)));
     if (rows.length < pageSize) break;
   }
 
@@ -840,7 +844,7 @@ export async function GET(request: NextRequest) {
       const baselineResult = await supabase
         .from("investment_price_snapshots")
         .select(
-          "holding_id, snapshot_at, snapshot_date, snapshot_batch_id, price, units, value, native_price, native_value, native_currency, fx_rate_to_gbp, source",
+          "holding_id, listing_id, instrument_id, snapshot_at, snapshot_date, snapshot_batch_id, price, units, value, native_price, native_value, native_currency, fx_rate_to_gbp, source",
         )
         .eq("user_id", dataOwnerUserId)
         .in("holding_id", holdingIds)
@@ -853,7 +857,7 @@ export async function GET(request: NextRequest) {
           { status: 500 },
         );
       const newestByHolding = new Map<string, SnapshotRow>();
-      for (const row of (baselineResult.data || []) as SnapshotRow[]) {
+      for (const row of ((baselineResult.data || []) as SnapshotRow[]).filter((item) => snapshotMatchesCurrentIdentity(item, currentHoldingsById))) {
         if (!newestByHolding.has(row.holding_id))
           newestByHolding.set(row.holding_id, row);
       }

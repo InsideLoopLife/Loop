@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { SectionCard } from "@/components/SectionCard";
+import { ModalFrame } from "@/components/ui/ModalFrame";
 import { PayEventWizard } from "@/components/household/PayEventWizard";
 import { formatMoney } from "@/lib/format/money";
 import {
@@ -319,33 +320,9 @@ function Modal({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 backdrop-blur-sm sm:items-center sm:p-6">
-      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-t-[2rem] border border-white/70 bg-white/95 p-6 shadow-2xl backdrop-blur-xl sm:rounded-[2rem]">
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-600">
-              Income
-            </p>
-            <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950">
-              {title}
-            </h2>
-            {description ? (
-              <p className="mt-1 text-sm font-semibold text-slate-500">
-                {description}
-              </p>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200"
-          >
-            Close
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <ModalFrame title={title} description={description} eyebrow="Income" onClose={onClose} maxWidth="max-w-4xl">
+      {children}
+    </ModalFrame>
   );
 }
 

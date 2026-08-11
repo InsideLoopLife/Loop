@@ -306,6 +306,7 @@ async function ensureCatalogueForGroup(
 
   let instrumentId = args.sample.instrument_id || null;
   let listingId = args.sample.listing_id || null;
+  const previousListingId = listingId;
 
   // Reuse a resolved listing only when it still points at the symbol we are
   // about to price. This is especially important when a reviewed fund mapping
@@ -433,6 +434,35 @@ async function ensureCatalogueForGroup(
         updated_at: args.nowIso,
       } as any)
       .in("id", [args.sample.id]);
+
+    // A reviewed symbol/ISIN correction creates a new listing identity. Reset
+    // that listing in the history backfill state so the historical worker
+    // fetches the corrected series instead of leaving the chart with only the
+    // first post-remap quote. Existing history remains attached to its original
+    // listing and the API will no longer splice it into this holding.
+    if (listingId && previousListingId && previousListingId !== listingId) {
+      const historyReset = await supabase
+        .from("investment_history_backfill_state")
+        .upsert({
+          instrument_key: `listing:${listingId}`,
+          listing_id: listingId,
+          instrument_id: instrumentId,
+          ticker,
+          exchange_code: venueCode || exchange || "",
+          status: "pending",
+          provider_symbol: verifiedIdentity?.yahooSymbol || ticker,
+          points_written: 0,
+          oldest_point_at: null,
+          newest_point_at: null,
+          last_attempt_at: null,
+          completed_at: null,
+          last_error: null,
+          updated_at: args.nowIso,
+        } as any, { onConflict: "instrument_key" });
+      if (historyReset.error) {
+        console.warn(`[investment-history-remap] could not queue ${listingId}: ${historyReset.error.message}`);
+      }
+    }
   }
 
   return { instrumentId, listingId, ticker, exchange, venueCode };

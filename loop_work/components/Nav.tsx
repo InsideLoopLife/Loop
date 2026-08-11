@@ -80,13 +80,33 @@ function isActivePath(pathname: string, href: string) {
   return pathname === base || pathname.startsWith(`${base}/`);
 }
 
+const wealthRouteFamilies: Record<string, string[]> = {
+  "/dashboard": ["/dashboard", "/net-worth"],
+  "/financial-flow": [
+    "/financial-flow",
+    "/spending",
+    "/income",
+    "/accounts",
+    "/savings",
+    "/pots",
+  ],
+  "/investments": ["/investments", "/pensions"],
+  "/mortgage": ["/mortgage", "/house", "/affordability", "/affordability-lab"],
+};
+
+function matchesRouteFamily(pathname: string, href: string) {
+  const base = pathOnly(href);
+  const family = wealthRouteFamilies[base] || [base];
+  return family.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+}
+
 function isActiveLink(
   pathname: string,
   searchParams: URLSearchParams | Readonly<URLSearchParams>,
   href: string,
   siblings: NavLink[],
 ) {
-  if (!isActivePath(pathname, href)) return false;
+  if (!matchesRouteFamily(pathname, href)) return false;
   const [base, query = ""] = href.split("?");
   const expected = new URLSearchParams(query);
   if (expected.size > 0) {
@@ -759,18 +779,18 @@ function NavInner() {
     <>
       {overlays}
       <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/88 backdrop-blur-2xl">
-        <div className="mx-auto grid w-[95vw] max-w-none grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 py-3 lg:grid-cols-[1fr_auto_1fr]">
+        <div className="mx-auto grid w-[min(96vw,1800px)] grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 px-2 py-3 2xl:grid-cols-[auto_minmax(0,1fr)_auto] 2xl:px-4">
           <div className="flex items-center">
             <Brand />
           </div>
-          <div className="col-span-2 row-start-2 min-w-0 overflow-x-auto lg:col-span-1 lg:col-start-2 lg:row-start-1">
-            <nav className="mx-auto flex w-max items-center justify-center gap-2" aria-label={`${domain} navigation`}>
+          <div className="col-span-2 row-start-2 min-w-0 2xl:col-span-1 2xl:col-start-2 2xl:row-start-1">
+            <nav className="mx-auto flex max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1" aria-label={`${domain} navigation`}>
               {currentLinks.map((link) => (
                 <NavItem key={link.href} link={link} active={isActiveLink(pathname, searchParams, link.href, currentLinks)} />
               ))}
             </nav>
           </div>
-          <div className="col-start-2 row-start-1 flex shrink-0 items-center justify-end gap-2 lg:col-start-3">
+          <div className="col-start-2 row-start-1 flex shrink-0 items-center justify-end gap-2 2xl:col-start-3">
               <div className="flex shrink-0 items-center overflow-hidden rounded-full border border-slate-200 bg-white p-1 text-xs font-black shadow-sm">
                 <Link
                   href={wealthHome}

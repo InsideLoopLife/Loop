@@ -7,6 +7,7 @@ import { ChildCostWizard } from "@/components/household/ChildCostWizard";
 import { CareType, calculateNewCareTypeMonthlyCost } from "@/lib/calculations/childcareRegistry";
 import { SectionCard } from "@/components/SectionCard";
 import { StatCard } from "@/components/StatCard";
+import { ModalFrame } from "@/components/ui/ModalFrame";
 import { formatMoney, type MoneyDisplayPrecision } from "@/lib/format/money";
 import { estimateAnnualTakeHome, PensionMethod, StudentLoanPlan } from "@/lib/calculations/tax";
 import { MaternityPayMode, calculateNhsMaternityMonthlyAmount } from "@/lib/calculations/maternity";
@@ -776,18 +777,9 @@ function getChildCostMonthlyAmount(cost: ChildCost, month: string) {
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 backdrop-blur-sm sm:items-center sm:p-4">
-      <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-3xl border border-slate-200 bg-white p-5 shadow-2xl sm:max-w-3xl sm:rounded-3xl sm:p-6">
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Planner modal</p>
-            <h2 className="mt-1 text-2xl font-bold text-slate-950">{title}</h2>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200">Close</button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <ModalFrame title={title} eyebrow="Financial Flow" onClose={onClose} maxWidth="max-w-3xl">
+      {children}
+    </ModalFrame>
   );
 }
 

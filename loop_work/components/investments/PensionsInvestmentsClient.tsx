@@ -32,6 +32,7 @@ import { AddPensionFundWizard } from "@/components/investments/AddPensionFundWiz
 import { AddInvestmentAccountWizard } from "@/components/investments/AddInvestmentAccountWizard";
 import { AddInvestmentHoldingWizard } from "@/components/investments/AddInvestmentHoldingWizard";
 import { CollapsibleSection } from "@/components/ui/CollapsibleSection";
+import { ModalFrame } from "@/components/ui/ModalFrame";
 import { SubmitButton } from "@/components/SubmitButton";
 import { formatMoney } from "@/lib/format/money";
 import { classifyIsaWrapper, isaAllowanceLimitForPerson, isaAllowanceRule } from "@/lib/wealth/isa-allowance";
@@ -791,29 +792,9 @@ function ModalShell({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-sm sm:items-center sm:p-6">
-      <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-t-[2rem] border border-white/70 bg-white p-6 shadow-2xl sm:rounded-[2rem]">
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-black tracking-tight text-slate-950">
-              {title}
-            </h2>
-            {description ? (
-              <p className="mt-1 text-sm font-semibold text-slate-500">
-                {description}
-              </p>
-            ) : null}
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-200"
-          >
-            Close
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <ModalFrame title={title} description={description} eyebrow="Pensions & investments" onClose={onClose}>
+      {children}
+    </ModalFrame>
   );
 }
 function AllocationBar({ funds }: { funds: PensionFund[] }) {
