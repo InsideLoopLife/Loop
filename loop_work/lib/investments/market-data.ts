@@ -665,7 +665,16 @@ export async function openAiInvestmentSearch(supabase: any, userId: string, quer
   // this function now trusts that single gate instead of a second,
   // contradictory one.
   const empty: InvestmentAiSearchResult = { matches: [], status: "unknown", explanation: null };
-  const guard = isAiFeatureEnabled({ scope: "investment_market_search", worker: false });
+  // BUGFIX: this was hardcoded to worker:false, which checks
+  // LOOP_ENABLE_AI_MARKET_SEARCH regardless of caller. That's correct for
+  // searchInvestments() (the user-initiated coverage-request flow) but
+  // wrong for price-snapshot-runner.ts's worker call, which already passed
+  // its own worker:true check before getting here — only for that check to
+  // be silently re-done wrong immediately afterward, always failing since
+  // MARKET_DATA_WORKER_AI_COVERAGE_ENABLED and LOOP_ENABLE_AI_MARKET_SEARCH
+  // are two different flags. Auto-detecting the actual process context
+  // instead of hardcoding it means both call sites check the right flag.
+  const guard = isAiFeatureEnabled({ scope: "investment_market_search", worker: marketWorkerProcess() });
   if (!guard.allowed) {
     console.log(`[investment-ai] OpenAI market search skipped: ${guard.reason}`);
     return empty;

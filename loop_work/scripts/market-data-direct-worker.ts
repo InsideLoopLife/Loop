@@ -6,15 +6,33 @@ const requireFromWorker = createRequire(import.meta.url);
 
 process.env.LOOP_MARKET_DATA_WORKER = process.env.LOOP_MARKET_DATA_WORKER || "true";
 
-// v28.36 safety: this Render worker must never spend on OpenAI/web-search.
-// It prices known/resolved instruments only. Unknowns are queued for admin coverage review.
-process.env.LOOP_AI_DISABLED = process.env.LOOP_AI_DISABLED || "true";
+// v28.36 safety, revised: this used to force AI fully off (LOOP_AI_DISABLED
+// = "true") and delete any OpenAI key from the process environment,
+// unconditionally, regardless of any other setting — a blunt fix after the
+// old web-search-tool-based lookup ran up real cost. That tool call is gone
+// now (see openAiInvestmentSearch in lib/investments/market-data.ts), and
+// MARKET_DATA_WORKER_AI_COVERAGE_ENABLED plus the one-shot-then-
+// permanently-inactive logic in lib/investments/price-snapshot-runner.ts
+// properly gate cost and frequency instead. The safety net below now only
+// activates when coverage help has NOT been deliberately turned on — a
+// fresh/unconfigured worker still boots with AI fully off by default, but
+// setting MARKET_DATA_WORKER_AI_COVERAGE_ENABLED=true is respected instead
+// of silently overridden.
+const workerAiCoverageEnabled = ["1", "true", "yes", "on"].includes(
+  String(process.env.MARKET_DATA_WORKER_AI_COVERAGE_ENABLED || "").trim().toLowerCase(),
+);
+if (!workerAiCoverageEnabled) {
+  process.env.LOOP_AI_DISABLED = process.env.LOOP_AI_DISABLED || "true";
+}
 process.env.MARKET_DATA_WORKER_AI_COVERAGE_ENABLED = process.env.MARKET_DATA_WORKER_AI_COVERAGE_ENABLED || "false";
 process.env.LOOP_ENABLE_AI_MARKET_SEARCH = process.env.LOOP_ENABLE_AI_MARKET_SEARCH || "false";
 process.env.LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP = process.env.LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP || "false";
 process.env.LOOP_ENABLE_AI_HOLDING_IMAGE_IMPORT = process.env.LOOP_ENABLE_AI_HOLDING_IMAGE_IMPORT || "false";
 
 function scrubWorkerAiSecrets() {
+  // Only scrub when coverage help is actually off — when it's on, the
+  // worker needs a real key to use, same as any other caller.
+  if (workerAiCoverageEnabled) return [] as string[];
   const aiKeys = [
     "OPENAI_API_KEY",
     "OPENAI_PREMIUM_API_KEY",
