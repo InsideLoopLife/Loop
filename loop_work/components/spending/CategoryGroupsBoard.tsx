@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   addCategoryGroup,
@@ -13,6 +13,7 @@ import {
   setEmergencyFundEssential,
 } from "@/app/spending/actions";
 import { formatMoney } from "@/lib/format/money";
+import { invalidateLoopAreas } from "@/lib/cache/invalidation";
 
 export type BoardPerson = { id: string; name: string; relationship: string; user_id?: string | null; linked_user_id?: string | null; account_status?: string | null };
 export type BoardGroup = { id: string; name: string; icon?: string | null; emergency_fund_essential?: boolean | null };
@@ -72,14 +73,24 @@ export function CategoryGroupsBoard({ people, groups, categories, items, childCo
   const [showSavingsInPool, setShowSavingsInPool] = useState(false);
   const [hideGroupedFromPool, setHideGroupedFromPool] = useState(true);
   const [poolSearch, setPoolSearch] = useState("");
+  const [boardGroups, setBoardGroups] = useState(groups);
+  const [boardCategories, setBoardCategories] = useState(categories);
+  const [boardItems, setBoardItems] = useState(items);
+  const [boardChildCosts, setBoardChildCosts] = useState(childCosts);
+  const [saveError, setSaveError] = useState("");
+
+  useEffect(() => setBoardGroups(groups), [groups]);
+  useEffect(() => setBoardCategories(categories), [categories]);
+  useEffect(() => setBoardItems(items), [items]);
+  useEffect(() => setBoardChildCosts(childCosts), [childCosts]);
 
   const groupColourById = useMemo(() => {
     const map = new Map<string, (typeof GROUP_COLOURS)[number]>();
-    groups.forEach((group, index) => map.set(group.id, GROUP_COLOURS[index % GROUP_COLOURS.length]));
+    boardGroups.forEach((group, index) => map.set(group.id, GROUP_COLOURS[index % GROUP_COLOURS.length]));
     return map;
-  }, [groups]);
+  }, [boardGroups]);
 
-  const categoryById = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
+  const categoryById = useMemo(() => new Map(boardCategories.map((category) => [category.id, category])), [boardCategories]);
 
   // Derived, not stored: a bill's group comes from its single category, which itself belongs to
   // at most one group — so every bill is unambiguously in zero or one group, by construction.
@@ -96,7 +107,7 @@ export function CategoryGroupsBoard({ people, groups, categories, items, childCo
   }
 
   const allPoolItems: PoolItem[] = useMemo(() => {
-    const plannedPool: PoolItem[] = items.map((item) => ({
+    const plannedPool: PoolItem[] = boardItems.map((item) => ({
       dragId: `planned:${item.id}`,
       id: item.id,
       kind: "planned" as const,
@@ -107,7 +118,7 @@ export function CategoryGroupsBoard({ people, groups, categories, items, childCo
       sublabel: item.recurrence.replaceAll("_", " "),
       isSavingsOrInvestment: item.item_type === "saving_investment" || categoryById.get(item.category_id || "")?.type === "saving",
     }));
-    const childPool: PoolItem[] = childCosts.map((cost) => ({
+    const childPool: PoolItem[] = boardChildCosts.map((cost) => ({
       dragId: `child:${cost.id}`,
       id: cost.id,
       kind: "child" as const,
@@ -119,7 +130,7 @@ export function CategoryGroupsBoard({ people, groups, categories, items, childCo
       isSavingsOrInvestment: false,
     }));
     return [...plannedPool, ...childPool];
-  }, [items, childCosts, categoryById]);
+  }, [boardItems, boardChildCosts, categoryById]);
 
   const pool = useMemo(() => {
     const query = poolSearch.trim().toLowerCase();
@@ -143,32 +154,71 @@ export function CategoryGroupsBoard({ people, groups, categories, items, childCo
 
   const categoriesByGroup = useMemo(() => {
     const map = new Map<string, BoardCategory[]>();
-    for (const category of categories) {
+    for (const category of boardCategories) {
       const key = category.group_id || "__ungrouped";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(category);
     }
     return map;
-  }, [categories]);
+  }, [boardCategories]);
 
-  function moveBillToCategory(dragId: string, categoryId: string | null) {
+  async function moveBillToCategory(dragId: string, categoryId: string | null) {
+    setSaveError("");
+    const previousItems = boardItems;
+    const previousChildCosts = boardChildCosts;
+    const [kind, id] = dragId.split(":");
+    if (kind === "planned") setBoardItems((current) => current.map((item) => item.id === id ? { ...item, category_id: categoryId } : item));
+    if (kind === "child") setBoardChildCosts((current) => current.map((item) => item.id === id ? { ...item, category_id: categoryId } : item));
     const fd = new FormData();
     if (categoryId) fd.set("category_id", categoryId);
     fd.append("line_id", dragId);
-    startTransition(async () => {
+    try {
       await updateFinancialFlowLineCategories(fd);
-      router.refresh();
-    });
+      invalidateLoopAreas("spending", "emergency-fund");
+    } catch (error) {
+      setBoardItems(previousItems);
+      setBoardChildCosts(previousChildCosts);
+      setSaveError(error instanceof Error ? error.message : "The bill could not be moved. Your previous layout has been restored.");
+    }
   }
 
-  function moveCategoryToGroup(categoryId: string, groupId: string | null) {
+  async function moveCategoryToGroup(categoryId: string, groupId: string | null) {
+    setSaveError("");
+    const previous = boardCategories;
+    setBoardCategories((current) => current.map((category) => category.id === categoryId ? { ...category, group_id: groupId } : category));
     const fd = new FormData();
     fd.set("category_id", categoryId);
     if (groupId) fd.set("group_id", groupId);
-    startTransition(async () => {
+    try {
       await assignCategoryGroup(fd);
-      router.refresh();
-    });
+      invalidateLoopAreas("spending", "emergency-fund");
+    } catch (error) {
+      setBoardCategories(previous);
+      setSaveError(error instanceof Error ? error.message : "The category could not be moved. Its previous group has been restored.");
+    }
+  }
+
+  async function toggleEmergencyEssential(entityType: "group" | "category", id: string, enabled: boolean) {
+    setSaveError("");
+    const previousGroups = boardGroups;
+    const previousCategories = boardCategories;
+    if (entityType === "group") {
+      setBoardGroups((current) => current.map((group) => group.id === id ? { ...group, emergency_fund_essential: enabled } : group));
+    } else {
+      setBoardCategories((current) => current.map((category) => category.id === id ? { ...category, emergency_fund_essential: enabled } : category));
+    }
+    const fd = new FormData();
+    fd.set("id", id);
+    fd.set("entity_type", entityType);
+    fd.set("enabled", enabled ? "true" : "false");
+    try {
+      await setEmergencyFundEssential(fd);
+      invalidateLoopAreas("emergency-fund", "spending");
+    } catch (error) {
+      setBoardGroups(previousGroups);
+      setBoardCategories(previousCategories);
+      setSaveError(error instanceof Error ? error.message : "The emergency-fund choice could not be saved. It has been restored.");
+    }
   }
 
   function handleCreateGroup() {
@@ -351,12 +401,7 @@ export function CategoryGroupsBoard({ people, groups, categories, items, childCo
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {groupColour ? <span className={`h-3 w-3 rounded-full ${groupColour.dot}`} title="This category's group" /> : null}
-            <form action={setEmergencyFundEssential} title={category.emergency_fund_essential ? "Included in the emergency-fund target" : "Include this category in the emergency-fund target"}>
-              <input type="hidden" name="id" value={category.id} />
-              <input type="hidden" name="entity_type" value="category" />
-              <input type="hidden" name="enabled" value={category.emergency_fund_essential ? "false" : "true"} />
-              <button aria-label={`${category.emergency_fund_essential ? "Remove" : "Add"} ${category.name} ${category.emergency_fund_essential ? "from" : "to"} emergency-fund costs`} className={`grid h-7 w-7 place-items-center rounded-full text-sm font-black transition ${category.emergency_fund_essential ? "bg-rose-600 text-white shadow-sm shadow-rose-200" : "bg-slate-100 text-slate-300 hover:bg-rose-50 hover:text-rose-500"}`}>!</button>
-            </form>
+            <button type="button" onClick={() => void toggleEmergencyEssential("category", category.id, !category.emergency_fund_essential)} title={category.emergency_fund_essential ? "Included in the emergency-fund target" : "Include this category in the emergency-fund target"} aria-pressed={Boolean(category.emergency_fund_essential)} aria-label={`${category.emergency_fund_essential ? "Remove" : "Add"} ${category.name} ${category.emergency_fund_essential ? "from" : "to"} emergency-fund costs`} className={`grid h-7 w-7 place-items-center rounded-full text-sm font-black transition ${category.emergency_fund_essential ? "bg-rose-600 text-white shadow-sm shadow-rose-200" : "bg-slate-100 text-slate-300 hover:bg-rose-50 hover:text-rose-500"}`}>!</button>
             <button type="button" onClick={() => handleDeleteCategory(category.id)} className="text-[11px] font-semibold text-red-500 hover:text-red-700">Delete</button>
           </div>
         </div>
@@ -404,12 +449,7 @@ export function CategoryGroupsBoard({ people, groups, categories, items, childCo
             </div>
           </div>
           {group ? <div className="flex shrink-0 items-center gap-2">
-            <form action={setEmergencyFundEssential} title={group.emergency_fund_essential ? "This whole group is included in the emergency-fund target" : "Include this whole group in the emergency-fund target"}>
-              <input type="hidden" name="id" value={group.id} />
-              <input type="hidden" name="entity_type" value="group" />
-              <input type="hidden" name="enabled" value={group.emergency_fund_essential ? "false" : "true"} />
-              <button className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-black transition ${group.emergency_fund_essential ? "bg-rose-600 text-white shadow-sm shadow-rose-200" : "bg-slate-100 text-slate-400 hover:bg-rose-50 hover:text-rose-600"}`}><span className="text-sm">!</span>{group.emergency_fund_essential ? "Emergency essential" : "Not essential"}</button>
-            </form>
+            <button type="button" onClick={() => void toggleEmergencyEssential("group", group.id, !group.emergency_fund_essential)} title={group.emergency_fund_essential ? "This whole group is included in the emergency-fund target" : "Include this whole group in the emergency-fund target"} aria-pressed={Boolean(group.emergency_fund_essential)} className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-black transition ${group.emergency_fund_essential ? "bg-rose-600 text-white shadow-sm shadow-rose-200" : "bg-slate-100 text-slate-400 hover:bg-rose-50 hover:text-rose-600"}`}><span className="text-sm">!</span>{group.emergency_fund_essential ? "Emergency essential" : "Not essential"}</button>
             <button type="button" onClick={() => handleDeleteGroup(group.id)} className="rounded-full bg-red-50 px-3 py-1.5 text-[11px] font-semibold text-red-600 hover:bg-red-100">Delete group</button>
           </div> : null}
         </div>
@@ -440,16 +480,17 @@ export function CategoryGroupsBoard({ people, groups, categories, items, childCo
   }
 
   return (
-    <div className={`grid items-start gap-5 xl:grid-cols-[360px_1fr] ${isPending ? "opacity-70" : ""}`}>
+    <div className="grid items-start gap-5 xl:grid-cols-[360px_1fr]">
       {billPool}
       <div className="space-y-5">
+        {saveError ? <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{saveError}</div> : null}
         <div className="flex flex-wrap items-center gap-2 rounded-[2rem] border border-dashed border-slate-300 bg-white/70 p-4">
           <p className="text-sm font-semibold text-slate-700">New group, e.g. "Household bills"</p>
           <input value={newGroupName} onChange={(event) => setNewGroupName(event.target.value)} placeholder="Group name" className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-950" />
           <button type="button" onClick={handleCreateGroup} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-semibold text-white">+ Create group</button>
         </div>
 
-        {groups.map((group) => <GroupSection key={group.id} group={group} />)}
+        {boardGroups.map((group) => <GroupSection key={group.id} group={group} />)}
         <GroupSection group={null} />
       </div>
     </div>

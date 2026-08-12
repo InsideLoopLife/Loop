@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { PageTour } from "@/components/PageTour";
+import { RouteFreshnessManager } from "@/components/cache/RouteFreshnessManager";
 
 export const metadata: Metadata = {
   title: "LOOP — Health, Wealth & Life, Connected",
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}<PageTour /></body>
+      <body>{children}<PageTour /><RouteFreshnessManager /></body>
     </html>
   );
 }

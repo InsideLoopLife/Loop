@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_USER_FEATURE_ACCESS,
   type UserFeatureAccess,
@@ -166,17 +166,23 @@ function NavItem({
   active,
   side = false,
   onNavigate,
+  onIntent,
 }: {
   link: NavLink;
   active: boolean;
   side?: boolean;
   onNavigate?: () => void;
+  onIntent?: (href: string) => void;
 }) {
   const Icon = link.icon;
   return (
     <Link
       href={link.href}
+      prefetch={false}
       onClick={onNavigate}
+      onMouseEnter={() => onIntent?.(link.href)}
+      onFocus={() => onIntent?.(link.href)}
+      onTouchStart={() => onIntent?.(link.href)}
       className={
         side
           ? `group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-bold transition ${
@@ -495,6 +501,7 @@ function AccountModal({
 // page's own file changed individually.
 function NavInner() {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [unreadCount, setUnreadCount] = useState(0);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -506,6 +513,12 @@ function NavInner() {
   const [hasChosenLayout, setHasChosenLayout] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const prefetchedRoutes = useRef(new Set<string>());
+  const prefetchRoute = useCallback((href: string) => {
+    if (prefetchedRoutes.current.has(href)) return;
+    prefetchedRoutes.current.add(href);
+    router.prefetch(href);
+  }, [router]);
   // BUGFIX/FEATURE: a sidebar layout genuinely doesn't work on a phone
   // width, however it got chosen (saved preference from a wider screen,
   // an old default, etc.) — this forces "top" for rendering purposes
@@ -733,6 +746,7 @@ function NavInner() {
                 )}
                 side
                 onNavigate={() => setMobileOpen(false)}
+                onIntent={prefetchRoute}
               />
             ))}
           </nav>
@@ -784,9 +798,9 @@ function NavInner() {
             <Brand />
           </div>
           <div className="col-span-2 row-start-2 min-w-0 2xl:col-span-1 2xl:col-start-2 2xl:row-start-1">
-            <nav className="mx-auto flex max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1" aria-label={`${domain} navigation`}>
+            <nav className="loop-top-nav mx-auto flex max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1" aria-label={`${domain} navigation`}>
               {currentLinks.map((link) => (
-                <NavItem key={link.href} link={link} active={isActiveLink(pathname, searchParams, link.href, currentLinks)} />
+                <NavItem key={link.href} link={link} active={isActiveLink(pathname, searchParams, link.href, currentLinks)} onIntent={prefetchRoute} />
               ))}
             </nav>
           </div>

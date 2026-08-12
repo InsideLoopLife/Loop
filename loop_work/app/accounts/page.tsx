@@ -8,7 +8,7 @@ import { SubmitButton } from "@/components/SubmitButton";
 import { BalanceHistoryChart } from "@/components/BalanceHistoryChart";
 import { SavingsMovementChart, type SavingsMovementPoint } from "@/components/savings/SavingsMovementChart";
 import { createClient } from "@/lib/supabase/server";
-import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
+import { getCachedSavingsRateDeals } from "@/lib/wealth/cached-savings-rate-deals";
 import {
   dedupeHouseholdPeople,
   getActiveHouseholdContext,
@@ -238,6 +238,12 @@ type PlannedItem = {
     emergency_fund_essential?: boolean | null;
     spending_category_groups?: { emergency_fund_essential?: boolean | null } | Array<{ emergency_fund_essential?: boolean | null }> | null;
   } | null;
+};
+
+type ChildEssentialCost = {
+  label?: string | null;
+  monthly_cost?: number | null;
+  spending_categories?: PlannedItem["spending_categories"];
 };
 
 type PayEvent = {
@@ -627,7 +633,6 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   // The rates catalogue (savings_rate_deals below) now lives in its own,
   // separate Supabase project — moved off the main database due to usage
   // overage. Everything else on this page still uses the regular client.
-  const ratesSupabase = createWorkerDatabaseClient("rates");
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -654,6 +659,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     { data: householdMeta },
     { data: movements },
     { data: plannedItems },
+    { data: childEssentialCosts },
     { data: payEventsInitial },
     { data: pensionAccounts },
     { data: pensionFunds },
@@ -673,15 +679,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       .eq("is_liability", false)
       .order("created_at", { ascending: false })
       .returns<FinancialAccount[]>(),
-    ratesSupabase
-      .from("savings_rate_deals")
-      .select(
-        "id, provider_slug, provider_name, product_name, account_type, gross_aer, bonus_rate, minimum_balance, maximum_balance, monthly_min_deposit, monthly_max_deposit, access_type, withdrawal_rules, notice_period_days, term_length_months, rate_type, requires_existing_customer, eligible_provider_slug, eligibility_note, source_url, status, last_checked_at",
-      )
-      .eq("status", "active")
-      .order("gross_aer", { ascending: false })
-      .limit(100)
-      .returns<SavingsDeal[]>(),
+    getCachedSavingsRateDeals().then((data) => ({ data: data as SavingsDeal[] })),
     supabase
       .from("user_financial_provider_relationships")
       .select("provider_slug, provider_name, relationship_type")
@@ -725,9 +723,14 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       .returns<SavingsMovement[]>(),
     supabase
       .from("planned_items")
-      .select("label, direction, amount, monthly_cost, recurrence, start_date, end_date, end_behavior, spending_categories(standard_category_key, emergency_fund_essential, spending_category_groups(emergency_fund_essential))")
+      .select("label, direction, amount, recurrence, start_date, end_date, end_behavior, spending_categories(standard_category_key, emergency_fund_essential, spending_category_groups(emergency_fund_essential))")
       .or(householdMemberFilter)
       .returns<PlannedItem[]>(),
+    supabase
+      .from("child_costs")
+      .select("label, monthly_cost, spending_categories(standard_category_key, emergency_fund_essential, spending_category_groups(emergency_fund_essential))")
+      .or(householdMemberFilter)
+      .returns<ChildEssentialCost[]>(),
     supabase
       .from("pay_events")
       .select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, employer_pension_percent, employer_pension_monthly_amount, employer_ni_topup_enabled, employer_ni_rate_percent, employer_ni_topup_share_percent, effective_from, effective_until")
@@ -743,20 +746,20 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       .select("id, pension_account_id, fund_name, current_value, units, unit_price")
       .in("user_id", memberUserIds)
       .returns<PensionFund[]>(),
-    supabase
+    activeTab === "projection" ? supabase
       .from("pension_fund_value_snapshots")
       .select("pension_account_id, snapshot_date, value, monthly_contribution_applied, unit_price")
       .in("user_id", memberUserIds)
       .gte("snapshot_date", pensionHistoryStartDate)
       .order("snapshot_date", { ascending: true })
-      .returns<PensionSnapshot[]>(),
-    supabase
+      .returns<PensionSnapshot[]>() : Promise.resolve({ data: [] as PensionSnapshot[] }),
+    activeTab === "projection" ? supabase
       .from("pension_contribution_events")
       .select("pension_account_id, contribution_date, contribution_due_date, investment_date, contribution_amount, employee_amount, employer_amount, employer_ni_topup_amount, fixed_amount, event_status")
       .in("user_id", memberUserIds)
       .gte("contribution_date", pensionHistoryStartDate)
       .order("contribution_date", { ascending: true })
-      .returns<PensionContributionEvent[]>(),
+      .returns<PensionContributionEvent[]>() : Promise.resolve({ data: [] as PensionContributionEvent[] }),
     supabase
       .from("savings_pots")
       .select("id,user_id,household_id,person_id,name,target_amount,target_date,monthly_target,current_allocated_amount,priority,priority_is_important,priority_score,goal_type,colour,icon,status,visibility_scope,notes,reference_image_url")
@@ -890,11 +893,23 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     };
   });
   const subjectIsaPosition = isaPositions.find((position) => position.person.id === (defaultOwnerPerson?.id || adultPersonIds[0]));
+  const emergencyItems: PlannedItem[] = [
+    ...(plannedItems ?? []),
+    ...(childEssentialCosts ?? []).map((cost) => ({
+      label: cost.label,
+      direction: "outgoing",
+      amount: Number(cost.monthly_cost || 0),
+      recurrence: "monthly",
+      start_date: null,
+      end_date: null,
+      spending_categories: cost.spending_categories,
+    })),
+  ];
   const intelligence = buildSavingsIntelligence({
     accounts: accountRows,
     deals: savingsDeals ?? [],
     relationships: allHeldProviders,
-    plannedItems: (plannedItems ?? []).map((item) => {
+    plannedItems: emergencyItems.map((item) => {
       const groupRelation = item.spending_categories?.spending_category_groups;
       const groupEssential = Array.isArray(groupRelation) ? groupRelation.some((group) => group.emergency_fund_essential) : Boolean(groupRelation?.emergency_fund_essential);
       return {
@@ -924,7 +939,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   const currentMonthSummary = savingsMonthSummary(movements ?? [], currentMonthKey);
   const currentMonthInterest = estimateSavingsInterestForMonth(accountRows, movements ?? [], currentMonthKey);
   const savingsMovementSeries = buildSavingsMovementSeries(movements ?? [], 12);
-  const essentialItemCount = (plannedItems ?? []).filter((item) => {
+  const essentialItemCount = emergencyItems.filter((item) => {
     const groupRelation = item.spending_categories?.spending_category_groups;
     const groupEssential = Array.isArray(groupRelation) ? groupRelation.some((group) => group.emergency_fund_essential) : Boolean(groupRelation?.emergency_fund_essential);
     return item.direction !== "income" && Boolean(item.spending_categories?.emergency_fund_essential || groupEssential);

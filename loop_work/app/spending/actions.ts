@@ -51,6 +51,13 @@ function revalidateSpendingViews(personId?: string | null) {
   if (personId) revalidatePath(`/household/${personId}`);
 }
 
+function revalidateSpendingStructure() {
+  revalidatePath("/spending");
+  revalidatePath("/spending/categories");
+  revalidatePath("/financial-flow");
+  revalidatePath("/accounts");
+}
+
 export async function setEmergencyFundEssential(formData: FormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -76,8 +83,7 @@ export async function setEmergencyFundEssential(formData: FormData) {
   );
   if (error) throw new Error(error.message);
 
-  revalidateSpendingViews();
-  revalidatePath("/spending/categories");
+  revalidateSpendingStructure();
 }
 
 const COMMON_BRAND_DOMAINS: { match: RegExp; brandName: string; domain: string }[] = [
@@ -394,7 +400,7 @@ export async function updateFinancialFlowLineCategories(formData: FormData) {
     if (error) throw new Error(error.message);
   }
 
-  revalidateSpendingViews();
+  revalidateSpendingStructure();
 }
 
 export async function upsertStudentLoanAccount(formData: FormData) {
@@ -590,8 +596,7 @@ export async function assignCategoryGroup(formData: FormData) {
     .or(householdVisibleFilter);
   if (error) throw new Error(error.message);
 
-  revalidateSpendingViews();
-  revalidatePath("/spending/categories");
+  revalidateSpendingStructure();
 }
 
 export async function deleteSpendingEntry(formData: FormData) {
