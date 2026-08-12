@@ -4,6 +4,7 @@ import {
   fetchInvestmentQuote,
   isRoughMarketOpen,
   normaliseExchangeCode,
+  openAiInvestmentSearch,
   type InvestmentQuote,
 } from "@/lib/investments/market-data";
 import { currencyForExchange, quotePriceToGbp } from "@/lib/investments/fx";
@@ -13,6 +14,7 @@ import { quoteUnitForVenue, venueFor } from "@/lib/investments/market-venues";
 import { findMoneyboxAsset } from "@/lib/investments/moneybox-funds";
 import { quoteObservationTime } from "@/lib/investments/market-data-quality";
 import { verifiedFundIdentity, verifiedYahooFundSymbol } from "@/lib/investments/verified-fund-symbols";
+import { isAiFeatureEnabled } from "@/lib/ai/usage";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 
@@ -71,6 +73,36 @@ type RunnerResult = {
   failed: number;
   failures: Array<{ ticker: string; exchange: string | null; reason: string }>;
 };
+
+// Reuses the same in-app notification surface the money-deals-daily cron
+// already writes to (loop_money_notifications) — this is what actually
+// produces the "pop up" the person sees, rather than a new one-off
+// mechanism. One row per affected holding, so if the same ticker is held
+// in more than one account each shows up as its own notification.
+async function notifyHoldingDeactivated(
+  supabase: SupabaseAdmin,
+  holding: Pick<Holding, "id" | "user_id" | "asset_name" | "ticker">,
+  ticker: string,
+  exchange: string | null,
+  reason: string,
+) {
+  try {
+    await supabase.from("loop_money_notifications").insert({
+      user_id: holding.user_id,
+      notification_kind: "investment_holding_deactivated",
+      title: `${holding.asset_name || ticker} has been removed from tracking`,
+      body: reason,
+      action_url: "/investments",
+      payload: {
+        holding_id: holding.id,
+        ticker,
+        exchange,
+      },
+    });
+  } catch (caught) {
+    console.error(`[investment-price-job] failed to write deactivation notification for holding ${holding.id}`, caught);
+  }
+}
 
 type CatalogueLink = {
   instrumentId: string | null;
@@ -1074,8 +1106,133 @@ export async function runInvestmentPriceSnapshotJob(
             exchange,
             reason: quoteDiagnostics.join(" ").slice(0, 500) || "coverage_required_quote_not_found",
           });
+
+          // One-shot AI-assisted resolution. This only runs at all if AI
+          // coverage is actually turned on (MARKET_DATA_WORKER_AI_COVERAGE_ENABLED) —
+          // if it's off, nothing here changes and the existing
+          // admin-alert/coverage_required path below runs exactly as before.
+          // If it's on: try once. A confident match resolves the holding
+          // immediately; anything else marks every holding on this ticker
+          // permanently inactive (price_polling_enabled: false, which is
+          // the same flag that already keeps a holding out of every future
+          // run's working set) and notifies each affected person, rather
+          // than silently retrying forever or burning AI spend every cycle.
+          // Correcting the ticker by hand already resets
+          // instrument_resolution_status back to "pending" and re-enables
+          // polling (see the remap handling in lib/investments/actions.ts),
+          // so this is never a truly permanent dead end — just not
+          // automatic after the first attempt.
+          const aiGuard = isAiFeatureEnabled({ scope: "investment_market_search", worker: true });
+          if (aiGuard.allowed) {
+            let aiResolved = false;
+            try {
+              const aiResult = await openAiInvestmentSearch(
+                supabase,
+                first.user_id,
+                `${ticker} ${first.asset_name || ""}`.trim(),
+                exchange,
+              );
+              const bestAiMatch = aiResult.matches
+                .map((m) => ({ ...m, confidence: Number.isFinite(Number(m.confidence)) ? Number(m.confidence) : 0 }))
+                .sort((a, b) => b.confidence - a.confidence)
+                .find((m) => m.confidence >= 70 && Number(m.price) > 0);
+
+              if (bestAiMatch) {
+                const exchangeCode = normaliseExchangeCode(bestAiMatch.exchange || exchange) || String(exchange || "").toUpperCase();
+                const resolvedTicker = String(bestAiMatch.rawSymbol || ticker).toUpperCase();
+                const nativeCurrency = bestAiMatch.priceQuoteUnit === "gbx" ? "GBX" : String(bestAiMatch.currency || "GBP").toUpperCase();
+                const converted = await quotePriceToGbp(Number(bestAiMatch.price || 0), nativeCurrency).catch(() => ({ gbpPrice: 0, fxSource: "unavailable" }));
+                if (Number(converted.gbpPrice) > 0) {
+                  const { data: instrument } = await supabase
+                    .from("investment_instruments")
+                    .upsert(
+                      {
+                        ticker: resolvedTicker,
+                        exchange_code: exchangeCode,
+                        exchange_name: exchangeCode,
+                        isin: bestAiMatch.isin || null,
+                        asset_name: bestAiMatch.assetName || resolvedTicker,
+                        asset_kind: bestAiMatch.assetType || "share",
+                        currency_code: nativeCurrency === "GBX" ? "GBP" : nativeCurrency,
+                        quote_unit: bestAiMatch.priceQuoteUnit || "gbp",
+                        source_url: bestAiMatch.sourceUrl || null,
+                        coverage_status: "active",
+                        confidence: bestAiMatch.confidence,
+                        updated_at: startedAt,
+                      },
+                      { onConflict: "ticker,exchange_code" },
+                    )
+                    .select("id")
+                    .maybeSingle();
+                  if (instrument?.id) {
+                    await supabase
+                      .from("investment_holdings")
+                      .update({
+                        instrument_id: instrument.id,
+                        latest_price: Number(converted.gbpPrice),
+                        native_latest_price: Number(bestAiMatch.price),
+                        native_currency: nativeCurrency,
+                        last_price_check_at: startedAt,
+                        price_check_status: "ok",
+                        instrument_resolution_status: "resolved",
+                        instrument_resolution_notes: `Resolved via one-shot AI lookup (${bestAiMatch.confidence}% confidence): ${resolvedTicker} on ${exchangeCode}. Not a live web search — matched from the model's own knowledge, worth a quick sanity check.`,
+                        updated_at: startedAt,
+                      } as any)
+                      .in("id", dueHoldings.map((holding) => holding.id));
+                    aiResolved = true;
+                    logger.warn(
+                      `[investment-price-job] AI-resolved ${ticker} ${exchange || ""} -> ${resolvedTicker} ${exchangeCode} (${bestAiMatch.confidence}% confidence)`,
+                    );
+                  }
+                }
+              }
+
+              if (!aiResolved) {
+                const assetLabel = `"${ticker}"${first.asset_name ? ` (${first.asset_name})` : ""}`;
+                // Use what the model actually said, when it said something —
+                // "delisted"/"acquired"/"renamed" gets a real, specific reason
+                // in front of the person instead of a generic "couldn't find
+                // it" message every time.
+                const reasonLine =
+                  aiResult.status === "delisted"
+                    ? `it appears to have been delisted${aiResult.explanation ? `: ${aiResult.explanation}` : ""}`
+                    : aiResult.status === "acquired"
+                      ? `it appears to have been acquired${aiResult.explanation ? `: ${aiResult.explanation}` : ""}`
+                      : aiResult.status === "renamed"
+                        ? `it appears to have been renamed${aiResult.explanation ? `: ${aiResult.explanation}` : ""}`
+                        : aiResult.status === "not_found"
+                          ? `no listed company or fund was found under this ticker${aiResult.explanation ? `: ${aiResult.explanation}` : ""}`
+                          : `Loop couldn't confidently match it to a real instrument${aiResult.explanation ? `: ${aiResult.explanation}` : ""}`;
+                const failReason = `${assetLabel} has been removed from tracking — ${reasonLine}. This holding won't be checked automatically again; edit it with the correct ticker/exchange if this isn't right.`;
+                await supabase
+                  .from("investment_holdings")
+                  .update({
+                    last_price_check_at: startedAt,
+                    price_check_status: "inactive",
+                    price_polling_enabled: false,
+                    instrument_resolution_status: "ai_failed",
+                    instrument_resolution_notes: failReason,
+                    updated_at: startedAt,
+                  } as any)
+                  .in("id", dueHoldings.map((holding) => holding.id));
+                for (const affected of dueHoldings) {
+                  await notifyHoldingDeactivated(supabase, affected, ticker, exchange, failReason);
+                }
+                logger.warn(
+                  `[investment-price-job] AI lookup (status=${aiResult.status}) found nothing confident for ${ticker} ${exchange || ""}; marked inactive on ${dueHoldings.length} holding(s), will not retry automatically`,
+                );
+              }
+            } catch (caught) {
+              logger.error(`[investment-price-job] AI coverage lookup failed for ${ticker}`, caught);
+            }
+            // Either branch above already returns the holdings to a
+            // terminal state (resolved, or marked inactive) — skip the old
+            // admin-alert path entirely rather than overwriting either.
+            return;
+          }
+
           logger.warn(
-            `[investment-price-job] coverage required ${ticker} ${exchange || ""}; AI/web-search is disabled in worker. Polling will ${PAUSE_ON_COVERAGE_REQUIRED ? "pause" : "retry on the next cycle"} for affected holdings`,
+            `[investment-price-job] coverage required ${ticker} ${exchange || ""}; AI coverage help is off. Polling will ${PAUSE_ON_COVERAGE_REQUIRED ? "pause" : "retry on the next cycle"} for affected holdings`,
           );
           const requestId = await createCoverageRequiredAlert(supabase, {
             ticker,

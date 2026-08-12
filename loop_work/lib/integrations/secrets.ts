@@ -48,7 +48,15 @@ function providerAliases(provider: string) {
 function envFallbackForProvider(provider: string) {
   const key = provider.trim().toLowerCase();
   if (key === "openai" || key === "open_ai" || key === "open ai") {
-    if (isMarketWorkerProcess()) return null;
+    // Previously hard-blocked in the market worker as a blunt fix after the
+    // web_search_preview tool ran up real cost — that tool call is gone now
+    // (see lib/investments/market-data.ts), and MARKET_DATA_WORKER_AI_COVERAGE_ENABLED
+    // plus the one-shot-then-permanently-inactive logic in
+    // lib/investments/price-snapshot-runner.ts control cost/frequency
+    // properly instead. Set OPENAI_API_KEY (or OPENAI_TOKEN /
+    // LOOP_OPENAI_API_KEY) on the worker service for this to have a key to
+    // use — it doesn't require every individual user to have connected
+    // their own OpenAI integration.
     const value = process.env.OPENAI_API_KEY || process.env.OPENAI_TOKEN || process.env.LOOP_OPENAI_API_KEY;
     return value ? { provider: "openai", value } : null;
   }
@@ -61,9 +69,6 @@ export async function getActiveIntegrationSecret(
   providers: string | string[],
 ) {
   const providerList = Array.isArray(providers) ? providers : [providers];
-  if (isMarketWorkerProcess() && providerList.some((provider) => ["openai", "open_ai", "open ai"].includes(String(provider).trim().toLowerCase()))) {
-    return null;
-  }
   const aliases = Array.from(new Set(providerList.flatMap(providerAliases)));
 
   const workerCacheKey = isMarketWorkerProcess()

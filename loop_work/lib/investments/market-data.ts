@@ -648,28 +648,62 @@ async function yahooSearchCandidates(query: string, exchange?: string | null): P
   }
 }
 
-async function openAiInvestmentSearch(supabase: any, userId: string, query: string, exchange?: string | null): Promise<InvestmentQuote[]> {
-  if (marketWorkerProcess()) {
-    console.log(`[investment-ai] OpenAI market search blocked in market worker for ${query} ${exchange || ""}`);
-    return [];
-  }
-  const guard = isAiFeatureEnabled({ scope: "investment_market_search", requiresWebSearch: true, worker: false });
+export type InvestmentAiSearchResult = {
+  matches: InvestmentQuote[];
+  /** What the model itself believes about the ticker, from the same call
+   *  that searched for it — no second call needed to ask "is this gone?" */
+  status: "found" | "delisted" | "renamed" | "acquired" | "not_found" | "unknown";
+  explanation: string | null;
+};
+
+export async function openAiInvestmentSearch(supabase: any, userId: string, query: string, exchange?: string | null): Promise<InvestmentAiSearchResult> {
+  // NOTE: this used to hard-block whenever running inside the market worker
+  // process, regardless of MARKET_DATA_WORKER_AI_COVERAGE_ENABLED — meaning
+  // that env var had no effect and AI coverage help was silently unusable
+  // from the worker no matter how it was configured. isAiFeatureEnabled()
+  // below already checks that flag correctly when running in a worker, so
+  // this function now trusts that single gate instead of a second,
+  // contradictory one.
+  const empty: InvestmentAiSearchResult = { matches: [], status: "unknown", explanation: null };
+  const guard = isAiFeatureEnabled({ scope: "investment_market_search", worker: false });
   if (!guard.allowed) {
     console.log(`[investment-ai] OpenAI market search skipped: ${guard.reason}`);
-    return [];
+    return empty;
   }
 
   const secret = await getActiveIntegrationSecret(supabase, userId, "openai");
-  if (!secret?.value) return [];
+  if (!secret?.value) return empty;
   const model = process.env.LOOP_INVESTMENT_AI_MODEL || process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini";
   try {
+    // NOTE: deliberately no `tools: [{ type: "web_search_preview" }]` here.
+    // The web-search tool is billed per call on top of normal token cost and
+    // was the actual driver of spend, not the model itself — this now asks
+    // GPT to answer from its own training knowledge of listed instruments,
+    // which is enough for well-known tickers/companies and costs a plain
+    // completion instead of a browsing session.
+    //
+    // Also asks in the SAME call whether the ticker is likely delisted,
+    // renamed or acquired, rather than just returning nothing — one request
+    // either resolves the holding or explains why it can't, so a
+    // permanently-failing ticker (e.g. genuinely delisted) gets a real
+    // reason attached instead of a second lookup or an indefinite retry
+    // loop.
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret.value}` },
       body: JSON.stringify({
         model,
-        tools: [{ type: "web_search_preview" }],
-        input: `Find likely investment instruments or provider funds matching: "${query}". Exchange if known: "${exchange || "unknown"}". Search globally, not only UK/US. Return JSON array only. Each item: {"rawSymbol":"", "assetName":"", "exchange":"MIC/venue code such as LSE,NASDAQ,NYSE,AMEX,OTCM,PINX,XETR,XFRA,XPAR,XAMS,XMIL,XSWX,XTSE,XSTO,XCSE,XHEL,XOSL,XHKG,XTKS,XASX or Provider", "assetType":"share|etf|fund|crypto|other", "price":0, "price_quote_unit":"gbx|gbp|usd|eur|chf|cad|aud|jpy|hkd", "currency":"GBP|GBX|USD|EUR|CHF|CAD|AUD|JPY|HKD", "isin":null, "annualAssetFeePercent":0, "sourceUrl":null, "note":"", "confidence":0}. Known venue codes in LOOP include ${knownVenueCodes().join(", ")}. For LSE shares/ETFs use GBX/pence; for XETR/XFRA/XPAR/XAMS/XMIL use EUR; for OTCM/PINX/NASDAQ/NYSE use USD. Do not force European listings into LSE/GBX. For provider funds/OEICs such as Vanguard LifeStrategy or funds identified by an ISIN, do not return LSE unless genuinely exchange-traded; return exchange VANGUARD/Provider, price_quote_unit gbp for GBP NAV, and fee/OCF where found; price can be 0 if not reliably available.`,
+        input: `Find likely investment instruments or provider funds matching: "${query}". Exchange if known: "${exchange || "unknown"}". Draw on your knowledge of global listed markets, not only UK/US — do not guess or fabricate a ticker if you are not reasonably confident.
+
+If you cannot find a confident match, think about why: has this ticker been delisted, renamed, taken private, or acquired by another company? Say so if you believe that's the case, rather than just returning nothing.
+
+Return JSON only, as one object: {"items": [...], "status": "found|delisted|renamed|acquired|not_found|unknown", "explanation": null}.
+
+"items" is an array, each item: {"rawSymbol":"", "assetName":"", "exchange":"MIC/venue code such as LSE,NASDAQ,NYSE,AMEX,OTCM,PINX,XETR,XFRA,XPAR,XAMS,XMIL,XSWX,XTSE,XSTO,XCSE,XHEL,XOSL,XHKG,XTKS,XASX or Provider", "assetType":"share|etf|fund|crypto|other", "price":0, "price_quote_unit":"gbx|gbp|usd|eur|chf|cad|aud|jpy|hkd", "currency":"GBP|GBX|USD|EUR|CHF|CAD|AUD|JPY|HKD", "isin":null, "annualAssetFeePercent":0, "sourceUrl":null, "note":"", "confidence":0}.
+
+"status" is "found" if items contains a confident match, otherwise the most likely reason you couldn't find one. "explanation" is a short plain-English reason when status is not "found" — e.g. "Acquired by X in 2024 and delisted" or "No listed company found under this ticker" — or null when status is "found".
+
+Known venue codes in LOOP include ${knownVenueCodes().join(", ")}. For LSE shares/ETFs use GBX/pence; for XETR/XFRA/XPAR/XAMS/XMIL use EUR; for OTCM/PINX/NASDAQ/NYSE use USD. Do not force European listings into LSE/GBX. For provider funds/OEICs such as Vanguard LifeStrategy or funds identified by an ISIN, do not return LSE unless genuinely exchange-traded; return exchange VANGUARD/Provider, price_quote_unit gbp for GBP NAV, and fee/OCF where found; price can be 0 if not reliably known — leave it 0 rather than inventing a figure, since there is no live quote source in this call.`,
       }),
     });
     const payload = await response.json().catch(() => ({}));
@@ -678,14 +712,14 @@ async function openAiInvestmentSearch(supabase: any, userId: string, query: stri
       scope: "investment_market_search",
       component: "investment_quote_lookup",
       userId,
-      usedWebSearch: true,
+      usedWebSearch: false,
       metadata: { query, exchange, ok: response.ok, status: response.status },
     });
-    if (!response.ok) return [];
+    if (!response.ok) return empty;
     const text = String(payload.output_text || payload.output?.flatMap?.((item: { content?: { text?: string }[] }) => item.content?.map((c) => c.text) || []).join("\n") || "");
     const parsed = safeJsonFromText(text);
     const rows = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : [];
-    return rows.slice(0, 8).map((row: any) => {
+    const matches = rows.slice(0, 8).map((row: any) => {
       const unit = String(row.price_quote_unit || "").toLowerCase();
       const rawPrice = Number(row.price || 0);
       return {
@@ -697,7 +731,7 @@ async function openAiInvestmentSearch(supabase: any, userId: string, query: stri
         currency: String(row.currency || (unit === "gbx" ? "GBP" : "USD")),
         priceQuoteUnit: unit === "gbx" ? "gbx" : unit === "usd" ? "usd" : unit === "eur" ? "eur" : (String(row.currency || "").toUpperCase() === "USD" ? "usd" : "gbp"),
         sourceUrl: row.sourceUrl || null,
-        note: String(row.note || "AI-suggested match. Check the exact instrument/fund before saving."),
+        note: String(row.note || "AI-suggested match from the model's own knowledge, not a live search. Check the exact instrument/fund before saving."),
         assetType: ["share", "etf", "fund", "crypto", "other"].includes(String(row.assetType)) ? row.assetType : "other",
         isin: row.isin || null,
         annualAssetFeePercent: row.annualAssetFeePercent === null || row.annualAssetFeePercent === undefined ? null : Number(row.annualAssetFeePercent),
@@ -705,8 +739,12 @@ async function openAiInvestmentSearch(supabase: any, userId: string, query: stri
         logoDomain: row.logoDomain || row.logo_domain || null,
       } satisfies InvestmentQuote;
     });
+    const allowedStatuses = ["found", "delisted", "renamed", "acquired", "not_found", "unknown"];
+    const status = allowedStatuses.includes(String(parsed?.status)) ? parsed.status : matches.length ? "found" : "unknown";
+    const explanation = typeof parsed?.explanation === "string" && parsed.explanation.trim() ? parsed.explanation.trim() : null;
+    return { matches, status, explanation };
   } catch {
-    return [];
+    return empty;
   }
 }
 
@@ -812,10 +850,10 @@ export async function searchInvestments(supabase: any, userId: string, query: st
   const quote = await fetchInvestmentQuote(supabase, userId, query, exchange);
   const local = candidateInvestments(query);
   const yahooSearch = await yahooSearchCandidates(query, exchange);
-  const ai = envBool("LOOP_ENABLE_AI_MARKET_SEARCH", false) && envBool("LOOP_ENABLE_WEB_SEARCH_MARKET_LOOKUP", false)
+  const ai = envBool("LOOP_ENABLE_AI_MARKET_SEARCH", false)
     ? await openAiInvestmentSearch(supabase, userId, query, exchange)
-    : [];
-  const merged = [quote, ...local, ...yahooSearch, ...ai].filter(Boolean) as InvestmentQuote[];
+    : { matches: [], status: "unknown" as const, explanation: null };
+  const merged = [quote, ...local, ...yahooSearch, ...ai.matches].filter(Boolean) as InvestmentQuote[];
   const seen = new Set<string>();
   return merged.filter((item) => {
     const key = `${item.rawSymbol}|${item.assetName}|${item.exchange}`.toLowerCase();
