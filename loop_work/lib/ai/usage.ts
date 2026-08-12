@@ -52,19 +52,29 @@ export function isAiFeatureEnabled(args: { scope: string; requiresWebSearch?: bo
   const scope = String(args.scope || "").toLowerCase();
   const inWorker = args.worker ?? isLoopMarketWorkerProcess();
 
-  if (inWorker && !envBool("MARKET_DATA_WORKER_AI_COVERAGE_ENABLED", false)) {
-    return { allowed: false, reason: "MARKET_DATA_WORKER_AI_COVERAGE_ENABLED is not true" };
-  }
-
-  if (scope.includes("investment") || scope.includes("market")) {
-    if (!envBool("LOOP_ENABLE_AI_MARKET_SEARCH", false)) {
-      return { allowed: false, reason: "LOOP_ENABLE_AI_MARKET_SEARCH is not true" };
+  if (inWorker) {
+    // The worker has its own dedicated flag, checked above via
+    // MARKET_DATA_WORKER_AI_COVERAGE_ENABLED. Previously the
+    // scope-based check below ran unconditionally afterwards, so it
+    // silently required LOOP_ENABLE_AI_MARKET_SEARCH too (a different,
+    // non-worker flag) — meaning MARKET_DATA_WORKER_AI_COVERAGE_ENABLED
+    // alone was never actually sufficient to turn AI coverage help on in
+    // the worker, with no error or log line explaining why. The worker's
+    // own flag is the single source of truth for worker context now.
+    if (!envBool("MARKET_DATA_WORKER_AI_COVERAGE_ENABLED", false)) {
+      return { allowed: false, reason: "MARKET_DATA_WORKER_AI_COVERAGE_ENABLED is not true" };
     }
-  }
+  } else {
+    if (scope.includes("investment") || scope.includes("market")) {
+      if (!envBool("LOOP_ENABLE_AI_MARKET_SEARCH", false)) {
+        return { allowed: false, reason: "LOOP_ENABLE_AI_MARKET_SEARCH is not true" };
+      }
+    }
 
-  if (scope.includes("image") || scope.includes("holding_image")) {
-    if (!envBool("LOOP_ENABLE_AI_HOLDING_IMAGE_IMPORT", false)) {
-      return { allowed: false, reason: "LOOP_ENABLE_AI_HOLDING_IMAGE_IMPORT is not true" };
+    if (scope.includes("image") || scope.includes("holding_image")) {
+      if (!envBool("LOOP_ENABLE_AI_HOLDING_IMAGE_IMPORT", false)) {
+        return { allowed: false, reason: "LOOP_ENABLE_AI_HOLDING_IMAGE_IMPORT is not true" };
+      }
     }
   }
 
