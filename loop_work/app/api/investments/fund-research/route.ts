@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
+import { fetchLandgFundPrice, findLandgSourceUrl, isLegalGeneral } from "@/lib/investments/pension-provider-fetch";
 
 function safeJsonFromText(text: string) {
   try { return JSON.parse(text); } catch {}
@@ -12,54 +13,39 @@ function safeJsonFromText(text: string) {
   return null;
 }
 
-const L_AND_G_SOURCE_MAP = [
-  { match: ["lazard", "emerging"], url: "https://fundcentres.landg.com/en/uk/workplace-employer/fund-centre/Lazard-Emerging-Markets-Fund/", group: "Emerging markets" },
-  { match: ["islamic", "hsbc", "global equity"], url: "https://fundcentres.landg.com/en/uk/workplace-employer/fund-centre/HSBC-Islamic-Global-Equity-Index-Fund/?isin_code=GB00BJXRF945", group: "Global equity" },
-  { match: ["responsible", "ct", "bmo"], url: "https://fundcentres.landg.com/en/uk/workplace-employee/fund-centre/BMO-Responsible-Global-Equity-Fund/?isin_code=GB00BGYBV072", group: "Responsible global equity" },
-  { match: ["multi", "asset"], url: "https://fundcentres.landg.com/en/uk/workplace-employee/fund-centre/Multi-Asset-Fund/?isin_code=GB00B5W2CB33", group: "Multi-asset" },
-];
-
-function isLegalGeneral(provider: string) {
-  const p = provider.toLowerCase();
-  return p.includes("legal") || p.includes("l&g") || p.includes("lgim");
-}
-
-function extractPriceAndFeeFromText(html: string) {
-  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  const priceMatch = text.match(/Price\s*([0-9,]+(?:\.[0-9]+)?)\s*p/i) || text.match(/([0-9,]+(?:\.[0-9]+)?)\s*p\s*As at/i);
-  const feeMatch = text.match(/Investment management charge\s*([0-9]+(?:\.[0-9]+)?)\s*%/i) || text.match(/(?:OCF|AMC|ongoing charge|annual management charge)[^0-9%]{0,40}([0-9]+(?:\.[0-9]+)?)\s*%/i);
-  const rawPrice = priceMatch ? Number(priceMatch[1].replace(/,/g, "")) : null;
-  return { unit_price: rawPrice && Number.isFinite(rawPrice) ? rawPrice / 100 : null, suggested_fee_percent: feeMatch ? Number(feeMatch[1]) : null };
-}
-
-async function parseSource(url: string | null) {
-  if (!url) return { unit_price: null, suggested_fee_percent: null };
-  try {
-    const response = await fetch(url, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
-    const html = await response.text();
-    return extractPriceAndFeeFromText(html);
-  } catch {
-    return { unit_price: null, suggested_fee_percent: null };
-  }
-}
-
 async function fallbackResult(fundName: string, provider: string) {
-  const providerLower = provider.toLowerCase();
-  const isLg = isLegalGeneral(providerLower);
-  const fundLower = fundName.toLowerCase();
-  const matched = isLg ? L_AND_G_SOURCE_MAP.find((item) => item.match.some((word) => fundLower.includes(word))) : null;
-  const parsed = await parseSource(matched?.url || null);
+  const isLg = isLegalGeneral(provider);
+  const { url, group } = findLandgSourceUrl(fundName, provider);
+  const parsed = await fetchLandgFundPrice(url || "", fundName);
   return {
     suggested_fee_percent: parsed.suggested_fee_percent,
     suggested_unit_price: parsed.unit_price,
     suggested_unit_price_quote_unit: parsed.unit_price ? "gbx" : null,
     suggested_fund_code: null,
-    suggested_group_label: matched?.group || (fundLower.includes("multi") ? "Multi-asset" : fundLower.includes("emerging") ? "Emerging markets" : fundLower.includes("islamic") ? "Global equity" : "Review needed"),
-    suggested_source_url: matched?.url || (isLg ? "https://fundcentres.legalandgeneral.com/en/uk/private-investors/fund-centre/" : null),
-    confidence: isLg ? (parsed.unit_price || parsed.suggested_fee_percent !== null ? 76 : 55) : 35,
+    suggested_group_label: group,
+    suggested_source_url: url,
+    // BUGFIX: confidence used to be a flat guess (76 if anything parsed,
+    // 55 otherwise). Now reflects what the shared parser actually
+    // established — an exact fund-name match or a page with only one
+    // price on it is trustworthy; a page with several share-class prices
+    // where none matched exactly is explicitly not, and should read as
+    // low-confidence here rather than the same 76 as a confirmed match.
+    confidence: isLg
+      ? parsed.confidence === "exact_name_match" || parsed.confidence === "single_price_on_page"
+        ? 88
+        : parsed.candidate_count > 1
+          ? 40
+          : 55
+      : 35,
     usedOpenAi: false,
     research_summary: isLg
-      ? `Built-in Legal & General helper used ${matched?.url ? "and attempted to parse the source page" : "with the L&G fund centre"}. ${parsed.unit_price ? `Unit price found: ${(parsed.unit_price * 100).toFixed(2)}p. ` : "Unit price not confidently found. "}${parsed.suggested_fee_percent !== null ? `Fee found: ${parsed.suggested_fee_percent.toFixed(3)}%/yr. ` : "Fee not confidently found. "}Review the source and workplace portal because plan charges can differ.`
+      ? `Built-in Legal & General helper used ${url ? "and attempted to parse the source page" : "with the L&G fund centre"}. ${
+          parsed.unit_price
+            ? `Unit price found (${parsed.confidence.replace(/_/g, " ")}): ${(parsed.unit_price * 100).toFixed(2)}p as at ${parsed.as_of_date || "unknown date"}. `
+            : parsed.candidate_count > 1
+              ? `The page showed ${parsed.candidate_count} different share-class prices and none matched this fund's exact name — pick the right one manually rather than trust a guess. `
+              : "Unit price not confidently found. "
+        }${parsed.suggested_fee_percent !== null ? `Fee found: ${parsed.suggested_fee_percent.toFixed(3)}%/yr. ` : "Fee not confidently found. "}Review the source and workplace portal because plan charges can differ.`
       : `No OpenAI token was available, so this is a planning fallback. For ${provider} / ${fundName}, store the exact annual management charge/OCF from the workplace pension fund factsheet or plan charge document, then paste the source URL on the fund record.`,
     options: [
       { label: isLg ? "Open L&G fund centre/source" : "Find fund factsheet", note: isLg ? "Search the exact PMC fund name and confirm the fund series/share class." : "Use the provider pension portal/fund centre and search the exact fund name." },
