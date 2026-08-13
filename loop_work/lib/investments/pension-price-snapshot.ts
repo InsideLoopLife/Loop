@@ -113,7 +113,7 @@ export async function runPensionDailyPriceSnapshot(
           glossaryId: glossary.id,
           fundName,
           reason: parsed.candidate_count > 1
-            ? `Page showed ${parsed.candidate_count} share-class prices and none matched "${fundName}" exactly — needs manual review rather than guessing.`
+            ? `Page showed ${parsed.candidate_count} share-class prices and none matched "${fundName}" exactly — needs manual review rather than guessing. Headings found on page: ${JSON.stringify(parsed.headingsFound || [])}`
             : "No price found on the source page.",
         });
         continue;

@@ -60,7 +60,7 @@ export async function runPensionMonthlyManagementCharges(
 
   const { data: funds, error: fundsError } = await supabase
     .from("pension_funds")
-    .select("id, fund_name, pension_account_id, units, unit_price, current_value, annual_fund_fee_percent");
+    .select("id, fund_name, pension_account_id, units, unit_price, current_value, annual_fund_fee_percent, pension_accounts(user_id)");
 
   if (fundsError) {
     logger.error("[pension-management-charges] failed to load funds", fundsError);
@@ -103,10 +103,16 @@ export async function runPensionMonthlyManagementCharges(
         continue;
       }
       const unitsCancelled = monthlyChargeAmount / price;
+      const userId = (fund as any).pension_accounts?.user_id;
+      if (!userId) {
+        result.failures.push({ pensionFundId: fund.id, fundName: fund.fund_name, reason: "Could not resolve user_id via pension_accounts — skipped rather than insert an invalid row." });
+        continue;
+      }
 
       const { error: insertError } = await supabase.from("pension_contribution_events").insert({
         pension_fund_id: fund.id,
         pension_account_id: fund.pension_account_id,
+        user_id: userId,
         investment_date: startedAt.slice(0, 10),
         contribution_date: startedAt.slice(0, 10),
         contribution_month: thisMonth,

@@ -23,6 +23,7 @@ export type PriceParseResult = {
   as_of_date: string | null;
   confidence: "exact_name_match" | "single_price_on_page" | "positional_guess" | "not_found";
   candidate_count: number;
+  headingsFound?: string[];
 };
 
 // BUGFIX: the previous version of this function used
@@ -46,8 +47,22 @@ export type PriceParseResult = {
 //      not_found with the full candidate list rather than silently
 //      guessing — the caller can then decide whether to fall back to a
 //      position-based guess (flagged as such) or require manual review
+function decodeHtmlEntities(text: string) {
+  return text
+    .replace(/&amp;/gi, "&")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function normaliseForMatch(text: string) {
+  return decodeHtmlEntities(text).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 export function extractPriceAndFeeFromText(html: string, exactFundName?: string): PriceParseResult {
-  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const text = decodeHtmlEntities(html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " "));
 
   const feeMatch = text.match(/Investment management charge\s*([0-9]+(?:\.[0-9]+)?)\s*%/i) || text.match(/(?:OCF|AMC|ongoing charge|annual management charge)[^0-9%]{0,40}([0-9]+(?:\.[0-9]+)?)\s*%/i);
   const suggested_fee_percent = feeMatch ? Number(feeMatch[1]) : null;
@@ -81,14 +96,23 @@ export function extractPriceAndFeeFromText(html: string, exactFundName?: string)
   // view of a page, never in what fetch() actually returns, so matching
   // against "#" here would silently never find anything.
   if (exactFundName) {
-    const headingPattern = />\s*((?:L&?G|Legal\s*&\s*General)[^<]{3,90})\s*</gi;
+    // BUGFIX: raw HTML almost always encodes & as &amp;, not a literal &.
+    // The previous pattern (L&?G) only matched a literal "&" — meaning it
+    // silently found zero headings on real pages and fell through to
+    // not_found every time, confirmed by the first live cron run failing
+    // on all 4 funds identically rather than just genuinely ambiguous
+    // ones. This pattern now matches either form, and both the heading
+    // and the target name are compared after decoding entities and
+    // normalising whitespace/case rather than requiring byte-exact
+    // equality (which would still fail on e.g. a stray extra space).
+    const headingPattern = />\s*((?:L\s*(?:&|&amp;)?\s*G|Legal\s*(?:&|&amp;)\s*General)[^<]{3,90})\s*</gi;
     const headings: string[] = [];
     let headingMatch: RegExpExecArray | null;
     while ((headingMatch = headingPattern.exec(html)) !== null) {
-      headings.push(headingMatch[1].trim());
+      headings.push(headingMatch[1]);
     }
-    const normalisedTarget = exactFundName.trim().toLowerCase();
-    const index = headings.findIndex((h) => h.toLowerCase() === normalisedTarget);
+    const normalisedTarget = normaliseForMatch(exactFundName);
+    const index = headings.findIndex((h) => normaliseForMatch(h) === normalisedTarget);
     if (index >= 0 && index < priceCandidates.length) {
       return { unit_price: priceCandidates[index].price, suggested_fee_percent, as_of_date: priceCandidates[index].asOf, confidence: "exact_name_match", candidate_count: priceCandidates.length };
     }
@@ -96,8 +120,19 @@ export function extractPriceAndFeeFromText(html: string, exactFundName?: string)
 
   // Couldn't confidently disambiguate. Report every candidate rather than
   // silently picking one — callers should treat this as "needs review",
-  // not apply it automatically.
-  return { unit_price: null, suggested_fee_percent, as_of_date: null, confidence: "not_found", candidate_count: priceCandidates.length };
+  // not apply it automatically. Include what headings WERE found (even
+  // though none matched) so a failure here is diagnosable from the log
+  // directly, rather than needing another guess-and-check round.
+  const foundHeadings = exactFundName
+    ? (() => {
+        const headingPattern = />\s*((?:L\s*(?:&|&amp;)?\s*G|Legal\s*(?:&|&amp;)\s*General)[^<]{3,90})\s*</gi;
+        const found: string[] = [];
+        let m: RegExpExecArray | null;
+        while ((m = headingPattern.exec(html)) !== null) found.push(decodeHtmlEntities(m[1]).trim());
+        return found;
+      })()
+    : undefined;
+  return { unit_price: null, suggested_fee_percent, as_of_date: null, confidence: "not_found", candidate_count: priceCandidates.length, headingsFound: foundHeadings };
 }
 
 export async function fetchLandgFundPrice(url: string, exactFundName?: string): Promise<PriceParseResult> {
