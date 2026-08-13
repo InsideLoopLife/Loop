@@ -7,6 +7,8 @@ export type PensionSalarySacrificeInput = {
   employerNiRatePercent?: number | null;
   employerNiPassbackPercent?: number | null;
   fixedMonthlyContribution?: number | null;
+  fixedEmployerTopUpPercent?: number | null;
+  employerNiTopUpMode?: string | null;
   contributionMethod?: string | null;
 };
 
@@ -43,7 +45,19 @@ export function calculatePensionSalarySacrifice(
   const employerRate = clamp(safe(input.employerBaseContributionPercent), 0, 100);
   const niRate = clamp(safe(input.employerNiRatePercent, 15), 0, 100);
   const passbackRate = clamp(safe(input.employerNiPassbackPercent), 0, 100);
-  const fixedMonthly = Math.max(0, safe(input.fixedMonthlyContribution));
+  const configuredFixedMonthly = Math.max(0, safe(input.fixedMonthlyContribution));
+  const topUpMode = String(input.employerNiTopUpMode || "saved_ni")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  const fixedEmployerTopUpRate = clamp(safe(input.fixedEmployerTopUpPercent), 0, 100);
+  // Older saved-NI rows use 100 to mean "pass back 100% of the NI saving".
+  // It is only a percentage of gross salary in explicit fixed_percent mode.
+  const fixedPercentTopUpMonthly =
+    topUpMode === "fixed_percent"
+      ? grossMonthly * (fixedEmployerTopUpRate / 100)
+      : 0;
+  const fixedMonthly = configuredFixedMonthly + fixedPercentTopUpMonthly;
   const method = String(input.contributionMethod || "salary_sacrifice")
     .trim()
     .toLowerCase()

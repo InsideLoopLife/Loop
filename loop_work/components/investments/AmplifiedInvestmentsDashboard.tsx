@@ -601,14 +601,14 @@ function DiversificationBars({ holdings, snapshots, totalValue, period, dark, on
   if (!items.length) return <div className={`rounded-3xl border border-dashed p-8 text-center text-sm font-semibold ${dark ? "border-white/10 text-white/40" : "border-slate-200 text-slate-400"}`}>Add holdings to see diversification.</div>;
 
   return (
-    <div className={`rounded-3xl border p-5 ${dark ? "border-white/10 bg-[#0c1017]" : "border-slate-200 bg-white"}`}>
+    <div className={`rounded-3xl border p-3 sm:p-5 ${dark ? "border-white/10 bg-[#0c1017]" : "border-slate-200 bg-white"}`}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className={`text-[10px] font-bold uppercase tracking-widest ${dark ? "text-white/40" : "text-slate-500"}`}>Diversification</p>
-          <div className="mt-0.5 flex items-center gap-1.5"><h3 className={`text-base font-bold ${dark ? "text-white" : "text-slate-900"}`}>Weight × movement bars</h3></div>
+          <div className="mt-0.5 flex items-center gap-1.5"><h3 className={`text-base font-bold ${dark ? "text-white" : "text-slate-900"}`}><span className="md:hidden">Allocation &amp; movement</span><span className="hidden md:inline">Weight × movement bars</span></h3></div>
         </div>
         <div className="flex items-center gap-2">
-          <div className={`flex items-center gap-1 rounded-full p-1 ${dark ? "bg-white/[0.05]" : "bg-slate-100"}`}>
+          <div className={`flex max-w-full items-center gap-1 overflow-x-auto rounded-full p-1 ${dark ? "bg-white/[0.05]" : "bg-slate-100"}`}>
             {(["1D", "5D", "1M", "6M", "YTD", "1Y"] as InvestmentPeriod[]).map((item) => (
               <button key={`div-period-${item}`} type="button" onClick={() => setLocalPeriod(item)} className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition ${localPeriod === item ? (dark ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30" : "bg-white text-emerald-700 shadow-sm") : dark ? "text-white/50 hover:text-white" : "text-slate-500 hover:text-slate-900"}`}>
                 {item}
@@ -618,7 +618,34 @@ function DiversificationBars({ holdings, snapshots, totalValue, period, dark, on
         </div>
       </div>
 
-      <div className="relative flex min-h-[220px] items-center pt-6 pb-2">
+      <div className="grid grid-cols-2 gap-2 md:hidden">
+        {items.map((item) => {
+          const positive = item.move.pct >= 0;
+          const isOther = item.holding.id === "portfolio-other";
+          const prominent = item.share >= 20;
+          return (
+            <button
+              key={`mobile-allocation-${item.holding.id}`}
+              type="button"
+              onClick={() => (isOther ? onOpenOther(remainder.map((row) => row.holding)) : onOpenHolding(item.holding))}
+              className={`min-w-0 rounded-2xl border p-3 text-left transition active:scale-[0.99] ${prominent ? "col-span-2" : "col-span-1"} ${dark ? (positive ? "border-emerald-400/15 bg-emerald-400/10" : "border-rose-400/15 bg-rose-400/10") : positive ? "border-emerald-100 bg-emerald-50" : "border-rose-100 bg-rose-50"}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className={`truncate text-xs font-bold ${dark ? "text-white" : "text-slate-900"}`}>{primaryHoldingLabel(item.holding)}</p>
+                  <p className={`mt-2 text-2xl font-black tracking-tight ${dark ? "text-white" : "text-slate-950"}`}>{item.share.toFixed(1)}%</p>
+                  <p className={`text-[10px] font-semibold ${dark ? "text-white/45" : "text-slate-500"}`}>of selected portfolio</p>
+                </div>
+                <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-black ${!item.move.has ? (dark ? "bg-white/10 text-white/40" : "bg-white/70 text-slate-400") : positive ? (dark ? "bg-emerald-400/15 text-emerald-300" : "bg-white/80 text-emerald-700") : (dark ? "bg-rose-400/15 text-rose-300" : "bg-white/80 text-rose-600")}`}>
+                  {item.move.has ? `${positive ? "▲ " : "▼ "}${Math.abs(item.move.pct).toFixed(2)}%` : "—"}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="relative hidden min-h-[220px] items-center pt-6 pb-2 md:flex">
         <div className={`absolute left-0 right-0 top-1/2 h-px ${dark ? "bg-white/10" : "bg-slate-200"}`} />
         <div className="z-10 flex w-full items-stretch overflow-hidden rounded-xl">
           {items.map((item) => {

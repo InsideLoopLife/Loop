@@ -5668,17 +5668,10 @@ function projectedAccountContributionBreakdown(
   payEvents: PayEvent[],
 ) {
   const pay = activePayForPerson(payEvents, account.person_id);
-  // BUGFIX: "Employer NI saving is topped into pension" used to only take
-  // effect if `employer_ni_topup_mode` was ALSO explicitly set to "saved_ni"
-  // — two separate controls that could disagree. If the mode dropdown was
-  // left on its default ("fixed_percent"), the checkbox silently did
-  // nothing, which is exactly the £0-despite-being-enabled symptom this
-  // fixes. The checkbox is now the single source of truth for whether NI
-  // saving gets reinvested; a fixed-percent employer top-up (if set) is
-  // treated as an independent, additive extra rather than a competing mode.
-  const grossMonthly = pay ? Number(pay.gross_annual_salary || 0) / 12 : 0;
-  const fixedPercentTopUpMonthly = grossMonthly * (Number(account.employer_ni_topup_percent || 0) / 100);
-  const combinedFixedMonthly = Number(account.fixed_monthly_contribution || 0) + fixedPercentTopUpMonthly;
+  // Keep saved-NI pass-back and fixed-percent salary top-ups separate. Older
+  // rows can contain 100 in employer_ni_topup_percent to mean "pass back all
+  // NI saved"; the calculation helper only applies that to gross salary when
+  // the account explicitly uses fixed_percent mode.
   return calculatePensionSalarySacrifice({
     grossSalaryAnnual: pay?.gross_annual_salary || 0,
     employeeContributionPercent: account.employee_contribution_percent,
@@ -5687,7 +5680,9 @@ function projectedAccountContributionBreakdown(
     employerNiEnabled: account.employer_ni_topup_enabled,
     employerNiRatePercent: account.employer_ni_rate_percent ?? 15,
     employerNiPassbackPercent: account.employer_ni_passback_percent ?? 100,
-    fixedMonthlyContribution: combinedFixedMonthly,
+    fixedMonthlyContribution: account.fixed_monthly_contribution,
+    fixedEmployerTopUpPercent: account.employer_ni_topup_percent,
+    employerNiTopUpMode: account.employer_ni_topup_mode,
     contributionMethod: account.contribution_method,
   });
 }
@@ -5725,12 +5720,12 @@ function PensionContributionLogicCard({
   // is now authoritative, so the badge matches it directly.
   const niActive = Boolean(account.employer_ni_topup_enabled) && result.employerNiReinvestedMonthly > 0;
   return (
-    <div className="mt-6 rounded-[2rem] border border-teal-100 bg-white p-5 shadow-sm">
+    <div className="mt-4 rounded-[1.5rem] border border-teal-100 bg-white p-4 shadow-sm sm:mt-6 sm:rounded-[2rem] sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.22em] text-teal-700">Pension contribution logic</p>
           <h3 className="mt-1 text-lg font-black text-slate-950">How the monthly input is calculated</h3>
-          <p className="mt-1 text-sm font-semibold text-slate-500">
+          <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-500 sm:text-sm">
             Uses the active pre-sacrifice salary for {activePay ? "this person" : "the selected owner"}, then separates employee sacrifice, employer base and NI reinvestment.
           </p>
         </div>
@@ -5740,7 +5735,7 @@ function PensionContributionLogicCard({
             : "Employer NI pass-back not active"}
         </span>
       </div>
-      <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-7">
+      <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-7">
         {[
           ["Gross salary", result.grossMonthly, "monthly"],
           ["Employee sacrifice", result.employeeSacrificeMonthly, `${Number(account.employee_contribution_percent || 0).toFixed(2)}%`],
@@ -5750,9 +5745,9 @@ function PensionContributionLogicCard({
           ["Fixed extra", result.fixedMonthly, "monthly"],
           ["Total input", result.totalMonthlyPensionInput, "per month"],
         ].map(([label, amount, note], index) => (
-          <div key={String(label)} className={`rounded-2xl border p-3 ${index === 6 ? "border-teal-200 bg-teal-50" : index === 4 ? "border-emerald-200 bg-emerald-50" : "border-slate-100 bg-slate-50"}`}>
+          <div key={String(label)} className={`rounded-2xl border p-3 ${index === 6 ? "col-span-2 border-teal-200 bg-teal-50 xl:col-span-1" : index === 4 ? "border-emerald-200 bg-emerald-50" : "border-slate-100 bg-slate-50"}`}>
             <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">{label}</p>
-            <p className={`mt-1 text-lg font-black ${index === 6 ? "text-teal-700" : index === 4 ? "text-emerald-700" : "text-slate-950"}`}>{formatMoney(Number(amount))}</p>
+            <p className={`mt-1 text-base font-black sm:text-lg ${index === 6 ? "text-teal-700" : index === 4 ? "text-emerald-700" : "text-slate-950"}`}>{formatMoney(Number(amount))}</p>
             <p className="mt-1 text-[10px] font-bold text-slate-500">{note}</p>
           </div>
         ))}
@@ -7659,12 +7654,13 @@ export function PensionsInvestmentsClient({
   const commandDbSchemes = dbPensionSchemes.filter(
     dbSchemeMatchesCommandFilter,
   );
-  const commandPensionTotal =
-    commandPensionFunds.reduce((sum, fund) => sum + valueOfFund(fund), 0) +
-    commandPensionAccounts.reduce(
-      (sum, account) => sum + Number(account.current_value || 0),
-      0,
-    );
+  // A pension account is the parent container for its funds, not another
+  // asset. Use the shared roll-up helper so parent and child values are never
+  // added together in the command view.
+  const commandPensionTotal = totalPensionValue(
+    commandPensionAccounts,
+    commandPensionFunds,
+  );
   const commandFilterLabel = commandFilterUsesAll
     ? "Whole household"
     : selectedCommandFilterIds.length === 1
@@ -7914,13 +7910,12 @@ export function PensionsInvestmentsClient({
               <div className="mt-5 h-36 rounded-[1.5rem] bg-[linear-gradient(135deg,#eff6ff,#ecfdf5)] p-4">
                 <div className="flex h-full items-end gap-2">
                   {pensionAccounts.slice(0, 8).map((account) => {
-                    const value =
-                      Number(account.current_value || 0) ||
-                      pensionFunds
-                        .filter(
-                          (fund) => fund.pension_account_id === account.id,
-                        )
-                        .reduce((sum, fund) => sum + valueOfFund(fund), 0);
+                    const value = pensionAccountValue(
+                      account,
+                      pensionFunds.filter(
+                        (fund) => fund.pension_account_id === account.id,
+                      ),
+                    );
                     const height =
                       pensionTotal > 0
                         ? Math.max(
@@ -8253,14 +8248,14 @@ export function PensionsInvestmentsClient({
       ) : null}
 
       {experience === "pension-command" ? (
-        <section className="space-y-5">
-          <div className="overflow-hidden rounded-[2.4rem] border border-white/70 bg-[radial-gradient(circle_at_top_left,#2563eb,transparent_30%),linear-gradient(135deg,#020617,#172554_62%,#0f766e)] p-6 text-white shadow-[0_35px_120px_-72px_rgba(15,23,42,.9)]">
+        <section className="space-y-3 sm:space-y-5">
+          <div className="overflow-hidden rounded-[1.75rem] border border-white/70 bg-[radial-gradient(circle_at_top_left,#2563eb,transparent_30%),linear-gradient(135deg,#020617,#172554_62%,#0f766e)] p-4 text-white shadow-[0_35px_120px_-72px_rgba(15,23,42,.9)] sm:rounded-[2.4rem] sm:p-6">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-              <div className="flex items-start gap-4">
+              <div className="flex items-start gap-3 sm:gap-4">
                 <button
                   type="button"
                   onClick={openOverview}
-                  className="mt-1 grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white ring-1 ring-white/15"
+                  className="mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/15 text-white ring-1 ring-white/15 sm:h-11 sm:w-11"
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </button>
@@ -8268,17 +8263,16 @@ export function PensionsInvestmentsClient({
                   <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-100">
                     Pension live view
                   </p>
-                  <h2 className="mt-3 text-4xl font-black tracking-tight">
+                  <h2 className="mt-2 text-3xl font-black tracking-tight sm:mt-3 sm:text-4xl">
                     {formatMoney(commandPensionTotal)}
                   </h2>
-                  <p className="mt-2 max-w-2xl text-sm font-semibold text-blue-50">
-                    Filter the household, review pension pots, DB schemes and
-                    contribution timing without cluttering the overview page.
+                  <p className="mt-1 max-w-2xl text-xs font-semibold leading-relaxed text-blue-50 sm:mt-2 sm:text-sm">
+                    Review pots, schemes and contribution timing.
                   </p>
                 </div>
               </div>
               <div
-                className="flex items-center gap-2 rounded-full bg-white/10 p-1"
+                className="flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-white/10 p-1 sm:gap-2"
                 aria-label="Filter pension live view by household member"
               >
                 {commandFilterCards.map((card) => {
@@ -8314,28 +8308,28 @@ export function PensionsInvestmentsClient({
                 })}
               </div>
             </div>
-            <div className="mt-6 grid gap-3 md:grid-cols-3">
-              <div className="rounded-[1.6rem] bg-white/15 p-5 ring-1 ring-white/10">
+            <div className="mt-4 grid grid-cols-3 gap-2 sm:mt-6 sm:gap-3">
+              <div className="rounded-2xl bg-white/15 p-3 ring-1 ring-white/10 sm:rounded-[1.6rem] sm:p-5">
                 <p className="text-xs font-black uppercase tracking-wide text-blue-100">
                   Pots
                 </p>
-                <p className="mt-2 text-2xl font-black">
+                <p className="mt-1 text-xl font-black sm:mt-2 sm:text-2xl">
                   {commandPensionAccounts.length}
                 </p>
               </div>
-              <div className="rounded-[1.6rem] bg-white/15 p-5 ring-1 ring-white/10">
+              <div className="rounded-2xl bg-white/15 p-3 ring-1 ring-white/10 sm:rounded-[1.6rem] sm:p-5">
                 <p className="text-xs font-black uppercase tracking-wide text-blue-100">
                   Funds
                 </p>
-                <p className="mt-2 text-2xl font-black">
+                <p className="mt-1 text-xl font-black sm:mt-2 sm:text-2xl">
                   {commandPensionFunds.length}
                 </p>
               </div>
-              <div className="rounded-[1.6rem] bg-white/15 p-5 ring-1 ring-white/10">
+              <div className="rounded-2xl bg-white/15 p-3 ring-1 ring-white/10 sm:rounded-[1.6rem] sm:p-5">
                 <p className="text-xs font-black uppercase tracking-wide text-blue-100">
                   DB schemes
                 </p>
-                <p className="mt-2 text-2xl font-black">
+                <p className="mt-1 text-xl font-black sm:mt-2 sm:text-2xl">
                   {commandDbSchemes.length}
                 </p>
               </div>
@@ -8603,12 +8597,12 @@ export function PensionsInvestmentsClient({
               <div
                 key={account.id}
                 id={`investment-account-${account.id}`}
-                className={`relative overflow-hidden rounded-[2.25rem] border bg-white shadow-[0_28px_90px_-62px_rgba(15,23,42,.75)] transition duration-700 ${highlightedAccountId === account.id ? "scale-[1.01] border-emerald-400 ring-4 ring-emerald-300/70" : "border-white/70"}`}
+                className={`relative min-w-0 overflow-hidden rounded-[1.75rem] border bg-white shadow-[0_28px_90px_-62px_rgba(15,23,42,.75)] transition duration-700 sm:rounded-[2.25rem] ${highlightedAccountId === account.id ? "scale-[1.01] border-emerald-400 ring-4 ring-emerald-300/70" : "border-white/70"}`}
               >
                 {highlightedAccountId === account.id ? <span className="absolute right-5 top-5 z-20 rounded-full bg-emerald-500 px-3 py-1 text-xs font-black text-white shadow-lg">New pot</span> : null}
                 <OwnerBadge people={people} personId={account.person_id} />
                 <div className="grid lg:grid-cols-[1fr_340px]">
-                  <div className="p-6">
+                  <div className="min-w-0 p-4 sm:p-6">
                     <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                       <div className="flex gap-4">
                         <ProviderLogo provider={account.provider} />
@@ -8671,7 +8665,7 @@ export function PensionsInvestmentsClient({
                       {funds.map((fund) => (
                         <article
                           key={fund.id}
-                          className="group rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-slate-200/70"
+                          className="group min-w-0 rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-slate-200/70 sm:rounded-[2rem] sm:p-5"
                         >
                           {(() => {
                             const fundEvents = accountContributionEvents
@@ -10287,7 +10281,30 @@ function PensionContributionThread({
       ),
     )
     .slice(0, 36);
-  const latest = rows[0];
+  const threadRows = fund
+    ? rows.map((event) => ({
+        key: event.id,
+        date: event.investment_date || event.contribution_date,
+        events: [event],
+        amount: Number(event.contribution_amount || 0),
+      }))
+    : Array.from(
+        rows.reduce((groups, event) => {
+          const date = String(event.investment_date || event.contribution_date || event.created_at || "Unknown");
+          groups.set(date, [...(groups.get(date) || []), event]);
+          return groups;
+        }, new Map<string, PensionContributionEvent[]>()),
+      ).map(([date, groupedEvents]) => ({
+        key: `pension-thread-${account.id}-${date}`,
+        date,
+        events: groupedEvents,
+        amount: groupedEvents.reduce(
+          (sum, event) => sum + Number(event.contribution_amount || 0),
+          0,
+        ),
+      }));
+  const latestThread = threadRows.find((row) => row.amount > 0);
+  const latest = latestThread?.events[0];
   const accountValue =
     funds.reduce((sum, fund) => sum + valueOfFund(fund), 0) ||
     Number(account.current_value || 0);
@@ -10298,14 +10315,14 @@ function PensionContributionThread({
       : null;
   return (
     <div className="space-y-4">
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-100">
-          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:mt-4 sm:grid-cols-3 sm:gap-3">
+        <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-100 sm:p-4">
+          <p className="text-[10px] font-black uppercase tracking-wide text-slate-400 sm:text-xs">
             Last invested
           </p>
-          <p className="mt-1 text-xl font-black text-slate-950">
-            {latest
-              ? formatMoney(Number(latest.contribution_amount || 0))
+          <p className="mt-1 text-lg font-black text-slate-950 sm:text-xl">
+            {latestThread
+              ? formatMoney(latestThread.amount)
               : "Pending"}
           </p>
           <p className="mt-1 text-xs font-bold text-slate-500">
@@ -10316,30 +10333,36 @@ function PensionContributionThread({
               : "Run pension daily or add manual events"}
           </p>
         </div>
-        <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-100">
-          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-            Last unit price
+        <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-100 sm:p-4">
+          <p className="text-[10px] font-black uppercase tracking-wide text-slate-400 sm:text-xs">
+            {fund ? "Last unit price" : "Active funds"}
           </p>
-          <p className="mt-1 text-xl font-black text-slate-950">
-            {latest?.unit_price
-              ? gbpPriceLabel(Number(latest.unit_price))
-              : funds[0]?.unit_price
-                ? gbpPriceLabel(Number(funds[0].unit_price))
-                : "Pending"}
+          <p className="mt-1 text-lg font-black text-slate-950 sm:text-xl">
+            {fund
+              ? latest?.unit_price
+                ? gbpPriceLabel(Number(latest.unit_price))
+                : funds[0]?.unit_price
+                  ? gbpPriceLabel(Number(funds[0].unit_price))
+                  : "Pending"
+              : funds.filter((item) => item.contribution_active).length}
           </p>
           <p className="mt-1 text-xs font-bold text-slate-500">
-            Provider statement remains source of truth
+            {fund ? "Provider statement remains source of truth" : `${funds.length} funds held in this pot`}
           </p>
         </div>
-        <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-100">
-          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-            Average value/unit
+        <div className="col-span-2 rounded-2xl bg-white p-3 ring-1 ring-slate-100 sm:col-span-1 sm:p-4">
+          <p className="text-[10px] font-black uppercase tracking-wide text-slate-400 sm:text-xs">
+            {fund ? "Average value/unit" : "Current pot"}
           </p>
-          <p className="mt-1 text-xl font-black text-slate-950">
-            {fundAverage ? gbpPriceLabel(fundAverage) : "Pending"}
+          <p className="mt-1 text-lg font-black text-slate-950 sm:text-xl">
+            {fund
+              ? fundAverage
+                ? gbpPriceLabel(fundAverage)
+                : "Pending"
+              : formatMoney(accountValue)}
           </p>
           <p className="mt-1 text-xs font-bold text-slate-500">
-            Derived from current value ÷ stored units
+            {fund ? "Derived from current value ÷ stored units" : "Provider-confirmed funds counted once"}
           </p>
         </div>
       </div>
@@ -10395,26 +10418,41 @@ function PensionContributionThread({
           </p>
         </details>
       ) : null}
-      <div className="mt-4 space-y-2">
-        {rows.map((event) => {
-          const fund = funds.find((item) => item.id === event.pension_fund_id);
+      <div className="mt-3 space-y-2 sm:mt-4">
+        {threadRows.map((row) => {
+          const event = row.events[0];
+          const rowFund = funds.find((item) => item.id === event.pension_fund_id);
+          const providerConfirmed = row.events.every((item) => item.source === "provider_statement");
+          const units = row.events.reduce((sum, item) => sum + Number(item.units_bought || 0), 0);
+          const fundNames = Array.from(new Set(row.events.map((item) => funds.find((candidate) => candidate.id === item.pension_fund_id)?.fund_name).filter(Boolean)));
           return (
             <details
-              key={event.id}
-              className="rounded-2xl bg-white p-3 text-sm ring-1 ring-slate-100"
+              key={row.key}
+              className="overflow-hidden rounded-2xl bg-white p-3 text-sm ring-1 ring-slate-100 sm:p-4"
             >
-              <summary className="grid cursor-pointer list-none gap-3 sm:grid-cols-[150px_1fr_130px] sm:items-center">
-                <div>
-                  <p className="font-black text-slate-950">{formatThreadDate(event.investment_date || event.contribution_date)}</p>
-                  <p className="text-xs font-bold text-slate-500">{String(event.event_status || "invested").replace(/_/g, " ")}</p>
+              <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-black text-slate-950">{formatThreadDate(row.date)}</p>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${providerConfirmed ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                      {providerConfirmed ? "Provider confirmed" : "Projected"}
+                    </span>
+                  </div>
+                  <p className="mt-1 truncate text-xs font-bold text-slate-600 sm:text-sm">
+                    {fund ? rowFund?.fund_name || account.label : `${row.events.length} fund purchases`}
+                  </p>
+                  <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
+                    {units > 0 ? `${units.toFixed(4)} units recorded` : providerConfirmed ? "Contribution confirmed; purchase units not supplied" : String(event.event_status || "invested").replace(/_/g, " ")}
+                  </p>
                 </div>
-                <div>
-                  <p className="font-bold text-slate-700">{fund?.fund_name || account.label} · {Number(event.units_bought || 0).toFixed(4)} units</p>
-                  <p className="text-xs font-bold text-slate-500">Employee {formatMoney(Number(event.employee_amount || 0))} · employer {formatMoney(Number(event.employer_amount || 0))} · NI top-up {formatMoney(Number(event.employer_ni_topup_amount || 0))}</p>
-                </div>
-                <p className="font-black text-slate-950 sm:text-right">{formatMoney(Number(event.contribution_amount || 0))}</p>
+                <p className="shrink-0 text-lg font-black text-slate-950">{formatMoney(row.amount)}</p>
               </summary>
-              <form action={updatePensionContributionEvent} className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-4">
+              {!fund ? (
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                  <p className="text-xs font-bold text-slate-500">{fundNames.join(" · ")}</p>
+                  {event.notes ? <p className="mt-2 text-xs font-semibold leading-relaxed text-slate-500">{event.notes}</p> : null}
+                </div>
+              ) : <form action={updatePensionContributionEvent} className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-4">
                 <input type="hidden" name="id" value={event.id} />
                 <input type="hidden" name="pension_account_id" value={account.id} />
                 <input type="hidden" name="employee_amount" value={Number(event.employee_amount || 0)} />
@@ -10423,7 +10461,7 @@ function PensionContributionThread({
                 <input type="hidden" name="fixed_amount" value={Number(event.fixed_amount || 0)} />
                 <input type="hidden" name="allocation_percent" value={Number(event.allocation_percent ?? 100)} />
                 <input type="hidden" name="event_status" value={event.event_status || "invested"} />
-                <label className="text-xs font-black uppercase text-slate-500">Fund<select name="pension_fund_id" required defaultValue={event.pension_fund_id || fund?.id} className={inputClass}>{funds.map((item) => <option key={item.id} value={item.id}>{item.fund_name}</option>)}</select></label>
+                <label className="text-xs font-black uppercase text-slate-500">Fund<select name="pension_fund_id" required defaultValue={event.pension_fund_id || fund.id} className={inputClass}>{funds.map((item) => <option key={item.id} value={item.id}>{item.fund_name}</option>)}</select></label>
                 <label className="text-xs font-black uppercase text-slate-500">Contribution date<input name="contribution_date" type="date" required defaultValue={event.contribution_date || today} className={inputClass} /></label>
                 <label className="text-xs font-black uppercase text-slate-500">Investment date<input name="investment_date" type="date" required defaultValue={event.investment_date || event.contribution_date || today} className={inputClass} /></label>
                 <label className="text-xs font-black uppercase text-slate-500">Purchase amount (£)<input name="contribution_amount" type="number" min="0" step="0.01" required defaultValue={Number(event.contribution_amount || 0)} className={inputClass} /></label>
@@ -10431,11 +10469,11 @@ function PensionContributionThread({
                 <label className="text-xs font-black uppercase text-slate-500">Units bought<input name="units_bought" type="number" min="0" step="0.000001" defaultValue={event.units_bought ?? ""} className={inputClass} /></label>
                 <label className="text-xs font-black uppercase text-slate-500 sm:col-span-2">Reconciliation note<input name="notes" defaultValue={event.notes || ""} className={inputClass} /></label>
                 <div className="flex items-end lg:col-span-4"><SubmitButton pendingLabel="Updating purchase…">Update thread record</SubmitButton></div>
-              </form>
+              </form>}
             </details>
           );
         })}
-        {rows.length === 0 ? (
+        {threadRows.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-4 text-sm font-bold text-slate-500">
             No contribution events have been stored yet. The daily pension job
             will create these from pay, salary sacrifice and fund allocation
