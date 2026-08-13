@@ -1,4 +1,5 @@
 import { Nav } from "@/components/Nav";
+import { Suspense } from "react";
 import { PageLandingExperience } from "@/components/landing/PageLandingExperience";
 import {
   dedupeHouseholdPeople,
@@ -34,8 +35,9 @@ import {
   type PlannedItemForPlan,
   type SpendingCategoryForPlan,
 } from "@/lib/planning/month-plan";
+import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 
-export default async function MortgagePage() {
+async function MortgageContent() {
   const { supabase, user, householdContext } = await requireWealthPageAccess({
     feature: "mortgage",
     deniedRedirect: "/account?tab=wealth&feature=mortgage",
@@ -354,7 +356,6 @@ export default async function MortgagePage() {
 
   return (
     <>
-      <Nav />
       {(homes ?? []).length +
         (deals ?? []).length +
         (moveQueries ?? []).length ===
@@ -385,6 +386,17 @@ export default async function MortgagePage() {
         dealPreferences={dealPreferences ?? []}
         workspacePreference={workspacePreference ?? null}
       />
+    </>
+  );
+}
+
+export default function MortgagePage() {
+  return (
+    <>
+      <Nav />
+      <Suspense fallback={<WealthRouteSkeleton label="your home and mortgage" />}>
+        <MortgageContent />
+      </Suspense>
     </>
   );
 }

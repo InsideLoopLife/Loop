@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { PageLandingExperience } from "@/components/landing/PageLandingExperience";
@@ -20,6 +21,7 @@ import { calculateMonthlyMortgagePayment } from "@/lib/calculations/mortgage";
 import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
 import { buildWealthSummary } from "@/lib/wealth/summary";
 import { buildMonthlyInvestmentPensionPerformance } from "@/lib/wealth/monthly-performance";
+import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 
 type FinancialProfile = {
   name: string;
@@ -643,7 +645,7 @@ function buildMonthPlan({
   };
 }
 
-export default async function DashboardPage({ searchParams }: { searchParams?: Promise<{ month?: string; year?: string; person?: string }> }) {
+async function DashboardContent({ searchParams }: { searchParams?: Promise<{ month?: string; year?: string; person?: string }> }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const selectedMonth = resolvedSearchParams.month || currentMonth();
   const selectedYear = Number(resolvedSearchParams.year || selectedMonth.slice(0, 4) || new Date().getFullYear());
@@ -866,7 +868,6 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
 
   return (
     <>
-      <Nav />
       <main className="mx-auto max-w-7xl space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         <section className="relative overflow-hidden rounded-[2.25rem] border border-white/70 bg-slate-950 p-6 text-white shadow-[0_36px_110px_-64px_rgba(15,23,42,.9)] md:p-8">
           <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-orange-500/30 blur-3xl" />
@@ -976,6 +977,17 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         </SectionCard>
 
       </main>
+    </>
+  );
+}
+
+export default function DashboardPage(props: { searchParams?: Promise<{ month?: string; year?: string; person?: string }> }) {
+  return (
+    <>
+      <Nav />
+      <Suspense fallback={<WealthRouteSkeleton label="your overview" />}>
+        <DashboardContent {...props} />
+      </Suspense>
     </>
   );
 }

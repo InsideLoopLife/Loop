@@ -39,6 +39,21 @@ export function routeNeedsRefresh(pathname: string, maxAgeMs: number, now = Date
   return checkedAt === 0 || now - checkedAt >= maxAgeMs;
 }
 
+export function routeArrivalDecision({
+  visited,
+  previousCheck,
+  maxAgeMs,
+  now = Date.now(),
+}: {
+  visited: boolean;
+  previousCheck: number;
+  maxAgeMs: number;
+  now?: number;
+}) {
+  if (!visited || previousCheck === 0) return "accept-current" as const;
+  return now - previousCheck >= maxAgeMs ? ("refresh-after-paint" as const) : ("reuse-fresh" as const);
+}
+
 export function markRoutesStale(pathnames: string[]) {
   const target = storage();
   pathnames.forEach((pathname) => target?.removeItem(key(CHECKED_PREFIX, pathname)));
@@ -50,4 +65,3 @@ export function emitRoutesStale(pathnames: string[]) {
   markRoutesStale(routes);
   window.dispatchEvent(new CustomEvent("loop:routes-stale", { detail: { routes } }));
 }
-

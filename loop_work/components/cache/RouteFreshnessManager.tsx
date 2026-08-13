@@ -8,6 +8,7 @@ import {
   markRouteChecked,
   markRouteVisited,
   routeNeedsRefresh,
+  routeArrivalDecision,
   routeWasVisited,
 } from "@/lib/cache/client-route-cache";
 import { isPublicOrAuthRoute, normaliseLoopPath, routePolicy } from "@/lib/cache/route-policy";
@@ -54,12 +55,22 @@ export function RouteFreshnessManager() {
     if (isPublicOrAuthRoute(pathname)) return;
     const previousCheck = lastRouteCheck(pathname);
     const visited = routeWasVisited(pathname);
-    setCheckedAt(previousCheck);
+    const decision = routeArrivalDecision({ visited, previousCheck, maxAgeMs: policy.maxAgeMs });
     markRouteVisited(pathname);
-    // Let the cached/prefetched route paint and become interactive first.
-    const timer = window.setTimeout(() => refresh(!visited || previousCheck === 0), visited ? 300 : 650);
+    // A first visit has just completed a current authenticated server render,
+    // so refreshing the entire route again only doubles the work. Revisited
+    // prefetched pages reconcile after paint only when their policy says the
+    // prior result is stale.
+    if (decision === "accept-current") {
+      const now = Date.now();
+      markRouteChecked(pathname, now);
+      const statusTimer = window.setTimeout(() => setCheckedAt(now), 0);
+      return () => window.clearTimeout(statusTimer);
+    }
+    if (decision === "reuse-fresh") return;
+    const timer = window.setTimeout(() => refresh(false), 350);
     return () => window.clearTimeout(timer);
-  }, [pathname, refresh]);
+  }, [pathname, policy.maxAgeMs, refresh]);
 
   useEffect(() => {
     if (isPublicOrAuthRoute(pathname)) return;
@@ -109,4 +120,3 @@ export function RouteFreshnessManager() {
     </div>
   );
 }
-

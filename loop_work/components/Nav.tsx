@@ -71,6 +71,27 @@ const healthLinks: NavLink[] = [
   { href: "/lifestyle?tab=activity", label: "Activity", icon: Activity },
 ];
 
+const eagerWealthRoutes = ["/briefing", "/dashboard", "/financial-flow", "/investments", "/mortgage"];
+
+type NavigationBootstrap = {
+  navigationLayout?: NavigationLayout;
+  hasChosenNavigationLayout?: boolean;
+  unreadCount?: number;
+  isAdmin?: boolean;
+  features?: Partial<UserFeatureAccess>;
+};
+
+let navigationBootstrapPromise: Promise<NavigationBootstrap | null> | null = null;
+
+function loadNavigationBootstrap() {
+  if (!navigationBootstrapPromise) {
+    navigationBootstrapPromise = fetch("/api/user/navigation-bootstrap", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() as Promise<NavigationBootstrap> : null)
+      .catch(() => null);
+  }
+  return navigationBootstrapPromise;
+}
+
 function pathOnly(href: string) {
   return href.split("?")[0];
 }
@@ -178,7 +199,7 @@ function NavItem({
   return (
     <Link
       href={link.href}
-      prefetch={false}
+      prefetch
       onClick={onNavigate}
       onMouseEnter={() => onIntent?.(link.href)}
       onFocus={() => onIntent?.(link.href)}
@@ -574,8 +595,7 @@ function NavInner() {
 
   useEffect(() => {
     let mounted = true;
-    fetch("/api/user/navigation-bootstrap", { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
+    loadNavigationBootstrap()
       .then((payload) => {
         if (!mounted || !payload) return;
         if (payload.navigationLayout === "side" || payload.navigationLayout === "top") {
@@ -609,7 +629,30 @@ function NavInner() {
       mounted = false;
       window.clearInterval(timer);
     };
-  }, [pathname]);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const warmRoutes = () => {
+      if (cancelled) return;
+      eagerWealthRoutes.forEach((href, index) => {
+        window.setTimeout(() => {
+          if (!cancelled && href !== pathname) prefetchRoute(href);
+        }, index * 180);
+      });
+    };
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const idleHandle = idleWindow.requestIdleCallback?.(warmRoutes, { timeout: 1_500 });
+    const fallbackHandle = idleHandle === undefined ? window.setTimeout(warmRoutes, 800) : null;
+    return () => {
+      cancelled = true;
+      if (idleHandle !== undefined) idleWindow.cancelIdleCallback?.(idleHandle);
+      if (fallbackHandle !== null) window.clearTimeout(fallbackHandle);
+    };
+  }, [pathname, prefetchRoute]);
 
   useEffect(() => {
     setMobileOpen(false);

@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { Nav } from "@/components/Nav";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveHouseholdContext } from "@/lib/auth/household-context";
 import { PensionsInvestmentsClient } from "@/components/investments/PensionsInvestmentsClient";
 import { investmentDataEntitlementForProfile } from "@/lib/wealth/user-tiers";
+import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 
 type Person = { id: string; name: string; relationship: string; avatar_url: string | null; linked_user_id: string | null };
 type PensionAccount = {
@@ -207,7 +209,7 @@ type InvestmentCoveragePlaceholder = {
   updated_at?: string | null;
 };
 
-export default async function InvestmentsPage() {
+async function InvestmentsContent() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
@@ -262,7 +264,6 @@ export default async function InvestmentsPage() {
 
   return (
     <>
-      <Nav />
       <PensionsInvestmentsClient
         people={peopleResult.data ?? []}
         pensionAccounts={pensionAccountsResult.data ?? []}
@@ -288,6 +289,17 @@ export default async function InvestmentsPage() {
           lastSyncedAt: snapTradeConnectionResult.data?.last_synced_at || null,
         }}
       />
+    </>
+  );
+}
+
+export default function InvestmentsPage() {
+  return (
+    <>
+      <Nav />
+      <Suspense fallback={<WealthRouteSkeleton label="pensions and investments" />}>
+        <InvestmentsContent />
+      </Suspense>
     </>
   );
 }

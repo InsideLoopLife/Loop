@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import {
   ArrowDownRight,
   ArrowLeft,
@@ -37,6 +38,7 @@ import {
 } from "@/lib/auth/household-context";
 import { requireWealthPageAccess } from "@/domains/wealth/access";
 import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
+import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 
 type TabKey = "flow" | "income" | "spending" | "savings";
 type Tone = "orange" | "green" | "blue" | "slate";
@@ -874,7 +876,7 @@ function DetailPanel({ activeTab, month, incomeLines, spendRows, savingsRows }: 
   );
 }
 
-export default async function FinancialFlowPage({ searchParams }: { searchParams?: Promise<{ tab?: string; person?: string; people?: string; month?: string }> }) {
+async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{ tab?: string; person?: string; people?: string; month?: string }> }) {
   const params = searchParams ? await searchParams : {};
   const activeTab: TabKey = tabs.some((tab) => tab.key === params.tab) ? (params.tab as TabKey) : "flow";
   const month = parseMonth(params.month);
@@ -1188,7 +1190,6 @@ export default async function FinancialFlowPage({ searchParams }: { searchParams
 
   return (
     <>
-      <Nav />
       <main className="mx-auto w-[95vw] max-w-none space-y-6 px-4 py-6 md:px-8">
         {activeTab === "flow" ? <section className="relative overflow-hidden rounded-[2.5rem] border border-white/70 bg-slate-950 p-7 text-white shadow-[0_36px_120px_-70px_rgba(15,23,42,.95)] md:p-9">
           <div className="absolute -right-28 -top-28 h-96 w-96 rounded-full bg-emerald-500/30 blur-3xl" />
@@ -1264,6 +1265,17 @@ export default async function FinancialFlowPage({ searchParams }: { searchParams
           </>
         )}
       </main>
+    </>
+  );
+}
+
+export default function FinancialFlowPage(props: { searchParams?: Promise<{ tab?: string; person?: string; people?: string; month?: string }> }) {
+  return (
+    <>
+      <Nav />
+      <Suspense fallback={<WealthRouteSkeleton label="financial flow" />}>
+        <FinancialFlowContent {...props} />
+      </Suspense>
     </>
   );
 }
