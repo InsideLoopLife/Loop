@@ -96,40 +96,71 @@ export function extractPriceAndFeeFromText(html: string, exactFundName?: string)
   // view of a page, never in what fetch() actually returns, so matching
   // against "#" here would silently never find anything.
   if (exactFundName) {
-    // BUGFIX: raw HTML almost always encodes & as &amp;, not a literal &.
-    // The previous pattern (L&?G) only matched a literal "&" — meaning it
-    // silently found zero headings on real pages and fell through to
-    // not_found every time, confirmed by the first live cron run failing
-    // on all 4 funds identically rather than just genuinely ambiguous
-    // ones. This pattern now matches either form, and both the heading
-    // and the target name are compared after decoding entities and
-    // normalising whitespace/case rather than requiring byte-exact
-    // equality (which would still fail on e.g. a stray extra space).
-    const headingPattern = />\s*((?:L\s*(?:&|&amp;)?\s*G|Legal\s*(?:&|&amp;)\s*General)[^<]{3,90})\s*</gi;
-    const headings: string[] = [];
-    let headingMatch: RegExpExecArray | null;
-    while ((headingMatch = headingPattern.exec(html)) !== null) {
-      headings.push(headingMatch[1]);
-    }
+    // BUGFIX: the previous version built two separate flat lists (every
+    // heading anywhere on the page, every price anywhere on the page) and
+    // matched by index — assuming they stayed aligned in the same order.
+    // Confirmed false from a real cron run: L&G's pages embed a sitewide
+    // "switch to another fund" dropdown listing their ENTIRE fund range
+    // (hundreds of entries, completely unrelated to the page's own share
+    // classes). The exact fund name was genuinely present in that list,
+    // just at some arbitrary index far past the handful of real price
+    // blocks — so index-based alignment was structurally broken, not just
+    // occasionally wrong.
+    //
+    // This now finds the actual character position of the exact fund name
+    // in the raw HTML, then looks for the nearest price block that
+    // follows within a reasonable window — proximity, not list position.
+    // A dropdown option isn't followed by its own "Price ###p As at..."
+    // block, so this naturally ignores dropdown noise without needing to
+    // detect or filter it explicitly.
+    const decodedHtml = decodeHtmlEntities(html);
     const normalisedTarget = normaliseForMatch(exactFundName);
-    const index = headings.findIndex((h) => normaliseForMatch(h) === normalisedTarget);
-    if (index >= 0 && index < priceCandidates.length) {
-      return { unit_price: priceCandidates[index].price, suggested_fee_percent, as_of_date: priceCandidates[index].asOf, confidence: "exact_name_match", candidate_count: priceCandidates.length };
+    const positions: number[] = [];
+    let searchFrom = 0;
+    while (searchFrom < decodedHtml.length) {
+      const idx = decodedHtml.toLowerCase().indexOf(normalisedTarget, searchFrom);
+      if (idx === -1) break;
+      positions.push(idx);
+      searchFrom = idx + normalisedTarget.length;
+    }
+
+    const PROXIMITY_WINDOW = 4000;
+    for (const pos of positions) {
+      const windowText = decodedHtml.slice(pos, pos + PROXIMITY_WINDOW);
+      const nearbyPriceMatch = windowText.match(/Price\s*([0-9,]+(?:\.[0-9]+)?)\s*p[\s\S]{0,120}?As at\s*([0-9]{1,2}\s+\w+\s+[0-9]{4})/i);
+      if (nearbyPriceMatch) {
+        const raw = Number(nearbyPriceMatch[1].replace(/,/g, ""));
+        if (Number.isFinite(raw) && raw > 0) {
+          return { unit_price: raw / 100, suggested_fee_percent, as_of_date: nearbyPriceMatch[2], confidence: "exact_name_match", candidate_count: priceCandidates.length };
+        }
+      }
     }
   }
 
   // Couldn't confidently disambiguate. Report every candidate rather than
   // silently picking one — callers should treat this as "needs review",
-  // not apply it automatically. Include what headings WERE found (even
-  // though none matched) so a failure here is diagnosable from the log
-  // directly, rather than needing another guess-and-check round.
+  // not apply it automatically. Debug info here is deliberately bounded —
+  // dumping every heading on the page produced an unusably large log on a
+  // real run (L&G's sitewide fund-switcher dropdown alone is 500+
+  // entries). Instead: was the exact name found at all, and if so, what
+  // actually follows it (so a real failure is diagnosable from a short
+  // snippet, not another giant dump).
   const foundHeadings = exactFundName
     ? (() => {
-        const headingPattern = />\s*((?:L\s*(?:&|&amp;)?\s*G|Legal\s*(?:&|&amp;)\s*General)[^<]{3,90})\s*</gi;
-        const found: string[] = [];
-        let m: RegExpExecArray | null;
-        while ((m = headingPattern.exec(html)) !== null) found.push(decodeHtmlEntities(m[1]).trim());
-        return found;
+        const decodedHtml = decodeHtmlEntities(html);
+        const normalisedTarget = normaliseForMatch(exactFundName);
+        const lower = decodedHtml.toLowerCase();
+        const occurrences: string[] = [];
+        let searchFrom = 0;
+        while (occurrences.length < 3) {
+          const idx = lower.indexOf(normalisedTarget, searchFrom);
+          if (idx === -1) break;
+          occurrences.push(decodedHtml.slice(idx, idx + 200).replace(/\s+/g, " ").trim());
+          searchFrom = idx + normalisedTarget.length;
+        }
+        return occurrences.length
+          ? occurrences.map((s, i) => `occurrence ${i + 1}: "${s}..."`)
+          : [`exact name "${exactFundName}" not found anywhere in the fetched page at all`];
       })()
     : undefined;
   return { unit_price: null, suggested_fee_percent, as_of_date: null, confidence: "not_found", candidate_count: priceCandidates.length, headingsFound: foundHeadings };
