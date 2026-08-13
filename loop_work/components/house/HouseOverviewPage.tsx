@@ -17,16 +17,16 @@ import { FollowOnCard } from './FollowOnCard';
 import { GlimpseNavGrid } from './GlimpseNavGrid';
 import type { HouseOverviewPayload } from '@/lib/house/overview-data';
 
-export function HouseOverviewPage({ householdId, propertyId }: { householdId: string; propertyId?: string }) {
+export function HouseOverviewPage({ householdId, homeId }: { householdId: string; homeId?: string }) {
   const [data, setData] = useState<HouseOverviewPayload | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'deals' | 'moving' | 'valuation' | 'overpayments'>('overview');
 
   useEffect(() => {
-    const params = new URLSearchParams({ household_id: householdId, ...(propertyId ? { property_id: propertyId } : {}) });
+    const params = new URLSearchParams({ household_id: householdId, ...(homeId ? { home_id: homeId } : {}) });
     fetch(`/api/house/overview?${params}`)
       .then((res) => res.json())
       .then(setData);
-  }, [householdId, propertyId]);
+  }, [householdId, homeId]);
 
   if (!data) {
     return (
@@ -48,7 +48,6 @@ export function HouseOverviewPage({ householdId, propertyId }: { householdId: st
         mortgageBalance={data.stats.mortgage_balance}
         mortgagePayment={data.stats.mortgage_payment}
         dealsAvailable={data.stats.deals_available}
-        improvementsScore={data.stats.improvements_score}
       />
 
       {/* Map + home details cards go here unchanged — see file header note. */}
@@ -86,7 +85,6 @@ export function HouseOverviewPage({ householdId, propertyId }: { householdId: st
         householdBuffer={null /* TODO: wire to household cashflow buffer once that source is pointed out */}
         dealsPossible={data.glimpses.mortgage_deals_possible}
         bestRatePercent={data.glimpses.best_rate_percent}
-        movingSearches={data.glimpses.moving_searches}
         valuationSourceCount={data.glimpses.valuation_source_count}
       />
     </div>

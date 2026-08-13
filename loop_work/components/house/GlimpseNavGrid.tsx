@@ -13,7 +13,7 @@ interface Props {
   householdBuffer: number | null;
   dealsPossible: number;
   bestRatePercent: number | null;
-  movingSearches: number;
+  movingSearches?: number; // TODO: no saved-searches table identified yet — omit or wire up once it exists
   valuationSourceCount: number;
 }
 
@@ -107,7 +107,7 @@ export function GlimpseNavGrid({
         iconColor="#e08a2b"
         icon="📦"
         title="Moving home"
-        value={`${movingSearches} searches`}
+        value={movingSearches !== undefined ? `${movingSearches} searches` : 'Not tracked yet'}
         caption="Saved searches & move costs"
       />
       <Card

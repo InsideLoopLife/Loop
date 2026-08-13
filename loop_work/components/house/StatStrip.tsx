@@ -10,12 +10,12 @@ export function StatStrip({
   mortgageBalance,
   mortgagePayment,
   dealsAvailable,
-  improvementsScore,
+  improvementsScore = null, // TODO: no improvements/condition score exists on `homes` yet — wire up once that data exists
 }: {
   mortgageBalance: number;
   mortgagePayment: number;
   dealsAvailable: number;
-  improvementsScore: number | null;
+  improvementsScore?: number | null;
 }) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
