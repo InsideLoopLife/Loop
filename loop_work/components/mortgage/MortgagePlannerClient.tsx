@@ -2818,7 +2818,7 @@ function HomeMapHero({
                   type="button"
                   onClick={onShortlistDifferentDeal}
                   title="Tap to shortlist a different deal"
-                  className={`flex min-h-48 flex-col items-center justify-center rounded-full border-8 p-5 text-center shadow-lg transition hover:-translate-y-1 hover:shadow-2xl ${starredComparison.monthlyDelta >= 0 ? "border-emerald-100 bg-emerald-50 text-emerald-950" : "border-orange-100 bg-gradient-to-br from-orange-50 to-amber-50 text-orange-950"}`}
+                  className={`flex min-h-48 flex-col items-center justify-center rounded-full border-8 p-5 text-center shadow-lg transition hover:-translate-y-1 hover:shadow-2xl ${starredComparison.monthlyDelta >= 0 ? "border-emerald-100 bg-gradient-to-br from-emerald-50 via-emerald-50 to-teal-50 text-emerald-950" : "border-orange-100 bg-gradient-to-br from-amber-100 via-orange-50 to-amber-50 text-orange-950 shadow-orange-200/60"}`}
                   style={{
                     transform: `scale(${Math.min(1.12, Math.max(0.88, 0.9 + Math.abs(starredComparison.monthlyDelta) / 1000))})`,
                   }}
@@ -5037,7 +5037,14 @@ export function MortgagePlannerClient({
   }
 
   return (
-    <main className="mx-auto w-[95vw] max-w-[2000px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+    <main
+      className="mx-auto w-[95vw] max-w-[2000px] space-y-6 px-4 py-6 sm:px-6 lg:px-8"
+      style={{
+        backgroundImage:
+          "radial-gradient(1100px 480px at 8% -8%, rgba(196,181,253,0.35) 0%, transparent 55%), radial-gradient(900px 420px at 100% 0%, rgba(191,219,254,0.35) 0%, transparent 50%)",
+        backgroundRepeat: "no-repeat",
+      }}
+    >
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-600">
