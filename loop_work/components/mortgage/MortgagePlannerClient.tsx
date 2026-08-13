@@ -2528,6 +2528,7 @@ function HomeMapHero({
   onAddValuation,
   onOpenAffordability,
   onOpenMortgage,
+  onShortlistDifferentDeal,
 }: {
   home: Home;
   owners: HomeOwner[];
@@ -2544,6 +2545,7 @@ function HomeMapHero({
   onAddValuation: () => void;
   onOpenAffordability: () => void;
   onOpenMortgage: (deal: HomeMortgageDeal) => void;
+  onShortlistDifferentDeal: () => void;
 }) {
   const mapsUrl = mapUrlForHome(home);
   const embedUrl = embedMapUrlForHome(home);
@@ -2812,8 +2814,11 @@ function HomeMapHero({
                 );
               })}
               {starredComparison ? (
-                <div
-                  className={`flex min-h-48 flex-col items-center justify-center rounded-full border-8 p-5 text-center shadow-lg ${starredComparison.monthlyDelta >= 0 ? "border-emerald-100 bg-emerald-50 text-emerald-950" : "border-orange-100 bg-orange-50 text-orange-950"}`}
+                <button
+                  type="button"
+                  onClick={onShortlistDifferentDeal}
+                  title="Tap to shortlist a different deal"
+                  className={`flex min-h-48 flex-col items-center justify-center rounded-full border-8 p-5 text-center shadow-lg transition hover:-translate-y-1 hover:shadow-2xl ${starredComparison.monthlyDelta >= 0 ? "border-emerald-100 bg-emerald-50 text-emerald-950" : "border-orange-100 bg-gradient-to-br from-orange-50 to-amber-50 text-orange-950"}`}
                   style={{
                     transform: `scale(${Math.min(1.12, Math.max(0.88, 0.9 + Math.abs(starredComparison.monthlyDelta) / 1000))})`,
                   }}
@@ -2825,26 +2830,34 @@ function HomeMapHero({
                     {starredComparison.lender}
                   </p>
                   <p className="mt-1 text-3xl font-black">
-                    {starredComparison.monthlyDelta >= 0 ? "+" : "-"}
-                    {formatMoney(Math.abs(starredComparison.monthlyDelta))}
+                    {formatMoney(starredComparison.payment)}
                     <span className="text-xs">/mo</span>
                   </p>
                   <p className="mt-1 text-xs font-bold">
+                    {starredComparison.monthlyDelta >= 0 ? "-" : "+"}
+                    {formatMoney(Math.abs(starredComparison.monthlyDelta))}/mo{" "}
                     {starredComparison.monthlyDelta >= 0
                       ? "better than current"
                       : "more than current"}{" "}
                     · {starredComparison.rate.toFixed(2)}%
                   </p>
-                </div>
+                  <p className="mt-2 text-[10px] font-black uppercase tracking-wide underline underline-offset-2 opacity-80">
+                    Shortlist a different deal →
+                  </p>
+                </button>
               ) : deals.length > 0 ? (
-                <div className="flex min-h-48 flex-col items-center justify-center rounded-full border-4 border-dashed border-slate-200 bg-slate-50 p-5 text-center">
+                <button
+                  type="button"
+                  onClick={onShortlistDifferentDeal}
+                  className="flex min-h-48 flex-col items-center justify-center rounded-full border-4 border-dashed border-slate-200 bg-slate-50 p-5 text-center transition hover:-translate-y-1 hover:border-slate-300 hover:bg-slate-100"
+                >
                   <p className="text-sm font-black text-slate-700">
                     No saved comparison
                   </p>
                   <p className="mt-1 text-xs font-bold text-slate-500">
                     Until you shortlist or star a deal, LOOP uses the estimated follow-on/SVR rate.
                   </p>
-                </div>
+                </button>
               ) : null}
               {deals.length === 0 ? (
                 <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm font-bold text-slate-500 sm:col-span-2">
@@ -3033,6 +3046,18 @@ function mortgageDealAnchorLabel(deal: HomeMortgageDeal) {
   return status.label;
 }
 
+function InfoTip({ text }: { text: string }) {
+  return (
+    <span className="group relative ml-1.5 inline-flex h-[15px] w-[15px] cursor-help items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-400 transition-colors hover:bg-slate-950 hover:text-white">
+      i
+      <span className="pointer-events-none absolute bottom-[22px] left-1/2 z-20 w-[200px] -translate-x-1/2 rounded-lg bg-slate-950 px-2.5 py-2 text-[11px] font-normal leading-snug text-white opacity-0 shadow-xl transition-opacity group-hover:opacity-100">
+        {text}
+        <span className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-slate-950" />
+      </span>
+    </span>
+  );
+}
+
 function MortgageCommandStrip({
   balance,
   payment,
@@ -3071,35 +3096,32 @@ function MortgageCommandStrip({
 
   return (
     <section className="grid gap-4 md:grid-cols-4">
-      <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+      <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-gradient-to-r before:from-violet-500 before:to-blue-500">
+        <p className="flex items-center text-xs font-black uppercase tracking-[0.18em] text-slate-500">
           Mortgage balance
+          <InfoTip text="Projected forward from your attached mortgage record's balance and rate." />
         </p>
         <p className="mt-2 text-3xl font-black text-slate-950">
           {formatMoney(balance)}
         </p>
-        <p className="mt-1 text-xs font-bold text-slate-500">
-          Projected from attached mortgage records.
-        </p>
       </div>
-      <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+      <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-gradient-to-r before:from-violet-500 before:to-blue-500">
+        <p className="flex items-center text-xs font-black uppercase tracking-[0.18em] text-slate-500">
           Mortgage payment
+          <InfoTip text="The monthly figure used across LOOP's household affordability logic." />
         </p>
         <p className="mt-2 text-3xl font-black text-slate-950">
           {formatMoney(payment)}
-        </p>
-        <p className="mt-1 text-xs font-bold text-slate-500">
-          Monthly payment used in household logic.
         </p>
       </div>
       <button
         type="button"
         onClick={onOpenDeals}
-        className="rounded-[2rem] border border-blue-200 bg-blue-50 p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-100"
+        className="relative overflow-hidden rounded-[2rem] border border-blue-200 bg-blue-50 p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-lg before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-gradient-to-r before:from-blue-500 before:to-blue-300"
       >
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">
+        <p className="flex items-center text-xs font-black uppercase tracking-[0.18em] text-blue-700">
           Deals available
+          <InfoTip text="Deals we're actively watching that are ready to compare or switch to." />
         </p>
         <p className="mt-2 text-3xl font-black text-slate-950">
           {availableDealCount}
@@ -3113,16 +3135,14 @@ function MortgageCommandStrip({
       <button
         type="button"
         onClick={onOpenDeals}
-        className="rounded-[2rem] border border-emerald-200 bg-emerald-50 p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-100"
+        className="relative overflow-hidden rounded-[2rem] border border-emerald-200 bg-emerald-50 p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-100 hover:shadow-lg before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-gradient-to-r before:from-emerald-500 before:to-emerald-300"
       >
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
+        <p className="flex items-center text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
           Improvements
+          <InfoTip text={improvementCopy} />
         </p>
         <p className="mt-2 text-3xl font-black text-slate-950">
           {improvementLabel}
-        </p>
-        <p className="mt-1 text-xs font-bold text-emerald-800">
-          {improvementCopy}
         </p>
       </button>
     </section>
@@ -3134,11 +3154,19 @@ function HomeTabNav({
   onChange,
   workspacePreference,
   onEditWorkspace,
+  dealsPossible,
+  bestRatePercent,
+  movingSearchCount,
+  valuationSourceCount,
 }: {
   active: HomeDashboardTab;
   onChange: (tab: HomeDashboardTab) => void;
   workspacePreference: MortgageWorkspacePreference | null;
   onEditWorkspace: () => void;
+  dealsPossible: number;
+  bestRatePercent: number | null;
+  movingSearchCount: number;
+  valuationSourceCount: number;
 }) {
   const tabs: { key: HomeDashboardTab; label: string; helper: string }[] = [
     {
@@ -3149,19 +3177,27 @@ function HomeTabNav({
     {
       key: "mortgage_deals",
       label: "Mortgage deals",
-      helper: "Watch, sourced deals and action",
+      helper:
+        dealsPossible > 0
+          ? `${dealsPossible} possible${bestRatePercent !== null ? ` · best ${bestRatePercent.toFixed(2)}%` : ""}`
+          : "Watch, sourced deals and action",
     },
     {
       key: "moving_home",
       label: workspacePreference?.moving_home_label || "Moving home",
       helper:
-        workspacePreference?.moving_home_description ||
-        "Saved searches and move costs",
+        movingSearchCount > 0
+          ? `${movingSearchCount} saved search${movingSearchCount === 1 ? "" : "es"}`
+          : workspacePreference?.moving_home_description ||
+            "Saved searches and move costs",
     },
     {
       key: "valuation_sources",
       label: "Valuation sources",
-      helper: "Manual and automated valuation trail",
+      helper:
+        valuationSourceCount > 0
+          ? `${valuationSourceCount} source${valuationSourceCount === 1 ? "" : "s"} on file`
+          : "Manual and automated valuation trail",
     },
   ];
   return (
@@ -3181,7 +3217,7 @@ function HomeTabNav({
             key={tab.key}
             type="button"
             onClick={() => onChange(tab.key)}
-            className={`rounded-3xl border p-4 text-left transition ${active === tab.key ? "border-slate-950 bg-slate-950 text-white shadow-xl shadow-slate-950/15" : "border-slate-200 bg-white text-slate-950 hover:border-orange-200 hover:bg-orange-50"}`}
+            className={`rounded-3xl border p-4 text-left transition hover:-translate-y-0.5 ${active === tab.key ? "border-slate-950 bg-slate-950 text-white shadow-xl shadow-slate-950/15" : "border-slate-200 bg-white text-slate-950 hover:border-orange-200 hover:bg-orange-50 hover:shadow-lg"}`}
           >
             <p className="text-sm font-black">{tab.label}</p>
             <p
@@ -5121,6 +5157,7 @@ export function MortgagePlannerClient({
           onOpenMortgage={(deal) =>
             setModal({ type: "mortgage_details", deal })
           }
+          onShortlistDifferentDeal={() => setActiveHomeTab("mortgage_deals")}
         />
       ) : (
         <SectionCard
@@ -5141,6 +5178,14 @@ export function MortgagePlannerClient({
         onChange={setActiveHomeTab}
         workspacePreference={workspacePreference}
         onEditWorkspace={() => setModal({ type: "workspace_preferences" })}
+        dealsPossible={marketDeals.length}
+        bestRatePercent={
+          marketDeals.length
+            ? Math.min(...marketDeals.map((d) => Number(d.rate_percent || 999)))
+            : null
+        }
+        movingSearchCount={moveQueries.length}
+        valuationSourceCount={selectedHomeValuations.length}
       />
 
       {activeHomeTab === "overview" ? (
