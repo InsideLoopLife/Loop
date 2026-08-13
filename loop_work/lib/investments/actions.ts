@@ -1173,6 +1173,25 @@ export async function updateInvestmentViewMode(formData: FormData) {
   revalidatePath("/investments");
 }
 
+export async function updatePensionViewMode(formData: FormData) {
+  const { supabase, user } = await currentUser();
+  const mode =
+    String(formData.get("pension_view_mode") || "cards") === "full"
+      ? "full"
+      : "cards";
+  const { error } = await supabase.from("app_user_profiles").upsert(
+    {
+      user_id: user.id,
+      email: user.email || null,
+      pension_view_mode: mode,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
+  if (error) throw new Error(error.message);
+  revalidatePath("/investments");
+}
+
 export async function addInvestmentHolding(formData: FormData) {
   const { supabase, user } = await currentUser();
   const accountId = String(formData.get("investment_account_id") || "");

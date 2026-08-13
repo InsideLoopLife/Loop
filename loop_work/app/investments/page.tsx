@@ -240,7 +240,7 @@ async function InvestmentsContent() {
     supabase.from("defined_benefit_pensions").select("id, person_id, scheme_name, provider, scheme_section, accrual_rate, revaluation_rate_percent, rules_source_url, rules_source_type, rules_confidence, notes").eq("user_id", dataOwnerUserId).order("created_at", { ascending: false }).returns<DbPensionScheme[]>(),
     supabase.from("db_pension_service_events").select("id, db_pension_id, band_label, pensionable_pay, contribution_percent, start_date, end_date, notes").eq("user_id", dataOwnerUserId).order("start_date", { ascending: true }).returns<DbPensionServiceEvent[]>(),
     supabase.from("pay_events").select("id, person_id, gross_annual_salary, monthly_take_home_override, effective_from, effective_until").eq("user_id", dataOwnerUserId).order("effective_from", { ascending: true }).returns<PayEvent[]>(),
-    supabase.from("app_user_profiles").select("investment_view_mode, payment_tier, payment_tier_status, payment_tier_override, market_data_tier, market_data_tier_override, market_data_provider_status, market_data_realtime_enabled").eq("user_id", user.id).maybeSingle(),
+    supabase.from("app_user_profiles").select("investment_view_mode, pension_view_mode, payment_tier, payment_tier_status, payment_tier_override, market_data_tier, market_data_tier_override, market_data_provider_status, market_data_realtime_enabled").eq("user_id", user.id).maybeSingle(),
     supabase.from("integration_connections").select("status, external_connection_id, last_synced_at, updated_at").eq("user_id", user.id).eq("provider", "SnapTrade").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("investment_price_snapshots").select("id, holding_id, snapshot_at, snapshot_date, price, units, value, source").eq("user_id", dataOwnerUserId).order("snapshot_at", { ascending: false }).limit(600).returns<InvestmentSnapshot[]>(),
     supabase.from("investment_instrument_coverage_placeholders").select("id, investment_account_id, request_id, query, exchange_hint, status, eta_text, progress, resolved_ticker, resolved_exchange, resolved_asset_name, created_at, updated_at").eq("user_id", dataOwnerUserId).neq("status", "archived").order("created_at", { ascending: false }).limit(100).returns<InvestmentCoveragePlaceholder[]>(),
@@ -291,6 +291,7 @@ async function InvestmentsContent() {
         dbPensionEvents={dbPensionEventsResult.data ?? []}
         payEvents={payEventsResult.data ?? []}
         initialInvestmentViewMode={profileResult.data?.investment_view_mode === "squares" ? "squares" : "lines"}
+        initialPensionViewMode={profileResult.data?.pension_view_mode === "full" ? "full" : "cards"}
         investmentDataTier={investmentDataEntitlementForProfile(profileResult.data)}
         snapTradeConnection={{
           connected: String(snapTradeConnectionResult.data?.status || "").toLowerCase() === "connected" || profileResult.data?.market_data_provider_status === "connected",
