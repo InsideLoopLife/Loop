@@ -212,8 +212,8 @@ async function MortgageContent() {
     { data: workspacePreference },
   ] = await Promise.all([
     supabase
-      .from("home_mortgage_liability_allocations")
-      .select("id, home_mortgage_deal_id, person_id, liability_percent")
+      .from("mortgage_liability_allocation_effective")
+      .select("id, home_mortgage_deal_id, person_id, liability_percent, source")
       .or(householdVisibleFilter)
       .returns<HomeMortgageLiabilityAllocation[]>(),
     supabase

@@ -98,6 +98,7 @@ export type HomeMortgageLiabilityAllocation = {
   home_mortgage_deal_id: string;
   person_id: string;
   liability_percent: number | null;
+  source?: "explicit" | "ownership_share" | "equal_split_assumed";
 };
 
 export type MortgageDealPreference = {
@@ -2771,7 +2772,12 @@ function HomeMapHero({
                         (allocation) =>
                           `${peopleById.get(allocation.person_id)?.name || "Unknown"} ${Number(allocation.liability_percent || 0).toFixed(0)}%`,
                       )
-                      .join(" · ")
+                      .join(" · ") +
+                    (allocations[0]?.source && allocations[0].source !== "explicit"
+                      ? allocations[0].source === "ownership_share"
+                        ? " (assumed from ownership)"
+                        : " (assumed equal split)"
+                      : "")
                   : "Liability not allocated";
                 return (
                   <button
