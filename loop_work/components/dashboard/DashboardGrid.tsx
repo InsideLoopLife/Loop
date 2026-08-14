@@ -2,7 +2,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
+import { Responsive, WidthProvider, type Layout } from "react-grid-layout/legacy";
 import { WidgetShell } from "./WidgetShell";
 import { AddWidgetPanel } from "./AddWidgetPanel";
 import { getWidgetDefinition } from "@/lib/dashboard/widget-registry";
