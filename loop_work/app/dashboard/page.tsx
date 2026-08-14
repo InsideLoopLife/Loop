@@ -22,6 +22,7 @@ import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/house
 import { buildWealthSummary } from "@/lib/wealth/summary";
 import { buildMonthlyInvestmentPensionPerformance } from "@/lib/wealth/monthly-performance";
 import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
+import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 
 type FinancialProfile = {
   name: string;
@@ -866,6 +867,12 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
   const investmentsPerf = investmentPensionPerformance?.investments || null;
   const pensionsPerf = investmentPensionPerformance?.pensions || null;
 
+  const { data: dashboardWidgets } = await dataClient
+    .from("user_dashboard_widgets")
+    .select("*")
+    .eq("user_id", dataOwnerUserId)
+    .order("layout_y", { ascending: true });
+
   return (
     <>
       <main className="mx-auto max-w-7xl space-y-7 px-4 py-6 sm:px-6 lg:px-8">
@@ -912,8 +919,14 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
           </section>
         ) : null}
 
-        {!hasDashboardData ? <PageLandingExperience kind="overview" /> : null}
+{!hasDashboardData ? <PageLandingExperience kind="overview" /> : null}
 
+        <SectionCard title="Your widgets" description="Drag to rearrange, resize to see more or less detail, or add something new.">
+          <DashboardGrid
+            householdId={householdContext.householdId ?? dataOwnerUserId}
+            initialWidgets={dashboardWidgets ?? []}
+          />
+        </SectionCard>
         {recommendedDealChecks.length > 0 ? (
           <SectionCard title="Recommended deal checks" description="Bills and contracts from Lifestyle that are due soon or have no renewal date set.">
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
