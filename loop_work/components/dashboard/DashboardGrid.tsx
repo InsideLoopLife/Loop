@@ -41,7 +41,7 @@ export function DashboardGrid({ householdId, initialWidgets }: DashboardGridProp
   const [addPanelOpen, setAddPanelOpen] = useState(false);
 
   const layouts = useMemo(() => {
-    const lg: Layout[] = widgets.map((w) => ({
+    const lg: Layout = widgets.map((w) => ({
       i: w.id,
       x: w.layout_x,
       y: w.layout_y,
@@ -58,7 +58,7 @@ export function DashboardGrid({ householdId, initialWidgets }: DashboardGridProp
 
   // Persist layout only when the user finishes a drag/resize, not on every frame
   const handleLayoutChangeCommitted = useCallback(
-    async (layout: Layout[]) => {
+    async (layout: Layout) => {
       const payload = layout.map((item) => ({
         id: item.i,
         x: item.x,
