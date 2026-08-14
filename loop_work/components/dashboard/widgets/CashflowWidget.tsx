@@ -18,17 +18,17 @@ const SEGMENTS = [
   { label: "Other", value: 5, color: "var(--c-blue-400, #378ADD)" },
 ];
 
-export function CashflowWidget({ size, dashboardContext }: WidgetProps) {
+export function CashflowWidget({ viewport, dashboardContext }: WidgetProps) {
   const overview = dashboardContext?.overview;
   const segments = overview && overview.income > 0 ? [
     { label: "Spending", value: Math.max(0, (overview.outgoings / overview.income) * 100), color: "var(--c-coral-400, #D85A30)" },
     { label: "Savings", value: Math.max(0, (overview.savings / overview.income) * 100), color: "var(--c-teal-400, #1D9E75)" },
     { label: "Left over", value: Math.max(0, (overview.leftOver / overview.income) * 100), color: "var(--c-purple-400, #7F77DD)" },
   ] : SEGMENTS;
-  if (size.tier === "compact") {
+  if (viewport.mode === "summary") {
     return <CashflowPie segments={segments} />;
   }
-  if (size.tier === "expanded") {
+  if (viewport.mode === "detailed" || viewport.mode === "immersive") {
     return (
       <div className="widget-cashflow widget-cashflow--expanded">
         <CashflowBars segments={segments} />

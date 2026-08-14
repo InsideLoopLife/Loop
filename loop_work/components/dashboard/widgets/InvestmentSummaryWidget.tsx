@@ -12,6 +12,8 @@
 
 import { useEffect, useState } from "react";
 import type { WidgetProps } from "@/lib/dashboard/types";
+import { WidgetTrendChart } from "./WidgetTrendChart";
+import { historicalPoints, projectedPoints, projectionHorizon } from "./widget-series";
 
 interface Holding {
   name: string;
@@ -23,7 +25,7 @@ interface InvestmentData {
   holdings: Holding[];
 }
 
-export function InvestmentSummaryWidget({ config, householdId, size, dashboardContext }: WidgetProps) {
+export function InvestmentSummaryWidget({ config, householdId, size, dashboardContext, viewport }: WidgetProps) {
   const [data, setData] = useState<InvestmentData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -57,14 +59,19 @@ export function InvestmentSummaryWidget({ config, householdId, size, dashboardCo
   if (!displayData) return <div className="widget-empty">No data yet</div>;
 
   const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
+  const compactCurrency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 });
+  const immersive = viewport.mode === "immersive";
+  const horizon = projectionHorizon(config.preferences?.projectionMonths, viewport);
+  const points = [...historicalPoints(dashboardContext?.positionHistory ?? [], "investmentValue", viewport.historyMonths), { label: "Today", value: displayData.total, kind: "today" as const }];
+  if (config.preferences?.showProjection === true && overview) points.push(...projectedPoints(displayData.total, horizon, (_index, value) => value + overview.investmentChange));
 
   return (
-    <div>
+    <div className={`adaptive-value-widget adaptive-value-widget--${viewport.mode}`}>
       <div className="widget-metric__value">{currency.format(displayData.total)}</div>
 
       {overview ? <div className="widget-metric__label">{overview.investmentChange >= 0 ? "+" : ""}{currency.format(overview.investmentChange)} this month</div> : null}
 
-      {size.tier === "compact" ? null : (
+      {viewport.mode === "summary" ? null : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
           {displayData.holdings.slice(0, size.tier === "expanded" ? 6 : 3).map((h) => (
             <div key={h.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
@@ -78,7 +85,9 @@ export function InvestmentSummaryWidget({ config, householdId, size, dashboardCo
         </div>
       )}
 
-      {size.tier === "expanded" && !overview && (
+      {immersive ? <WidgetTrendChart points={points} format={(value) => compactCurrency.format(value)} area={config.preferences?.chartStyle !== "line"} /> : null}
+
+      {size.tier === "expanded" && !overview && !immersive && (
         <div style={{ marginTop: 12, height: 80 }}>
           {/* TODO: real per-unit price chart, e.g. <AssetPriceChart ... /> */}
           <div className="widget-empty">Price chart goes here</div>

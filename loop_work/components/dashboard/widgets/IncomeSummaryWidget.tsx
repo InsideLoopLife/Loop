@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import type { WidgetProps } from "@/lib/dashboard/types";
+import { WidgetTrendChart } from "./WidgetTrendChart";
 
 interface IncomeSource {
   label: string;
@@ -21,7 +22,7 @@ interface IncomeData {
   sources: IncomeSource[];
 }
 
-export function IncomeSummaryWidget({ config, householdId, size, dashboardContext }: WidgetProps) {
+export function IncomeSummaryWidget({ config, householdId, dashboardContext, viewport }: WidgetProps) {
   const [data, setData] = useState<IncomeData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -55,11 +56,11 @@ export function IncomeSummaryWidget({ config, householdId, size, dashboardContex
   const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
 
   return (
-    <div>
+    <div className={`adaptive-value-widget adaptive-value-widget--${viewport.mode}`}>
       <div className="widget-metric__value">{currency.format(displayData.total)}</div>
       <div className="widget-metric__label">This month</div>
 
-      {size.tier === "expanded" && displayData.sources.length > 0 && (
+      {viewport.mode !== "summary" && displayData.sources.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
           {displayData.sources.map((s) => (
             <div key={s.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
@@ -69,6 +70,7 @@ export function IncomeSummaryWidget({ config, householdId, size, dashboardContex
           ))}
         </div>
       )}
+      {viewport.mode === "immersive" && dashboardContext?.calendar ? <WidgetTrendChart points={dashboardContext.calendar.months.map((month) => ({ label: month.label.slice(0, 3), value: month.income, kind: month.month === dashboardContext.calendar?.selectedMonth ? "today" : "actual" }))} format={(value) => currency.format(value)} /> : null}
     </div>
   );
 }

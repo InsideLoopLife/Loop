@@ -10,6 +10,8 @@
 
 import { useEffect, useState } from "react";
 import type { WidgetProps } from "@/lib/dashboard/types";
+import { WidgetTrendChart } from "./WidgetTrendChart";
+import { historicalPoints, projectedPoints, projectionHorizon } from "./widget-series";
 // TODO: point this at whatever net-worth calculation already backs the
 // current overview page — this is almost certainly a straight extraction,
 // not new logic.
@@ -21,7 +23,7 @@ interface NetWorthData {
   currency: string;
 }
 
-export function NetWorthWidget({ config, householdId, dashboardContext }: WidgetProps) {
+export function NetWorthWidget({ config, householdId, dashboardContext, viewport }: WidgetProps) {
   const [data, setData] = useState<NetWorthData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -64,9 +66,16 @@ export function NetWorthWidget({ config, householdId, dashboardContext }: Widget
   }
 
   const isPositive = displayData.changePercent >= 0;
+  const money = new Intl.NumberFormat("en-GB", { style: "currency", currency: displayData.currency, maximumFractionDigits: 0 });
+  const immersive = viewport.mode === "immersive";
+  const detailed = immersive || viewport.mode === "detailed";
+  const horizon = projectionHorizon(config.preferences?.projectionMonths, viewport);
+  const history = historicalPoints(dashboardContext?.positionHistory ?? [], "netWorth", viewport.historyMonths);
+  const points = [...history, { label: "Today", value: displayData.total, kind: "today" as const }];
+  if (config.preferences?.showProjection !== false) points.push(...projectedPoints(displayData.total, horizon, (_index, value) => value + (overview?.leftOver ?? 0)));
 
   return (
-    <div>
+    <div className={`adaptive-value-widget adaptive-value-widget--${viewport.mode}`}>
       <div className="widget-metric__value">
         {new Intl.NumberFormat("en-GB", { style: "currency", currency: displayData.currency }).format(
           displayData.total
@@ -79,6 +88,8 @@ export function NetWorthWidget({ config, householdId, dashboardContext }: Widget
           {isPositive ? "+" : ""}{displayData.changePercent.toFixed(1)}% this month
         </div>
       )}
+      {detailed && overview && config.preferences?.showBreakdown !== false ? <div className="adaptive-value-widget__breakdown"><span><small>Assets</small><strong>{money.format(overview.assets)}</strong></span><span><small>Liabilities</small><strong>{money.format(overview.liabilities)}</strong></span><span><small>Planned monthly change</small><strong>{money.format(overview.leftOver)}</strong></span></div> : null}
+      {immersive ? <WidgetTrendChart points={points} format={(value) => money.format(value)} area={config.preferences?.chartStyle !== "line"} /> : null}
     </div>
   );
 }

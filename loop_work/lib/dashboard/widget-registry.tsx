@@ -21,7 +21,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     needsMemberScope: false,
     defaultSize: { w: 4, h: 3 },
     minSize: { w: 2, h: 2 },
-    maxSize: { w: 4, h: 4 },
+    maxSize: { w: 4, h: 6 },
     component: CalendarWidget,
   },
   net_worth: {
@@ -32,7 +32,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     needsMemberScope: true,
     defaultSize: { w: 2, h: 1 },
     minSize: { w: 1, h: 1 },
-    maxSize: { w: 4, h: 2 },
+    maxSize: { w: 4, h: 4 },
     component: NetWorthWidget,
   },
   pension_summary: {
@@ -41,9 +41,9 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     description: "Current pension pot value and provider breakdown.",
     icon: "ti-pig-money",
     needsMemberScope: true,
-    defaultSize: { w: 1, h: 1 },
+    defaultSize: { w: 2, h: 2 },
     minSize: { w: 1, h: 1 },
-    maxSize: { w: 2, h: 2 },
+    maxSize: { w: 4, h: 4 },
     component: PensionSummaryWidget,
   },
   investment_summary: {

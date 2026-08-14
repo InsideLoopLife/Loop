@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerDatabaseClient } from "@/platform/database/server-client";
 import type { WidgetConfig } from "@/lib/dashboard/types";
 import { getWidgetDefinition } from "@/lib/dashboard/widget-registry";
+import { sanitizeWidgetConfig } from "@/lib/dashboard/widget-preferences";
 
 // GET /api/dashboard-widgets — current user's widget layout
 export async function GET() {
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
       user_id: user.id,
       household_id,
       widget_type,
-      config: config ?? {},
+      config: sanitizeWidgetConfig(config),
       layout_x: size.x,
       layout_y: size.y,
       layout_w: "w" in size ? size.w : definition.defaultSize.w,
@@ -116,9 +117,10 @@ export async function PATCH(req: NextRequest) {
 
   // Single widget config update (e.g. changing member scope)
   const { id, config } = body as { id: string; config: WidgetConfig };
+  if (!id || typeof id !== "string") return NextResponse.json({ error: "Missing widget id" }, { status: 400 });
   const { data, error } = await supabase
     .from("user_dashboard_widgets")
-    .update({ config })
+    .update({ config: sanitizeWidgetConfig(config) })
     .eq("id", id)
     .eq("user_id", user.id)
     .select()

@@ -7,6 +7,7 @@ import { Check, LayoutGrid, Plus, Sparkles } from "lucide-react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout/legacy";
 import { WidgetShell } from "./WidgetShell";
 import { AddWidgetPanel } from "./AddWidgetPanel";
+import { ResponsiveWidgetContent } from "./ResponsiveWidgetContent";
 import { getWidgetDefinition } from "@/lib/dashboard/widget-registry";
 import { getSizeTier } from "@/lib/dashboard/size-tiers";
 import type { DashboardWidgetContext, DashboardWidgetRecord, WidgetConfig } from "@/lib/dashboard/types";
@@ -233,14 +234,17 @@ export function DashboardGrid({ householdId, initialWidgets, dashboardContext }:
                 onConfigChange={(next) => handleConfigChange(widget.id, next)}
                 onRemove={() => handleRemove(widget.id)}
               >
-                <Component
-                  id={widget.id}
-                  config={widget.config}
-                  householdId={householdId}
-                  size={{ w: widget.layout_w, h: widget.layout_h, tier }}
-                  dashboardContext={dashboardContext}
-                  onConfigChange={(next) => handleConfigChange(widget.id, next)}
-                />
+                <ResponsiveWidgetContent size={{ w: widget.layout_w, h: widget.layout_h, tier }}>
+                  {(viewport) => <Component
+                    id={widget.id}
+                    config={widget.config}
+                    householdId={householdId}
+                    size={{ w: widget.layout_w, h: widget.layout_h, tier }}
+                    viewport={viewport}
+                    dashboardContext={dashboardContext}
+                    onConfigChange={(next) => handleConfigChange(widget.id, next)}
+                  />}
+                </ResponsiveWidgetContent>
               </WidgetShell>
             </div>
           );

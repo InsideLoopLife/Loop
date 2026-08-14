@@ -7,6 +7,16 @@ export type WidgetScope =
 export interface WidgetConfig {
   scope?: WidgetScope;
   period?: "7d" | "30d" | "90d" | "ytd" | "1y" | "all";
+  preferences?: {
+    appearance?: "soft" | "flat" | "bold";
+    calendarStyle?: "seasonal" | "flat" | "bars";
+    calendarMetric?: "surplus" | "commitment" | "income";
+    showBreakdown?: boolean;
+    showProjection?: boolean;
+    projectionMonths?: "auto" | 3 | 6 | 12;
+    assumedAnnualGrowth?: number;
+    chartStyle?: "line" | "area" | "bars";
+  };
   [key: string]: unknown; // widget-specific extras (chart style, category filter, etc)
 }
 
@@ -35,6 +45,28 @@ export interface WidgetSize {
   tier: SizeTier;
 }
 
+export type WidgetDisplayMode = "summary" | "standard" | "detailed" | "immersive";
+
+export interface WidgetViewport {
+  width: number;
+  height: number;
+  mode: WidgetDisplayMode;
+  isMobile: boolean;
+  historyMonths: number;
+  forecastMonths: number;
+}
+
+export interface FinancialPositionWidgetData {
+  date: string;
+  netWorth: number;
+  assets: number;
+  liabilities: number;
+  investmentValue: number;
+  pensionValue: number;
+  savingsValue: number;
+  propertyEquity: number;
+}
+
 export interface CalendarMonthWidgetData {
   month: string;
   label: string;
@@ -56,7 +88,9 @@ export interface DashboardWidgetContext {
     investmentValue: number;
     pensionChange: number;
     investmentChange: number;
+    pensionMonthlyContribution: number;
   };
+  positionHistory?: FinancialPositionWidgetData[];
   calendar?: {
     selectedYear: number;
     selectedMonth: string;
@@ -72,6 +106,7 @@ export interface WidgetProps {
   config: WidgetConfig;
   householdId: string;
   size: WidgetSize;
+  viewport: WidgetViewport;
   dashboardContext?: DashboardWidgetContext;
   onConfigChange: (next: WidgetConfig) => void;
 }

@@ -3,7 +3,7 @@
 // Adding a new widget later = write the component, add one entry here.
 // Nothing about the grid, drag/resize, or persistence needs to change.
 
-import type { WidgetDefinition } from "./types";
+import type { WidgetDefinition } from "./dashboard/types";
 import { NetWorthWidget } from "@/components/dashboard/widgets/NetWorthWidget";
 import { PensionSummaryWidget } from "@/components/dashboard/widgets/PensionSummaryWidget";
 import { InvestmentSummaryWidget } from "@/components/dashboard/widgets/InvestmentSummaryWidget";

@@ -7,8 +7,9 @@
 
 import { useEffect, useState } from "react";
 import type { WidgetProps } from "@/lib/dashboard/types";
+import { WidgetTrendChart } from "./WidgetTrendChart";
 
-export function SpendingSummaryWidget({ config, householdId, dashboardContext }: WidgetProps) {
+export function SpendingSummaryWidget({ config, householdId, dashboardContext, viewport }: WidgetProps) {
   const [data, setData] = useState<{ total: number; label: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -41,11 +42,13 @@ export function SpendingSummaryWidget({ config, householdId, dashboardContext }:
   if (!displayData) return <div className="widget-empty">No data yet</div>;
 
   return (
-    <div>
+    <div className={`adaptive-value-widget adaptive-value-widget--${viewport.mode}`}>
       <div className="widget-metric__value">
         {new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(displayData.total)}
       </div>
       <div className="widget-metric__label">{displayData.label}</div>
+      {viewport.mode === "detailed" && overview ? <div className="adaptive-value-widget__breakdown"><span><small>Share of income</small><strong>{overview.income > 0 ? Math.round((overview.outgoings / overview.income) * 100) : 0}%</strong></span><span><small>After spending</small><strong>{new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(overview.income - overview.outgoings)}</strong></span></div> : null}
+      {viewport.mode === "immersive" && dashboardContext?.calendar ? <WidgetTrendChart points={dashboardContext.calendar.months.map((month) => ({ label: month.label.slice(0, 3), value: month.outgoings, kind: month.month === dashboardContext.calendar?.selectedMonth ? "today" : "actual" }))} format={(value) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(value)} area={false} /> : null}
     </div>
   );
 }

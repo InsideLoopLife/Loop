@@ -89,6 +89,17 @@ type PayEventOverride = {
   net_pay_override: number | null;
 };
 
+type FinancialPositionSnapshot = {
+  snapshot_date: string;
+  net_worth: number | null;
+  total_assets: number | null;
+  total_liabilities: number | null;
+  investment_value: number | null;
+  savings_value: number | null;
+  pension_value: number | null;
+  property_equity: number | null;
+};
+
 type ChildCost = {
   id: string;
   child_id: string | null;
@@ -642,7 +653,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
   const householdVisibleFilter = visibleDataOrFilter(householdContext);
   const wealthUserIds = householdContext.householdId ? householdContext.memberUserIds : [dataOwnerUserId];
 
-  const [{ data: profile }, { data: dashboardPrefs }, { data: categories }, { data: childCosts }, { data: people }, { data: payEvents }, { data: mortgageDeals }, { data: plannedItems }, { data: incomeEntries }, { data: dealBills }, { data: payOverrides }, wealthSummary, investmentPensionPerformance] = await Promise.all([
+  const [{ data: profile }, { data: dashboardPrefs }, { data: categories }, { data: childCosts }, { data: people }, { data: payEvents }, { data: mortgageDeals }, { data: plannedItems }, { data: incomeEntries }, { data: dealBills }, { data: payOverrides }, wealthSummary, investmentPensionPerformance, { data: positionSnapshots }] = await Promise.all([
     dataClient
       .from("financial_profiles")
       .select("name, annual_salary, monthly_take_home, monthly_dividends, pension_percent, student_loan_plan, monthly_mortgage, monthly_savings_target")
@@ -704,6 +715,13 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
       .returns<PayEventOverride[]>(),
     buildWealthSummary(dataClient, dataOwnerUserId, selectedMonth).catch(() => null),
     buildMonthlyInvestmentPensionPerformance(dataClient, wealthUserIds, selectedMonth).catch(() => null),
+    dataClient
+      .from("financial_position_snapshots")
+      .select("snapshot_date, net_worth, total_assets, total_liabilities, investment_value, savings_value, pension_value, property_equity")
+      .eq("user_id", dataOwnerUserId)
+      .gte("snapshot_date", `${selectedYear - 1}-01-01`)
+      .order("snapshot_date", { ascending: true })
+      .returns<FinancialPositionSnapshot[]>(),
   ]);
 
   const typedProfile = profile as FinancialProfile | null;
@@ -728,6 +746,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
     rawPayRows = (payByPerson ?? []) as PayEvent[];
   }
   const payRows = rawPayRows.map((event) => ({ ...event, overrides: overridesByEvent.get(event.id) || [] }));
+  const pensionMonthlyContribution = payRows.reduce((sum, event) => sum + Math.max(0, Number(event.gross_annual_salary || 0) / 12 * Number(event.pension_percent || 0) / 100), 0);
   let incomeEntryRows = (incomeEntries ?? []) as IncomeEntry[];
   if (incomeEntryRows.length === 0 && peopleRows.length > 0) {
     const { data: incomeByPerson } = await dataClient
@@ -853,13 +872,13 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
 
   return (
     <>
-      <main className="mx-auto max-w-7xl space-y-7 px-4 py-6 sm:px-6 lg:px-8">
+      <main className="loop-overview-page mx-auto w-full max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         <section className="relative overflow-hidden rounded-[2.25rem] border border-white/70 bg-slate-950 p-6 text-white shadow-[0_36px_110px_-64px_rgba(15,23,42,.9)] md:p-8">
           <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-orange-500/30 blur-3xl" />
           <div className="absolute -bottom-32 left-1/3 h-72 w-72 rounded-full bg-emerald-400/20 blur-3xl" />
           <div className="relative">
             <p className="text-xs font-black uppercase tracking-[0.24em] text-orange-200">{selectedPlan.label}</p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">{firstName ? `Hey ${firstName},` : "Hey,"} here's how things are looking</h1>
+            <h1 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">{firstName ? `Hey ${firstName},` : "Hey,"} here&apos;s how things are looking</h1>
             <p className="mt-3 max-w-2xl text-sm font-medium text-slate-300">{performanceSummary}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <span className={`rounded-full px-3 py-1.5 text-xs font-black ${selectedPlan.surplus >= 1000 ? "bg-emerald-400/20 text-emerald-100" : selectedPlan.surplus >= 0 ? "bg-amber-400/20 text-amber-100" : "bg-red-400/20 text-red-100"}`}>{selectedPlan.surplus >= 1000 ? "Comfortable" : selectedPlan.surplus >= 0 ? "Tight but positive" : "Shortfall"}</span>
@@ -915,7 +934,18 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
               investmentValue: wealthSummary?.investmentValue || 0,
               pensionChange: pensionsPerf?.changeAmount || 0,
               investmentChange: investmentsPerf?.changeAmount || 0,
+              pensionMonthlyContribution,
             },
+            positionHistory: ((positionSnapshots ?? []) as FinancialPositionSnapshot[]).map((snapshot) => ({
+              date: snapshot.snapshot_date,
+              netWorth: Number(snapshot.net_worth || 0),
+              assets: Number(snapshot.total_assets || 0),
+              liabilities: Number(snapshot.total_liabilities || 0),
+              investmentValue: Number(snapshot.investment_value || 0),
+              pensionValue: Number(snapshot.pension_value || 0),
+              savingsValue: Number(snapshot.savings_value || 0),
+              propertyEquity: Number(snapshot.property_equity || 0),
+            })),
             calendar: {
               selectedYear,
               selectedMonth,
