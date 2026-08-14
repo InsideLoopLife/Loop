@@ -818,6 +818,26 @@ function AllocationBar({ funds }: { funds: PensionFund[] }) {
     </div>
   );
 }
+
+function ThreadIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M3 12h18" />
+      <circle cx="6" cy="12" r="2.25" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="2.25" fill="currentColor" stroke="none" />
+      <circle cx="18" cy="12" r="2.25" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
 function ProviderLogo({ provider }: { provider: string }) {
   const meta = providerLogoMeta(provider);
   return (
@@ -7176,6 +7196,10 @@ export function PensionsInvestmentsClient({
   const [expandedPensionAccountIds, setExpandedPensionAccountIds] = useState<
     Set<string>
   >(new Set());
+  const [pensionThreadRequest, setPensionThreadRequest] = useState<{
+    accountId: string;
+    nonce: number;
+  } | null>(null);
   const [collapsedInvestmentAccountIds, setCollapsedInvestmentAccountIds] =
     useState<Set<string>>(new Set());
   const [showInvestmentTierInfo, setShowInvestmentTierInfo] = useState(false);
@@ -7193,6 +7217,25 @@ export function PensionsInvestmentsClient({
     router.refresh();
     window.setTimeout(() => document.getElementById(`investment-account-${accountId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 250);
     window.setTimeout(() => setHighlightedAccountId(null), 2600);
+  }
+
+  function openPensionThreads(accountId: string) {
+    setPensionThreadRequest((current) => ({
+      accountId,
+      nonce: (current?.nonce || 0) + 1,
+    }));
+    setExpandedPensionAccountIds((current) => {
+      const next = new Set(current);
+      next.add(accountId);
+      return next;
+    });
+    window.setTimeout(
+      () =>
+        document
+          .getElementById(`pension-threads-${accountId}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      100,
+    );
   }
 
   useEffect(() => {
@@ -8661,20 +8704,61 @@ export function PensionsInvestmentsClient({
                   <OwnerBadge people={people} personId={account.person_id} />
                   <div className="grid min-w-0 lg:grid-cols-[minmax(0,1fr)_360px]">
                     <div className="min-w-0 p-5 sm:p-7">
-                      <div className="flex min-w-0 items-start gap-4">
-                        <ProviderLogo provider={account.provider} />
-                        <div className="min-w-0">
-                          <p className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-600">
-                            {account.pension_type === "work"
-                              ? "Work pension"
-                              : "Private pension"}
-                          </p>
-                          <h2 className="mt-3 truncate text-xl font-black text-slate-950 sm:text-2xl">
-                            {account.label}
-                          </h2>
-                          <p className="mt-1 text-sm font-semibold text-slate-500">
-                            {account.provider} · {ownerName(people, account.person_id)}
-                          </p>
+                      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 items-start gap-4">
+                          <ProviderLogo provider={account.provider} />
+                          <div className="min-w-0">
+                            <p className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-600">
+                              {account.pension_type === "work"
+                                ? "Work pension"
+                                : "Private pension"}
+                            </p>
+                            <h2 className="mt-3 truncate text-xl font-black text-slate-950 sm:text-2xl">
+                              {account.label}
+                            </h2>
+                            <p className="mt-1 text-sm font-semibold text-slate-500">
+                              {account.provider} · {ownerName(people, account.person_id)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedPensionAccountIds((current) => {
+                                const next = new Set(current);
+                                next.add(account.id);
+                                return next;
+                              })
+                            }
+                            aria-expanded="false"
+                            className="inline-flex items-center gap-1 rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white"
+                          >
+                            <ChevronDown className="h-3.5 w-3.5" /> Expand
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openPensionThreads(account.id)}
+                            className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-2 text-xs font-black text-blue-700"
+                            title="Open the complete contribution thread"
+                          >
+                            <ThreadIcon className="h-3.5 w-3.5" /> Threads
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setModal({ type: "edit-pension-account", account })
+                            }
+                            className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"
+                          >
+                            <Settings className="h-3.5 w-3.5" /> Settings
+                          </button>
+                          <form action={deletePensionAccount}>
+                            <input type="hidden" name="id" value={account.id} />
+                            <button className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600">
+                              Delete
+                            </button>
+                          </form>
                         </div>
                       </div>
 
@@ -8706,38 +8790,9 @@ export function PensionsInvestmentsClient({
                         </div>
                       </div>
 
-                      {funds.length ? (
-                        <div className="mt-5 flex flex-wrap gap-2">
-                          {funds.map((fund) => {
-                            const allocation =
-                              total > 0 ? (valueOfFund(fund) / total) * 100 : 0;
-                            return (
-                              <span
-                                key={`compact-fund-${fund.id}`}
-                                className="max-w-full truncate rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600"
-                                title={fund.fund_name}
-                              >
-                                {fund.fund_name} · {allocation.toFixed(1)}%
-                              </span>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpandedPensionAccountIds((current) => {
-                            const next = new Set(current);
-                            next.add(account.id);
-                            return next;
-                          })
-                        }
-                        aria-expanded="false"
-                        className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white sm:w-auto"
-                      >
-                        View full breakdown <ChevronDown className="h-4 w-4" />
-                      </button>
+                      <div className="mt-5" aria-label="Current pension fund allocation">
+                        <AllocationBar funds={funds} />
+                      </div>
                     </div>
                     <aside className="min-w-0 bg-gradient-to-br from-teal-950 to-slate-900 p-5 text-white sm:p-7">
                       <p className="text-xs font-black uppercase tracking-[0.22em] text-teal-300">
@@ -8800,6 +8855,14 @@ export function PensionsInvestmentsClient({
                         ) : null}
                         <button
                           type="button"
+                          onClick={() => openPensionThreads(account.id)}
+                          className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-2 text-xs font-black text-blue-700"
+                          title="Open the complete contribution thread"
+                        >
+                          <ThreadIcon className="h-3.5 w-3.5" /> Threads
+                        </button>
+                        <button
+                          type="button"
                           onClick={() =>
                             setModal({ type: "edit-pension-account", account })
                           }
@@ -8819,23 +8882,30 @@ export function PensionsInvestmentsClient({
                     <div className="mt-6">
                       <AllocationBar funds={funds} />
                     </div>
-                    <CollapsibleSection
-                      title="Pension contribution summary"
-                      subtitle="Combined employee, employer and NI contributions across this pension"
-                      badge={
-                        <span className="rounded-full bg-teal-600 px-3 py-1.5 text-xs font-black text-white">
-                          {accountContributionEvents.filter((event) => event.pension_account_id === account.id || (event.pension_fund_id ? funds.some((fund) => fund.id === event.pension_fund_id) : false)).length
-                            ? "Has events"
-                            : "No events yet"}
-                        </span>
-                      }
+                    <div
+                      id={`pension-threads-${account.id}`}
+                      className="scroll-mt-28"
                     >
-                      <PensionContributionThread
-                        account={account}
-                        funds={funds}
-                        events={accountContributionEvents}
-                      />
-                    </CollapsibleSection>
+                      <CollapsibleSection
+                        key={`pension-summary-${account.id}-${pensionThreadRequest?.accountId === account.id ? pensionThreadRequest.nonce : 0}`}
+                        title="Pension contribution summary"
+                        subtitle="Combined employee, employer and NI contributions across this pension"
+                        defaultOpen={pensionThreadRequest?.accountId === account.id}
+                        badge={
+                          <span className="rounded-full bg-teal-600 px-3 py-1.5 text-xs font-black text-white">
+                            {accountContributionEvents.filter((event) => event.pension_account_id === account.id || (event.pension_fund_id ? funds.some((fund) => fund.id === event.pension_fund_id) : false)).length
+                              ? "Has events"
+                              : "No events yet"}
+                          </span>
+                        }
+                      >
+                        <PensionContributionThread
+                          account={account}
+                          funds={funds}
+                          events={accountContributionEvents}
+                        />
+                      </CollapsibleSection>
+                    </div>
                     <div className="mt-5 space-y-3">
                       {funds.map((fund) => (
                         <article
