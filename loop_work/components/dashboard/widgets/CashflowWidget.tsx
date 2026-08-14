@@ -18,25 +18,35 @@ const SEGMENTS = [
   { label: "Other", value: 5, color: "var(--c-blue-400, #378ADD)" },
 ];
 
-export function CashflowWidget({ size }: WidgetProps) {
+export function CashflowWidget({ size, dashboardContext }: WidgetProps) {
+  const overview = dashboardContext?.overview;
+  const segments = overview && overview.income > 0 ? [
+    { label: "Spending", value: Math.max(0, (overview.outgoings / overview.income) * 100), color: "var(--c-coral-400, #D85A30)" },
+    { label: "Savings", value: Math.max(0, (overview.savings / overview.income) * 100), color: "var(--c-teal-400, #1D9E75)" },
+    { label: "Left over", value: Math.max(0, (overview.leftOver / overview.income) * 100), color: "var(--c-purple-400, #7F77DD)" },
+  ] : SEGMENTS;
   if (size.tier === "compact") {
-    return <CashflowPie />;
+    return <CashflowPie segments={segments} />;
   }
   if (size.tier === "expanded") {
     return (
       <div className="widget-cashflow widget-cashflow--expanded">
-        {/* <CashflowSankey householdId={householdId} /> */}
-        <div className="widget-empty">Wire up full CashflowSankey here</div>
+        <CashflowBars segments={segments} />
+        <div className="widget-cashflow__legend">
+          {segments.map((segment) => (
+            <span key={segment.label}><i style={{ background: segment.color }} />{segment.label}<strong>{Math.round(segment.value)}%</strong></span>
+          ))}
+        </div>
       </div>
     );
   }
-  return <CashflowBars />;
+  return <CashflowBars segments={segments} />;
 }
 
-function CashflowBars() {
+function CashflowBars({ segments }: { segments: typeof SEGMENTS }) {
   return (
     <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 44 }}>
-      {SEGMENTS.map((s) => (
+      {segments.map((s) => (
         <div
           key={s.label}
           title={`${s.label}: ${s.value}%`}
@@ -52,12 +62,12 @@ function CashflowBars() {
   );
 }
 
-function CashflowPie() {
-  let cumulative = 0;
-  const stops = SEGMENTS.map((s) => {
-    const start = cumulative;
-    cumulative += s.value;
-    return `${s.color} ${start}% ${cumulative}%`;
+function CashflowPie({ segments }: { segments: typeof SEGMENTS }) {
+  const total = segments.reduce((sum, segment) => sum + segment.value, 0) || 1;
+  const stops = segments.map((segment, index) => {
+    const start = segments.slice(0, index).reduce((sum, item) => sum + (item.value / total) * 100, 0);
+    const end = start + (segment.value / total) * 100;
+    return `${segment.color} ${start}% ${end}%`;
   }).join(", ");
 
   return (

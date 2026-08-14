@@ -10,8 +10,20 @@ import { InvestmentSummaryWidget } from "@/components/dashboard/widgets/Investme
 import { SpendingSummaryWidget } from "@/components/dashboard/widgets/SpendingSummaryWidget";
 import { IncomeSummaryWidget } from "@/components/dashboard/widgets/IncomeSummaryWidget";
 import { CashflowWidget } from "@/components/dashboard/widgets/CashflowWidget";
+import { CalendarWidget } from "@/components/dashboard/widgets/CalendarWidget";
 
 export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
+  calendar: {
+    type: "calendar",
+    label: "Year calendar",
+    description: "See income, commitments and what is left across the year.",
+    icon: "ti-calendar-stats",
+    needsMemberScope: false,
+    defaultSize: { w: 4, h: 3 },
+    minSize: { w: 2, h: 2 },
+    maxSize: { w: 4, h: 4 },
+    component: CalendarWidget,
+  },
   net_worth: {
     type: "net_worth",
     label: "Net worth",

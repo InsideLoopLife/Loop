@@ -728,6 +728,7 @@ function NavInner() {
     return (
       <>
         {overlays}
+        <div id="loop-page-actions" className="fixed right-6 top-5 z-30 hidden items-center lg:flex" />
         <button
           onClick={() => setMobileOpen(true)}
           className="fixed left-4 top-4 z-50 grid h-11 w-11 place-items-center rounded-2xl bg-slate-950 text-white shadow-xl lg:hidden"
@@ -875,6 +876,7 @@ function NavInner() {
                   <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-violet-600 ring-2 ring-white" />
                 ) : null}
               </button>
+              <div id="loop-page-actions" className="hidden shrink-0 items-center md:flex" />
           </div>
         </div>
       </header>

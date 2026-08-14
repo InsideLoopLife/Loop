@@ -23,13 +23,15 @@ interface InvestmentData {
   holdings: Holding[];
 }
 
-export function InvestmentSummaryWidget({ config, householdId, size }: WidgetProps) {
+export function InvestmentSummaryWidget({ config, householdId, size, dashboardContext }: WidgetProps) {
   const [data, setData] = useState<InvestmentData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (config.scope?.kind !== "member" && dashboardContext?.overview) {
+      return;
+    }
     let cancelled = false;
-    setLoading(true);
     const memberId = config.scope?.kind === "member" ? config.scope.memberId : undefined;
 
     fetch(
@@ -46,20 +48,25 @@ export function InvestmentSummaryWidget({ config, householdId, size }: WidgetPro
     return () => {
       cancelled = true;
     };
-  }, [householdId, config.scope]);
+  }, [householdId, config.scope, dashboardContext?.overview]);
 
-  if (loading) return <div className="widget-skeleton" />;
-  if (!data) return <div className="widget-empty">No data yet</div>;
+  const overview = config.scope?.kind !== "member" ? dashboardContext?.overview : undefined;
+  const displayData = overview ? { total: overview.investmentValue, holdings: [] } : data;
+
+  if (loading && !overview) return <div className="widget-skeleton" />;
+  if (!displayData) return <div className="widget-empty">No data yet</div>;
 
   const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
 
   return (
     <div>
-      <div className="widget-metric__value">{currency.format(data.total)}</div>
+      <div className="widget-metric__value">{currency.format(displayData.total)}</div>
+
+      {overview ? <div className="widget-metric__label">{overview.investmentChange >= 0 ? "+" : ""}{currency.format(overview.investmentChange)} this month</div> : null}
 
       {size.tier === "compact" ? null : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-          {data.holdings.slice(0, size.tier === "expanded" ? 6 : 3).map((h) => (
+          {displayData.holdings.slice(0, size.tier === "expanded" ? 6 : 3).map((h) => (
             <div key={h.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
               <span style={{ color: "var(--text-secondary)" }}>{h.name}</span>
               <span style={{ color: h.changePercent >= 0 ? "var(--text-success)" : "var(--text-danger)" }}>
@@ -71,7 +78,7 @@ export function InvestmentSummaryWidget({ config, householdId, size }: WidgetPro
         </div>
       )}
 
-      {size.tier === "expanded" && (
+      {size.tier === "expanded" && !overview && (
         <div style={{ marginTop: 12, height: 80 }}>
           {/* TODO: real per-unit price chart, e.g. <AssetPriceChart ... /> */}
           <div className="widget-empty">Price chart goes here</div>

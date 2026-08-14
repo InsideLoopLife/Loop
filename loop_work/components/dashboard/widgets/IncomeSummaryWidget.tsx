@@ -21,13 +21,15 @@ interface IncomeData {
   sources: IncomeSource[];
 }
 
-export function IncomeSummaryWidget({ config, householdId, size }: WidgetProps) {
+export function IncomeSummaryWidget({ config, householdId, size, dashboardContext }: WidgetProps) {
   const [data, setData] = useState<IncomeData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (config.scope?.kind !== "member" && dashboardContext?.overview) {
+      return;
+    }
     let cancelled = false;
-    setLoading(true);
     const memberId = config.scope?.kind === "member" ? config.scope.memberId : undefined;
 
     fetch(`/api/income/summary?householdId=${householdId}${memberId ? `&memberId=${memberId}` : ""}`)
@@ -42,21 +44,24 @@ export function IncomeSummaryWidget({ config, householdId, size }: WidgetProps) 
     return () => {
       cancelled = true;
     };
-  }, [householdId, config.scope]);
+  }, [householdId, config.scope, dashboardContext?.overview]);
 
-  if (loading) return <div className="widget-skeleton" />;
-  if (!data) return <div className="widget-empty">No data yet</div>;
+  const overview = config.scope?.kind !== "member" ? dashboardContext?.overview : undefined;
+  const displayData = overview ? { total: overview.income, sources: [] } : data;
+
+  if (loading && !overview) return <div className="widget-skeleton" />;
+  if (!displayData) return <div className="widget-empty">No data yet</div>;
 
   const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
 
   return (
     <div>
-      <div className="widget-metric__value">{currency.format(data.total)}</div>
+      <div className="widget-metric__value">{currency.format(displayData.total)}</div>
       <div className="widget-metric__label">This month</div>
 
-      {size.tier === "expanded" && (
+      {size.tier === "expanded" && displayData.sources.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-          {data.sources.map((s) => (
+          {displayData.sources.map((s) => (
             <div key={s.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
               <span style={{ color: "var(--text-secondary)" }}>{s.label}</span>
               <span>{currency.format(s.amount)}</span>

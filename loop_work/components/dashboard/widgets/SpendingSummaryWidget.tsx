@@ -8,13 +8,15 @@
 import { useEffect, useState } from "react";
 import type { WidgetProps } from "@/lib/dashboard/types";
 
-export function SpendingSummaryWidget({ config, householdId }: WidgetProps) {
+export function SpendingSummaryWidget({ config, householdId, dashboardContext }: WidgetProps) {
   const [data, setData] = useState<{ total: number; label: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (config.scope?.kind !== "member" && dashboardContext?.overview) {
+      return;
+    }
     let cancelled = false;
-    setLoading(true);
 
     const memberId = config.scope?.kind === "member" ? config.scope.memberId : undefined;
 
@@ -30,17 +32,20 @@ export function SpendingSummaryWidget({ config, householdId }: WidgetProps) {
     return () => {
       cancelled = true;
     };
-  }, [householdId, config.scope]);
+  }, [householdId, config.scope, dashboardContext?.overview]);
 
-  if (loading) return <div className="widget-skeleton" />;
-  if (!data) return <div className="widget-empty">No data yet</div>;
+  const overview = config.scope?.kind !== "member" ? dashboardContext?.overview : undefined;
+  const displayData = overview ? { total: overview.outgoings, label: "Committed this month" } : data;
+
+  if (loading && !overview) return <div className="widget-skeleton" />;
+  if (!displayData) return <div className="widget-empty">No data yet</div>;
 
   return (
     <div>
       <div className="widget-metric__value">
-        {new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(data.total)}
+        {new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(displayData.total)}
       </div>
-      <div className="widget-metric__label">{data.label}</div>
+      <div className="widget-metric__label">{displayData.label}</div>
     </div>
   );
 }

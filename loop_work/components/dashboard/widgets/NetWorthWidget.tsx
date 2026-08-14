@@ -21,13 +21,15 @@ interface NetWorthData {
   currency: string;
 }
 
-export function NetWorthWidget({ config, householdId }: WidgetProps) {
+export function NetWorthWidget({ config, householdId, dashboardContext }: WidgetProps) {
   const [data, setData] = useState<NetWorthData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (config.scope?.kind !== "member" && dashboardContext?.overview) {
+      return;
+    }
     let cancelled = false;
-    setLoading(true);
 
     const memberId = config.scope?.kind === "member" ? config.scope.memberId : undefined;
 
@@ -46,29 +48,37 @@ export function NetWorthWidget({ config, householdId }: WidgetProps) {
     return () => {
       cancelled = true;
     };
-  }, [householdId, config.scope]);
+  }, [householdId, config.scope, dashboardContext?.overview]);
 
-  if (loading) {
+  const overview = config.scope?.kind !== "member" ? dashboardContext?.overview : undefined;
+  const displayData = overview
+    ? { total: overview.netWorth, changePercent: 0, currency: "GBP" }
+    : data;
+
+  if (loading && !overview) {
     return <div className="widget-skeleton" />;
   }
 
-  if (!data) {
+  if (!displayData) {
     return <div className="widget-empty">No data yet</div>;
   }
 
-  const isPositive = data.changePercent >= 0;
+  const isPositive = displayData.changePercent >= 0;
 
   return (
     <div>
       <div className="widget-metric__value">
-        {new Intl.NumberFormat("en-GB", { style: "currency", currency: data.currency }).format(
-          data.total
+        {new Intl.NumberFormat("en-GB", { style: "currency", currency: displayData.currency }).format(
+          displayData.total
         )}
       </div>
-      <div className={`widget-metric__change ${isPositive ? "positive" : "negative"}`}>
-        {isPositive ? "+" : ""}
-        {data.changePercent.toFixed(1)}% this month
-      </div>
+      {overview ? (
+        <div className="widget-metric__label">Assets {new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(overview.assets)} · liabilities {new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(overview.liabilities)}</div>
+      ) : (
+        <div className={`widget-metric__change ${isPositive ? "positive" : "negative"}`}>
+          {isPositive ? "+" : ""}{displayData.changePercent.toFixed(1)}% this month
+        </div>
+      )}
     </div>
   );
 }

@@ -1,13 +1,15 @@
 // components/dashboard/DashboardGrid.tsx
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
+import { Check, LayoutGrid, Plus, Sparkles } from "lucide-react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout/legacy";
 import { WidgetShell } from "./WidgetShell";
 import { AddWidgetPanel } from "./AddWidgetPanel";
 import { getWidgetDefinition } from "@/lib/dashboard/widget-registry";
 import { getSizeTier } from "@/lib/dashboard/size-tiers";
-import type { DashboardWidgetRecord, WidgetConfig } from "@/lib/dashboard/types";
+import type { DashboardWidgetContext, DashboardWidgetRecord, WidgetConfig } from "@/lib/dashboard/types";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import "./dashboard-grid.css"; // handle styling for n/s/e/w + corners, see that file
@@ -33,12 +35,51 @@ const RESIZE_HANDLES: Array<"s" | "w" | "e" | "n" | "sw" | "nw" | "se" | "ne"> =
 interface DashboardGridProps {
   householdId: string;
   initialWidgets: DashboardWidgetRecord[];
+  dashboardContext?: DashboardWidgetContext;
 }
 
-export function DashboardGrid({ householdId, initialWidgets }: DashboardGridProps) {
+export function DashboardGrid({ householdId, initialWidgets, dashboardContext }: DashboardGridProps) {
   const [widgets, setWidgets] = useState(initialWidgets);
   const [editing, setEditing] = useState(false);
   const [addPanelOpen, setAddPanelOpen] = useState(false);
+  const [actionTarget, setActionTarget] = useState<HTMLElement | null>(null);
+  const longPressTimer = useRef<number | null>(null);
+  const pressOrigin = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const findTarget = () => setActionTarget(document.getElementById("loop-page-actions"));
+    findTarget();
+    const observer = new MutationObserver(findTarget);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => () => {
+    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current);
+  }, []);
+
+  const stopLongPress = useCallback(() => {
+    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+    pressOrigin.current = null;
+  }, []);
+
+  const startLongPress = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (editing || event.pointerType === "mouse") return;
+    const target = event.target as HTMLElement;
+    if (target.closest("a,button,input,select,textarea,[role='button']")) return;
+    pressOrigin.current = { x: event.clientX, y: event.clientY };
+    longPressTimer.current = window.setTimeout(() => {
+      setEditing(true);
+      longPressTimer.current = null;
+      window.navigator.vibrate?.(18);
+    }, 600);
+  }, [editing]);
+
+  const moveLongPress = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (!pressOrigin.current) return;
+    if (Math.hypot(event.clientX - pressOrigin.current.x, event.clientY - pressOrigin.current.y) > 10) stopLongPress();
+  }, [stopLongPress]);
 
   const layouts = useMemo(() => {
     const lg: Layout = widgets.map((w) => ({
@@ -120,19 +161,50 @@ export function DashboardGrid({ householdId, initialWidgets }: DashboardGridProp
     [householdId]
   );
 
+  const toolbar = (
+    <div className="dashboard-toolbar" aria-label="Overview layout controls">
+      <button className="dashboard-toolbar__button dashboard-toolbar__button--add" onClick={() => { setEditing(true); setAddPanelOpen(true); }}>
+        <Plus aria-hidden="true" /> <span>Add widget</span>
+      </button>
+      <button className={`dashboard-toolbar__button ${editing ? "is-active" : ""}`} onClick={() => setEditing((value) => !value)}>
+        {editing ? <Check aria-hidden="true" /> : <LayoutGrid aria-hidden="true" />}
+        <span>{editing ? "Done" : "Edit layout"}</span>
+      </button>
+    </div>
+  );
+
   return (
-    <div>
-      <div className="dashboard-toolbar">
-        <button onClick={() => setEditing((v) => !v)}>
-          {editing ? "Done" : "Edit layout"}
-        </button>
-        {editing && (
-          <button onClick={() => setAddPanelOpen(true)}>Add widget</button>
-        )}
-      </div>
+    <>
+      {actionTarget ? createPortal(toolbar, actionTarget) : null}
+      <section
+        className={`dashboard-widget-zone ${editing ? "dashboard-widget-zone--editing" : ""}`}
+        onPointerDown={startLongPress}
+        onPointerMove={moveLongPress}
+        onPointerUp={stopLongPress}
+        onPointerCancel={stopLongPress}
+        onContextMenu={(event) => {
+          if (editing && window.matchMedia("(max-width: 767px)").matches) event.preventDefault();
+        }}
+      >
+        <div className="dashboard-widget-zone__heading">
+          <div>
+            <span className="dashboard-widget-zone__accent" />
+            <h2>Your overview</h2>
+            <p>{editing ? "Drag a handle to move a widget, or pull any edge to resize it." : "A flexible view of the information that matters to you."}</p>
+          </div>
+          {editing ? <span className="dashboard-edit-badge"><Sparkles aria-hidden="true" /> Editing</span> : null}
+        </div>
+
+        {widgets.length === 0 ? (
+          <button className="dashboard-widget-empty" onClick={() => { setEditing(true); setAddPanelOpen(true); }}>
+            <span><Plus aria-hidden="true" /></span>
+            <strong>Build your overview</strong>
+            <small>Choose from live previews including net worth, cashflow, pensions and the year calendar.</small>
+          </button>
+        ) : null}
 
       <ResponsiveGridLayout
-        className="layout"
+        className="layout dashboard-widget-grid"
         layouts={layouts}
         cols={COLS}
         breakpoints={BREAKPOINTS}
@@ -166,6 +238,7 @@ export function DashboardGrid({ householdId, initialWidgets }: DashboardGridProp
                   config={widget.config}
                   householdId={householdId}
                   size={{ w: widget.layout_w, h: widget.layout_h, tier }}
+                  dashboardContext={dashboardContext}
                   onConfigChange={(next) => handleConfigChange(widget.id, next)}
                 />
               </WidgetShell>
@@ -174,9 +247,23 @@ export function DashboardGrid({ householdId, initialWidgets }: DashboardGridProp
         })}
       </ResponsiveGridLayout>
 
+        {editing ? (
+          <div className="dashboard-mobile-toolbar">
+            <button onClick={() => setAddPanelOpen(true)}><Plus aria-hidden="true" /> Add widget</button>
+            <button onClick={() => setEditing(false)}><Check aria-hidden="true" /> Done</button>
+          </div>
+        ) : (
+          <button className="dashboard-long-press-hint" onClick={() => setEditing(true)}><LayoutGrid aria-hidden="true" /> Touch and hold anywhere to edit</button>
+        )}
+
       {addPanelOpen && (
-        <AddWidgetPanel onSelect={handleAddWidget} onClose={() => setAddPanelOpen(false)} />
+        <AddWidgetPanel
+          onSelect={handleAddWidget}
+          onClose={() => setAddPanelOpen(false)}
+          activeWidgetTypes={widgets.map((widget) => widget.widget_type)}
+        />
       )}
-    </div>
+      </section>
+    </>
   );
 }

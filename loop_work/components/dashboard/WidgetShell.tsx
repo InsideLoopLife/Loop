@@ -2,6 +2,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { GripVertical, X } from "lucide-react";
 import type { WidgetConfig, WidgetDefinition } from "@/lib/dashboard/types";
 import { ScopeBadge } from "./ScopeBadge";
 
@@ -23,11 +24,11 @@ export function WidgetShell({
   children,
 }: WidgetShellProps) {
   return (
-    <div className="widget-card">
+    <div className={`widget-card ${editing ? "widget-card--editing" : ""}`}>
       <div className="widget-card__header">
         {editing && (
           <span className="widget-drag-handle" title="Drag to move">
-            <i className={`ti ti-grip-vertical`} aria-hidden="true" />
+            <GripVertical aria-hidden="true" />
           </span>
         )}
         <span className="widget-card__title">{definition.label}</span>
@@ -45,7 +46,7 @@ export function WidgetShell({
             onClick={onRemove}
             aria-label={`Remove ${definition.label} widget`}
           >
-            <i className="ti ti-x" aria-hidden="true" />
+            <X aria-hidden="true" />
           </button>
         )}
       </div>

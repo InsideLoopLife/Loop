@@ -35,13 +35,44 @@ export interface WidgetSize {
   tier: SizeTier;
 }
 
-// What every widget component receives. Nothing else — a widget must be able
-// to render from config + size alone, it should never reach into page-level state.
+export interface CalendarMonthWidgetData {
+  month: string;
+  label: string;
+  income: number;
+  outgoings: number;
+  surplus: number;
+}
+
+export interface DashboardWidgetContext {
+  overview?: {
+    income: number;
+    outgoings: number;
+    savings: number;
+    leftOver: number;
+    assets: number;
+    liabilities: number;
+    netWorth: number;
+    pensionValue: number;
+    investmentValue: number;
+    pensionChange: number;
+    investmentChange: number;
+  };
+  calendar?: {
+    selectedYear: number;
+    selectedMonth: string;
+    months: CalendarMonthWidgetData[];
+  };
+}
+
+// Shared widget inputs. Dashboard context contains already-computed, serialisable
+// overview data so widgets can reuse the page's canonical totals without issuing
+// duplicate client requests.
 export interface WidgetProps {
   id: string;
   config: WidgetConfig;
   householdId: string;
   size: WidgetSize;
+  dashboardContext?: DashboardWidgetContext;
   onConfigChange: (next: WidgetConfig) => void;
 }
 

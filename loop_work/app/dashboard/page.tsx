@@ -273,28 +273,6 @@ function plannedItemRecurrenceLabel(item: PlannedItem) {
   return "One-off";
 }
 
-// A light seasonal backdrop per calendar month, purely decorative — keeps the year calendar from
-// looking like 12 identical grey boxes and gives a quick visual "where in the year am I" cue.
-const MONTH_THEMES: Record<number, { gradient: string; emoji: string }> = {
-  1: { gradient: "from-sky-50 to-white", emoji: "❄️" },
-  2: { gradient: "from-rose-50 to-white", emoji: "💗" },
-  3: { gradient: "from-emerald-50 to-white", emoji: "🌱" },
-  4: { gradient: "from-lime-50 to-white", emoji: "🌷" },
-  5: { gradient: "from-pink-50 to-white", emoji: "🌸" },
-  6: { gradient: "from-amber-50 to-white", emoji: "☀️" },
-  7: { gradient: "from-orange-50 to-white", emoji: "🏖️" },
-  8: { gradient: "from-yellow-50 to-white", emoji: "🎡" },
-  9: { gradient: "from-amber-100 to-white", emoji: "🍂" },
-  10: { gradient: "from-orange-100 to-white", emoji: "🎃" },
-  11: { gradient: "from-stone-100 to-white", emoji: "🎆" },
-  12: { gradient: "from-red-50 to-white", emoji: "🎄" },
-};
-
-function monthTheme(month: string) {
-  const monthNumber = Number(month.slice(5, 7));
-  return MONTH_THEMES[monthNumber] || { gradient: "from-slate-50 to-white", emoji: "📅" };
-}
-
 function monthsForYear(year: number) {
   return Array.from({ length: 12 }, (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`);
 }
@@ -921,12 +899,36 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
 
 {!hasDashboardData ? <PageLandingExperience kind="overview" /> : null}
 
-        <SectionCard title="Your widgets" description="Drag to rearrange, resize to see more or less detail, or add something new.">
-          <DashboardGrid
-            householdId={householdContext.householdId ?? dataOwnerUserId}
-            initialWidgets={dashboardWidgets ?? []}
-          />
-        </SectionCard>
+        <DashboardGrid
+          householdId={householdContext.householdId ?? dataOwnerUserId}
+          initialWidgets={dashboardWidgets ?? []}
+          dashboardContext={{
+            overview: {
+              income: selectedPlan.income,
+              outgoings: nonSavingsOutgoings,
+              savings: savingsThisMonth,
+              leftOver: selectedPlan.surplus,
+              assets: wealthSummary?.assets || 0,
+              liabilities: wealthSummary?.liabilities || 0,
+              netWorth: wealthSummary?.netWorth || 0,
+              pensionValue: wealthSummary?.pensionValue || 0,
+              investmentValue: wealthSummary?.investmentValue || 0,
+              pensionChange: pensionsPerf?.changeAmount || 0,
+              investmentChange: investmentsPerf?.changeAmount || 0,
+            },
+            calendar: {
+              selectedYear,
+              selectedMonth,
+              months: yearPlans.map(({ month, label, income, outgoings, surplus }) => ({
+                month,
+                label,
+                income,
+                outgoings,
+                surplus,
+              })),
+            },
+          }}
+        />
         {recommendedDealChecks.length > 0 ? (
           <SectionCard title="Recommended deal checks" description="Bills and contracts from Lifestyle that are due soon or have no renewal date set.">
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -946,48 +948,6 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
             </div>
           </SectionCard>
         ) : null}
-
-        <SectionCard title={`${selectedYear} calendar`} description="Click a month to see the income and outgoing lines behind the number.">
-          <div className="mb-4 flex justify-end gap-2">
-            <Link href={`/dashboard?year=${selectedYear - 1}&month=${selectedYear - 1}-${selectedMonth.slice(5, 7)}`} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50">← {selectedYear - 1}</Link>
-            <Link href={`/dashboard?year=${selectedYear + 1}&month=${selectedYear + 1}-${selectedMonth.slice(5, 7)}`} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50">{selectedYear + 1} →</Link>
-          </div>
-          <div
-            className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 sm:grid sm:gap-3 sm:overflow-visible sm:pb-0 sm:mx-0 sm:px-0 sm:grid-cols-2 lg:grid-cols-4"
-            style={{ scrollSnapType: "x mandatory" }}
-          >
-            {yearPlans.map((plan) => {
-              const theme = monthTheme(plan.month);
-              const spendingPct = plan.income > 0 ? Math.min(100, Math.round((plan.outgoings / plan.income) * 100)) : 0;
-              const selected = plan.month === selectedMonth;
-              return (
-                <Link
-                  key={plan.month}
-                  href={`/dashboard?year=${selectedYear}&month=${plan.month}`}
-                  className={`relative w-[210px] shrink-0 overflow-hidden rounded-2xl border bg-gradient-to-br p-4 transition hover:-translate-y-0.5 hover:shadow-sm sm:w-auto ${theme.gradient} ${selected ? "border-orange-300 ring-2 ring-orange-200" : "border-slate-200"}`}
-                  style={{ scrollSnapAlign: "start" }}
-                >
-                  <span className="pointer-events-none absolute -right-2 -top-1 text-3xl opacity-30">{theme.emoji}</span>
-                  <div className="relative flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-slate-950">{plan.label}</p>
-                      <p className="mt-1 text-xs text-slate-500">In {money(plan.income)} · Out {money(plan.outgoings)}</p>
-                    </div>
-                    <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-bold ${plan.surplus >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
-                      {money(plan.surplus)}
-                    </span>
-                  </div>
-                  <div className="relative mt-3">
-                    <div className="h-2 overflow-hidden rounded-full bg-white/70">
-                      <div className={`h-full rounded-full ${spendingPct >= 90 ? "bg-red-500" : spendingPct >= 70 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${spendingPct}%` }} />
-                    </div>
-                    <p className="mt-1 text-[10px] font-bold text-slate-500">{spendingPct}% of income committed</p>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </SectionCard>
 
       </main>
     </>
