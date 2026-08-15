@@ -4,11 +4,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { WidgetSize, WidgetViewport } from "@/lib/dashboard/types";
 
 function deriveViewport(width: number, height: number, isMobile: boolean): WidgetViewport {
-  const mode = width < 360 || height < 150
+  const mode = height < 135
     ? "summary"
-    : width >= 760 && height >= 260
+    : width >= 720 && height >= 250
       ? "immersive"
-      : width >= 480 || height >= 230
+      : width >= 440 || height >= 210
         ? "detailed"
         : "standard";
   const horizon = mode === "immersive" ? (isMobile ? 1 : 6) : mode === "detailed" ? (isMobile ? 1 : 3) : 1;

@@ -31,6 +31,7 @@ export function CashflowWidget({ viewport, dashboardContext }: WidgetProps) {
   if (viewport.mode === "detailed" || viewport.mode === "immersive") {
     return (
       <div className="widget-cashflow widget-cashflow--expanded">
+        {overview ? <div className="widget-cashflow__headline"><strong>{new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(overview.leftOver)}</strong><span>left after spending and savings</span></div> : null}
         <CashflowBars segments={segments} />
         <div className="widget-cashflow__legend">
           {segments.map((segment) => (
@@ -45,7 +46,7 @@ export function CashflowWidget({ viewport, dashboardContext }: WidgetProps) {
 
 function CashflowBars({ segments }: { segments: typeof SEGMENTS }) {
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 44 }}>
+    <div className="widget-cashflow__bars">
       {segments.map((s) => (
         <div
           key={s.label}
@@ -53,7 +54,7 @@ function CashflowBars({ segments }: { segments: typeof SEGMENTS }) {
           style={{
             flex: 1,
             background: s.color,
-            height: `${s.value * 1.8}%`,
+            height: `${Math.min(100, Math.max(8, s.value * 1.55))}%`,
             borderRadius: "4px 4px 0 0",
           }}
         />

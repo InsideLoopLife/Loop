@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import type { WidgetProps } from "@/lib/dashboard/types";
 import { WidgetTrendChart } from "./WidgetTrendChart";
-import { historicalPoints, projectedPoints, projectionHorizon } from "./widget-series";
+import { pensionHistoryPoints, projectedPoints, projectionHorizon } from "./widget-series";
 
 export function PensionSummaryWidget({ config, householdId, dashboardContext, viewport }: WidgetProps) {
   const [data, setData] = useState<{ total: number; label: string } | null>(null);
@@ -43,13 +43,14 @@ export function PensionSummaryWidget({ config, householdId, dashboardContext, vi
   if (!displayData) return <div className="widget-empty">No data yet</div>;
 
   const money = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 });
-  const immersive = viewport.mode === "immersive";
-  const detailed = immersive || viewport.mode === "detailed";
+  const chartVisible = viewport.mode === "detailed" || viewport.mode === "immersive";
+  const detailed = chartVisible;
   const horizon = projectionHorizon(config.preferences?.projectionMonths, viewport);
-  const annualGrowth = config.preferences?.assumedAnnualGrowth ?? 5;
+  const projection = dashboardContext?.pensionProjection;
+  const annualGrowth = projection && !projection.growthIsFallback ? projection.annualGrowthRate : 0;
   const monthlyGrowth = Math.pow(1 + annualGrowth / 100, 1 / 12) - 1;
-  const points = [...historicalPoints(dashboardContext?.positionHistory ?? [], "pensionValue", viewport.historyMonths), { label: "Today", value: displayData.total, kind: "today" as const }];
-  if (config.preferences?.showProjection !== false) points.push(...projectedPoints(displayData.total, horizon, (_index, value) => value * (1 + monthlyGrowth) + (overview?.pensionMonthlyContribution ?? 0)));
+  const points = [...pensionHistoryPoints(dashboardContext?.pensionHistory ?? [], viewport.historyMonths), { label: "Today", value: displayData.total, kind: "today" as const }];
+  if (config.preferences?.showProjection !== false && projection) points.push(...projectedPoints(displayData.total, horizon, (_index, value) => value * (1 + monthlyGrowth) + projection.monthlyContribution));
 
   return (
     <div className={`adaptive-value-widget adaptive-value-widget--${viewport.mode}`}>
@@ -57,8 +58,9 @@ export function PensionSummaryWidget({ config, householdId, dashboardContext, vi
         {new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(displayData.total)}
       </div>
       <div className="widget-metric__label">{displayData.label}</div>
-      {detailed && overview ? <div className="adaptive-value-widget__breakdown"><span><small>Monthly contribution</small><strong>{money.format(overview.pensionMonthlyContribution)}</strong></span><span><small>Projection assumption</small><strong>{annualGrowth}% p.a.</strong></span></div> : null}
-      {immersive ? <WidgetTrendChart points={points} format={(value) => money.format(value)} area={config.preferences?.chartStyle !== "line"} /> : null}
+      {detailed && overview ? <div className="adaptive-value-widget__breakdown"><span><small>Monthly contribution</small><strong>{money.format(projection?.monthlyContribution ?? overview.pensionMonthlyContribution)}</strong></span><span><small>LOOP growth rate</small><strong>{projection && !projection.growthIsFallback ? `${annualGrowth.toFixed(1)}% p.a.` : "Building history"}</strong></span></div> : null}
+      {chartVisible ? <WidgetTrendChart points={points} format={(value) => money.format(value)} area={config.preferences?.chartStyle !== "line"} /> : null}
+      {detailed && projection ? <p className="widget-data-source" title={projection.growthSource}>{projection.growthIsFallback ? "Building pension history" : "From pension fund performance"}{projection.growthAsOfDate ? ` · ${projection.growthAsOfDate}` : ""}</p> : null}
     </div>
   );
 }

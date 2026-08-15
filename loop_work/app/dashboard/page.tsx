@@ -21,8 +21,19 @@ import { calculateMonthlyMortgagePayment } from "@/lib/calculations/mortgage";
 import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
 import { buildWealthSummary } from "@/lib/wealth/summary";
 import { buildMonthlyInvestmentPensionPerformance } from "@/lib/wealth/monthly-performance";
+import {
+  deriveIncomePensionContribution,
+  deriveMonthlyPensionContribution,
+  derivePensionAnnualRate,
+  derivePensionRateScenarios,
+  type PensionContributionForProjection,
+  type PensionPerformanceAssumption,
+  type PensionSnapshotForProjection,
+} from "@/lib/wealth/pension-projection";
 import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
+import { buildDashboardInsightEvidence } from "@/lib/dashboard/dashboard-insight-evidence";
+import type { WidgetInsightData } from "@/lib/dashboard/types";
 
 type FinancialProfile = {
   name: string;
@@ -41,6 +52,8 @@ type SpendingCategory = {
   type: "fixed" | "variable" | "saving" | "debt";
   monthly_budget: number | null;
   category_icon?: string | null;
+  emergency_fund_essential?: boolean | null;
+  spending_category_groups?: { emergency_fund_essential?: boolean | null } | Array<{ emergency_fund_essential?: boolean | null }> | null;
 };
 
 type Person = {
@@ -59,6 +72,11 @@ type PayEvent = {
   monthly_take_home_override: number | null;
   pension_percent: number;
   pension_method: PensionMethod | null;
+  employer_pension_percent?: number | null;
+  employer_pension_monthly_amount?: number | null;
+  employer_ni_topup_enabled?: boolean | null;
+  employer_ni_rate_percent?: number | null;
+  employer_ni_topup_share_percent?: number | null;
   student_loan_plan: StudentLoanPlan;
   effective_from: string;
   effective_until: string | null;
@@ -286,6 +304,14 @@ function plannedItemRecurrenceLabel(item: PlannedItem) {
 
 function monthsForYear(year: number) {
   return Array.from({ length: 12 }, (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`);
+}
+
+function monthsFrom(startMonth: string, count: number) {
+  const [year, monthNumber] = startMonth.split("-").map(Number);
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(year, monthNumber - 1 + index, 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  });
 }
 
 function monthLabel(month: string) {
@@ -653,7 +679,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
   const householdVisibleFilter = visibleDataOrFilter(householdContext);
   const wealthUserIds = householdContext.householdId ? householdContext.memberUserIds : [dataOwnerUserId];
 
-  const [{ data: profile }, { data: dashboardPrefs }, { data: categories }, { data: childCosts }, { data: people }, { data: payEvents }, { data: mortgageDeals }, { data: plannedItems }, { data: incomeEntries }, { data: dealBills }, { data: payOverrides }, wealthSummary, investmentPensionPerformance, { data: positionSnapshots }] = await Promise.all([
+  const [{ data: profile }, { data: dashboardPrefs }, { data: categories }, { data: childCosts }, { data: people }, { data: payEvents }, { data: mortgageDeals }, { data: plannedItems }, { data: incomeEntries }, { data: dealBills }, { data: payOverrides }, wealthSummary, investmentPensionPerformance, { data: positionSnapshots }, { data: pensionSnapshots }, { data: pensionContributionEvents }, { data: pensionPerformanceAssumptions }, insightEvidence] = await Promise.all([
     dataClient
       .from("financial_profiles")
       .select("name, annual_salary, monthly_take_home, monthly_dividends, pension_percent, student_loan_plan, monthly_mortgage, monthly_savings_target")
@@ -666,7 +692,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
       .maybeSingle(),
     dataClient
       .from("spending_categories")
-      .select("id, name, type, monthly_budget, category_icon")
+      .select("id, name, type, monthly_budget, category_icon, emergency_fund_essential, spending_category_groups(emergency_fund_essential)")
       .or(householdVisibleFilter)
       .returns<SpendingCategory[]>(),
     dataClient
@@ -722,6 +748,27 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
       .gte("snapshot_date", `${selectedYear - 1}-01-01`)
       .order("snapshot_date", { ascending: true })
       .returns<FinancialPositionSnapshot[]>(),
+    dataClient
+      .from("pension_fund_value_snapshots")
+      .select("snapshot_date, value, monthly_contribution_applied")
+      .in("user_id", wealthUserIds)
+      .gte("snapshot_date", `${selectedYear - 5}-01-01`)
+      .order("snapshot_date", { ascending: true })
+      .returns<PensionSnapshotForProjection[]>(),
+    dataClient
+      .from("pension_contribution_events")
+      .select("contribution_date, contribution_due_date, investment_date, contribution_amount, employee_amount, employer_amount, employer_ni_topup_amount, fixed_amount, event_status")
+      .in("user_id", wealthUserIds)
+      .gte("contribution_date", `${selectedYear - 5}-01-01`)
+      .order("contribution_date", { ascending: true })
+      .returns<PensionContributionForProjection[]>(),
+    dataClient
+      .from("pension_fund_performance_assumptions")
+      .select("pension_fund_id, pension_account_id, fund_name, current_value, annualised_5y_percent, annualised_10y_percent, as_of_date, source_url, source_name, verified_at")
+      .in("user_id", wealthUserIds)
+      .order("as_of_date", { ascending: false })
+      .returns<PensionPerformanceAssumption[]>(),
+    buildDashboardInsightEvidence(dataClient, wealthUserIds, `${selectedYear}-01-01`),
   ]);
 
   const typedProfile = profile as FinancialProfile | null;
@@ -746,7 +793,17 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
     rawPayRows = (payByPerson ?? []) as PayEvent[];
   }
   const payRows = rawPayRows.map((event) => ({ ...event, overrides: overridesByEvent.get(event.id) || [] }));
-  const pensionMonthlyContribution = payRows.reduce((sum, event) => sum + Math.max(0, Number(event.gross_annual_salary || 0) / 12 * Number(event.pension_percent || 0) / 100), 0);
+  const incomePensionContribution = deriveIncomePensionContribution(payRows, new Date(`${selectedMonth}-01T12:00:00Z`));
+  const recordedPensionContribution = deriveMonthlyPensionContribution(pensionContributionEvents ?? [], incomePensionContribution.monthlyContribution);
+  const pensionMonthlyContribution = recordedPensionContribution.monthlyContribution;
+  const pensionSnapshotRate = derivePensionAnnualRate(pensionSnapshots ?? [], pensionContributionEvents ?? []);
+  const pensionRateScenarios = derivePensionRateScenarios(pensionPerformanceAssumptions ?? [], pensionSnapshotRate);
+  const pensionHistoryByDate = new Map<string, number>();
+  for (const snapshot of pensionSnapshots ?? []) {
+    const date = String(snapshot.snapshot_date || "").slice(0, 10);
+    if (!date) continue;
+    pensionHistoryByDate.set(date, (pensionHistoryByDate.get(date) || 0) + Math.max(0, Number(snapshot.value || 0)));
+  }
   let incomeEntryRows = (incomeEntries ?? []) as IncomeEntry[];
   if (incomeEntryRows.length === 0 && peopleRows.length > 0) {
     const { data: incomeByPerson } = await dataClient
@@ -766,6 +823,17 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
   const peopleById = new Map(peopleRows.map((person) => [person.id, person]));
 
   const yearPlans = monthsForYear(selectedYear).map((month) => buildMonthPlan({
+    month,
+    profile: typedProfile,
+    categories: typedCategories,
+    childCosts: childCostRows,
+    payEvents: payRows,
+    mortgageDeals: mortgageDealRows,
+    plannedItems: plannedItemRows,
+    incomeEntries: incomeEntryRows,
+    peopleById,
+  }));
+  const forecastPlans = monthsFrom(selectedMonth, 12).map((month) => buildMonthPlan({
     month,
     profile: typedProfile,
     categories: typedCategories,
@@ -864,6 +932,77 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
   const investmentsPerf = investmentPensionPerformance?.investments || null;
   const pensionsPerf = investmentPensionPerformance?.pensions || null;
 
+  const compactMoney = (value: number) => formatMoney(value, { precision: "rounded" });
+  const essentialCategoryNames = new Set(typedCategories.filter((category) => {
+    const groups = Array.isArray(category.spending_category_groups) ? category.spending_category_groups : category.spending_category_groups ? [category.spending_category_groups] : [];
+    return Boolean(category.emergency_fund_essential || groups.some((group) => group.emergency_fund_essential));
+  }).map((category) => category.name));
+  const essentialMonthlyOutgoings = selectedPlan.outgoingItems.filter((item) => item.categoryLabel && essentialCategoryNames.has(item.categoryLabel)).reduce((sum, item) => sum + Number(item.value || 0), 0);
+  const runwayMonths = essentialMonthlyOutgoings > 0 ? insightEvidence.savingsBalance / essentialMonthlyOutgoings : 0;
+  const nextPlan = forecastPlans[1] || selectedPlan;
+  const nextPayments = selectedPlan.outgoingItems.filter((item) => Boolean(item.dueDate)).slice(0, 3);
+  const nextPaymentsTotal = nextPayments.reduce((sum, item) => sum + Number(item.value || 0), 0);
+  const familyTrend = forecastPlans.slice(0, 6).map((plan) => ({
+    label: plan.label,
+    value: plan.outgoingItems.filter((item) => ["Childcare", "Activities", "Child cost"].includes(item.categoryLabel || item.helper)).reduce((sum, item) => sum + Number(item.value || 0), 0),
+  }));
+  const currentFamilyCosts = familyTrend[0]?.value || 0;
+  const activePot = insightEvidence.pots.find((pot) => pot.status === "active") || insightEvidence.pots[0] || null;
+  const potCurrent = Number(activePot?.current_allocated_amount || 0);
+  const potTarget = Number(activePot?.target_amount || 0);
+  const potProgress = potTarget > 0 ? potCurrent / potTarget * 100 : 0;
+  const propertyValue = Number(wealthSummary?.propertyAssets || 0);
+  const mortgageDebt = Number(wealthSummary?.mortgageDebt || 0);
+  const homeEquity = propertyValue - mortgageDebt;
+  const ltv = propertyValue > 0 ? mortgageDebt / propertyValue * 100 : 0;
+  const currentMortgage = mortgageDealRows.filter((deal) => !deal.end_date || deal.end_date >= new Date().toISOString().slice(0, 10)).sort((a, b) => String(a.end_date || "9999").localeCompare(String(b.end_date || "9999")))[0] || null;
+  const mortgageDays = currentMortgage?.end_date ? daysUntil(currentMortgage.end_date) : null;
+  const allocationTotal = insightEvidence.allocationRows.reduce((sum, [, value]) => sum + Number(value || 0), 0);
+  const retirementPlan = insightEvidence.retirementPlan;
+  const retirementTarget = Number(retirementPlan?.target_annual_income || 0);
+  const householdTotal = committedOutgoingsByPerson.reduce((sum, row) => sum + row.total, 0);
+  const householdSegments = committedOutgoingsByPerson.slice(0, 4).map((row) => ({ label: row.label, value: row.total }));
+  const freshnessNow = new Date().getTime();
+  const freshnessAges = insightEvidence.timestamps.map((timestamp) => Math.max(0, Math.floor((freshnessNow - new Date(timestamp).getTime()) / 86_400_000))).filter(Number.isFinite);
+  const freshCount = freshnessAges.filter((age) => age <= 7).length;
+  const freshnessPercent = freshnessAges.length > 0 ? freshCount / freshnessAges.length * 100 : 0;
+  const staleCount = freshnessAges.filter((age) => age > 7).length;
+  const nextAction = (() => {
+    if (recommendedDealChecks[0]) return { title: `Review ${recommendedDealChecks[0].provider}`, body: dealRecommendation(recommendedDealChecks[0]), href: "/lifestyle" };
+    if (currentMortgage && mortgageDays !== null && mortgageDays <= 365) return { title: "Review your mortgage", body: `${mortgageDays} days remain on the current deal.`, href: "/mortgage" };
+    if (staleCount > 0) return { title: "Refresh stale data", body: `${staleCount} tracked source${staleCount === 1 ? " is" : "s are"} more than 7 days old.`, href: "/account" };
+    if (selectedPlan.surplus > 100) return { title: "Give available money a job", body: `${compactMoney(selectedPlan.surplus)} remains after known commitments.`, href: "/financial-flow" };
+    return { title: "Complete your financial picture", body: "Add missing accounts or dates to improve LOOP's next action.", href: "/account" };
+  })();
+
+  const insights: Record<string, WidgetInsightData> = {
+    available_money: { value: compactMoney(selectedPlan.surplus), delta: "After every tracked commitment", status: selectedPlan.surplus >= 0 ? "positive" : "negative", segments: [{ label: "Spending", value: nonSavingsOutgoings }, { label: "Savings", value: savingsThisMonth }, { label: "Available", value: Math.max(0, selectedPlan.surplus) }], rows: [{ label: "Income", value: compactMoney(selectedPlan.income) }, { label: "Committed", value: compactMoney(nonSavingsOutgoings) }, { label: "Savings", value: compactMoney(savingsThisMonth) }], source: "Financial Flow · planned items", href: "/financial-flow" },
+    upcoming_payments: { value: compactMoney(nextPaymentsTotal), delta: nextPayments.length ? `${nextPayments.length} dated payment${nextPayments.length === 1 ? "" : "s"} shown` : "No dated payments in this month", empty: nextPayments.length === 0, emptyMessage: "Add payment dates in Financial Flow to unlock this view.", rows: nextPayments.map((item) => ({ label: `${shortDate(item.dueDate)} · ${item.label.split(" · ").pop()}`, value: compactMoney(item.value) })), source: "planned_items · payment dates", href: "/financial-flow" },
+    spending_pressure: { value: `${selectedPlan.income > 0 ? Math.round(nonSavingsOutgoings / selectedPlan.income * 100) : 0}%`, delta: "of this month's income committed", status: nonSavingsOutgoings <= selectedPlan.income ? "positive" : "negative", progress: selectedPlan.income > 0 ? nonSavingsOutgoings / selectedPlan.income * 100 : 0, trend: yearPlans.map((plan) => ({ label: plan.label, value: plan.income > 0 ? plan.outgoings / plan.income * 100 : 0 })), rows: selectedPlan.outgoingItems.slice().sort((a, b) => b.value - a.value).slice(0, 4).map((item) => ({ label: item.label.split(" · ").pop() || item.label, value: compactMoney(item.value) })), source: "Financial Flow calendar", href: "/financial-flow" },
+    income_changes: { value: compactMoney(selectedPlan.income), delta: `${compactMoney(Math.abs(nextPlan.income - selectedPlan.income))} ${nextPlan.income >= selectedPlan.income ? "higher" : "lower"} next month`, status: nextPlan.income >= selectedPlan.income ? "positive" : "warning", trend: forecastPlans.slice(0, 6).map((plan) => ({ label: plan.label, value: plan.income })), rows: selectedPlan.incomeItems.slice(0, 4).map((item) => ({ label: item.label.split(" · ").pop() || item.label, value: compactMoney(item.value) })), source: "pay events + income entries", href: "/income" },
+    family_costs: { value: compactMoney(currentFamilyCosts), delta: currentFamilyCosts > 0 ? `${compactMoney(Math.abs((familyTrend[2]?.value || currentFamilyCosts) - currentFamilyCosts))} change within 3 months` : "No active family costs", empty: currentFamilyCosts <= 0, emptyMessage: "Add childcare or activity costs to see their future drop-off.", trend: familyTrend, rows: selectedPlan.outgoingItems.filter((item) => ["Childcare", "Activities", "Child cost"].includes(item.categoryLabel || item.helper)).slice(0, 4).map((item) => ({ label: item.label, value: compactMoney(item.value) })), source: "child_costs + funding rules", href: "/household" },
+    bills_renewals: { value: String(recommendedDealChecks.length), delta: recommendedDealChecks.length ? "need attention within 90 days" : "No renewals need attention", status: recommendedDealChecks.length ? "warning" : "positive", empty: recommendedDealChecks.length === 0, emptyMessage: "Add contract end and notice dates to track renewals.", rows: recommendedDealChecks.slice(0, 4).map((bill) => ({ label: bill.provider || bill.label, value: bill.contract_end ? shortDate(bill.contract_end) : "Date needed" })), attention: recommendedDealChecks[0] ? { title: recommendedDealChecks[0].label, body: dealRecommendation(recommendedDealChecks[0]) } : undefined, source: "deal_bills · notice dates", href: "/lifestyle" },
+    debt_payoff: { value: compactMoney(wealthSummary?.liabilities || 0), delta: "Total tracked liabilities", status: (wealthSummary?.liabilities || 0) > 0 ? "warning" : "positive", trend: ((positionSnapshots ?? []) as FinancialPositionSnapshot[]).map((row) => ({ label: row.snapshot_date, value: Number(row.total_liabilities || 0) })), rows: [{ label: "Mortgage", value: compactMoney(mortgageDebt) }, { label: "Other liabilities", value: compactMoney(Math.max(0, (wealthSummary?.liabilities || 0) - mortgageDebt)) }], source: "financial accounts + mortgages", href: "/net-worth" },
+    savings_pots: { value: compactMoney(insightEvidence.savingsBalance), delta: `${insightEvidence.pots.length} tracked pot${insightEvidence.pots.length === 1 ? "" : "s"}`, empty: insightEvidence.savingsBalance <= 0 && insightEvidence.pots.length === 0, emptyMessage: "Add a savings account or pot to start tracking progress.", segments: insightEvidence.pots.slice(0, 4).map((pot) => ({ label: String(pot.name), value: Number(pot.current_allocated_amount || 0) })), rows: insightEvidence.pots.slice(0, 4).map((pot) => ({ label: String(pot.name), value: compactMoney(Number(pot.current_allocated_amount || 0)) })), source: "financial_accounts + savings_pots", href: "/accounts?tab=savings" },
+    emergency_runway: { value: essentialMonthlyOutgoings > 0 ? `${runwayMonths.toFixed(1)} months` : "Set essentials", delta: essentialMonthlyOutgoings > 0 ? `${compactMoney(essentialMonthlyOutgoings)} essential monthly cost` : "Choose which spending is essential", empty: essentialMonthlyOutgoings <= 0, emptyMessage: "Mark spending categories or groups as essential to calculate runway.", progress: runwayMonths / 6 * 100, rows: [{ label: "Accessible savings", value: compactMoney(insightEvidence.savingsBalance) }, { label: "Six-month target", value: compactMoney(essentialMonthlyOutgoings * 6) }], source: "essential spending flags + savings", href: "/accounts?tab=savings" },
+    goal_progress: { value: activePot && potTarget > 0 ? `${Math.round(potProgress)}%` : "No active goal", delta: activePot ? String(activePot.name) : "Create a savings pot", empty: !activePot || potTarget <= 0, emptyMessage: "Give a pot a target amount to unlock goal progress.", progress: potProgress, rows: activePot ? [{ label: "Saved", value: compactMoney(potCurrent) }, { label: "Target", value: compactMoney(potTarget) }, { label: "Target date", value: activePot.target_date ? shortDate(String(activePot.target_date)) : "Not set" }] : [], source: "savings_pots + allocations", href: "/accounts?tab=savings" },
+    interest_earned: { value: compactMoney(insightEvidence.confirmedInterest), delta: insightEvidence.savingsBalance > 0 ? `${insightEvidence.blendedSavingsRate.toFixed(2)}% blended tracked rate` : "No savings balance tracked", empty: insightEvidence.savingsBalance <= 0, emptyMessage: "Add an interest rate to a savings account to track this.", rows: [{ label: "Deposited", value: compactMoney(insightEvidence.deposits) }, { label: "Withdrawn", value: compactMoney(insightEvidence.withdrawals) }, { label: "Confirmed interest", value: compactMoney(insightEvidence.confirmedInterest) }], trend: insightEvidence.movements.map((movement) => ({ label: String(movement.effective_at || movement.created_at), value: Number(movement.amount || 0) })), source: "savings_account_movements", href: "/accounts?tab=savings" },
+    isa_allowance: { value: insightEvidence.isaRemaining > 0 ? `${compactMoney(insightEvidence.isaRemaining)} left` : "Allowance not synced", delta: insightEvidence.isaSubscribed > 0 ? `${compactMoney(insightEvidence.isaSubscribed)} provider-confirmed subscription` : "Connect or update an ISA account", empty: insightEvidence.isaRemaining <= 0 && insightEvidence.isaSubscribed <= 0, emptyMessage: "LOOP will only show allowance where a provider or account record supplies it.", progress: insightEvidence.isaRemaining + insightEvidence.isaSubscribed > 0 ? insightEvidence.isaSubscribed / (insightEvidence.isaRemaining + insightEvidence.isaSubscribed) * 100 : 0, source: "investment_accounts · provider ISA fields", href: "/investments" },
+    home_equity: { value: compactMoney(homeEquity), delta: propertyValue > 0 ? `${(100 - ltv).toFixed(1)}% estimated equity` : "No tracked property", empty: propertyValue <= 0, emptyMessage: "Add a home valuation to calculate equity.", segments: [{ label: "Equity", value: Math.max(0, homeEquity) }, { label: "Mortgage", value: Math.max(0, mortgageDebt) }], rows: [{ label: "Property value", value: compactMoney(propertyValue) }, { label: "Mortgage", value: compactMoney(mortgageDebt) }], source: "homes + valuations + mortgages", href: "/mortgage" },
+    mortgage_countdown: { value: mortgageDays !== null ? `${Math.max(0, Math.ceil(mortgageDays / 30.44))} months` : "End date needed", delta: currentMortgage?.end_date ? `Current deal ends ${shortDate(currentMortgage.end_date)}` : "Add the fixed-deal end date", empty: !currentMortgage?.end_date, emptyMessage: "Set the current mortgage deal end date to start the countdown.", progress: mortgageDays !== null ? Math.min(100, Math.max(0, 100 - mortgageDays / 3.65)) : 0, rows: currentMortgage ? [{ label: "Lender", value: currentMortgage.lender || "Not set" }, { label: "Rate", value: `${Number(currentMortgage.interest_rate || 0).toFixed(2)}%` }, { label: "Balance", value: compactMoney(currentMortgage.balance) }] : [], source: "home_mortgage_deals", href: "/mortgage" },
+    affordability_snapshot: { value: "Open the lab", delta: "Uses income, commitments and deposit", empty: true, emptyMessage: "Run the Affordability Lab once to save a traceable scenario here.", source: "Affordability Lab scenario", href: "/affordability-lab" },
+    portfolio_allocation: { value: compactMoney(insightEvidence.investmentValue), delta: `${insightEvidence.allocationRows.length} priced grouping${insightEvidence.allocationRows.length === 1 ? "" : "s"}`, empty: allocationTotal <= 0, emptyMessage: "Add or refresh priced holdings to see allocation.", segments: insightEvidence.allocationRows.slice(0, 4).map(([label, value]) => ({ label, value })), rows: insightEvidence.allocationRows.slice(0, 5).map(([label, value]) => ({ label, value: allocationTotal > 0 ? `${Math.round(value / allocationTotal * 100)}%` : "—" })), source: "investment_holdings · priced values", href: "/investments" },
+    portfolio_movement: { value: compactMoney(insightEvidence.investmentMovement), delta: "Latest weighted priced movement", status: insightEvidence.investmentMovement >= 0 ? "positive" : "negative", empty: insightEvidence.holdings.length === 0, emptyMessage: "Refresh investment prices to calculate movement.", trend: ((positionSnapshots ?? []) as FinancialPositionSnapshot[]).map((row) => ({ label: row.snapshot_date, value: Number(row.investment_value || 0) })), rows: insightEvidence.holdings.slice().sort((a, b) => Math.abs(Number(b.day_change_gbp || 0)) - Math.abs(Number(a.day_change_gbp || 0))).slice(0, 4).map((holding) => ({ label: String(holding.asset_name || holding.group_label || "Holding"), value: compactMoney(Number(holding.day_change_gbp || 0)) })), source: "investment price points + holdings", href: "/investments" },
+    pension_journey: { value: compactMoney(wealthSummary?.pensionValue || 0), delta: pensionRateScenarios.isFallback ? `${compactMoney(pensionMonthlyContribution)} monthly contribution · history building` : `${pensionRateScenarios.middle.toFixed(1)}% verified annualised rate`, empty: (wealthSummary?.pensionValue || 0) <= 0, emptyMessage: "Add a pension account or provider value to begin the journey.", trend: Array.from(pensionHistoryByDate.entries()).map(([label, value]) => ({ label, value })), rows: [{ label: "Monthly contribution", value: compactMoney(pensionMonthlyContribution) }, { label: "This month", value: compactMoney(pensionsPerf?.changeAmount || 0) }, { label: "Growth evidence", value: pensionRateScenarios.isFallback ? "Building history" : pensionRateScenarios.source }], source: pensionRateScenarios.isFallback ? "pension snapshots + contribution events" : "verified pension provider performance", href: "/investments" },
+    retirement_readiness: { value: retirementTarget > 0 ? `${compactMoney(retirementTarget)}/yr` : "Plan not set", delta: retirementPlan ? `Target retirement age ${retirementPlan.retirement_age || "not set"}` : "Create a retirement target", empty: !retirementPlan, emptyMessage: "Set retirement age and desired income to unlock readiness.", rows: retirementPlan ? [{ label: "Current pensions", value: compactMoney(wealthSummary?.pensionValue || 0) }, { label: "Guaranteed income", value: compactMoney(Number(retirementPlan.guaranteed_annual_income || 0)) }, { label: "Legacy target", value: compactMoney(Number(retirementPlan.target_legacy_pot || 0)) }] : [], source: "retirement_plans + verified pension value", href: "/retirement" },
+    fees_drag: { value: compactMoney(insightEvidence.annualFees), delta: "Annualised from saved platform and fund rates", empty: insightEvidence.annualFees <= 0, emptyMessage: "Add provider and fund fee rates to calculate fee drag.", rows: [{ label: "Invested assets", value: compactMoney(insightEvidence.investmentValue + insightEvidence.pensionValue) }, { label: "Effective fee", value: insightEvidence.investmentValue + insightEvidence.pensionValue > 0 ? `${(insightEvidence.annualFees / (insightEvidence.investmentValue + insightEvidence.pensionValue) * 100).toFixed(2)}%` : "—" }], source: "account + fund fee schedules", href: "/investments" },
+    dividends_reinvestment: { value: compactMoney(insightEvidence.dividendCash), delta: "Provider-reported dividend cash", empty: insightEvidence.dividendCash <= 0, emptyMessage: "No provider-confirmed dividend cash is currently available.", source: "investment_accounts · provider cash fields", href: "/investments" },
+    household_contribution: { value: householdSegments.length > 1 && householdTotal > 0 ? householdSegments.slice(0, 2).map((row) => Math.round(row.value / householdTotal * 100)).join(" / ") : "Household", delta: "Share of committed costs", empty: householdSegments.length < 2, emptyMessage: "Assign spending to household members to compare contributions.", segments: householdSegments, rows: householdSegments.map((row) => ({ label: row.label, value: householdTotal > 0 ? `${Math.round(row.value / householdTotal * 100)}% · ${compactMoney(row.value)}` : "—" })), source: "people + assigned outgoings", href: "/household" },
+    what_changed: { value: `${compactMoney(Math.abs(surplusChange))} ${surplusChange >= 0 ? "better" : "lower"}`, delta: `than ${previousMonthPlan.label}`, status: surplusChange >= 0 ? "positive" : "warning", trend: yearPlans.map((plan) => ({ label: plan.label, value: plan.surplus })), attention: { title: performanceSummary, body: biggestOutgoing ? `${biggestOutgoing.label.split(" · ").pop()} is the largest current outgoing.` : "Keep tracking to build a clearer explanation." }, rows: [{ label: "Income change", value: compactMoney(selectedPlan.income - previousMonthPlan.income) }, { label: "Outgoing change", value: compactMoney(selectedPlan.outgoings - previousMonthPlan.outgoings) }, { label: "Investment movement", value: compactMoney(investmentsPerf?.changeAmount || 0) }], source: "monthly plans + wealth snapshots", href: "/financial-flow" },
+    data_freshness: { value: freshnessAges.length ? `${Math.round(freshnessPercent)}% current` : "No timestamps", delta: staleCount ? `${staleCount} source${staleCount === 1 ? "" : "s"} need attention` : "Tracked sources are current", status: staleCount ? "warning" : "positive", empty: freshnessAges.length === 0, emptyMessage: "Connect or update an account to begin freshness tracking.", progress: freshnessPercent, rows: insightEvidence.connections.slice(0, 4).map((connection) => ({ label: String(connection.provider || "Connection"), value: String(connection.status || "unknown") })), source: "sync state + source timestamps", href: "/account" },
+    next_best_action: { value: nextAction.title, delta: "Highest-value evidenced action", attention: { title: nextAction.title, body: nextAction.body }, source: "renewals + freshness + Financial Flow", href: nextAction.href },
+  };
+
   const { data: dashboardWidgets } = await dataClient
     .from("user_dashboard_widgets")
     .select("*")
@@ -946,6 +1085,15 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
               savingsValue: Number(snapshot.savings_value || 0),
               propertyEquity: Number(snapshot.property_equity || 0),
             })),
+            pensionHistory: Array.from(pensionHistoryByDate.entries()).map(([date, value]) => ({ date, value })),
+            pensionProjection: {
+              annualGrowthRate: pensionRateScenarios.middle,
+              growthSource: pensionRateScenarios.source,
+              growthAsOfDate: pensionRateScenarios.asOfDate,
+              growthIsFallback: pensionRateScenarios.isFallback,
+              monthlyContribution: pensionMonthlyContribution,
+              contributionSource: recordedPensionContribution.source,
+            },
             calendar: {
               selectedYear,
               selectedMonth,
@@ -956,7 +1104,9 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
                 outgoings,
                 surplus,
               })),
+              forecastMonths: forecastPlans.map(({ month, label, income, outgoings, surplus }) => ({ month, label, income, outgoings, surplus })),
             },
+            insights,
           }}
         />
         {recommendedDealChecks.length > 0 ? (

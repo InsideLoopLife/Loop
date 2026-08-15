@@ -11,10 +11,10 @@ export interface WidgetConfig {
     appearance?: "soft" | "flat" | "bold";
     calendarStyle?: "seasonal" | "flat" | "bars";
     calendarMetric?: "surplus" | "commitment" | "income";
+    calendarRange?: 3 | 6 | 12;
     showBreakdown?: boolean;
     showProjection?: boolean;
     projectionMonths?: "auto" | 3 | 6 | 12;
-    assumedAnnualGrowth?: number;
     chartStyle?: "line" | "area" | "bars";
   };
   [key: string]: unknown; // widget-specific extras (chart style, category filter, etc)
@@ -67,6 +67,11 @@ export interface FinancialPositionWidgetData {
   propertyEquity: number;
 }
 
+export interface PensionHistoryWidgetData {
+  date: string;
+  value: number;
+}
+
 export interface CalendarMonthWidgetData {
   month: string;
   label: string;
@@ -91,11 +96,37 @@ export interface DashboardWidgetContext {
     pensionMonthlyContribution: number;
   };
   positionHistory?: FinancialPositionWidgetData[];
+  pensionHistory?: PensionHistoryWidgetData[];
+  pensionProjection?: {
+    annualGrowthRate: number;
+    growthSource: string;
+    growthAsOfDate: string | null;
+    growthIsFallback: boolean;
+    monthlyContribution: number;
+    contributionSource: string;
+  };
   calendar?: {
     selectedYear: number;
     selectedMonth: string;
     months: CalendarMonthWidgetData[];
+    forecastMonths: CalendarMonthWidgetData[];
   };
+  insights?: Record<string, WidgetInsightData>;
+}
+
+export interface WidgetInsightData {
+  value: string;
+  delta: string;
+  source: string;
+  href?: string;
+  status?: "positive" | "warning" | "negative" | "neutral";
+  empty?: boolean;
+  emptyMessage?: string;
+  progress?: number;
+  trend?: Array<{ label: string; value: number }>;
+  rows?: Array<{ label: string; value: string }>;
+  segments?: Array<{ label: string; value: number }>;
+  attention?: { title: string; body: string };
 }
 
 // Shared widget inputs. Dashboard context contains already-computed, serialisable
@@ -116,6 +147,8 @@ export interface WidgetDefinition {
   label: string;
   description: string;
   icon: string; // tabler icon name, e.g. "ti-pig-money"
+  category?: "flow" | "saving" | "home" | "investing" | "household";
+  readiness?: "ready" | "logic" | "history";
   needsMemberScope: boolean; // does this widget support per-member scoping?
   defaultSize: { w: number; h: number };
   minSize: { w: number; h: number }; // hard floor — below this the widget stops being legible

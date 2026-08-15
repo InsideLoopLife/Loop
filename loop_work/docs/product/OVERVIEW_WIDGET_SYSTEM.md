@@ -27,7 +27,7 @@ Automatic time horizons should use the physical display as well as widget size. 
 | Widget | Summary | Detailed / immersive | Important settings |
 |---|---|---|---|
 | Net worth | Current value | Assets, liabilities, actual history and planned-surplus projection | Breakdown, projection, horizon, chart style |
-| Pension | Pot value | Contributions, growth assumption, provider/fund mix, retirement-income view | Pot vs income, growth, fees, retirement age |
+| Pension | Pot value | Contributions, provider/history-derived growth, provider/fund mix, retirement-income view | Pot vs income, fees, retirement age; growth is owned by LOOP pension logic |
 | Investments | Portfolio value | History, contributions, accounts/providers, allocation, movers and data freshness | Return basis, chart period, account filter; forecast off by default |
 | Calendar | Selected month | 3/6/12-month outlook, income, commitments and money left | Seasonal/flat/bars, emphasised metric |
 | Cashflow | Money left | Income-to-spend/saving/investing flow and upcoming pressure | Period, Sankey/bars, transfers treatment |
@@ -75,7 +75,7 @@ Do not put presentation measurements, breakpoints or derived density into either
 ## Data and trust rules
 
 - Historical lines use recorded snapshots only; never fabricate a smooth past when history is missing.
-- Projections are visually distinct, labelled as projected and show the assumption that drives them.
+- Projections are visually distinct and labelled as projected. Pension growth comes from verified provider performance or contribution-adjusted recorded history; when neither is available, project contributions only rather than inventing a growth rate.
 - Market forecasts are opt-in. Planned cashflow and pension scenarios may be on by default because their assumptions are visible and adjustable.
 - Hover/focus reveals exact values; charts do not show permanent dots.
 - Cached data renders immediately, freshness is visible where relevant, and refresh happens in the background.

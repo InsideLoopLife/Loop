@@ -70,7 +70,7 @@ export function IncomeSummaryWidget({ config, householdId, dashboardContext, vie
           ))}
         </div>
       )}
-      {viewport.mode === "immersive" && dashboardContext?.calendar ? <WidgetTrendChart points={dashboardContext.calendar.months.map((month) => ({ label: month.label.slice(0, 3), value: month.income, kind: month.month === dashboardContext.calendar?.selectedMonth ? "today" : "actual" }))} format={(value) => currency.format(value)} /> : null}
+      {(viewport.mode === "detailed" || viewport.mode === "immersive") && dashboardContext?.calendar ? <WidgetTrendChart points={dashboardContext.calendar.months.map((month) => ({ label: month.label.slice(0, 3), value: month.income, kind: month.month === dashboardContext.calendar?.selectedMonth ? "today" : "actual" }))} format={(value) => currency.format(value)} /> : null}
     </div>
   );
 }

@@ -60,7 +60,7 @@ export function InvestmentSummaryWidget({ config, householdId, size, dashboardCo
 
   const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
   const compactCurrency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 });
-  const immersive = viewport.mode === "immersive";
+  const chartVisible = viewport.mode === "detailed" || viewport.mode === "immersive";
   const horizon = projectionHorizon(config.preferences?.projectionMonths, viewport);
   const points = [...historicalPoints(dashboardContext?.positionHistory ?? [], "investmentValue", viewport.historyMonths), { label: "Today", value: displayData.total, kind: "today" as const }];
   if (config.preferences?.showProjection === true && overview) points.push(...projectedPoints(displayData.total, horizon, (_index, value) => value + overview.investmentChange));
@@ -85,9 +85,9 @@ export function InvestmentSummaryWidget({ config, householdId, size, dashboardCo
         </div>
       )}
 
-      {immersive ? <WidgetTrendChart points={points} format={(value) => compactCurrency.format(value)} area={config.preferences?.chartStyle !== "line"} /> : null}
+      {chartVisible ? <WidgetTrendChart points={points} format={(value) => compactCurrency.format(value)} area={config.preferences?.chartStyle !== "line"} /> : null}
 
-      {size.tier === "expanded" && !overview && !immersive && (
+      {size.tier === "expanded" && !overview && !chartVisible && (
         <div style={{ marginTop: 12, height: 80 }}>
           {/* TODO: real per-unit price chart, e.g. <AssetPriceChart ... /> */}
           <div className="widget-empty">Price chart goes here</div>

@@ -11,6 +11,7 @@ import { SpendingSummaryWidget } from "@/components/dashboard/widgets/SpendingSu
 import { IncomeSummaryWidget } from "@/components/dashboard/widgets/IncomeSummaryWidget";
 import { CashflowWidget } from "@/components/dashboard/widgets/CashflowWidget";
 import { CalendarWidget } from "@/components/dashboard/widgets/CalendarWidget";
+import { createInsightWidget } from "@/components/dashboard/widgets/InsightWidget";
 
 export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
   calendar: {
@@ -90,6 +91,45 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     maxSize: { w: 4, h: 3 },
     component: CashflowWidget,
   },
+  ...Object.fromEntries(([
+    ["available_money", "Available money", "What remains after committed spending and saving.", "ti-wallet", "flow", "logic"],
+    ["upcoming_payments", "Upcoming payments", "The next dated payments and their combined value.", "ti-calendar-dollar", "flow", "ready"],
+    ["spending_pressure", "Spending pressure", "How much of income is already committed.", "ti-gauge", "flow", "ready"],
+    ["income_changes", "Income changes", "See upcoming changes to household income.", "ti-trending-up", "flow", "ready"],
+    ["family_costs", "Childcare & family costs", "Tracked childcare and activity costs over time.", "ti-baby-carriage", "flow", "ready"],
+    ["bills_renewals", "Bills & renewals", "Contracts and household bills approaching review.", "ti-refresh-alert", "flow", "ready"],
+    ["debt_payoff", "Debt position", "Tracked liabilities and mortgage balances.", "ti-arrow-down-circle", "flow", "logic"],
+    ["savings_pots", "Savings & pots", "Accessible savings and progress across named goals.", "ti-pig-money", "saving", "ready"],
+    ["emergency_runway", "Emergency runway", "Months of essential spending covered by accessible cash.", "ti-lifebuoy", "saving", "logic"],
+    ["goal_progress", "Goal progress", "Your highest-priority active savings goal.", "ti-target-arrow", "saving", "ready"],
+    ["interest_earned", "Interest earned", "Confirmed savings interest and current blended rate.", "ti-percentage", "saving", "ready"],
+    ["isa_allowance", "ISA allowance", "Tracked ISA subscription and remaining allowance.", "ti-building-bank", "saving", "logic"],
+    ["home_equity", "Home equity", "Property value less the linked mortgage balance.", "ti-home-dollar", "home", "ready"],
+    ["mortgage_countdown", "Mortgage deal countdown", "Time until the current mortgage deal ends.", "ti-hourglass", "home", "ready"],
+    ["affordability_snapshot", "Affordability snapshot", "An estimate-first view using income, spending and deposit data.", "ti-home-search", "home", "logic"],
+    ["portfolio_allocation", "Portfolio allocation", "Where priced investments are concentrated.", "ti-chart-donut", "investing", "ready"],
+    ["portfolio_movement", "Portfolio movement", "Verified movement from priced investment holdings.", "ti-chart-line", "investing", "ready"],
+    ["pension_journey", "Pension journey", "Provider history, contributions and verified growth.", "ti-chart-arcs", "investing", "history"],
+    ["retirement_readiness", "Retirement readiness", "Progress against the retirement plan saved in LOOP.", "ti-sunrise", "investing", "logic"],
+    ["fees_drag", "Fees drag", "Annualised platform and fund fees from saved fee rates.", "ti-receipt-pound", "investing", "ready"],
+    ["dividends_reinvestment", "Dividends & reinvestment", "Provider dividend cash and reinvested purchase activity.", "ti-repeat", "investing", "ready"],
+    ["household_contribution", "Household contribution", "How committed costs are shared across people.", "ti-users", "household", "ready"],
+    ["what_changed", "What changed?", "The largest evidenced movement since last month.", "ti-sparkles", "household", "ready"],
+    ["data_freshness", "Data freshness", "Which connected values are current or need attention.", "ti-database-check", "household", "ready"],
+    ["next_best_action", "Next best action", "One high-value action from LOOP's financial briefing.", "ti-arrow-right-circle", "household", "logic"],
+  ] as const).map(([type, label, description, icon, category, readiness]) => [type, {
+    type,
+    label,
+    description,
+    icon,
+    category,
+    readiness,
+    needsMemberScope: false,
+    defaultSize: { w: 1, h: 2 },
+    minSize: { w: 1, h: 1 },
+    maxSize: { w: 4, h: 4 },
+    component: createInsightWidget(type),
+  }])),
 };
 
 export function getWidgetDefinition(type: string): WidgetDefinition | undefined {

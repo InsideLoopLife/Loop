@@ -4,6 +4,7 @@ const PERIODS = new Set(["7d", "30d", "90d", "ytd", "1y", "all"]);
 const APPEARANCES = new Set(["soft", "flat", "bold"]);
 const CALENDAR_STYLES = new Set(["seasonal", "flat", "bars"]);
 const CALENDAR_METRICS = new Set(["surplus", "commitment", "income"]);
+const CALENDAR_RANGES = new Set([3, 6, 12]);
 const PROJECTION_MONTHS = new Set(["auto", 3, 6, 12]);
 const CHART_STYLES = new Set(["line", "area", "bars"]);
 
@@ -27,10 +28,10 @@ export function sanitizeWidgetConfig(input: unknown): WidgetConfig {
     if (typeof preferences.appearance === "string" && APPEARANCES.has(preferences.appearance)) result.preferences.appearance = preferences.appearance as "soft" | "flat" | "bold";
     if (typeof preferences.calendarStyle === "string" && CALENDAR_STYLES.has(preferences.calendarStyle)) result.preferences.calendarStyle = preferences.calendarStyle as "seasonal" | "flat" | "bars";
     if (typeof preferences.calendarMetric === "string" && CALENDAR_METRICS.has(preferences.calendarMetric)) result.preferences.calendarMetric = preferences.calendarMetric as "surplus" | "commitment" | "income";
+    if (CALENDAR_RANGES.has(preferences.calendarRange as number)) result.preferences.calendarRange = preferences.calendarRange as 3 | 6 | 12;
     if (typeof preferences.showBreakdown === "boolean") result.preferences.showBreakdown = preferences.showBreakdown;
     if (typeof preferences.showProjection === "boolean") result.preferences.showProjection = preferences.showProjection;
     if (PROJECTION_MONTHS.has(preferences.projectionMonths as string | number)) result.preferences.projectionMonths = preferences.projectionMonths as "auto" | 3 | 6 | 12;
-    if (typeof preferences.assumedAnnualGrowth === "number" && Number.isFinite(preferences.assumedAnnualGrowth)) result.preferences.assumedAnnualGrowth = Math.max(0, Math.min(15, preferences.assumedAnnualGrowth));
     if (typeof preferences.chartStyle === "string" && CHART_STYLES.has(preferences.chartStyle)) result.preferences.chartStyle = preferences.chartStyle as "line" | "area" | "bars";
   }
   return result;
