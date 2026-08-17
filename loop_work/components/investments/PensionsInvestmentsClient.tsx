@@ -88,6 +88,7 @@ import {
   saveMoneyboxInvestmentAccountSetup,
   addPensionContributionEvent,
   updatePensionContributionEvent,
+  removePensionContributionEvent,
 } from "@/lib/investments/actions";
 import {
   pensionAccountValue,
@@ -158,6 +159,7 @@ type PensionAccount = {
   imported_result_value?: number | null;
   imported_account_currency?: string | null;
   import_source_type?: string | null;
+  last_contribution_projection_at?: string | null;
   notes: string | null;
 };
 type PensionFund = {
@@ -175,6 +177,15 @@ type PensionFund = {
   annual_fund_fee_percent: number;
   price_as_of_date: string;
   fee_source_url: string | null;
+  glossary_id?: string | null;
+  performance_annualised_5y_percent?: number | null;
+  performance_annualised_10y_percent?: number | null;
+  performance_planning_rate_percent?: number | null;
+  performance_as_of_date?: string | null;
+  performance_source_url?: string | null;
+  performance_status?: string | null;
+  performance_verified_at?: string | null;
+  last_provider_refresh_at?: string | null;
   notes: string | null;
 };
 type InvestmentAccount = {
@@ -390,6 +401,7 @@ type PensionContributionEvent = {
   external_transaction_id?: string | null;
   notes?: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type SnapTradeConnectionSummary = {
@@ -8893,7 +8905,7 @@ export function PensionsInvestmentsClient({
                         defaultOpen={pensionThreadRequest?.accountId === account.id}
                         badge={
                           <span className="rounded-full bg-teal-600 px-3 py-1.5 text-xs font-black text-white">
-                            {accountContributionEvents.filter((event) => event.pension_account_id === account.id || (event.pension_fund_id ? funds.some((fund) => fund.id === event.pension_fund_id) : false)).length
+                            {accountContributionEvents.filter((event) => event.event_status !== "removed" && event.event_status !== "superseded" && (event.pension_account_id === account.id || (event.pension_fund_id ? funds.some((fund) => fund.id === event.pension_fund_id) : false))).length
                               ? "Has events"
                               : "No events yet"}
                           </span>
@@ -8914,13 +8926,13 @@ export function PensionsInvestmentsClient({
                         >
                           {(() => {
                             const fundEvents = accountContributionEvents
-                              .filter((event) => event.pension_fund_id === fund.id)
+                              .filter((event) => event.pension_fund_id === fund.id && event.event_status !== "removed" && event.event_status !== "superseded")
                               .sort((a, b) => String(b.investment_date || b.contribution_date || "").localeCompare(String(a.investment_date || a.contribution_date || "")));
-                            const latestFundEvent = fundEvents[0];
+                            const latestFundEvent = fundEvents.find((event) => event.source === "provider_statement" || event.source === "manual_reconciliation") || fundEvents[0];
                             return (
                               <div className="mb-4 grid gap-2 sm:grid-cols-3">
                                 <div className="rounded-2xl bg-teal-50 px-3 py-2 ring-1 ring-teal-100">
-                                  <p className="text-[10px] font-black uppercase tracking-wide text-teal-700">Latest purchase</p>
+                                  <p className="text-[10px] font-black uppercase tracking-wide text-teal-700">Latest confirmed purchase</p>
                                   <p className="mt-1 text-sm font-black text-slate-950">{latestFundEvent ? formatMoney(Number(latestFundEvent.contribution_amount || 0)) : "No purchase yet"}</p>
                                 </div>
                                 <div className="rounded-2xl bg-blue-50 px-3 py-2 ring-1 ring-blue-100">
@@ -10498,10 +10510,12 @@ function PensionContributionThread({
   const rows = events
     .filter(
       (event) =>
-        fund
+        event.event_status !== "removed" &&
+        event.event_status !== "superseded" &&
+        (fund
           ? event.pension_fund_id === fund.id
           : event.pension_account_id === account.id ||
-            (event.pension_fund_id ? fundIds.has(event.pension_fund_id) : false),
+            (event.pension_fund_id ? fundIds.has(event.pension_fund_id) : false)),
     )
     .sort((a, b) =>
       String(
@@ -10509,17 +10523,25 @@ function PensionContributionThread({
       ).localeCompare(
         String(a.investment_date || a.contribution_date || a.created_at || ""),
       ),
-    )
-    .slice(0, 36);
-  const threadRows = fund
-    ? rows.map((event) => ({
+    );
+  const confirmedKeys = new Set(
+    rows
+      .filter((event) => event.source === "provider_statement")
+      .map((event) => `${event.pension_fund_id || "account"}:${event.investment_date || event.contribution_date}`),
+  );
+  const visibleRows = rows.filter((event) => {
+    if (event.source === "provider_statement" || event.source === "manual_reconciliation") return true;
+    return !confirmedKeys.has(`${event.pension_fund_id || "account"}:${event.investment_date || event.contribution_date}`);
+  });
+  const allThreadRows = fund
+    ? visibleRows.map((event) => ({
         key: event.id,
         date: event.investment_date || event.contribution_date,
         events: [event],
         amount: Number(event.contribution_amount || 0),
       }))
     : Array.from(
-        rows.reduce((groups, event) => {
+        visibleRows.reduce((groups, event) => {
           const date = String(event.investment_date || event.contribution_date || event.created_at || "Unknown");
           groups.set(date, [...(groups.get(date) || []), event]);
           return groups;
@@ -10533,7 +10555,15 @@ function PensionContributionThread({
           0,
         ),
       }));
-  const latestThread = threadRows.find((row) => row.amount > 0);
+  const years = Array.from(new Set(allThreadRows.map((row) => String(row.date || "").slice(0, 4)).filter(Boolean))).sort((a, b) => b.localeCompare(a));
+  const [selectedYear, setSelectedYear] = useState(years[0] || String(new Date().getFullYear()));
+  const [selectedMonth, setSelectedMonth] = useState("all");
+  const months = Array.from(new Set(allThreadRows.filter((row) => String(row.date || "").startsWith(selectedYear)).map((row) => String(row.date || "").slice(5, 7)).filter(Boolean))).sort((a, b) => b.localeCompare(a));
+  const threadRows = allThreadRows.filter((row) => {
+    const key = String(row.date || "");
+    return key.startsWith(selectedYear) && (selectedMonth === "all" || key.slice(5, 7) === selectedMonth);
+  });
+  const latestThread = allThreadRows.find((row) => row.amount > 0 && row.events.every((event) => event.source === "provider_statement" || event.source === "manual_reconciliation")) || allThreadRows.find((row) => row.amount > 0);
   const latest = latestThread?.events[0];
   const accountValue =
     funds.reduce((sum, fund) => sum + valueOfFund(fund), 0) ||
@@ -10543,12 +10573,25 @@ function PensionContributionThread({
       ? accountValue /
         funds.reduce((sum, fund) => sum + Number(fund.units || 0), 0)
       : null;
+  const weightedReturn = (field: "performance_annualised_5y_percent" | "performance_annualised_10y_percent") => {
+    const known = funds.filter((item) => Number.isFinite(Number(item[field])));
+    if (!known.length) return null;
+    const weight = known.reduce((sum, item) => sum + Math.max(0, valueOfFund(item)), 0);
+    return weight > 0
+      ? known.reduce((sum, item) => sum + Number(item[field]) * Math.max(0, valueOfFund(item)), 0) / weight
+      : known.reduce((sum, item) => sum + Number(item[field]), 0) / known.length;
+  };
+  const return5y = weightedReturn("performance_annualised_5y_percent");
+  const return10y = weightedReturn("performance_annualised_10y_percent");
+  const lastChecked = [account.last_contribution_projection_at, ...funds.flatMap((item) => [item.performance_verified_at, item.last_provider_refresh_at, item.price_as_of_date])].filter((value): value is string => Boolean(value)).sort().at(-1);
+  const activeFundCount = funds.filter((item) => item.contribution_active).length;
+  const monthLabel = (month: string) => new Date(Date.UTC(2026, Number(month) - 1, 1)).toLocaleDateString("en-GB", { month: "short" });
   return (
     <div className="space-y-4">
       <div className="mt-3 grid grid-cols-2 gap-2 sm:mt-4 sm:grid-cols-3 sm:gap-3">
         <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-100 sm:p-4">
           <p className="text-[10px] font-black uppercase tracking-wide text-slate-400 sm:text-xs">
-            Last invested
+            Last confirmed
           </p>
           <p className="mt-1 text-lg font-black text-slate-950 sm:text-xl">
             {latestThread
@@ -10574,10 +10617,10 @@ function PensionContributionThread({
                 : funds[0]?.unit_price
                   ? gbpPriceLabel(Number(funds[0].unit_price))
                   : "Pending"
-              : funds.filter((item) => item.contribution_active).length}
+              : activeFundCount}
           </p>
           <p className="mt-1 text-xs font-bold text-slate-500">
-            {fund ? "Provider statement remains source of truth" : `${funds.length} funds held in this pot`}
+            {fund ? "Provider statement remains source of truth" : `${activeFundCount} active · ${funds.length} held in this pot`}
           </p>
         </div>
         <div className="col-span-2 rounded-2xl bg-white p-3 ring-1 ring-slate-100 sm:col-span-1 sm:p-4">
@@ -10596,6 +10639,38 @@ function PensionContributionThread({
           </p>
         </div>
       </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <div className="rounded-2xl bg-slate-950 p-4 text-white">
+          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">5-year annual return</p>
+          <p className="mt-1 text-xl font-black">{return5y == null ? "Building history" : `${return5y.toFixed(2)}%`}</p>
+          <p className="mt-1 text-[11px] font-semibold text-slate-400">Value-weighted, verified fund history</p>
+        </div>
+        <div className="rounded-2xl bg-slate-950 p-4 text-white">
+          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">10-year annual return</p>
+          <p className="mt-1 text-xl font-black">{return10y == null ? "Building history" : `${return10y.toFixed(2)}%`}</p>
+          <p className="mt-1 text-[11px] font-semibold text-slate-400">Historical return, not a guarantee</p>
+        </div>
+        <div className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Last checked</p>
+          <p className="mt-1 text-sm font-black text-emerald-950">{lastChecked ? new Date(lastChecked).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "Not checked yet"}</p>
+          <p className="mt-1 text-[11px] font-semibold text-emerald-800">Rules, prices and return evidence</p>
+        </div>
+      </div>
+      {!fund ? (
+        <details className="rounded-2xl bg-white p-4 ring-1 ring-slate-100">
+          <summary className="cursor-pointer text-sm font-black text-slate-950">Fund return evidence</summary>
+          <div className="mt-3 divide-y divide-slate-100">
+            {funds.map((item) => (
+              <div key={item.id} className="grid gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center">
+                <div className="min-w-0"><p className="truncate text-sm font-black text-slate-950">{item.fund_name}</p><p className="text-xs font-semibold text-slate-500">{item.contribution_active ? "Active for new contributions" : "Held · no new contributions"} · {item.performance_as_of_date || item.performance_status || "history building"}</p></div>
+                <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-black text-violet-700">5y {item.performance_annualised_5y_percent == null ? "—" : `${Number(item.performance_annualised_5y_percent).toFixed(2)}%`}</span>
+                <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">10y {item.performance_annualised_10y_percent == null ? "—" : `${Number(item.performance_annualised_10y_percent).toFixed(2)}%`}</span>
+                {item.performance_source_url ? <a href={item.performance_source_url} target="_blank" rel="noreferrer" className="text-xs font-black text-teal-700">Evidence ↗</a> : <span className="text-xs font-black text-amber-700">Needs evidence</span>}
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
       {funds.length ? (
         <details className="rounded-2xl border border-dashed border-teal-200 bg-teal-50/60 p-4">
           <summary className="cursor-pointer text-sm font-black text-teal-900">
@@ -10648,11 +10723,24 @@ function PensionContributionThread({
           </p>
         </details>
       ) : null}
+      <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-100 sm:p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><p className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">Contribution history</p><p className="mt-1 text-sm font-bold text-slate-600">Choose a year, then narrow to a month.</p></div>
+          <div className="flex flex-wrap gap-2">
+            {years.map((year) => <button key={year} type="button" onClick={() => { setSelectedYear(year); setSelectedMonth("all"); }} className={`rounded-full px-4 py-2 text-xs font-black ${selectedYear === year ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600"}`}>{year}</button>)}
+          </div>
+        </div>
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+          <button type="button" onClick={() => setSelectedMonth("all")} className={`shrink-0 rounded-full px-4 py-2 text-xs font-black ${selectedMonth === "all" ? "bg-teal-600 text-white" : "bg-teal-50 text-teal-800"}`}>All months</button>
+          {months.map((month) => <button key={month} type="button" onClick={() => setSelectedMonth(month)} className={`shrink-0 rounded-full px-4 py-2 text-xs font-black ${selectedMonth === month ? "bg-teal-600 text-white" : "bg-teal-50 text-teal-800"}`}>{monthLabel(month)}</button>)}
+        </div>
+      </div>
       <div className="mt-3 space-y-2 sm:mt-4">
         {threadRows.map((row) => {
           const event = row.events[0];
           const rowFund = funds.find((item) => item.id === event.pension_fund_id);
           const providerConfirmed = row.events.every((item) => item.source === "provider_statement");
+          const userConfirmed = row.events.every((item) => item.source === "manual_reconciliation");
           const units = row.events.reduce((sum, item) => sum + Number(item.units_bought || 0), 0);
           const fundNames = Array.from(new Set(row.events.map((item) => funds.find((candidate) => candidate.id === item.pension_fund_id)?.fund_name).filter(Boolean)));
           return (
@@ -10664,8 +10752,8 @@ function PensionContributionThread({
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-black text-slate-950">{formatThreadDate(row.date)}</p>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${providerConfirmed ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
-                      {providerConfirmed ? "Provider confirmed" : "Projected"}
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${providerConfirmed || userConfirmed ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                      {providerConfirmed ? "Provider confirmed" : userConfirmed ? "User confirmed" : "Projected"}
                     </span>
                   </div>
                   <p className="mt-1 truncate text-xs font-bold text-slate-600 sm:text-sm">
@@ -10677,29 +10765,41 @@ function PensionContributionThread({
                 </div>
                 <p className="shrink-0 text-lg font-black text-slate-950">{formatMoney(row.amount)}</p>
               </summary>
-              {!fund ? (
-                <div className="mt-3 border-t border-slate-100 pt-3">
-                  <p className="text-xs font-bold text-slate-500">{fundNames.join(" · ")}</p>
-                  {event.notes ? <p className="mt-2 text-xs font-semibold leading-relaxed text-slate-500">{event.notes}</p> : null}
-                </div>
-              ) : <form action={updatePensionContributionEvent} className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-4">
-                <input type="hidden" name="id" value={event.id} />
-                <input type="hidden" name="pension_account_id" value={account.id} />
-                <input type="hidden" name="employee_amount" value={Number(event.employee_amount || 0)} />
-                <input type="hidden" name="employer_amount" value={Number(event.employer_amount || 0)} />
-                <input type="hidden" name="employer_ni_topup_amount" value={Number(event.employer_ni_topup_amount || 0)} />
-                <input type="hidden" name="fixed_amount" value={Number(event.fixed_amount || 0)} />
-                <input type="hidden" name="allocation_percent" value={Number(event.allocation_percent ?? 100)} />
-                <input type="hidden" name="event_status" value={event.event_status || "invested"} />
-                <label className="text-xs font-black uppercase text-slate-500">Fund<select name="pension_fund_id" required defaultValue={event.pension_fund_id || fund.id} className={inputClass}>{funds.map((item) => <option key={item.id} value={item.id}>{item.fund_name}</option>)}</select></label>
-                <label className="text-xs font-black uppercase text-slate-500">Contribution date<input name="contribution_date" type="date" required defaultValue={event.contribution_date || today} className={inputClass} /></label>
-                <label className="text-xs font-black uppercase text-slate-500">Investment date<input name="investment_date" type="date" required defaultValue={event.investment_date || event.contribution_date || today} className={inputClass} /></label>
-                <label className="text-xs font-black uppercase text-slate-500">Purchase amount (£)<input name="contribution_amount" type="number" min="0" step="0.01" required defaultValue={Number(event.contribution_amount || 0)} className={inputClass} /></label>
-                <label className="text-xs font-black uppercase text-slate-500">Unit price (£)<input name="unit_price" type="number" min="0" step="0.000001" defaultValue={event.unit_price ?? ""} className={inputClass} /></label>
-                <label className="text-xs font-black uppercase text-slate-500">Units bought<input name="units_bought" type="number" min="0" step="0.000001" defaultValue={event.units_bought ?? ""} className={inputClass} /></label>
-                <label className="text-xs font-black uppercase text-slate-500 sm:col-span-2">Reconciliation note<input name="notes" defaultValue={event.notes || ""} className={inputClass} /></label>
-                <div className="flex items-end lg:col-span-4"><SubmitButton pendingLabel="Updating purchase…">Update thread record</SubmitButton></div>
-              </form>}
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {!fund ? <p className="text-xs font-bold text-slate-500">{fundNames.join(" · ")}</p> : null}
+                {row.events.map((purchase) => {
+                  const purchaseFund = funds.find((item) => item.id === purchase.pension_fund_id);
+                  const exact = purchase.source === "provider_statement" || purchase.source === "manual_reconciliation";
+                  return (
+                    <details key={purchase.id} className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">
+                      <summary className="grid cursor-pointer list-none gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center">
+                        <div className="min-w-0"><p className="truncate text-xs font-black text-slate-950">{purchaseFund?.fund_name || "Pension fund"}</p><p className="text-[11px] font-semibold text-slate-500">{exact ? "Recorded purchase" : "Expected allocation"} · {Number(purchase.allocation_percent || 0).toFixed(2)}%</p></div>
+                        <span className="text-xs font-black text-slate-700">{formatMoney(Number(purchase.contribution_amount || 0))}</span>
+                        <span className="text-xs font-bold text-slate-500">{purchase.unit_price ? `${exact ? "Price" : "Indicative"} ${gbpPriceLabel(Number(purchase.unit_price))}` : "Price not supplied"}</span>
+                        <span className="text-xs font-bold text-slate-500">{purchase.units_bought ? `${Number(purchase.units_bought).toFixed(4)} units` : "Units not supplied"}</span>
+                      </summary>
+                      <form action={updatePensionContributionEvent} className="mt-4 grid gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <input type="hidden" name="id" value={purchase.id} /><input type="hidden" name="pension_account_id" value={account.id} />
+                        <input type="hidden" name="employee_amount" value={Number(purchase.employee_amount || 0)} /><input type="hidden" name="employer_amount" value={Number(purchase.employer_amount || 0)} /><input type="hidden" name="employer_ni_topup_amount" value={Number(purchase.employer_ni_topup_amount || 0)} /><input type="hidden" name="fixed_amount" value={Number(purchase.fixed_amount || 0)} /><input type="hidden" name="allocation_percent" value={Number(purchase.allocation_percent ?? 100)} />
+                        <label className="text-xs font-black uppercase text-slate-500">Fund<select name="pension_fund_id" required defaultValue={purchase.pension_fund_id || purchaseFund?.id} className={inputClass}>{funds.map((item) => <option key={item.id} value={item.id}>{item.fund_name}</option>)}</select></label>
+                        <label className="text-xs font-black uppercase text-slate-500">Contribution date<input name="contribution_date" type="date" required defaultValue={purchase.contribution_date || today} className={inputClass} /></label>
+                        <label className="text-xs font-black uppercase text-slate-500">Investment date<input name="investment_date" type="date" required defaultValue={purchase.investment_date || purchase.contribution_date || today} className={inputClass} /></label>
+                        <label className="text-xs font-black uppercase text-slate-500">Status<select name="event_status" defaultValue={exact ? "invested" : purchase.event_status || "awaiting_provider_confirmation"} className={inputClass}><option value="invested">Exact purchase</option><option value="awaiting_provider_confirmation">Awaiting provider</option><option value="pending_investment">Pending investment</option></select></label>
+                        <label className="text-xs font-black uppercase text-slate-500">Amount purchased (£)<input name="contribution_amount" type="number" min="0" step="0.01" required defaultValue={Number(purchase.contribution_amount || 0)} className={inputClass} /></label>
+                        <label className="text-xs font-black uppercase text-slate-500">Exact unit price (£)<input name="unit_price" type="number" min="0" step="0.000001" defaultValue={purchase.unit_price ?? ""} className={inputClass} /></label>
+                        <label className="text-xs font-black uppercase text-slate-500">Exact units bought<input name="units_bought" type="number" min="0" step="0.000001" defaultValue={purchase.units_bought ?? ""} className={inputClass} /></label>
+                        <label className="text-xs font-black uppercase text-slate-500">Evidence note<input name="notes" defaultValue={purchase.notes || ""} className={inputClass} /></label>
+                        <div className="flex items-end lg:col-span-4"><SubmitButton pendingLabel="Saving exact purchase…">Save exact purchase</SubmitButton></div>
+                      </form>
+                      <form action={removePensionContributionEvent} className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                        <input type="hidden" name="id" value={purchase.id} /><input type="hidden" name="removal_reason" value="Removed from the pension thread by the user." />
+                        <p className="text-[11px] font-semibold text-slate-500">Last edited {new Date(purchase.updated_at || purchase.created_at || row.date || today).toLocaleString("en-GB")}</p>
+                        <button type="submit" onClick={(clickEvent) => { if (!window.confirm("Remove this transaction from the pension thread? The audit note will be retained.")) clickEvent.preventDefault(); }} className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-700">Remove transaction</button>
+                      </form>
+                    </details>
+                  );
+                })}
+              </div>
             </details>
           );
         })}

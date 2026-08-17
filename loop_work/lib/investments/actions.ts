@@ -713,6 +713,31 @@ export async function updatePensionContributionEvent(formData: FormData) {
   revalidatePath("/accounts");
 }
 
+export async function removePensionContributionEvent(formData: FormData) {
+  const { supabase, user } = await currentUser();
+  const id = String(formData.get("id") || "").trim();
+  if (!id) throw new Error("Choose a pension purchase to remove.");
+  const { data: existing, error: readError } = await supabase
+    .from("pension_contribution_events")
+    .select("notes")
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (readError || !existing) throw new Error("That pension purchase was not found.");
+  const reason = nullableString(formData.get("removal_reason")) || "Removed by user during reconciliation.";
+  const auditNote = [existing.notes, `[Removed ${new Date().toISOString()}] ${reason}`]
+    .filter(Boolean)
+    .join("\n");
+  const { error } = await supabase
+    .from("pension_contribution_events")
+    .update({ event_status: "removed", notes: auditNote, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("user_id", user.id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/investments");
+  revalidatePath("/accounts");
+}
+
 export async function addInvestmentAccount(formData: FormData) {
   const { supabase, user } = await currentUser();
   const providerName = String(formData.get("provider") || "Provider");

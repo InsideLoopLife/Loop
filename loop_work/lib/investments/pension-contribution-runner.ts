@@ -434,13 +434,13 @@ export async function runPensionContributionProjection(
   const existingEventRead = accountIds.length
     ? await supabase
         .from("pension_contribution_events")
-        .select("id,event_status,external_transaction_id")
+        .select("id,event_status,source,external_transaction_id")
         .in("pension_account_id", accountIds)
         .gte("contribution_date", isoDate(fromDate))
         .like("external_transaction_id", "pension:auto:%")
     : { data: [] as any[], error: null as any };
   if (existingEventRead.error) throw existingEventRead.error;
-  const existingEventByTx = new Map<string, { id: string; event_status?: string | null }>();
+  const existingEventByTx = new Map<string, { id: string; event_status?: string | null; source?: string | null }>();
   for (const event of existingEventRead.data || []) {
     const txId = String(event.external_transaction_id || "");
     if (txId) existingEventByTx.set(txId, event as any);
@@ -486,13 +486,6 @@ export async function runPensionContributionProjection(
   for (const account of accounts || []) {
     result.checked_accounts += 1;
     const accountFunds = fundsByAccount.get(account.id) || [];
-    // On the first successful run, older thread rows are audit history only:
-    // the provider-confirmed units/value already include them. Subsequent runs
-    // may apply only purchases after this watermark, preventing first-run
-    // backfills from inflating the current pot.
-    const projectionWatermark = parseDate(
-      account.last_contribution_projection_at?.slice(0, 10),
-    );
     const allocations = normaliseAllocations(accountFunds);
     result.checked_funds += accountFunds.length;
     if (!allocations.length) {
@@ -520,7 +513,9 @@ export async function runPensionContributionProjection(
       const breakdown = contributionBreakdown(account, pay);
       if (breakdown.total <= 0) continue;
       const investmentDate = investmentDateForContribution(account, contributionDate);
-      const status = investmentDate <= now ? "invested" : "pending_investment";
+      // Projection rows describe expected cash and purchases. They do not become
+      // provider-confirmed holdings merely because their expected date passed.
+      const status = investmentDate <= now ? "awaiting_provider_confirmation" : "pending_investment";
 
       for (const allocation of allocations) {
         const fund = allocation.fund;
@@ -532,8 +527,8 @@ export async function runPensionContributionProjection(
         const existing = existingEventByTx.get(txId) || null;
         if (
           existing &&
-          !options.force &&
-          !(existing.event_status === "pending_investment" && status === "invested")
+          (existing.event_status === "removed" ||
+            !String(existing.source || "").startsWith("salary_contribution_projection"))
         ) {
           result.contribution_events_existing += 1;
           continue;
@@ -541,7 +536,9 @@ export async function runPensionContributionProjection(
 
         const glossary = glossaryFor(fund);
         const unitPrice = glossary?.unitPrice || n(fund.unit_price, 0) || null;
-        const unitsBought = status === "invested" && unitPrice && unitPrice > 0 ? contributionAmount / unitPrice : 0;
+        // Units are unknown until the provider supplies the execution price.
+        // Keeping them null avoids presenting an estimate as a completed trade.
+        const unitsBought = null;
 
         const eventPayload = {
           user_id: account.user_id,
@@ -566,6 +563,11 @@ export async function runPensionContributionProjection(
           notes: `Auto-projected from ${account.label || account.provider || "pension"}. Employee £${breakdown.employeeAmount.toFixed(2)}, employer £${breakdown.employerAmount.toFixed(2)}, NI top-up £${breakdown.employerNiTopupAmount.toFixed(2)}, fixed £${breakdown.fixedAmount.toFixed(2)}. Allocation ${allocationPercent.toFixed(3)}%. Invested/expected on ${isoDate(investmentDate)}.`,
         } as any;
 
+        // Recalculate every scheduler-owned row on every run. This is
+        // intentional: a corrected salary, contribution rule or fixed-extra
+        // setting must repair stale projections rather than leave them frozen.
+        // Provider statements and manual reconciliations use different IDs and
+        // are never overwritten here.
         const write = existing?.id
           ? await supabase.from("pension_contribution_events").update(eventPayload).eq("id", existing.id)
           : await supabase.from("pension_contribution_events").insert(eventPayload);
@@ -576,42 +578,8 @@ export async function runPensionContributionProjection(
           continue;
         }
         result.contribution_events_created += existing?.id ? 0 : 1;
-        if (status !== "invested") {
-          result.pending_investments += 1;
-          continue;
-        }
-
-        if (!projectionWatermark || investmentDate <= projectionWatermark) {
-          result.notes.push(
-            `${fund.fund_name || fund.id}: recorded ${isoDate(investmentDate)} in the thread without adding it to current units because it predates the last confirmed projection balance.`,
-          );
-          continue;
-        }
-
-        const previousUnits = n(fund.units, 0);
-        const previousValue = n(fund.current_value, previousUnits * n(fund.unit_price, 0));
-        const nextUnits = previousUnits + unitsBought;
-        const nextValue = unitPrice ? nextUnits * unitPrice : previousValue + contributionAmount;
-        const updatePayload: Record<string, any> = {
-          units: nextUnits,
-          unit_price: unitPrice,
-          current_value: Math.round(nextValue * 100) / 100,
-          price_as_of_date: glossary?.priceDate || today,
-          updated_at: new Date().toISOString(),
-        };
-        if (glossary?.fee !== null && glossary?.fee !== undefined) updatePayload.annual_fund_fee_percent = glossary.fee;
-        if (glossary?.sourceUrl) updatePayload.fee_source_url = glossary.sourceUrl;
-        const update = await supabase.from("pension_funds").update(updatePayload).eq("id", fund.id).eq("user_id", fund.user_id);
-        if (update.error) {
-          result.failed += 1;
-          result.ok = false;
-          result.notes.push(`${fund.fund_name || fund.id}: ${update.error.message}`);
-          continue;
-        }
-        fund.units = nextUnits;
-        fund.unit_price = unitPrice;
-        fund.current_value = updatePayload.current_value;
-        result.funds_updated += 1;
+        result.contribution_events_existing += existing?.id ? 1 : 0;
+        result.pending_investments += 1;
       }
     }
 

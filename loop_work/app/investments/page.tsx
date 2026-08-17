@@ -57,6 +57,7 @@ type PensionAccount = {
   last_price_check_at?: string | null;
   updated_at?: string | null;
   notes: string | null;
+  last_contribution_projection_at?: string | null;
 };
 type PensionFund = {
   id: string;
@@ -75,6 +76,14 @@ type PensionFund = {
   fee_source_url: string | null;
   notes: string | null;
   glossary_id: string | null;
+  performance_annualised_5y_percent?: number | null;
+  performance_annualised_10y_percent?: number | null;
+  performance_planning_rate_percent?: number | null;
+  performance_as_of_date?: string | null;
+  performance_source_url?: string | null;
+  performance_status?: string | null;
+  performance_verified_at?: string | null;
+  last_provider_refresh_at?: string | null;
 };
 type InvestmentAccount = {
   id: string;
@@ -229,9 +238,9 @@ async function InvestmentsContent() {
 
   const [peopleResult, pensionAccountsResult, pensionFundsResult, pensionContributionEventsResult, investmentAccountsResult, investmentAccountOwnersResult, investmentPieSettingsResult, investmentHoldingsResult, investmentLotsResult, dbPensionSchemesResult, dbPensionEventsResult, payEventsResult, profileResult, snapTradeConnectionResult, investmentSnapshotsResult, investmentCoveragePlaceholdersResult] = await Promise.all([
     supabase.from("people").select("id, name, relationship, avatar_url, linked_user_id").eq("user_id", dataOwnerUserId).order("relationship").returns<Person[]>(),
-    supabase.from("pension_accounts").select("id, person_id, label, provider, pension_type, contribution_method, employee_contribution_percent, employer_contribution_percent, employer_ni_topup_percent, employer_ni_topup_enabled, employer_ni_topup_mode, employer_ni_rate_percent, employer_ni_passback_percent, employer_base_salary_basis, fixed_monthly_contribution, annual_platform_fee_percent, fixed_monthly_fee, current_value, value_as_of_date, source_url, contribution_frequency, contribution_day, regular_pay_day, pension_payment_timing, contribution_delay_days, pension_investment_day, pension_investment_timing, contribution_paused, contribution_auto_apply_enabled, contribution_started_on, contribution_ended_on, valuation_mode, notes").eq("user_id", dataOwnerUserId).order("created_at", { ascending: false }).returns<PensionAccount[]>(),
-    supabase.from("pension_funds").select("id, pension_account_id, fund_name, fund_code, group_label, target_allocation_percent, monthly_contribution_percent, contribution_active, current_value, units, unit_price, annual_fund_fee_percent, price_as_of_date, fee_source_url, notes, glossary_id").eq("user_id", dataOwnerUserId).order("created_at", { ascending: true }).returns<PensionFund[]>(),
-    supabase.from("pension_contribution_events").select("id, pension_account_id, pension_fund_id, contribution_month, contribution_date, contribution_due_date, investment_date, contribution_amount, employee_amount, employer_amount, employer_ni_topup_amount, fixed_amount, allocation_percent, unit_price, units_bought, event_status, source, external_transaction_id, notes, created_at").eq("user_id", dataOwnerUserId).order("investment_date", { ascending: false }).limit(500),
+    supabase.from("pension_accounts").select("id, person_id, label, provider, pension_type, contribution_method, employee_contribution_percent, employer_contribution_percent, employer_ni_topup_percent, employer_ni_topup_enabled, employer_ni_topup_mode, employer_ni_rate_percent, employer_ni_passback_percent, employer_base_salary_basis, fixed_monthly_contribution, annual_platform_fee_percent, fixed_monthly_fee, current_value, value_as_of_date, source_url, contribution_frequency, contribution_day, regular_pay_day, pension_payment_timing, contribution_delay_days, pension_investment_day, pension_investment_timing, contribution_paused, contribution_auto_apply_enabled, contribution_started_on, contribution_ended_on, valuation_mode, notes, last_contribution_projection_at").eq("user_id", dataOwnerUserId).order("created_at", { ascending: false }).returns<PensionAccount[]>(),
+    supabase.from("pension_funds").select("id, pension_account_id, fund_name, fund_code, group_label, target_allocation_percent, monthly_contribution_percent, contribution_active, current_value, units, unit_price, annual_fund_fee_percent, price_as_of_date, fee_source_url, notes, glossary_id, performance_annualised_5y_percent, performance_annualised_10y_percent, performance_planning_rate_percent, performance_as_of_date, performance_source_url, performance_status, performance_verified_at, last_provider_refresh_at").eq("user_id", dataOwnerUserId).order("created_at", { ascending: true }).returns<PensionFund[]>(),
+    supabase.from("pension_contribution_events").select("id, pension_account_id, pension_fund_id, contribution_month, contribution_date, contribution_due_date, investment_date, contribution_amount, employee_amount, employer_amount, employer_ni_topup_amount, fixed_amount, allocation_percent, unit_price, units_bought, event_status, source, external_transaction_id, notes, created_at, updated_at").eq("user_id", dataOwnerUserId).order("investment_date", { ascending: false }).limit(1000),
     supabase.from("investment_accounts").select("id, person_id, label, provider, account_type, annual_platform_fee_percent, fixed_monthly_fee, notes, external_provider, external_account_id, external_connection_id, external_account_raw, provider_import_enabled, provider_cash_value, provider_investable_cash_value, provider_dividend_cash_value, provider_cash_source, provider_isa_subscribed_amount, provider_isa_remaining_amount, provider_isa_allowance_year, sync_status, last_provider_sync_at").eq("user_id", dataOwnerUserId).neq("record_status", "archived").order("created_at", { ascending: false }).returns<InvestmentAccount[]>(),
     supabase.from("investment_account_owners").select("investment_account_id, person_id").eq("user_id", dataOwnerUserId).returns<InvestmentAccountOwner[]>(),
     supabase.from("investment_pie_settings").select("id, investment_account_id, group_label, monthly_reinvest_amount, reinvest_frequency, expected_dividend_yield_percent, auto_reinvest_dividends, notes").eq("user_id", dataOwnerUserId).returns<InvestmentPieSetting[]>(),
