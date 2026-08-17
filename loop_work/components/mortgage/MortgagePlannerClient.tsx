@@ -3096,7 +3096,8 @@ function MortgageCommandStrip({
 
   return (
     <section className="grid gap-4 md:grid-cols-4">
-      <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-gradient-to-r before:from-violet-500 before:to-blue-500">
+      <div className="relative rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-[2rem] bg-gradient-to-r from-violet-500 to-blue-500" />
         <p className="flex items-center text-xs font-black uppercase tracking-[0.18em] text-slate-500">
           Mortgage balance
           <InfoTip text="Projected forward from your attached mortgage record's balance and rate." />
@@ -3105,7 +3106,8 @@ function MortgageCommandStrip({
           {formatMoney(balance)}
         </p>
       </div>
-      <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-gradient-to-r before:from-violet-500 before:to-blue-500">
+      <div className="relative rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-[2rem] bg-gradient-to-r from-violet-500 to-blue-500" />
         <p className="flex items-center text-xs font-black uppercase tracking-[0.18em] text-slate-500">
           Mortgage payment
           <InfoTip text="The monthly figure used across LOOP's household affordability logic." />
@@ -3117,8 +3119,9 @@ function MortgageCommandStrip({
       <button
         type="button"
         onClick={onOpenDeals}
-        className="relative overflow-hidden rounded-[2rem] border border-blue-200 bg-blue-50 p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-lg before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-gradient-to-r before:from-blue-500 before:to-blue-300"
+        className="relative rounded-[2rem] border border-blue-200 bg-blue-50 p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-lg"
       >
+        <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-[2rem] bg-gradient-to-r from-blue-500 to-blue-300" />
         <p className="flex items-center text-xs font-black uppercase tracking-[0.18em] text-blue-700">
           Deals available
           <InfoTip text="Deals we're actively watching that are ready to compare or switch to." />
@@ -3135,8 +3138,9 @@ function MortgageCommandStrip({
       <button
         type="button"
         onClick={onOpenDeals}
-        className="relative overflow-hidden rounded-[2rem] border border-emerald-200 bg-emerald-50 p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-100 hover:shadow-lg before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-gradient-to-r before:from-emerald-500 before:to-emerald-300"
+        className="relative rounded-[2rem] border border-emerald-200 bg-emerald-50 p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-100 hover:shadow-lg"
       >
+        <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-[2rem] bg-gradient-to-r from-emerald-500 to-emerald-300" />
         <p className="flex items-center text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
           Improvements
           <InfoTip text={improvementCopy} />
@@ -3232,6 +3236,121 @@ function HomeTabNav({
   );
 }
 
+function ImportProductUrlForm({
+  homeId,
+  onShortlist,
+}: {
+  homeId: string | undefined;
+  onShortlist: (dealId: string, sourceKind: "market" | "recommendation" | "user_submitted") => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ product: any; fit: any } | null>(null);
+
+  async function handleImport() {
+    if (!url.trim()) return;
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch("/api/house/mortgage/import-product-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceUrl: url.trim(), homeId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Could not import that link");
+      setResult(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not import that link");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mb-5 rounded-[2rem] border border-violet-100 bg-violet-50 p-5">
+      <p className="text-xs font-black uppercase text-violet-700">
+        Add a deal from a link
+      </p>
+      <p className="mt-1 text-xs font-bold text-violet-600">
+        Paste a specific mortgage product's page — LOOP pulls the rate, LTV and
+        term, and checks it against your own mortgage. This link becomes usable
+        for other households too, and gets checked regularly to make sure it's
+        still live.
+      </p>
+
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+        <input
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          placeholder="https://www.lender.co.uk/mortgages/..."
+          className={inputClass}
+        />
+        <button
+          type="button"
+          onClick={handleImport}
+          disabled={loading || !url.trim()}
+          className="whitespace-nowrap rounded-2xl bg-violet-700 px-5 py-2 text-sm font-black text-white transition hover:bg-violet-800 disabled:opacity-50"
+        >
+          {loading ? "Checking…" : "Import & assess fit"}
+        </button>
+      </div>
+
+      {error && <p className="mt-3 text-sm font-bold text-rose-700">{error}</p>}
+
+      {result && (
+        <div className="mt-4 rounded-2xl border border-violet-200 bg-white p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <p className="text-sm font-black text-slate-950">
+                {result.product.lender_name || "Lender not identified"} —{" "}
+                {result.product.product_name || "Mortgage product"}
+              </p>
+              <p className="text-xs font-bold text-slate-500">
+                {result.product.rate_percent !== null ? `${result.product.rate_percent}%` : "Rate not found"}
+                {result.product.rate_type ? ` · ${result.product.rate_type}` : ""}
+                {result.product.ltv_max_percent !== null ? ` · up to ${result.product.ltv_max_percent}% LTV` : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onShortlist(result.product.id, "user_submitted")}
+              className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-slate-800"
+            >
+              Shortlist this
+            </button>
+          </div>
+
+          {result.fit?.assessed ? (
+            <div className="mt-3 border-t border-violet-100 pt-3 text-xs font-bold text-slate-600">
+              <p>
+                Your current LTV: {result.fit.current_ltv_percent}% —{" "}
+                {result.fit.meets_ltv_requirement ? "this product looks available to you." : "you likely wouldn't qualify without a larger deposit."}
+              </p>
+              <p className="mt-1">
+                Est. payment: {formatMoney(result.fit.current_monthly_payment)}/mo now →{" "}
+                {formatMoney(result.fit.estimated_new_monthly_payment)}/mo on this deal (
+                {result.fit.monthly_delta >= 0 ? "+" : ""}
+                {formatMoney(result.fit.monthly_delta)}/mo)
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 border-t border-violet-100 pt-3 text-xs font-bold text-slate-400">
+              {result.fit?.reason || "Couldn't assess fit against your mortgage yet."}
+            </p>
+          )}
+
+          <p className="mt-3 text-[11px] font-semibold text-slate-400">
+            Extracted via {result.product.extraction_method === "ai_assisted" ? "AI-assisted reading of the page" : "a conservative text scan (no AI available)"} — worth a quick sense-check against the actual page before relying on it.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MortgageDealsPanel({
   home,
   deals,
@@ -3286,7 +3405,7 @@ function MortgageDealsPanel({
   );
   const [showShortlistedOnly, setShowShortlistedOnly] = useState(false);
   const shortlistLimit = 1; // tier gate placeholder: higher paid tiers can raise this in the service plan.
-  function toggleShortlist(dealId: string, sourceKind: "market" | "recommendation") {
+  function toggleShortlist(dealId: string, sourceKind: "market" | "recommendation" | "user_submitted") {
     const nextValue = !shortlistedDealIds.has(dealId);
     const previous = new Set(shortlistedDealIds);
     setShortlistedDealIds((current) => {
@@ -3547,6 +3666,10 @@ function MortgageDealsPanel({
         title="Sourced deals for you"
         description="Search/filter published rows, select one for comparison, then adjust term/cost assumptions before opening the lender site."
       >
+        <ImportProductUrlForm
+          homeId={home?.id}
+          onShortlist={toggleShortlist}
+        />
         <div className="mb-5 rounded-[2rem] border border-blue-100 bg-blue-50 p-5">
           <div className="grid gap-3 lg:grid-cols-[1fr_160px_140px_160px_auto] lg:items-end">
             <label className="block">
