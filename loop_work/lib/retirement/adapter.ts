@@ -1,14 +1,20 @@
 import type { RetirementAsset, RetirementContribution } from "@/lib/calculations/retirement";
 
 type PensionAccount = { id:string; label:string; provider:string; current_value:number; fixed_monthly_contribution?:number|null; };
-type PensionFund = { id:string; pension_account_id:string; current_value:number; };
+type PensionFund = { id:string; pension_account_id:string; current_value:number; annualGrowthRatePercent?:number|null; annualFeePercent?:number|null; };
 type InvestmentAccount = { id:string; label:string; provider:string; account_type:string; provider_cash_value?:number|null; };
 type InvestmentHolding = { id:string; investment_account_id:string; asset_name:string; units:number; latest_price:number; imported_current_value?:number|null; };
 
 export function pensionSourceLines(accounts:PensionAccount[], funds:PensionFund[]) {
   return accounts.map(account => {
     const fundValue = funds.filter(f => f.pension_account_id === account.id).reduce((s,f)=>s+Number(f.current_value||0),0);
-    return { id:account.id, label:account.provider || account.label, value:fundValue || Number(account.current_value||0) };
+    const accountFunds = funds.filter(f => f.pension_account_id === account.id);
+    const evidenced = accountFunds.filter(f => Number.isFinite(f.annualGrowthRatePercent));
+    const evidencedValue = evidenced.reduce((s,f)=>s+Math.max(0,Number(f.current_value||0)),0);
+    const growth = evidenced.length ? evidenced.reduce((s,f)=>s+Number(f.annualGrowthRatePercent||0)*(evidencedValue > 0 ? Math.max(0,Number(f.current_value||0))/evidencedValue : 1/evidenced.length),0) : null;
+    const feeValue = accountFunds.filter(f=>Number.isFinite(f.annualFeePercent));
+    const fee = feeValue.length ? feeValue.reduce((s,f)=>s+Number(f.annualFeePercent||0)/feeValue.length,0) : null;
+    return { id:account.id, label:account.provider || account.label, value:fundValue || Number(account.current_value||0), annualGrowthRatePercent:growth, annualFeePercent:fee };
   }).sort((a,b)=>b.value-a.value);
 }
 
@@ -21,7 +27,7 @@ export function investmentSourceLines(accounts:InvestmentAccount[], holdings:Inv
 
 export function retirementAssetsFromCurrentWealth({pensionAccounts,pensionFunds,investmentAccounts,investmentHoldings,pensionAccessAge}:{pensionAccounts:PensionAccount[];pensionFunds:PensionFund[];investmentAccounts:InvestmentAccount[];investmentHoldings:InvestmentHolding[];pensionAccessAge?:number|null;}):RetirementAsset[] {
   return [
-    ...pensionSourceLines(pensionAccounts,pensionFunds).map(s=>({id:`pension-${s.id}`,label:s.label,kind:"pension" as const,currentValue:s.value,accessAge:pensionAccessAge??null})),
+    ...pensionSourceLines(pensionAccounts,pensionFunds).map(s=>({id:`pension-${s.id}`,label:s.label,kind:"pension" as const,currentValue:s.value,accessAge:pensionAccessAge??null,annualGrowthRatePercent:s.annualGrowthRatePercent,annualFeePercent:s.annualFeePercent})),
     ...investmentSourceLines(investmentAccounts,investmentHoldings).map(s=>({id:`investment-${s.id}`,label:s.label,kind:"investment" as const,currentValue:s.value,accessAge:null})),
   ];
 }

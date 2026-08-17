@@ -3,6 +3,22 @@ import { fetchLandgFundPrice, findLandgSourceUrl, isLegalGeneral } from "./pensi
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 
+function isoProviderDate(value: string | null) {
+  if (!value) return null;
+  const parsed = new Date(`${value} 12:00:00 UTC`);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : null;
+}
+
+function sourceIsin(url: string | null) {
+  if (!url) return null;
+  try { return new URL(url).searchParams.get("isin_code")?.trim().toUpperCase() || null; } catch { return null; }
+}
+
+function trustedLandgUrl(url: string | null) {
+  if (!url) return false;
+  try { const parsed = new URL(url); return parsed.protocol === "https:" && parsed.hostname === "fundcentres.landg.com"; } catch { return false; }
+}
+
 export type PensionSnapshotResult = {
   ok: boolean;
   startedAt: string;
@@ -73,7 +89,7 @@ export async function runPensionDailyPriceSnapshot(
 
   const { data: glossaryRows, error: glossaryError } = await supabase
     .from("provider_fund_glossary")
-    .select("id, internal_fund_name, internal_fund_code, underlying_isin, unit_price")
+    .select("id, internal_fund_name, internal_fund_code, underlying_isin, unit_price, source_url")
     .in("id", glossaryIds);
 
   if (glossaryError) {
@@ -98,23 +114,34 @@ export async function runPensionDailyPriceSnapshot(
       continue;
     }
 
-    const { url } = findLandgSourceUrl(fundName, "Legal & General");
-    if (!url) {
-      result.skipped += 1;
+    const mapped = findLandgSourceUrl(fundName, "Legal & General");
+    const url = String(glossary.source_url || mapped.url || "") || null;
+    const configuredIsin = String(glossary.underlying_isin || "").trim().toUpperCase() || null;
+    const urlIsin = sourceIsin(url);
+    if (!trustedLandgUrl(url) || !urlIsin || (configuredIsin && configuredIsin !== urlIsin)) {
+      result.needsReview += 1;
+      result.failures.push({ glossaryId: glossary.id, fundName, reason: configuredIsin && urlIsin && configuredIsin !== urlIsin ? `identity_mismatch: glossary ISIN ${configuredIsin} does not match source ISIN ${urlIsin}` : "Verified official provider URL and ISIN are required before prices can be applied." });
       continue;
+    }
+    const verifiedIsin = configuredIsin || urlIsin;
+    const verifiedUrl = url as string;
+    if (!configuredIsin || !glossary.source_url) {
+      await supabase.from("provider_fund_glossary").update({ underlying_isin: verifiedIsin, source_url: url, updated_at: new Date().toISOString() }).eq("id", glossary.id);
+      await supabase.from("pension_funds").update({ underlying_isin: verifiedIsin, updated_at: new Date().toISOString() }).eq("glossary_id", glossary.id).is("underlying_isin", null);
     }
 
     try {
-      const parsed = await fetchLandgFundPrice(url, fundName);
+      const parsed = await fetchLandgFundPrice(verifiedUrl, fundName);
+      const providerDate = isoProviderDate(parsed.as_of_date);
 
-      if (parsed.unit_price === null) {
+      if (parsed.unit_price === null || !providerDate) {
         result.needsReview += 1;
         result.failures.push({
           glossaryId: glossary.id,
           fundName,
           reason: parsed.candidate_count > 1
             ? `Page showed ${parsed.candidate_count} share-class prices and none matched "${fundName}" exactly — needs manual review rather than guessing. Headings found on page: ${JSON.stringify(parsed.headingsFound || [])}`
-            : "No price found on the source page.",
+            : "No price and dated provider observation could be verified on the source page.",
         });
         continue;
       }
@@ -126,12 +153,12 @@ export async function runPensionDailyPriceSnapshot(
           {
             glossary_id: glossary.id,
             fund_code: glossary.internal_fund_code || null,
-            isin: glossary.underlying_isin || null,
+            isin: verifiedIsin,
             unit_price_gbp: parsed.unit_price,
-            point_date: today,
+            point_date: providerDate,
             observed_at: new Date().toISOString(),
             source: "landg_fund_centre",
-            source_url: url,
+            source_url: verifiedUrl,
             parse_confidence: parsed.confidence,
           },
           { onConflict: "glossary_id,point_date" },
@@ -157,7 +184,7 @@ export async function runPensionDailyPriceSnapshot(
           .update({
             unit_price: parsed.unit_price,
             current_value: Math.round(units * parsed.unit_price * 100) / 100,
-            price_as_of_date: today,
+            price_as_of_date: providerDate,
             updated_at: new Date().toISOString(),
           })
           .eq("id", fund.id);
@@ -173,16 +200,17 @@ export async function runPensionDailyPriceSnapshot(
   // same as the manual recompute done earlier tonight — but now automatic.
   const { data: accounts } = await supabase.from("pension_accounts").select("id");
   for (const account of accounts || []) {
-    const { data: funds } = await supabase.from("pension_funds").select("current_value").eq("pension_account_id", account.id);
+    const { data: funds } = await supabase.from("pension_funds").select("current_value,price_as_of_date").eq("pension_account_id", account.id);
     if (!funds || funds.length === 0) continue;
     const total = funds.reduce((sum, f) => sum + Number(f.current_value || 0), 0);
     await supabase
       .from("pension_accounts")
-      .update({ current_value: Math.round(total * 100) / 100, value_as_of_date: today, updated_at: new Date().toISOString() })
+      .update({ current_value: Math.round(total * 100) / 100, value_as_of_date: funds.map(fund => fund.price_as_of_date).filter(Boolean).sort().at(0) || today, updated_at: new Date().toISOString() })
       .eq("id", account.id);
   }
 
   result.finishedAt = new Date().toISOString();
+  if (result.failures.length > 0) result.ok = false;
   logger.log(
     `[pension-price-snapshot] done checked=${result.checked} updated=${result.updated} needsReview=${result.needsReview} skipped=${result.skipped} failed=${result.failures.length}`,
   );

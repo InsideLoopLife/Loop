@@ -71,6 +71,7 @@ export type RetirementPlanProjection = {
   annualIncomeGapTodayMoney: number;
   potShortfallTodayMoney: number;
   requiredAdditionalMonthlyContributionTodayMoney: number;
+  requiredDrawdownRatePercent: number | null;
   fundingRatio: number;
   status: RetirementPlanStatus;
   assetProjections: RetirementAssetProjection[];
@@ -286,6 +287,7 @@ export function calculateRetirementPlan(input: RetirementPlanInput): RetirementP
     projectedRetirementAssetsTodayMoney - accessibleRetirementAssetsTodayMoney,
   );
   const drawablePot = Math.max(0, accessibleRetirementAssetsTodayMoney - targetLegacyPot);
+  const requiredDrawdownRatePercent = drawablePot > EPSILON ? incomeRequiredFromAssets / drawablePot * 100 : null;
   const projectedAnnualIncomeTodayMoney = guaranteedAnnualIncome + drawablePot * withdrawalRate;
   const annualIncomeGapTodayMoney = Math.max(0, input.targetAnnualIncome - projectedAnnualIncomeTodayMoney);
   const potShortfallTodayMoney = Math.max(0, requiredRetirementPotTodayMoney - accessibleRetirementAssetsTodayMoney);
@@ -334,6 +336,7 @@ export function calculateRetirementPlan(input: RetirementPlanInput): RetirementP
     annualIncomeGapTodayMoney,
     potShortfallTodayMoney,
     requiredAdditionalMonthlyContributionTodayMoney,
+    requiredDrawdownRatePercent,
     fundingRatio,
     status: calculateStatus(fundingRatio, closeThresholdPercent),
     assetProjections,

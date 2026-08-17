@@ -10,6 +10,8 @@ export type RetirementPlanRecord = {
   scope: "person" | "household"; retirement_age: number; target_annual_income: number;
   target_legacy_pot: number; annual_growth_rate_percent: number; annual_inflation_percent: number;
   sustainable_withdrawal_rate_percent: number; guaranteed_annual_income: number;
+  growth_assumption_mode: "automatic" | "manual"; inflation_assumption_mode: "automatic" | "manual";
+  assumption_snapshot: Record<string, unknown>;
   created_at?: string; updated_at?: string;
 };
 
@@ -17,6 +19,8 @@ export type SaveRetirementPlanInput = {
   personId?: string | null; scope?: "person" | "household"; retirementAge: number; targetAnnualIncome: number;
   targetLegacyPot?: number; annualGrowthRatePercent?: number; annualInflationPercent?: number;
   sustainableWithdrawalRatePercent?: number; guaranteedAnnualIncome?: number;
+  growthAssumptionMode?: "automatic" | "manual"; inflationAssumptionMode?: "automatic" | "manual";
+  assumptionSnapshot?: Record<string, unknown>;
 };
 
 function finiteNumber(value: unknown, fallback = 0) { const number = Number(value); return Number.isFinite(number) ? number : fallback; }
@@ -51,6 +55,9 @@ export async function saveRetirementPlan(input: SaveRetirementPlanInput) {
     target_annual_income: targetAnnualIncome, target_legacy_pot: targetLegacyPot,
     annual_growth_rate_percent: annualGrowthRatePercent, annual_inflation_percent: annualInflationPercent,
     sustainable_withdrawal_rate_percent: sustainableWithdrawalRatePercent, guaranteed_annual_income: guaranteedAnnualIncome,
+    growth_assumption_mode: input.growthAssumptionMode === "manual" ? "manual" : "automatic",
+    inflation_assumption_mode: input.inflationAssumptionMode === "manual" ? "manual" : "automatic",
+    assumption_snapshot: input.assumptionSnapshot || {},
   };
 
   let query = supabase.from("retirement_plans").select("id").eq("user_id", dataOwnerUserId).eq("scope", scope);
