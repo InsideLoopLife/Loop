@@ -22,6 +22,8 @@ import {
   type HomeMortgageLiabilityAllocation,
   type MortgageDealPreference,
   type MortgageWorkspacePreference,
+  type MarketRateBenchmark,
+  type LenderSvrKnowledge,
 } from "@/components/mortgage/MortgagePlannerClient";
 import {
   buildMonthPlan,
@@ -70,6 +72,8 @@ async function MortgageContent() {
     { data: renewalRecommendations },
     { data: marketDeals },
     { data: moveQueries },
+    { data: boeBenchmarks },
+    { data: svrKnowledge },
   ] = await Promise.all([
     supabase
       .from("mortgage_scenarios")
@@ -204,6 +208,16 @@ async function MortgageContent() {
       .order("created_at", { ascending: false })
       .limit(10)
       .returns<PropertyMoveQuery[]>(),
+    ratesSupabase
+      .from("mortgage_market_rate_benchmarks")
+      .select("term_type, ltv_tier, rate_percent, effective_month")
+      .order("effective_month", { ascending: false })
+      .limit(50)
+      .returns<MarketRateBenchmark[]>(),
+    ratesSupabase
+      .from("lender_svr_knowledge")
+      .select("lender_name, recorded_svr_percent, current_bank_rate, tracks_bank_rate, implied_current_svr_percent, recorded_spread_percent")
+      .returns<LenderSvrKnowledge[]>(),
   ]);
 
   const [
@@ -385,6 +399,8 @@ async function MortgageContent() {
         liabilityAllocations={liabilityAllocations ?? []}
         dealPreferences={dealPreferences ?? []}
         workspacePreference={workspacePreference ?? null}
+        boeBenchmarks={boeBenchmarks ?? []}
+        svrKnowledge={svrKnowledge ?? []}
       />
     </>
   );

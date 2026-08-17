@@ -241,6 +241,22 @@ export type PropertyMoveQuery = {
   updated_at: string | null;
 };
 
+export type MarketRateBenchmark = {
+  term_type: string;
+  ltv_tier: number | null;
+  rate_percent: number;
+  effective_month: string;
+};
+
+export type LenderSvrKnowledge = {
+  lender_name: string;
+  recorded_svr_percent: number;
+  current_bank_rate: number | null;
+  tracks_bank_rate: boolean;
+  implied_current_svr_percent: number;
+  recorded_spread_percent: number;
+};
+
 type Props = {
   scenarios: MortgageScenario[];
   people: Person[];
@@ -258,6 +274,8 @@ type Props = {
   liabilityAllocations?: HomeMortgageLiabilityAllocation[];
   dealPreferences?: MortgageDealPreference[];
   workspacePreference?: MortgageWorkspacePreference | null;
+  boeBenchmarks?: MarketRateBenchmark[];
+  svrKnowledge?: LenderSvrKnowledge[];
 };
 
 type HomeDashboardTab =
@@ -3351,6 +3369,86 @@ function ImportProductUrlForm({
   );
 }
 
+function MarketBenchmarksPanel({
+  boeBenchmarks,
+  svrKnowledge,
+}: {
+  boeBenchmarks: MarketRateBenchmark[];
+  svrKnowledge: LenderSvrKnowledge[];
+}) {
+  const bankRate = boeBenchmarks.find((b) => b.term_type === "bank_rate")?.rate_percent ?? null;
+  const twoYearFixedByLtv = boeBenchmarks
+    .filter((b) => b.term_type === "2yr_fixed" && b.ltv_tier !== null)
+    .sort((a, b) => (a.ltv_tier ?? 0) - (b.ltv_tier ?? 0));
+  const svrSorted = [...svrKnowledge].sort((a, b) => a.implied_current_svr_percent - b.implied_current_svr_percent);
+
+  return (
+    <SectionCard
+      title="Market benchmarks"
+      description="Official Bank of England averages and lender SVR policy — not a specific product, just the honest picture of where rates sit right now."
+    >
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-[2rem] border border-violet-100 bg-violet-50 p-5">
+          <div className="flex items-baseline justify-between">
+            <p className="text-xs font-black uppercase text-violet-700">Bank of England base rate</p>
+            {bankRate !== null && <p className="text-3xl font-black text-slate-950">{bankRate}%</p>}
+          </div>
+
+          {twoYearFixedByLtv.length > 0 ? (
+            <div className="mt-4 space-y-2">
+              <p className="text-xs font-black uppercase text-violet-700">2-year fixed, by LTV</p>
+              {twoYearFixedByLtv.map((row) => (
+                <div key={row.ltv_tier} className="flex items-center justify-between rounded-xl bg-white/70 px-3 py-2">
+                  <span className="text-sm font-bold text-slate-600">{row.ltv_tier}% LTV</span>
+                  <span className="text-sm font-black text-slate-950">{row.rate_percent}%</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 text-xs font-bold text-violet-600">
+              LTV-tier benchmarks are still populating — check back soon. Base rate above is live.
+            </p>
+          )}
+
+          <a
+            href="https://moneyfactscompare.co.uk/mortgages/"
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 inline-block text-xs font-black text-violet-700 underline underline-offset-2"
+          >
+            Compare live market rates ↗
+          </a>
+        </div>
+
+        <div className="rounded-[2rem] border border-slate-200 bg-white p-5">
+          <p className="text-xs font-black uppercase text-slate-500">
+            If you did nothing — lender SVR today
+          </p>
+          <p className="mt-1 text-[11px] font-semibold text-slate-400">
+            What you'd roll onto if a fixed deal ended without remortgaging. Not something you can apply for — it's the fallback rate.
+          </p>
+          <div className="mt-3 space-y-1.5">
+            {svrSorted.map((lender) => (
+              <div key={lender.lender_name} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
+                <span className="text-sm font-bold text-slate-700">
+                  {lender.lender_name}
+                  {!lender.tracks_bank_rate && (
+                    <span className="ml-1.5 text-[10px] font-black uppercase text-amber-600">doesn't track base rate</span>
+                  )}
+                </span>
+                <span className="text-sm font-black text-slate-950">{lender.implied_current_svr_percent.toFixed(2)}%</span>
+              </div>
+            ))}
+            {svrSorted.length === 0 && (
+              <p className="text-xs font-bold text-slate-400">SVR data isn't available yet.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
 function MortgageDealsPanel({
   home,
   deals,
@@ -4598,6 +4696,8 @@ export function MortgagePlannerClient({
   liabilityAllocations = [],
   dealPreferences = [],
   workspacePreference = null,
+  boeBenchmarks = [],
+  svrKnowledge = [],
 }: Props) {
   const [modal, setModal] = useState<ModalState>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -5415,6 +5515,10 @@ export function MortgagePlannerClient({
             </div>
           </SectionCard>
         </div>
+      ) : null}
+
+      {activeHomeTab === "mortgage_deals" ? (
+        <MarketBenchmarksPanel boeBenchmarks={boeBenchmarks} svrKnowledge={svrKnowledge} />
       ) : null}
 
       {activeHomeTab === "mortgage_deals" ? (
