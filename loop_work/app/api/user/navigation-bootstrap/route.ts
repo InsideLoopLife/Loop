@@ -22,7 +22,7 @@ export async function GET() {
 
   const profilePromise = supabase
     .from("app_user_profiles")
-    .select("ui_navigation_layout, ui_navigation_layout_chosen_at")
+    .select("ui_navigation_layout, ui_navigation_layout_chosen_at, ui_mobile_navigation_layout, ui_mobile_navigation_layout_chosen_at")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -62,6 +62,8 @@ export async function GET() {
     {
       navigationLayout: profileResult.data?.ui_navigation_layout === "top" ? "top" : "side",
       hasChosenNavigationLayout: Boolean(profileResult.data?.ui_navigation_layout_chosen_at),
+      mobileNavigationLayout: profileResult.data?.ui_mobile_navigation_layout === "cards" ? "cards" : "bar",
+      hasChosenMobileNavigationLayout: Boolean(profileResult.data?.ui_mobile_navigation_layout_chosen_at),
       unreadCount: unreadResult.count ?? 0,
       features,
       isAdmin,

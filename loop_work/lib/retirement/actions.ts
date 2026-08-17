@@ -63,5 +63,6 @@ export async function saveRetirementPlan(input: SaveRetirementPlanInput) {
     : await supabase.from("retirement_plans").insert(payload).select("*").single();
   if (result.error) throw result.error;
   revalidatePath("/investments");
+  revalidatePath("/retirement");
   return result.data as RetirementPlanRecord;
 }

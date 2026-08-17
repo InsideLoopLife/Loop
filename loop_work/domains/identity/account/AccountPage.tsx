@@ -875,7 +875,7 @@ export default async function AccountPage({
           <div id="navigation-layout" className="scroll-mt-28">
             <SectionCard
               title="Navigation layout"
-              description="Choose whether LOOP uses the premium side menu or the compact top navigation. This preference follows your account across devices and can be changed whenever you like."
+              description="Choose Top or Side on desktop, and Cards or Navigation bar on mobile. LOOP saves the two preferences independently so each screen gets the layout designed for it."
             >
               <NavigationLayoutSettings
                 initialLayout={profile?.ui_navigation_layout === "top" ? "top" : "side"}

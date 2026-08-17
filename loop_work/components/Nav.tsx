@@ -16,12 +16,14 @@ import {
   HelpCircle,
   Home,
   House,
+  LayoutGrid,
   LayoutDashboard,
   LineChart,
   LogOut,
   Menu,
   MoonStar,
   PanelLeft,
+  PanelBottom,
   PanelTop,
   Salad,
   Settings2,
@@ -34,6 +36,7 @@ import {
 import { signOut } from "@/app/actions";
 
 type NavigationLayout = "top" | "side";
+type MobileNavigationLayout = "cards" | "bar";
 type NavigationDomain = "wealth" | "health";
 
 type NavLink = {
@@ -76,6 +79,8 @@ const eagerWealthRoutes = ["/briefing", "/dashboard", "/financial-flow", "/inves
 type NavigationBootstrap = {
   navigationLayout?: NavigationLayout;
   hasChosenNavigationLayout?: boolean;
+  mobileNavigationLayout?: MobileNavigationLayout;
+  hasChosenMobileNavigationLayout?: boolean;
   unreadCount?: number;
   isAdmin?: boolean;
   features?: Partial<UserFeatureAccess>;
@@ -289,6 +294,15 @@ function LayoutButtons({
   );
 }
 
+function MobileLayoutButtons({ layout, onChange }: { layout: MobileNavigationLayout; onChange: (layout: MobileNavigationLayout) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <button type="button" onClick={() => onChange("cards")} className={`rounded-2xl border px-3 py-3 text-xs font-black transition ${layout === "cards" ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-200 bg-white text-slate-700"}`}><span className="flex items-center justify-center gap-2"><LayoutGrid className="h-4 w-4" /> Cards</span></button>
+      <button type="button" onClick={() => onChange("bar")} className={`rounded-2xl border px-3 py-3 text-xs font-black transition ${layout === "bar" ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-700"}`}><span className="flex items-center justify-center gap-2"><PanelBottom className="h-4 w-4" /> Navigation bar</span></button>
+    </div>
+  );
+}
+
 function NavigationChoiceDialog({
   layout,
   onChoose,
@@ -356,6 +370,9 @@ function AccountModal({
   onClose,
   layout,
   onLayoutChange,
+  isMobileViewport,
+  mobileLayout,
+  onMobileLayoutChange,
   unreadCount,
   showAdmin,
 }: {
@@ -363,6 +380,9 @@ function AccountModal({
   onClose: () => void;
   layout: NavigationLayout;
   onLayoutChange: (layout: NavigationLayout) => void;
+  isMobileViewport: boolean;
+  mobileLayout: MobileNavigationLayout;
+  onMobileLayoutChange: (layout: MobileNavigationLayout) => void;
   unreadCount: number;
   showAdmin: boolean;
 }) {
@@ -478,9 +498,9 @@ function AccountModal({
           <div className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-slate-500">
             <Settings2 className="h-4 w-4" /> Navigation layout
           </div>
-          <LayoutButtons layout={layout} onChange={onLayoutChange} />
+          {isMobileViewport ? <MobileLayoutButtons layout={mobileLayout} onChange={onMobileLayoutChange} /> : <LayoutButtons layout={layout} onChange={onLayoutChange} />}
           <p className="mt-3 text-xs font-semibold text-slate-500">
-            This setting is also available in Account → Personal.
+            {isMobileViewport ? "Mobile choices are saved separately from desktop." : "This setting is also available in Account → Personal."}
           </p>
         </div>
 
@@ -530,6 +550,7 @@ function NavInner() {
     DEFAULT_USER_FEATURE_ACCESS,
   );
   const [layout, setLayout] = useState<NavigationLayout>("side");
+  const [mobileLayout, setMobileLayout] = useState<MobileNavigationLayout>("bar");
   const [preferenceLoaded, setPreferenceLoaded] = useState(false);
   const [hasChosenLayout, setHasChosenLayout] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -540,12 +561,6 @@ function NavInner() {
     prefetchedRoutes.current.add(href);
     router.prefetch(href);
   }, [router]);
-  // BUGFIX/FEATURE: a sidebar layout genuinely doesn't work on a phone
-  // width, however it got chosen (saved preference from a wider screen,
-  // an old default, etc.) — this forces "top" for rendering purposes
-  // specifically on narrow viewports, without touching the person's
-  // actual saved preference, so it correctly reverts to their real
-  // choice the moment they're back on a wider screen.
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   useEffect(() => {
     const query = window.matchMedia("(max-width: 1023px)");
@@ -554,13 +569,25 @@ function NavInner() {
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, []);
-  const effectiveLayout: NavigationLayout = isMobileViewport ? "top" : layout;
 
   useEffect(() => {
     const stored = window.localStorage.getItem(
       "loop:navigation-layout",
     ) as NavigationLayout | null;
-    if (stored === "side" || stored === "top") setLayout(stored);
+    const mobileStored = window.localStorage.getItem("loop:mobile-navigation-layout");
+    queueMicrotask(() => {
+      if (stored === "side" || stored === "top") setLayout(stored);
+      if (mobileStored === "cards" || mobileStored === "bar") setMobileLayout(mobileStored);
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleMobileLayoutChange = (event: Event) => {
+      const next = (event as CustomEvent<{ layout?: MobileNavigationLayout }>).detail?.layout;
+      if (next === "cards" || next === "bar") setMobileLayout(next);
+    };
+    window.addEventListener("loop:mobile-navigation-layout-changed", handleMobileLayoutChange);
+    return () => window.removeEventListener("loop:mobile-navigation-layout-changed", handleMobileLayoutChange);
   }, []);
 
   useEffect(() => {
@@ -600,6 +627,10 @@ function NavInner() {
         if (!mounted || !payload) return;
         if (payload.navigationLayout === "side" || payload.navigationLayout === "top") {
           setLayout(payload.navigationLayout);
+        }
+        if (payload.mobileNavigationLayout === "cards" || payload.mobileNavigationLayout === "bar") {
+          setMobileLayout(payload.mobileNavigationLayout);
+          window.localStorage.setItem("loop:mobile-navigation-layout", payload.mobileNavigationLayout);
         }
         const localConfirmed = window.localStorage.getItem("loop:navigation-layout-confirmed-v28_84") === "true";
         setHasChosenLayout(Boolean(payload.hasChosenNavigationLayout) || localConfirmed);
@@ -655,8 +686,10 @@ function NavInner() {
   }, [pathname, prefetchRoute]);
 
   useEffect(() => {
-    setMobileOpen(false);
-    setAccountOpen(false);
+    queueMicrotask(() => {
+      setMobileOpen(false);
+      setAccountOpen(false);
+    });
   }, [pathname]);
 
   useEffect(() => {
@@ -669,14 +702,14 @@ function NavInner() {
   }, [accountOpen]);
 
   useEffect(() => {
-    const shouldLock = accountOpen || (preferenceLoaded && !hasChosenLayout);
+    const shouldLock = accountOpen || (preferenceLoaded && !hasChosenLayout && !isMobileViewport) || mobileOpen;
     if (!shouldLock) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previous;
     };
-  }, [accountOpen, preferenceLoaded, hasChosenLayout]);
+  }, [accountOpen, preferenceLoaded, hasChosenLayout, isMobileViewport, mobileOpen]);
 
   async function changeLayout(next: NavigationLayout, confirmed = true) {
     setLayout(next);
@@ -696,6 +729,13 @@ function NavInner() {
     }).catch(() => undefined);
   }
 
+  async function changeMobileLayout(next: MobileNavigationLayout) {
+    setMobileLayout(next);
+    setMobileOpen(false);
+    window.localStorage.setItem("loop:mobile-navigation-layout", next);
+    await fetch("/api/user/ui-preferences", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ mobileNavigationLayout: next, markChosen: true }) }).catch(() => undefined);
+  }
+
   const healthMode = isHealthPath(pathname);
   const domain: NavigationDomain = healthMode ? "health" : "wealth";
   const visibleWealthLinks = useMemo(
@@ -707,7 +747,7 @@ function NavInner() {
 
   const overlays = (
     <>
-      {preferenceLoaded && !hasChosenLayout ? (
+      {preferenceLoaded && !hasChosenLayout && !isMobileViewport ? (
         <NavigationChoiceDialog
           layout={layout}
           onChoose={(next) => changeLayout(next, true)}
@@ -718,13 +758,48 @@ function NavInner() {
         onClose={() => setAccountOpen(false)}
         layout={layout}
         onLayoutChange={(next) => changeLayout(next, true)}
+        isMobileViewport={isMobileViewport}
+        mobileLayout={mobileLayout}
+        onMobileLayoutChange={changeMobileLayout}
         unreadCount={unreadCount}
         showAdmin={showAdmin}
       />
     </>
   );
 
-  if (effectiveLayout === "side") {
+  if (isMobileViewport) {
+    return (
+      <>
+        {overlays}
+        <header className="loop-mobile-navigation sticky top-0 z-40 border-b border-slate-200/70 bg-white/92 px-4 py-3 backdrop-blur-2xl">
+          <div className="flex items-center justify-between gap-3">
+            <Brand />
+            <div className="flex items-center gap-2">
+              <Link href={domain === "wealth" ? "/nutrition" : wealthHome} className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">{domain === "wealth" ? "Health" : "Wealth"}</Link>
+              <button type="button" onClick={() => setAccountOpen(true)} className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-slate-700" aria-label="Account and settings"><UserRound className="h-5 w-5" />{unreadCount > 0 ? <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-violet-600 ring-2 ring-white" /> : null}</button>
+              {mobileLayout === "cards" ? <button type="button" onClick={() => setMobileOpen(true)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-950 text-white" aria-label="Open navigation cards"><Menu className="h-5 w-5" /></button> : null}
+            </div>
+          </div>
+        </header>
+        <div id="loop-page-actions" className="fixed right-4 top-[4.5rem] z-30 flex items-center" />
+        {mobileLayout === "bar" ? (
+          <nav className="loop-mobile-bottom-nav fixed inset-x-3 bottom-3 z-50 grid rounded-[1.4rem] border border-white/20 bg-slate-950/95 p-1.5 text-white shadow-2xl backdrop-blur-2xl" style={{ gridTemplateColumns: `repeat(${currentLinks.length}, minmax(0, 1fr))` }} aria-label={`${domain} mobile navigation`}>
+            {currentLinks.map((link) => { const Icon = link.icon; const active = isActiveLink(pathname, searchParams, link.href, currentLinks); return <Link key={link.href} href={link.href} onMouseEnter={() => prefetchRoute(link.href)} className={`flex min-w-0 flex-col items-center gap-1 rounded-2xl px-1 py-2 text-[9px] font-black ${active ? "bg-white text-slate-950" : "text-slate-300"}`}><Icon className="h-4 w-4" /><span className="max-w-full truncate">{link.label.replace("Pensions & Investments", "Invest")}</span></Link>; })}
+          </nav>
+        ) : null}
+        {mobileLayout === "cards" && mobileOpen ? (
+          <div className="fixed inset-0 z-[140] overflow-y-auto bg-[linear-gradient(180deg,#07142d,#102d68)] p-4 text-white">
+            <div className="mx-auto max-w-lg pt-[max(1rem,env(safe-area-inset-top))]">
+              <div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-200">{domain}</p><h2 className="mt-1 text-3xl font-black">Where would you like to go?</h2></div><button type="button" onClick={() => setMobileOpen(false)} className="grid h-11 w-11 place-items-center rounded-full bg-white/10" aria-label="Close navigation cards"><X className="h-5 w-5" /></button></div>
+              <nav className="mt-6 grid grid-cols-2 gap-3" aria-label={`${domain} navigation cards`}>{currentLinks.map((link) => { const Icon = link.icon; return <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)} className="min-h-36 rounded-[1.75rem] border border-white/10 bg-white/10 p-5 shadow-lg backdrop-blur"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-indigo-700"><Icon className="h-5 w-5" /></span><span className="mt-5 block text-base font-black">{link.label}</span></Link>; })}</nav>
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
+  if (layout === "side") {
     return (
       <>
         {overlays}
@@ -836,7 +911,7 @@ function NavInner() {
   return (
     <>
       {overlays}
-      <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/88 backdrop-blur-2xl">
+      <header className="loop-desktop-navigation sticky top-0 z-40 border-b border-slate-200/70 bg-white/88 backdrop-blur-2xl">
         <div className="mx-auto grid w-[min(96vw,1800px)] grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 px-2 py-3 2xl:grid-cols-[auto_minmax(0,1fr)_auto] 2xl:px-4">
           <div className="flex items-center">
             <Brand />

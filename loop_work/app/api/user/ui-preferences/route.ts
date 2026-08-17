@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 const VALID_LAYOUTS = new Set(["top", "side"]);
+const VALID_MOBILE_LAYOUTS = new Set(["cards", "bar"]);
 
 type NavigationLayout = "top" | "side";
+type MobileNavigationLayout = "cards" | "bar";
 
 export async function GET() {
   const supabase = await createClient();
@@ -15,7 +17,7 @@ export async function GET() {
 
   const result = await supabase
     .from("app_user_profiles")
-    .select("ui_navigation_layout, ui_navigation_layout_chosen_at")
+    .select("ui_navigation_layout, ui_navigation_layout_chosen_at, ui_mobile_navigation_layout, ui_mobile_navigation_layout_chosen_at")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -25,6 +27,8 @@ export async function GET() {
       navigationLayout,
       hasChosenNavigationLayout: Boolean(result.data?.ui_navigation_layout_chosen_at),
       chosenAt: result.data?.ui_navigation_layout_chosen_at || null,
+      mobileNavigationLayout: result.data?.ui_mobile_navigation_layout === "cards" ? "cards" : "bar",
+      hasChosenMobileNavigationLayout: Boolean(result.data?.ui_mobile_navigation_layout_chosen_at),
     });
   }
 
@@ -59,6 +63,21 @@ export async function PATCH(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json().catch(() => ({}));
+  const rawMobileLayout = String(body.mobileNavigationLayout || "");
+  if (rawMobileLayout) {
+    if (!VALID_MOBILE_LAYOUTS.has(rawMobileLayout)) {
+      return NextResponse.json({ error: "Invalid mobile navigation layout" }, { status: 400 });
+    }
+    const mobileNavigationLayout = rawMobileLayout as MobileNavigationLayout;
+    const markChosen = body.markChosen !== false;
+    const result = await supabase.from("app_user_profiles").upsert({
+      user_id: user.id,
+      ui_mobile_navigation_layout: mobileNavigationLayout,
+      ...(markChosen ? { ui_mobile_navigation_layout_chosen_at: new Date().toISOString() } : {}),
+    }, { onConflict: "user_id" });
+    if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
+    return NextResponse.json({ mobileNavigationLayout, hasChosenMobileNavigationLayout: markChosen });
+  }
   const rawLayout = String(body.navigationLayout || "");
   if (!VALID_LAYOUTS.has(rawLayout)) {
     return NextResponse.json({ error: "Invalid navigation layout" }, { status: 400 });

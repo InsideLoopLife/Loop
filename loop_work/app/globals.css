@@ -294,7 +294,11 @@ main [class*="bg-white"] {
 main h1 { font-weight: 900; }
 
 @media (max-width: 1023px) {
-  body[data-loop-nav="side"] { padding-left: 0; padding-top: 64px; }
+  body { padding-bottom: calc(5.75rem + env(safe-area-inset-bottom)); }
+  body[data-loop-nav="side"] { padding-left: 0; padding-top: 0; }
+  body[data-loop-nav="side"] > header.loop-mobile-navigation { display: block !important; }
+  .loop-desktop-navigation { display: none !important; }
+  .loop-mobile-bottom-nav { bottom: max(.75rem, env(safe-area-inset-bottom)); }
   body[data-loop-nav="side"] main.max-w-7xl,
   body[data-loop-nav="side"] main.max-w-none,
   body[data-loop-nav="side"] main.max-w-6xl,
