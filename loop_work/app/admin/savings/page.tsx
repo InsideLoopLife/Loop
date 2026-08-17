@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Banknote, Bot, RefreshCw, Settings, ShieldCheck, Trash2 } from "lucide-react";
 import { AdminTabs } from "@/components/admin/AdminTabs";
 import { createBestAdminClient, getAdminAccess } from "@/lib/admin/access";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import { checkSavingsSource, expireStaleDealsNow, runSavingsWatchNow } from "../wealth-watch/actions";
 import { runSavingsCatalogueAndWatchNow, runSavingsCatalogueRefreshNow, seedDefaultSavingsAndMortgageSourcesNow } from "./actions";
 
@@ -21,11 +22,12 @@ export default async function AdminSavingsPage() {
   if (!access.user) redirect(`/login?next=${encodeURIComponent("/admin/savings")}`);
   if (!access.isAdmin) redirect("/admin");
   const supabase = createBestAdminClient();
+  const ratesSupabase = createWorkerDatabaseClient("rates");
   const [deals, recs, runs, sources] = supabase ? await Promise.all([
-    safe<any[]>(supabase.from("savings_rate_deals").select("id,status,last_checked_at,provider_name,product_name,gross_aer,access_type,withdrawal_rules,notice_period_days,term_length_months,source_url,confidence").order("gross_aer", { ascending: false, nullsFirst: false }).limit(5000), []),
-    safe<any[]>(supabase.from("savings_rate_recommendations").select("id,status,started_at,finished_at,recommendations_created,accounts_checked,error").in("status", ["new", "seen", "watching"]).limit(5000), []),
-    safe<any[]>(supabase.from("savings_rate_watch_runs").select("id,status,started_at,finished_at,recommendations_created,accounts_checked,error").order("started_at", { ascending: false }).limit(10), []),
-    safe<any[]>(supabase.from("savings_rate_sources").select("id,status,provider_name,product_hint,source_url,last_checked_at,last_error").order("last_checked_at", { ascending: false, nullsFirst: false }).limit(5000), []),
+    safe<any[]>(ratesSupabase.from("savings_rate_deals").select("id,status,last_checked_at,provider_name,product_name,gross_aer,access_type,withdrawal_rules,notice_period_days,term_length_months,source_url,confidence").order("gross_aer", { ascending: false, nullsFirst: false }).limit(5000), []),
+    safe<any[]>(ratesSupabase.from("savings_rate_recommendations").select("id,status,started_at,finished_at,recommendations_created,accounts_checked,error").in("status", ["new", "seen", "watching"]).limit(5000), []),
+    safe<any[]>(ratesSupabase.from("savings_rate_watch_runs").select("id,status,started_at,finished_at,recommendations_created,accounts_checked,error").order("started_at", { ascending: false }).limit(10), []),
+    safe<any[]>(ratesSupabase.from("savings_rate_sources").select("id,status,provider_name,product_hint,source_url,last_checked_at,last_error").order("last_checked_at", { ascending: false, nullsFirst: false }).limit(5000), []),
   ]) : [[], [], [], []];
   const active = deals.filter((deal) => deal.status === "active").length;
   const review = deals.filter((deal) => deal.status === "needs_review").length;

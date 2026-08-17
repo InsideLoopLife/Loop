@@ -8,6 +8,7 @@ import { SubmitButton } from "@/components/SubmitButton";
 import { BalanceHistoryChart } from "@/components/BalanceHistoryChart";
 import { SavingsMovementChart, type SavingsMovementPoint } from "@/components/savings/SavingsMovementChart";
 import { createClient } from "@/lib/supabase/server";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import { getCachedSavingsRateDeals } from "@/lib/wealth/cached-savings-rate-deals";
 import {
   dedupeHouseholdPeople,
@@ -630,6 +631,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   const activeTab = tabs.some((tab) => tab.key === resolvedSearchParams.tab) ? (resolvedSearchParams.tab as SavingsTab) : "overview";
 
   const supabase = await createClient();
+  const ratesSupabase = createWorkerDatabaseClient("rates");
   // The rates catalogue (savings_rate_deals below) now lives in its own,
   // separate Supabase project — moved off the main database due to usage
   // overage. Everything else on this page still uses the regular client.
@@ -686,7 +688,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       .eq("user_id", user.id)
       .eq("is_active", true)
       .returns<HeldProvider[]>(),
-    supabase
+    ratesSupabase
       .from("savings_rate_recommendations")
       .select(
         "id, financial_account_id, savings_rate_deal_id, provider_slug, provider_name, product_name, recommendation_kind, eligibility_status, current_rate, suggested_rate, rate_delta, balance_checked, estimated_annual_gain, source_url, reason, status, created_at",

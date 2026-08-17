@@ -171,7 +171,7 @@ async function MortgageContent() {
       .select("current_balance, account_type, is_liability")
       .or(householdVisibleFilter)
       .eq("is_liability", false),
-    supabase
+    ratesSupabase
       .from("mortgage_renewal_recommendations")
       .select(
         "id, home_id, mortgage_deal_id, mortgage_rate_deal_id, recommendation_kind, lender_name, product_name, current_lender, current_rate, suggested_rate, rate_delta, estimated_current_payment, estimated_new_payment, estimated_monthly_saving, product_fee, ltv, months_until_end, source_url, reason, status, created_at, payload",
@@ -216,7 +216,7 @@ async function MortgageContent() {
       .select("id, home_mortgage_deal_id, person_id, liability_percent, source")
       .or(householdVisibleFilter)
       .returns<HomeMortgageLiabilityAllocation[]>(),
-    supabase
+    ratesSupabase
       .from("mortgage_deal_preferences")
       .select("id, home_id, source_kind, source_id, is_shortlisted, is_starred")
       .eq("user_id", user.id)

@@ -680,16 +680,17 @@ export async function archivePropertyMoveQuery(formData: FormData) {
 
 export async function saveMortgageDealPreference(formData: FormData) {
   const { supabase, user } = await requireUser();
+  const ratesSupabase = createWorkerDatabaseClient("rates");
   const sourceKind = String(formData.get("source_kind") || "market");
   const sourceId = String(formData.get("source_id") || "");
   const homeId = String(formData.get("home_id") || "") || null;
   const intent = String(formData.get("intent") || "star");
   const nextValue = String(formData.get("next_value") || "true") === "true";
-  if (!sourceId || !["market", "recommendation"].includes(sourceKind))
+  if (!sourceId || !["market", "recommendation", "user_submitted"].includes(sourceKind))
     throw new Error("Invalid mortgage deal preference.");
 
   if (intent === "star" && nextValue) {
-    let clearQuery = supabase
+    let clearQuery = ratesSupabase
       .from("mortgage_deal_preferences")
       .update({ is_starred: false, updated_at: new Date().toISOString() })
       .eq("user_id", user.id);
@@ -710,7 +711,7 @@ export async function saveMortgageDealPreference(formData: FormData) {
   if (intent === "star") payload.is_starred = nextValue;
   if (intent === "shortlist") payload.is_shortlisted = nextValue;
 
-  const { error } = await supabase
+  const { error } = await ratesSupabase
     .from("mortgage_deal_preferences")
     .upsert(payload, { onConflict: "user_id,source_kind,source_id" });
   if (error) throw new Error(error.message);

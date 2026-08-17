@@ -123,7 +123,7 @@ export async function runMortgageRenewalWatch(supabase: any, ratesSupabase: any,
         const newPayment = calculateMonthlyMortgagePayment({ balance, annualInterestRate: suggestedRate, termYears: Number(mortgage.term_years || 25) });
         const recommendationKind = candidate.isCurrentLender ? "current_lender" : "whole_market";
         const reason = `${recommendationKind === "current_lender" ? "Current lender" : "Whole-market"} comparison for ${ltv.toFixed(1)}% LTV. ${months === null ? "Variable/no fixed end date" : `${months} month(s) until the current deal ends`}.`;
-        const { error } = await supabase.from("mortgage_renewal_recommendations").upsert({
+        const { error } = await ratesSupabase.from("mortgage_renewal_recommendations").upsert({
           user_id: mortgage.user_id,
           home_id: mortgage.home_id,
           mortgage_deal_id: mortgage.id,

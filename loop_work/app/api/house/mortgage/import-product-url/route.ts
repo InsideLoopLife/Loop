@@ -18,6 +18,7 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 import { enforceUserRateLimit } from "@/lib/security/rate-limit";
@@ -73,6 +74,7 @@ export async function POST(request: Request) {
   if (contentLength > 8_000) return NextResponse.json({ error: "Request too large." }, { status: 413 });
 
   const supabase = await createClient();
+  const ratesSupabase = createWorkerDatabaseClient("rates");
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -89,7 +91,7 @@ export async function POST(request: Request) {
 
   // Shared row — if someone already submitted this exact URL, reuse it rather
   // than re-fetching/re-extracting (and don't waste this user's AI budget).
-  const { data: existing } = await supabase
+  const { data: existing } = await ratesSupabase
     .from("user_submitted_mortgage_products")
     .select("*")
     .eq("source_url", sourceUrl)
@@ -152,7 +154,7 @@ Return JSON with this exact shape (use null for anything not clearly stated — 
       }
     }
 
-    const { data: inserted, error } = await supabase
+    const { data: inserted, error } = await ratesSupabase
       .from("user_submitted_mortgage_products")
       .upsert(
         {

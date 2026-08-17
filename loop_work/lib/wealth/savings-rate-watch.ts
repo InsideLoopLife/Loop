@@ -21,7 +21,7 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
   const limit = Math.max(1, Math.min(Number(options.limit || 500), 1000));
   const now = new Date().toISOString();
 
-  const { data: run, error: runError } = await supabase
+  const { data: run, error: runError } = await ratesSupabase
     .from("savings_rate_watch_runs")
     .upsert({
       run_key: key,
@@ -124,7 +124,7 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
           shadowedDealIds.add(String(deal.id));
         }
 
-        const { error } = await supabase.from("savings_rate_recommendations").upsert({
+        const { error } = await ratesSupabase.from("savings_rate_recommendations").upsert({
           user_id: account.user_id,
           financial_account_id: account.id,
           savings_rate_deal_id: deal.id,
@@ -178,7 +178,7 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
     // until it happens to be replaced by a later run.
     const accountById = new Map<string, any>((accounts || []).map((account: any) => [String(account.id), account]));
     const dealById = new Map<string, any>((deals || []).map((deal: any) => [String(deal.id), deal]));
-    const { data: activeRecommendations, error: activeRecommendationError } = await supabase
+    const { data: activeRecommendations, error: activeRecommendationError } = await ratesSupabase
       .from("savings_rate_recommendations")
       .select("id,financial_account_id,savings_rate_deal_id")
       .in("status", ["new", "seen", "watching"]);
@@ -196,14 +196,14 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
       }, deal);
     }).map((recommendation: any) => recommendation.id);
     if (invalidIds.length) {
-      const { error } = await supabase.from("savings_rate_recommendations").update({ status: "expired", updated_at: now }).in("id", invalidIds);
+      const { error } = await ratesSupabase.from("savings_rate_recommendations").update({ status: "expired", updated_at: now }).in("id", invalidIds);
       if (error) throw new Error(error.message);
     }
 
-    await supabase.from("savings_rate_watch_runs").update({ status: "completed", finished_at: new Date().toISOString(), accounts_checked: checked, recommendations_created: recommendations, payload: { detail: detail.slice(0, 100), skippedNoTier, settings } }).eq("id", run.id);
+    await ratesSupabase.from("savings_rate_watch_runs").update({ status: "completed", finished_at: new Date().toISOString(), accounts_checked: checked, recommendations_created: recommendations, payload: { detail: detail.slice(0, 100), skippedNoTier, settings } }).eq("id", run.id);
     return { ok: true, checked, recommendations_created: recommendations, invalid_recommendations_expired: invalidIds.length, skipped_no_tier: skippedNoTier };
   } catch (error: any) {
-    await supabase.from("savings_rate_watch_runs").update({ status: "failed", finished_at: new Date().toISOString(), accounts_checked: checked, recommendations_created: recommendations, error: error?.message || "failed", payload: { detail, skippedNoTier, settings } }).eq("id", run.id);
+    await ratesSupabase.from("savings_rate_watch_runs").update({ status: "failed", finished_at: new Date().toISOString(), accounts_checked: checked, recommendations_created: recommendations, error: error?.message || "failed", payload: { detail, skippedNoTier, settings } }).eq("id", run.id);
     throw error;
   }
 }
