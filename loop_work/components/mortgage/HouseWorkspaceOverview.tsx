@@ -134,7 +134,7 @@ function ScenarioCard({
       </div>
 
       <a
-        href="#house-advanced-workspace"
+        href="/mortgage/advanced"
         className="mt-5 block rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-center text-xs font-black text-violet-700 transition hover:border-violet-200 hover:bg-violet-50"
       >
         View details ↓
@@ -331,11 +331,11 @@ export function HouseWorkspaceOverview({
             </p>
 
             {[
-              ["Overview", "#house-scenario-overview"],
-              ["Property", "#house-property-summary"],
-              ["Mortgage & rates", "#house-scenario-overview"],
-              ["Affordability", "#house-advanced-workspace"],
-              ["Moving costs", "#house-advanced-workspace"],
+              ["Overview", "/mortgage"],
+              ["Property", "/mortgage/property"],
+              ["Mortgage & rates", "/mortgage/rates"],
+              ["Affordability", "/affordability"],
+              ["Moving costs", "/mortgage/moving-costs"],
             ].map(([label, href], index) => (
               <a
                 key={label}
@@ -359,19 +359,19 @@ export function HouseWorkspaceOverview({
               Quick actions
             </p>
             <a
-              href="#house-advanced-workspace"
+              href="/mortgage/advanced"
               className="mt-1 block rounded-xl px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
             >
               ＋ Add property
             </a>
             <a
-              href="#house-advanced-workspace"
+              href="/mortgage/advanced"
               className="block rounded-xl px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
             >
               ▣ Add mortgage
             </a>
             <a
-              href="#house-advanced-workspace"
+              href="/mortgage/advanced"
               className="block rounded-xl px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
             >
               ⇄ Compare rates
@@ -400,7 +400,7 @@ export function HouseWorkspaceOverview({
                   {summary.benchmarkDate || "Waiting for rate benchmark"}
                 </p>
                 <a
-                  href="#house-advanced-workspace"
+                  href="/mortgage/advanced"
                   className="mt-3 inline-block rounded-xl border border-violet-300 bg-white px-4 py-2 text-xs font-black text-violet-700"
                 >
                   Adjust assumptions
@@ -532,7 +532,7 @@ export function HouseWorkspaceOverview({
                   </p>
                 </div>
                 <a
-                  href="#house-advanced-workspace"
+                  href="/mortgage/advanced"
                   className="text-xs font-black text-violet-700"
                 >
                   View full breakdown →
@@ -643,7 +643,7 @@ export function HouseWorkspaceOverview({
               </div>
 
               <a
-                href="#house-advanced-workspace"
+                href="/mortgage/advanced"
                 className="mt-4 block rounded-xl border border-violet-300 px-4 py-2.5 text-center text-xs font-black text-violet-700"
               >
                 View full breakdown

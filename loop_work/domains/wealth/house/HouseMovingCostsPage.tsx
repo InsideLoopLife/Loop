@@ -1,0 +1,17 @@
+import Link from "next/link";
+import { Nav } from "@/components/Nav";
+import { HouseShell } from "@/components/mortgage/HouseShell";
+import { formatMoney } from "@/lib/format/money";
+import { loadHouseCore } from "./house-page-data";
+
+async function Content(){
+  const {homes,deals,valuations,moveQueries}=await loadHouseCore();
+  const total=moveQueries.reduce((s,r)=>s+Number(r.stamp_duty_estimate||0)+Number(r.moving_cost_estimate||0),0);
+  const stamp=moveQueries.reduce((s,r)=>s+Number(r.stamp_duty_estimate||0),0);
+  return <HouseShell homes={homes} deals={deals} valuations={valuations}><div className="space-y-5">
+    <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-violet-600">Moving costs</p><h1 className="mt-1 text-4xl font-black text-slate-950">Plan the cost of moving home</h1><p className="mt-2 text-sm font-semibold text-slate-500">Keep future-home costs separate from the current home.</p></div><Link href="/mortgage/advanced?intent=add_move_query" className="rounded-xl border border-violet-200 px-4 py-2.5 text-xs font-black text-violet-700">+ New move</Link></div>
+    <section className="grid gap-4 lg:grid-cols-2"><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-[10px] font-black uppercase text-slate-400">Estimated total cost</p><p className="mt-2 text-4xl font-black">{formatMoney(total)}</p><p className="mt-1 text-xs font-semibold text-slate-500">Across saved move scenarios.</p></div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-[10px] font-black uppercase text-slate-400">Stamp duty estimate</p><p className="mt-2 text-4xl font-black">{formatMoney(stamp)}</p><p className="mt-1 text-xs font-semibold text-slate-500">Based on the values currently stored.</p></div></section>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex justify-between gap-3"><h2 className="text-lg font-black">Saved move scenarios</h2><Link href="/mortgage/advanced?intent=add_move_query" className="text-xs font-black text-violet-700">+ Add scenario</Link></div><div className="mt-4 grid gap-3 md:grid-cols-2">{moveQueries.map(r=><article key={r.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-sm font-black">{r.title||r.address_hint||"Move scenario"}</p><p className="mt-1 text-xs font-semibold text-slate-500">{r.postcode||"Postcode pending"}</p><dl className="mt-4 grid grid-cols-2 gap-3"><div><dt className="text-[10px] text-slate-400">Asking price</dt><dd className="font-black">{formatMoney(Number(r.asking_price||0))}</dd></div><div><dt className="text-[10px] text-slate-400">Mortgage est.</dt><dd className="font-black">{formatMoney(Number(r.expected_payment||0))}/mo</dd></div><div><dt className="text-[10px] text-slate-400">Stamp duty</dt><dd className="font-black">{formatMoney(Number(r.stamp_duty_estimate||0))}</dd></div><div><dt className="text-[10px] text-slate-400">Moving costs</dt><dd className="font-black">{formatMoney(Number(r.moving_cost_estimate||0))}</dd></div></dl></article>)}{!moveQueries.length?<div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm font-semibold text-slate-400 md:col-span-2">No saved move scenarios yet.</div>:null}</div></section>
+  </div></HouseShell>;
+}
+export default function HouseMovingCostsPage(){return <><Nav/><Content/></>}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { SectionCard } from "@/components/SectionCard";
 import { StatCard } from "@/components/StatCard";
 import { SubmitButton } from "@/components/SubmitButton";
@@ -4700,7 +4700,18 @@ export function MortgagePlannerClient({
   svrKnowledge = [],
 }: Props) {
   const [modal, setModal] = useState<ModalState>(null);
+  const searchParams = useSearchParams();
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const intent = searchParams.get("intent");
+    if (!intent) return;
+    if (intent === "add_home") setModal({ type: "add_home" });
+    if (intent === "add_mortgage") setModal({ type: "add_mortgage", homeId: homes[0]?.id });
+    if (intent === "add_valuation") setModal({ type: "add_valuation", homeId: homes[0]?.id });
+    if (intent === "add_move_query") setModal({ type: "add_move_query" });
+    if (intent === "edit_home" && homes[0]) setModal({ type: "edit_home", home: homes[0] });
+  }, [searchParams, homes]);
   const [selectedHomeId, setSelectedHomeId] = useState(homes[0]?.id ?? "");
   const [targetPrice, setTargetPrice] = useState(
     String(homes[0]?.target_purchase_price ?? 550000),
