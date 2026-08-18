@@ -91,32 +91,32 @@ function ScenarioCard({
         : "bg-blue-50 text-blue-700 ring-blue-200";
 
   return (
-    <article className={`rounded-[1.4rem] border p-5 shadow-sm ${toneClass}`}>
+    <article className={`w-[84vw] max-w-[390px] shrink-0 snap-center rounded-[1.4rem] border p-4 shadow-sm sm:p-5 md:w-auto md:max-w-none md:shrink ${toneClass}`}>
       <div className="flex items-start justify-between gap-3">
         <span
-          className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] ring-1 ${badgeClass}`}
+          className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ring-1 ${badgeClass}`}
         >
           {eyebrow}
         </span>
-        <span className="text-lg font-black leading-none text-slate-300">•••</span>
+        <span className="text-lg font-bold leading-none text-slate-300">•••</span>
       </div>
 
-      <p className="mt-5 text-center text-sm font-bold text-slate-500">{title}</p>
-      <p className="mt-1 text-center text-[2.15rem] font-black tracking-tight text-slate-950">
+      <p className="mt-3 text-center text-sm font-bold text-slate-500 sm:mt-5">{title}</p>
+      <p className="mt-1 text-center text-[2.15rem] font-bold tracking-tight text-slate-950">
         {rate > 0 ? rate.toFixed(2) : "—"}
         <span className="text-lg">%</span>
       </p>
       <p className="mt-1 text-center text-xs font-semibold text-slate-400">{helper}</p>
 
-      <div className="mt-6 border-t border-slate-100 pt-5 text-center">
-        <p className="text-3xl font-black tracking-tight text-slate-950">
+      <div className="mt-4 border-t border-slate-100 pt-4 text-center sm:mt-6 sm:pt-5">
+        <p className="text-3xl font-bold tracking-tight text-slate-950">
           {payment > 0 ? money(payment) : "—"}
           <span className="ml-1 text-xs font-bold text-slate-500">/month</span>
         </p>
 
         {delta !== null ? (
           <p
-            className={`mt-2 text-xs font-black ${
+            className={`mt-2 text-xs font-bold ${
               delta < 0
                 ? "text-emerald-700"
                 : delta > 0
@@ -135,7 +135,7 @@ function ScenarioCard({
 
       <a
         href="/mortgage/advanced"
-        className="mt-5 block rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-center text-xs font-black text-violet-700 transition hover:border-violet-200 hover:bg-violet-50"
+        className="mt-5 block rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-center text-xs font-bold text-violet-700 transition hover:border-violet-200 hover:bg-violet-50"
       >
         View details ↓
       </a>
@@ -322,11 +322,11 @@ export function HouseWorkspaceOverview({
   if (!currentHome && !currentDeal) return null;
 
   return (
-    <main className="mx-auto w-[95vw] max-w-[1580px] px-4 py-6 sm:px-6 lg:px-8">
-      <div className="grid gap-6 lg:grid-cols-[190px_minmax(0,1fr)]">
-        <aside className="hidden lg:block">
+    <main className="w-full min-w-0">
+      <div className="min-w-0">
+        <aside className="hidden">
           <div className="sticky top-24 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            <p className="px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">
+            <p className="px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
               House
             </p>
 
@@ -355,7 +355,7 @@ export function HouseWorkspaceOverview({
 
             <div className="my-3 border-t border-slate-100" />
 
-            <p className="px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+            <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
               Quick actions
             </p>
             <a
@@ -383,7 +383,7 @@ export function HouseWorkspaceOverview({
           <section id="house-scenario-overview">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h1 className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+                <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-4xl">
                   Mortgage rate scenarios
                 </h1>
                 <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
@@ -393,7 +393,7 @@ export function HouseWorkspaceOverview({
               </div>
 
               <div className="text-left sm:text-right">
-                <p className="text-xs font-black text-emerald-700">
+                <p className="text-xs font-bold text-emerald-700">
                   ● BoE data {summary.benchmarkDate ? "loaded" : "pending"}
                 </p>
                 <p className="mt-1 text-xs font-semibold text-slate-400">
@@ -401,7 +401,7 @@ export function HouseWorkspaceOverview({
                 </p>
                 <a
                   href="/mortgage/advanced"
-                  className="mt-3 inline-block rounded-xl border border-violet-300 bg-white px-4 py-2 text-xs font-black text-violet-700"
+                  className="mt-3 inline-block rounded-xl border border-violet-300 bg-white px-4 py-2 text-xs font-bold text-violet-700"
                 >
                   Adjust assumptions
                 </a>
@@ -430,14 +430,14 @@ export function HouseWorkspaceOverview({
                 className="border-slate-100 px-3 py-2 sm:border-r sm:last:border-r-0"
               >
                 <p className="text-[11px] font-bold text-slate-500">{label}</p>
-                <p className="mt-0.5 text-sm font-black capitalize text-slate-950 sm:text-base">
+                <p className="mt-0.5 text-sm font-bold capitalize text-slate-950 sm:text-base">
                   {value}
                 </p>
               </div>
             ))}
           </section>
 
-          <section className="grid gap-3 md:grid-cols-3">
+          <section className="-mx-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0">
             <ScenarioCard
               eyebrow="Current mortgage"
               title={`${currentDeal?.lender || "Current lender"}${
@@ -484,7 +484,7 @@ export function HouseWorkspaceOverview({
           <section className="rounded-2xl border border-dashed border-violet-300 bg-violet-50/40 p-4 sm:p-5">
             <div className="grid gap-4 lg:grid-cols-[1fr_1.25fr] lg:items-center">
               <div>
-                <p className="text-base font-black text-violet-800">
+                <p className="text-base font-bold text-violet-800">
                   Add a lender quote
                 </p>
                 <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
@@ -505,7 +505,7 @@ export function HouseWorkspaceOverview({
                     type="button"
                     onClick={importQuote}
                     disabled={quoteBusy || !quoteUrl.trim()}
-                    className="rounded-xl bg-violet-700 px-5 py-3 text-sm font-black text-white disabled:opacity-40"
+                    className="rounded-xl bg-violet-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-40"
                   >
                     {quoteBusy ? "Checking…" : "Import quote"}
                   </button>
@@ -524,7 +524,7 @@ export function HouseWorkspaceOverview({
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-black text-slate-950">
+                  <p className="text-sm font-bold text-slate-950">
                     Cost comparison
                   </p>
                   <p className="text-xs font-semibold text-slate-400">
@@ -533,7 +533,7 @@ export function HouseWorkspaceOverview({
                 </div>
                 <a
                   href="/mortgage/advanced"
-                  className="text-xs font-black text-violet-700"
+                  className="text-xs font-bold text-violet-700"
                 >
                   View full breakdown →
                 </a>
@@ -612,11 +612,11 @@ export function HouseWorkspaceOverview({
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-black uppercase tracking-[0.12em] text-violet-700">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-violet-700">
                 Best current comparison
               </p>
 
-              <p className="mt-4 text-3xl font-black tracking-tight text-emerald-700">
+              <p className="mt-4 text-3xl font-bold tracking-tight text-emerald-700">
                 {quoteDelta !== null && quoteDelta < 0
                   ? `${money(Math.abs(quoteDelta))} less`
                   : bestSaving > 0
@@ -634,7 +634,7 @@ export function HouseWorkspaceOverview({
                 <p className="text-[11px] font-bold text-emerald-800">
                   Estimated saving over 2 years
                 </p>
-                <p className="mt-1 text-2xl font-black text-emerald-800">
+                <p className="mt-1 text-2xl font-bold text-emerald-800">
                   {bestSaving > 0 ? money(bestSaving) : "—"}
                 </p>
                 <p className="text-[10px] font-semibold text-emerald-700">
@@ -644,7 +644,7 @@ export function HouseWorkspaceOverview({
 
               <a
                 href="/mortgage/advanced"
-                className="mt-4 block rounded-xl border border-violet-300 px-4 py-2.5 text-center text-xs font-black text-violet-700"
+                className="mt-4 block rounded-xl border border-violet-300 px-4 py-2.5 text-center text-xs font-bold text-violet-700"
               >
                 View full breakdown
               </a>
@@ -653,28 +653,28 @@ export function HouseWorkspaceOverview({
 
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="text-[11px] font-black uppercase text-slate-400">
+              <p className="text-[11px] font-bold uppercase text-slate-400">
                 Home value
               </p>
-              <p className="mt-1 text-xl font-black text-slate-950">
+              <p className="mt-1 text-xl font-bold text-slate-950">
                 {money(summary.homeValue)}
               </p>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="text-[11px] font-black uppercase text-slate-400">
+              <p className="text-[11px] font-bold uppercase text-slate-400">
                 Saved move searches
               </p>
-              <p className="mt-1 text-xl font-black text-slate-950">
+              <p className="mt-1 text-xl font-bold text-slate-950">
                 {moveQueries.length}
               </p>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="text-[11px] font-black uppercase text-slate-400">
+              <p className="text-[11px] font-bold uppercase text-slate-400">
                 Property
               </p>
-              <p className="mt-1 truncate text-xl font-black text-slate-950">
+              <p className="mt-1 truncate text-xl font-bold text-slate-950">
                 {currentHome?.label || "Current home"}
               </p>
             </div>
