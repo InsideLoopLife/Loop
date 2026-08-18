@@ -1,1 +1,1 @@
-export { default } from "@/domains/wealth/house/HousePage";
+export { default } from "@/domains/wealth/house/HouseOverviewPage";
