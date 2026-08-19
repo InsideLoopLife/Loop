@@ -150,6 +150,7 @@ export function extractPriceAndFeeFromText(html: string, exactFundName?: string,
     // A dropdown option isn't followed by its own "Price ###p As at..."
     // block, so this naturally ignores dropdown noise without needing to
     // detect or filter it explicitly.
+<<<<<<< HEAD
     // BUGFIX #3: even a wide bidirectional window wasn't enough — confirmed
     // via a live fetch of the Lazard page. L&G embeds a sitewide "browse
     // other funds" list on EVERY fund page containing hundreds of unrelated
@@ -179,6 +180,17 @@ export function extractPriceAndFeeFromText(html: string, exactFundName?: string,
     // STRATEGY 3 (last-resort deterministic pass): any occurrence of the
     // name at all, in case a future page redesign uses a different tag for
     // its own heading. Kept as a safety net, not the primary strategy.
+=======
+    // BUGFIX: L&G's fund-centre pages put the fund-name heading near the TOP
+    // of the page (right after the sitewide fund-switcher dropdown), while
+    // the actual "Prices" section with the number sits much further DOWN —
+    // past Fund facts, Charges, Performance tables, and Portfolio holdings.
+    // Confirmed on a live fetch: that gap is 10,000+ characters, and the
+    // price always follows the heading, never precedes it. The old 4000-char
+    // forward-only window could never reach it, so every multi-share-class
+    // page fell through to needsReview even when the name matched cleanly.
+    const decodedHtml = decodeHtmlEntities(html);
+>>>>>>> 8564f26ab8f395d3ca6b377d16a767011c0bb605
     const normalisedTarget = normaliseForMatch(exactFundName);
     let searchFrom = 0;
     while (searchFrom < decodedHtml.length) {
@@ -188,10 +200,24 @@ export function extractPriceAndFeeFromText(html: string, exactFundName?: string,
       searchFrom = idx + normalisedTarget.length;
     }
 
+<<<<<<< HEAD
     for (const pos of anchors) {
       const found = tryAnchor(pos);
       if (found) {
         const raw = Number(found.price.replace(/,/g, ""));
+=======
+    const PROXIMITY_WINDOW = 20000;
+    for (const pos of positions) {
+      // Forward first (the common case on real L&G pages), then backward as
+      // a fallback in case a future page layout puts the price above the
+      // heading — cheap to check, and it costs nothing when it doesn't match.
+      const forwardText = decodedHtml.slice(pos, pos + PROXIMITY_WINDOW);
+      const backwardText = decodedHtml.slice(Math.max(0, pos - PROXIMITY_WINDOW), pos);
+      const priceBlockRegex = /Price\s*([0-9,]+(?:\.[0-9]+)?)\s*p[\s\S]{0,120}?As at\s*([0-9]{1,2}\s+\w+\s+[0-9]{4})/i;
+      const nearbyPriceMatch = forwardText.match(priceBlockRegex) || backwardText.match(priceBlockRegex);
+      if (nearbyPriceMatch) {
+        const raw = Number(nearbyPriceMatch[1].replace(/,/g, ""));
+>>>>>>> 8564f26ab8f395d3ca6b377d16a767011c0bb605
         if (Number.isFinite(raw) && raw > 0) {
           return { unit_price: raw / 100, suggested_fee_percent, as_of_date: found.asOf, confidence: "exact_name_match", candidate_count: priceCandidates.length };
         }
