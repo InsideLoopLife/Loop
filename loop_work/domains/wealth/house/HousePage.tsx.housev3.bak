@@ -329,80 +329,14 @@ async function MortgageContent() {
     peopleById,
   });
 
-  const payEventRows = (payEvents ?? []) as PayEventForPlan[];
-  const monthKey = currentMonth();
-  const [monthYear, monthNumber] = monthKey.split("-").map(Number);
-  const monthStartDate = `${monthKey}-01`;
-  const monthEndDate = new Date(Date.UTC(monthYear, monthNumber, 0))
-    .toISOString()
-    .slice(0, 10);
-
-  const temporaryIncomePattern =
-    /maternity|paternity|parental|adoption|sick|sabbatical|career break|unpaid|temporary|reduced|leave/i;
-
-  const temporaryEnd = (event: PayEventForPlan) =>
-    event.maternity_leave_end || event.effective_until || null;
-
-  const isTemporaryIncomeEvent = (event: PayEventForPlan) =>
-    Boolean(temporaryEnd(event)) &&
-    temporaryIncomePattern.test(
-      `${String(event.pay_kind || "")} ${String(event.label || "")}`,
-    );
-
-  const activeInCurrentMonth = (event: PayEventForPlan) => {
-    const starts = event.effective_from || "1900-01-01";
-    const ends = temporaryEnd(event) || event.effective_until || "9999-12-31";
-    return starts <= monthEndDate && ends >= monthStartDate;
-  };
-
-  const activeTemporaryPayEvents = payEventRows.filter(
-    (event) => activeInCurrentMonth(event) && isTemporaryIncomeEvent(event),
-  );
-
-  function stableSalaryFallback(event: PayEventForPlan) {
-    if (!event.person_id) return null;
-    const targetTime = Date.parse(
-      `${temporaryEnd(event) || event.effective_from || monthStartDate}T12:00:00Z`,
-    );
-
-    return (
-      payEventRows
-        .filter(
-          (candidate) =>
-            candidate.id !== event.id &&
-            candidate.person_id === event.person_id &&
-            !isTemporaryIncomeEvent(candidate) &&
-            Number(candidate.gross_annual_salary || 0) > 0,
-        )
-        .sort((a, b) => {
-          const aTime = Date.parse(`${a.effective_from || monthStartDate}T12:00:00Z`);
-          const bTime = Date.parse(`${b.effective_from || monthStartDate}T12:00:00Z`);
-          return Math.abs(aTime - targetTime) - Math.abs(bTime - targetTime);
-        })[0] ?? null
-    );
-  }
-
-  const normalSalaryPayEvents = payEventRows.map((event) => {
-    const maternityLike = /maternity/i.test(
-      `${String(event.pay_kind || "")} ${String(event.label || "")}`,
-    );
-    const fallback =
-      activeInCurrentMonth(event) && isTemporaryIncomeEvent(event)
-        ? stableSalaryFallback(event)
-        : null;
-
-    if (!maternityLike && !fallback) return event;
-
-    const source = fallback ?? event;
-    return {
+  const normalSalaryPayEvents = ((payEvents ?? []) as PayEventForPlan[]).map(
+    (event) => ({
       ...event,
-      label: source.label,
-      pay_kind: "salary",
-      gross_annual_salary: source.gross_annual_salary,
-      monthly_take_home_override: source.monthly_take_home_override,
-      pension_percent: source.pension_percent,
-      pension_method: source.pension_method,
-      student_loan_plan: source.student_loan_plan,
+      pay_kind: String(event.pay_kind || "salary")
+        .toLowerCase()
+        .includes("maternity")
+        ? "salary"
+        : event.pay_kind,
       maternity_scheme: null,
       maternity_leave_start: null,
       maternity_leave_end: null,
@@ -412,11 +346,10 @@ async function MortgageContent() {
       maternity_smp_only_weeks: null,
       maternity_unpaid_weeks: null,
       maternity_smp_weekly_rate: null,
-    } satisfies PayEventForPlan;
-  });
-
+    }),
+  );
   const normalMonthPlan = buildMonthPlan({
-    month: monthKey,
+    month: currentMonth(),
     profile: (profile as FinancialProfile | null) ?? null,
     categories: (categories ?? []) as SpendingCategoryForPlan[],
     childCosts: (childCosts ?? []) as ChildCostForPlan[],
@@ -435,48 +368,6 @@ async function MortgageContent() {
     incomeEntries: (incomeEntries ?? []) as IncomeEntryForPlan[],
     peopleById,
   });
-
-  function activePayRows(rows: PayEventForPlan[]) {
-    const latestByPerson = new Map<string, PayEventForPlan>();
-    rows
-      .filter(activeInCurrentMonth)
-      .sort((a, b) => String(a.effective_from).localeCompare(String(b.effective_from)))
-      .forEach((event) => {
-        latestByPerson.set(event.person_id ?? event.id, event);
-      });
-    return Array.from(latestByPerson.values());
-  }
-
-  const currentGrossHouseholdIncome = activePayRows(payEventRows).reduce(
-    (sum, event) => sum + Number(event.gross_annual_salary || 0),
-    0,
-  );
-  const normalGrossHouseholdIncome = activePayRows(normalSalaryPayEvents).reduce(
-    (sum, event) => sum + Number(event.gross_annual_salary || 0),
-    0,
-  );
-
-  const hasTemporaryIncomeDifference =
-    activeTemporaryPayEvents.length > 0 &&
-    Math.abs(Number(monthPlan.income || 0) - Number(normalMonthPlan.income || 0)) > 1;
-
-  const temporaryIncomeContext = hasTemporaryIncomeDifference
-    ? {
-        label: Array.from(
-          new Set(
-            activeTemporaryPayEvents.map(
-              (event) => event.label || event.pay_kind || "Temporary income change",
-            ),
-          ),
-        ).join(" + "),
-        endDate:
-          activeTemporaryPayEvents
-            .map(temporaryEnd)
-            .filter((value): value is string => Boolean(value))
-            .sort()
-            .reverse()[0] ?? null,
-      }
-    : null;
 
   return (
     <>
@@ -502,9 +393,6 @@ async function MortgageContent() {
         svrKnowledge={svrKnowledge ?? []}
         monthPlan={monthPlan}
         normalMonthPlan={normalMonthPlan}
-        temporaryIncomeContext={temporaryIncomeContext}
-        currentGrossHouseholdIncome={currentGrossHouseholdIncome}
-        normalGrossHouseholdIncome={normalGrossHouseholdIncome}
         emergencySavings={(savingsAccounts ?? []).reduce(
           (sum: number, account: any) => sum + Number(account.current_balance || 0),
           0,

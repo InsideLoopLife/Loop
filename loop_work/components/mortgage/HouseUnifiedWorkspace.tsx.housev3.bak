@@ -9,7 +9,6 @@ import { ValuationWizard } from "@/components/mortgage/ValuationWizard";
 import { MoveQueryWizard } from "@/components/mortgage/MoveQueryWizard";
 import { HouseWorkspaceOverview } from "@/components/mortgage/HouseWorkspaceOverview";
 import { MortgageOverpaymentPlanner } from "@/components/mortgage/MortgageOverpaymentPlanner";
-import { AffordabilityPlanningPanel } from "@/components/mortgage/AffordabilityPlanningPanel";
 import { formatMoney } from "@/lib/format/money";
 import type {
   MonthPlan,
@@ -41,6 +40,7 @@ import {
   updateHomeMortgageDeal,
   updateHomeValuationSource,
 } from "@/app/mortgage/actions";
+import { addAffordabilityScenario } from "@/app/affordability/actions";
 import {
   buildHouseAffordabilityScore,
   currentMortgageSnapshot,
@@ -72,9 +72,6 @@ type Props = {
   svrKnowledge: LenderSvrKnowledge[];
   monthPlan: MonthPlan;
   normalMonthPlan: MonthPlan;
-  temporaryIncomeContext: { label: string; endDate: string | null } | null;
-  currentGrossHouseholdIncome: number;
-  normalGrossHouseholdIncome: number;
   emergencySavings: number;
   categories: SpendingCategoryForPlan[];
   payEvents: PayEventForPlan[];
@@ -117,18 +114,7 @@ export function HouseUnifiedWorkspace(props: Props) {
   const equity = Math.max(0, value.mid - mortgage.balance);
   const ltv = value.mid > 0 ? (mortgage.balance / value.mid) * 100 : 0;
 
-  const currentAffordability = useMemo(
-    () =>
-      buildHouseAffordabilityScore({
-        monthPlan: props.monthPlan,
-        mortgagePayment: mortgage.payment,
-        mortgageBalance: mortgage.balance,
-        propertyValue: value.mid,
-        emergencySavings: props.emergencySavings,
-      }),
-    [props.monthPlan, props.emergencySavings, mortgage.payment, mortgage.balance, value.mid],
-  );
-  const normalAffordability = useMemo(
+  const affordability = useMemo(
     () =>
       buildHouseAffordabilityScore({
         monthPlan: props.normalMonthPlan,
@@ -139,9 +125,6 @@ export function HouseUnifiedWorkspace(props: Props) {
       }),
     [props.normalMonthPlan, props.emergencySavings, mortgage.payment, mortgage.balance, value.mid],
   );
-  const hasTemporaryIncome =
-    Boolean(props.temporaryIncomeContext) &&
-    Math.abs(Number(props.monthPlan.income || 0) - Number(props.normalMonthPlan.income || 0)) > 1;
 
   const bankRate = Number(
     props.boeBenchmarks.find((row) => row.term_type === "bank_rate")?.rate_percent ||
@@ -153,6 +136,10 @@ export function HouseUnifiedWorkspace(props: Props) {
     .sort((a, b) => Number(a.ltv_tier ?? 100) - Number(b.ltv_tier ?? 100));
   const benchmark = fixedRows.find((row) => Number(row.ltv_tier ?? 100) >= ltv) ?? fixedRows.at(-1);
 
+  const annualGross = props.payEvents.reduce(
+    (sum, event) => sum + Number(event.gross_annual_salary || 0),
+    0,
+  );
   const fixedExMortgage = props.categories
     .filter((category) => ["fixed", "debt"].includes(String(category.type)))
     .filter((category) => !mortgageCategory(category))
@@ -223,7 +210,7 @@ export function HouseUnifiedWorkspace(props: Props) {
 
               <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
                 {[["Current mortgage",formatMoney(mortgage.balance),`${ltv.toFixed(1)}% LTV`],["Monthly payment",formatMoney(mortgage.payment),deal?`${Number(deal.interest_rate).toFixed(2)}% · ${deal.lender || ""}`:"No mortgage"],["Home value",formatMoney(value.mid),`${formatMoney(value.low)} – ${formatMoney(value.high)}`]].map(([label,main,helper]) => <article key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:min-h-[122px] lg:p-5"><p className="text-[10px] font-bold uppercase text-slate-400">{label}</p><p className="mt-2 text-2xl font-bold">{main}</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{helper}</p></article>)}
-                <button onClick={() => choose("affordability")} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md lg:min-h-[122px] lg:p-5"><p className="text-[10px] font-bold uppercase text-slate-400">Affordability</p><p className="mt-2 text-2xl font-bold">{currentAffordability.score}/100</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{currentAffordability.label}{hasTemporaryIncome ? ` · normal ${normalAffordability.score}/100` : ""} · <span className="text-violet-700">View planning →</span></p></button>
+                <button onClick={() => choose("affordability")} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md lg:min-h-[122px] lg:p-5"><p className="text-[10px] font-bold uppercase text-slate-400">Affordability</p><p className="mt-2 text-2xl font-bold">{affordability.score}/100</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{affordability.label} · <span className="text-violet-700">View planning →</span></p></button>
               </section>
 
               <section className="grid gap-3 md:grid-cols-2">
@@ -235,7 +222,7 @@ export function HouseUnifiedWorkspace(props: Props) {
                 <div className="grid lg:grid-cols-[1.15fr_.85fr]">
                   <div className="relative min-h-[280px] overflow-hidden bg-slate-100 sm:min-h-[360px] lg:min-h-[470px]">
                     {home?.latitude && home?.longitude ? <iframe title={`${home.label} map`} src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(home.longitude)-0.006}%2C${Number(home.latitude)-0.006}%2C${Number(home.longitude)+0.006}%2C${Number(home.latitude)+0.006}&layer=mapnik&marker=${home.latitude}%2C${home.longitude}`} className="absolute inset-0 h-full w-full border-0" loading="lazy"/> : null}
-                    <button onClick={() => choose("affordability")} className={`absolute right-4 top-4 rounded-2xl p-4 text-left shadow-lg ring-1 transition hover:scale-[1.02] ${currentAffordability.tone}`}><p className="text-[10px] font-bold uppercase">Affordability</p><p className="text-3xl font-bold">{currentAffordability.score}/100</p><p className="text-[11px] font-semibold">{currentAffordability.label}{hasTemporaryIncome ? ` · normal ${normalAffordability.score}/100` : ""} · Open →</p></button>
+                    <button onClick={() => choose("affordability")} className={`absolute right-4 top-4 rounded-2xl p-4 text-left shadow-lg ring-1 transition hover:scale-[1.02] ${affordability.tone}`}><p className="text-[10px] font-bold uppercase">Affordability</p><p className="text-3xl font-bold">{affordability.score}/100</p><p className="text-[11px] font-semibold">{affordability.label} · Open →</p></button>
                     <div className="absolute inset-x-4 bottom-4 grid gap-2 sm:grid-cols-3"><div className="rounded-xl bg-white/95 p-3 shadow-lg"><p className="text-[10px] font-bold uppercase text-slate-400">Current home</p><p className="font-bold">{home?.label || "Home"}</p></div><div className="rounded-xl bg-white/95 p-3 shadow-lg"><p className="text-[10px] font-bold uppercase text-slate-400">Valuation range</p><p className="font-bold">{formatMoney(value.low)} – {formatMoney(value.high)}</p></div><div className="rounded-xl bg-white/95 p-3 shadow-lg"><p className="text-[10px] font-bold uppercase text-slate-400">Mortgage</p><p className="font-bold">{formatMoney(mortgage.balance)}</p><p className="text-[10px] text-slate-500">{ltv.toFixed(1)}% LTV · {formatMoney(mortgage.payment)}/mo</p></div></div>
                   </div>
                   <div className="p-5 sm:p-6 lg:flex lg:min-h-[470px] lg:flex-col lg:justify-center lg:p-8"><p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-600">Current property</p><h2 className="mt-2 text-2xl font-bold">{home?.label || "Add a property"}</h2><p className="mt-1 text-sm text-slate-500">{home?.full_address || home?.address_line}</p><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-xl bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase text-slate-400">Lender</p><p className="mt-1 text-lg font-bold">{deal?.lender || "—"}</p><p className="text-[11px] text-slate-500">{deal?.product_name}</p></div><div className="rounded-xl bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase text-slate-400">Current payment</p><p className="mt-1 text-lg font-bold">{formatMoney(mortgage.payment)}</p><p className="text-[11px] text-slate-500">{deal ? `${Number(deal.interest_rate).toFixed(2)}%` : ""}</p></div></div><div className="mt-5 flex flex-wrap gap-2"><button onClick={() => setModal(home ? { type: "edit_home", home } : { type: "add_home" })} className="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-bold text-white">Edit property</button><button onClick={() => setModal(deal ? { type: "edit_mortgage", deal } : { type: "add_mortgage", homeId: home?.id })} className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-xs font-bold text-violet-700">Edit mortgage</button><button onClick={() => choose("rates")} className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold">Compare rates</button></div></div>
@@ -251,24 +238,7 @@ export function HouseUnifiedWorkspace(props: Props) {
           {tab === "rates" ? <div className="mx-auto max-w-[1460px]"><HouseWorkspaceOverview homes={props.homes} deals={props.deals} valuations={props.valuations} renewalRecommendations={props.renewalRecommendations} marketDeals={props.marketDeals} moveQueries={props.moveQueries} boeBenchmarks={props.boeBenchmarks}/></div> : null}
 
           {tab === "affordability" ? (
-            <div className="mx-auto max-w-[1460px]">
-              <AffordabilityPlanningPanel
-                currentScore={currentAffordability}
-                normalScore={normalAffordability}
-                hasTemporaryIncome={hasTemporaryIncome}
-                temporaryIncomeContext={props.temporaryIncomeContext}
-                currentMonthlyNetIncome={Number(props.monthPlan.income || 0)}
-                normalMonthlyNetIncome={Number(props.normalMonthPlan.income || 0)}
-                currentGrossHouseholdIncome={props.currentGrossHouseholdIncome}
-                normalGrossHouseholdIncome={props.normalGrossHouseholdIncome}
-                propertyValue={value.mid}
-                mortgageBalance={mortgage.balance}
-                fixedExMortgage={fixedExMortgage}
-                childMonthly={childMonthly}
-                interestRate={Number(benchmark?.rate_percent || deal?.interest_rate || 4.75)}
-                termYears={Number(deal?.term_years || 30)}
-              />
-            </div>
+            <div className="mx-auto max-w-[1460px] space-y-5"><section className="grid gap-4 lg:grid-cols-[.7fr_1.3fr]"><div className={`rounded-2xl p-5 ring-1 ${affordability.tone}`}><p className="text-xs font-bold uppercase">Current affordability</p><p className="mt-2 text-5xl font-bold">{affordability.score}/100</p><p className="mt-1 font-bold">{affordability.label}</p><div className="mt-5 space-y-2">{affordability.criteria.map(c => <div key={c.label} className="rounded-xl bg-white/70 p-3"><div className="flex justify-between text-xs font-bold"><span>{c.label}</span><span>{c.points}/{c.max}</span></div><p className="mt-1 text-[11px] opacity-70">{c.reason}</p></div>)}</div></div><form action={addAffordabilityScenario} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-bold">Build a move scenario</h2><p className="mt-1 text-xs text-slate-500">Change any prefilled value without changing the original House record.</p><div className="mt-4 grid gap-3 sm:grid-cols-2">{[["label","Scenario name","text",""],["purchase_price","Target house price","number",""],["deposit_cash","Additional deposit cash","number",0],["current_property_sale_price","Current property sale price","number",value.mid],["current_mortgage_balance","Current mortgage balance","number",mortgage.balance],["gross_household_income","Gross household income","number",annualGross],["monthly_fixed_costs","Fixed/debt costs (mortgage excluded)","number",fixedExMortgage],["monthly_childcare","Monthly child costs","number",childMonthly],["interest_rate","Interest rate %","number",Number(benchmark?.rate_percent || deal?.interest_rate || 4.75)],["stress_rate","Stress rate %","number",6.5],["term_years","Term years","number",Number(deal?.term_years || 30)],["arrangement_and_moving_costs","Fees / moving costs","number",3500]].map(([name,label,type,defaultValue]) => <label key={String(name)} className="block"><span className="text-xs font-bold text-slate-600">{label}</span><input name={String(name)} type={String(type)} step={type === "number" ? "0.01" : undefined} defaultValue={defaultValue as string | number} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-violet-300"/></label>)}</div><button className="mt-4 rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white">Save scenario</button></form></section></div>
           ) : null}
 
           {tab === "overpayments" ? (

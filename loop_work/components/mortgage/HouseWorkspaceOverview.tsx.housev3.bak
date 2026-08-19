@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { calculateMonthlyMortgagePayment, calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
 import { formatMoney } from "@/lib/format/money";
-import { MortgageQuoteIntake, type UserMortgageQuote } from "@/components/mortgage/MortgageQuoteIntake";
+import { MortgageQuoteIntake } from "@/components/mortgage/MortgageQuoteIntake";
 import type {
   Home,
   HomeMortgageDeal,
@@ -163,29 +163,6 @@ export function HouseWorkspaceOverview({
   const currentDeal =
     deals.find((deal) => deal.home_id === currentHome?.id) ?? deals[0];
 
-  const [userQuote, setUserQuote] = useState<UserMortgageQuote | null>(null);
-
-  useEffect(() => {
-    const homeId = currentHome?.id;
-    if (!homeId) {
-      setUserQuote(null);
-      return;
-    }
-
-    let cancelled = false;
-    fetch(`/api/house/mortgage/user-quotes?homeId=${encodeURIComponent(homeId)}`, { cache: "no-store" })
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data?.error || "Could not load saved quote");
-        if (!cancelled) setUserQuote((data?.quote as UserMortgageQuote | null) ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setUserQuote(null);
-      });
-
-    return () => { cancelled = true; };
-  }, [currentHome?.id]);
-
   const [quoteUrl, setQuoteUrl] = useState("");
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [quoteMessage, setQuoteMessage] = useState<string | null>(null);
@@ -311,35 +288,18 @@ export function HouseWorkspaceOverview({
       ? summary.quotePayment - summary.currentPayment
       : null;
 
-  const remainingYearsForUserQuote = Math.max(1 / 12, summary.remainingMonths / 12);
-  const userQuotePayment =
-    userQuote && Number(userQuote.rate_percent || 0) > 0
-      ? monthlyPayment(summary.balance, Number(userQuote.rate_percent), remainingYearsForUserQuote)
-      : 0;
-  const userQuoteDelta =
-    userQuotePayment > 0 ? userQuotePayment - summary.currentPayment : null;
-
   const currentTwoYearCost = summary.currentPayment * 24;
   const loopTwoYearCost = summary.loopPayment * 24;
   const quoteTwoYearCost = summary.quotePayment * 24 + summary.quoteFee;
-  const userQuoteTwoYearCost = userQuotePayment * 24 + Number(userQuote?.fee_amount || 0);
-
-  const comparableTwoYearCosts = [
-    loopTwoYearCost || null,
-    quoteTwoYearCost || null,
-    userQuoteTwoYearCost || null,
-  ].filter((value): value is number => value !== null && value > 0);
 
   const bestSaving = Math.max(
     0,
     currentTwoYearCost -
-      (comparableTwoYearCosts.length ? Math.min(...comparableTwoYearCosts) : currentTwoYearCost),
+      Math.min(
+        loopTwoYearCost || currentTwoYearCost,
+        quoteTwoYearCost || currentTwoYearCost,
+      ),
   );
-
-  const comparisonDeltas = [loopDelta, quoteDelta, userQuoteDelta].filter(
-    (value): value is number => value !== null,
-  );
-  const bestMonthlyDelta = comparisonDeltas.length ? Math.min(...comparisonDeltas) : null;
 
   async function importQuote() {
     if (!quoteUrl.trim() || !currentHome) return;
@@ -496,7 +456,7 @@ export function HouseWorkspaceOverview({
             ))}
           </section>
 
-          <section className={`-mx-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:grid md:overflow-visible md:px-0 md:pb-0 ${userQuote ? "md:grid-cols-2 xl:grid-cols-4" : "md:grid-cols-3"}`}>
+          <section className="-mx-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0">
             <ScenarioCard
               eyebrow="Current mortgage"
               title={`${currentDeal?.lender || "Current lender"}${
@@ -538,27 +498,9 @@ export function HouseWorkspaceOverview({
               delta={quoteDelta}
               tone="quote"
             />
-
-            {userQuote ? (
-              <ScenarioCard
-                eyebrow="Your lender quote"
-                title={`${userQuote.lender_name}${userQuote.product_name ? ` · ${userQuote.product_name}` : ""}`}
-                rate={Number(userQuote.rate_percent)}
-                payment={userQuotePayment}
-                helper={`User supplied / indicative${userQuote.fee_amount != null ? ` · ${money(Number(userQuote.fee_amount))} fee` : ""}`}
-                delta={userQuoteDelta}
-                tone="quote"
-              />
-            ) : null}
           </section>
 
-          <MortgageQuoteIntake
-            currentHome={currentHome}
-            currentDeal={currentDeal}
-            existingQuote={userQuote}
-            onQuoteSaved={setUserQuote}
-            onQuoteRemoved={() => setUserQuote(null)}
-          />
+          <MortgageQuoteIntake currentHome={currentHome} currentDeal={currentDeal} />
 
           <section className="grid gap-4 xl:grid-cols-[1.5fr_.75fr]">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -587,7 +529,6 @@ export function HouseWorkspaceOverview({
                       <th>Current</th>
                       <th>LOOP estimate</th>
                       <th>Best sourced</th>
-                      <th>Your quote</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
@@ -600,7 +541,6 @@ export function HouseWorkspaceOverview({
                       <td>
                         {summary.quotePayment ? money(summary.quotePayment) : "—"}
                       </td>
-                      <td>{userQuotePayment ? money(userQuotePayment) : "—"}</td>
                     </tr>
                     <tr>
                       <td className="py-3 text-slate-500">Monthly difference</td>
@@ -631,17 +571,6 @@ export function HouseWorkspaceOverview({
                               Math.abs(quoteDelta),
                             )}`}
                       </td>
-                      <td
-                        className={
-                          userQuoteDelta !== null && userQuoteDelta < 0
-                            ? "text-emerald-700"
-                            : ""
-                        }
-                      >
-                        {userQuoteDelta === null
-                          ? "—"
-                          : `${userQuoteDelta < 0 ? "−" : "+"}${money(Math.abs(userQuoteDelta))}`}
-                      </td>
                     </tr>
                     <tr>
                       <td className="py-3 text-slate-500">Total over 2 years</td>
@@ -652,14 +581,12 @@ export function HouseWorkspaceOverview({
                       <td>
                         {summary.quotePayment ? money(quoteTwoYearCost) : "—"}
                       </td>
-                      <td>{userQuotePayment ? money(userQuoteTwoYearCost) : "—"}</td>
                     </tr>
                     <tr>
                       <td className="py-3 text-slate-500">Product fee</td>
                       <td>Stored separately</td>
                       <td>Benchmark only</td>
                       <td>{money(summary.quoteFee)}</td>
-                      <td>{userQuote?.fee_amount == null ? "—" : money(Number(userQuote.fee_amount))}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -672,17 +599,17 @@ export function HouseWorkspaceOverview({
               </p>
 
               <p className="mt-4 text-3xl font-bold tracking-tight text-emerald-700">
-                {bestMonthlyDelta !== null && bestMonthlyDelta < 0
-                  ? `${money(Math.abs(bestMonthlyDelta))} less`
+                {quoteDelta !== null && quoteDelta < 0
+                  ? `${money(Math.abs(quoteDelta))} less`
                   : bestSaving > 0
                     ? `${money(bestSaving)} saved`
                     : "Compare now"}
               </p>
 
               <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                {bestMonthlyDelta !== null && bestMonthlyDelta < 0
-                  ? "each month versus your current stored mortgage, using the best available comparison including your supplied quote"
-                  : "Inspect eligibility, fees, your supplied lender quote and alternatives before acting."}
+                {quoteDelta !== null && quoteDelta < 0
+                  ? "each month versus your current stored mortgage"
+                  : "Open the full workspace to inspect eligibility, fees and alternatives."}
               </p>
 
               <div className="mt-5 rounded-xl bg-emerald-50 p-4">
