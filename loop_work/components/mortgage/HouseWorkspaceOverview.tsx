@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { calculateMonthlyMortgagePayment, calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
 import { formatMoney } from "@/lib/format/money";
+import { MortgageQuoteIntake } from "@/components/mortgage/MortgageQuoteIntake";
 import type {
   Home,
   HomeMortgageDeal,
@@ -62,10 +63,14 @@ function valuationMid(home: Home | undefined, valuations: HomeValuationSource[])
   return Number(home.property_value || 0);
 }
 
-function remainingTermLabel(termYears: number) {
-  const years = Math.max(0, Math.round(termYears));
-  return `${years} year${years === 1 ? "" : "s"}`;
+function remainingMortgageMonths(deal?: HomeMortgageDeal) {
+  if (!deal?.start_date || !Number(deal.term_years)) return Math.max(0, Math.round(Number(deal?.term_years || 0) * 12));
+  const start = new Date(`${deal.start_date}T00:00:00`);
+  if (Number.isNaN(start.getTime())) return Math.max(0, Math.round(Number(deal.term_years || 0) * 12));
+  const maturity = new Date(start); maturity.setMonth(maturity.getMonth() + Math.round(Number(deal.term_years) * 12));
+  const now = new Date(); let months = (maturity.getFullYear()-now.getFullYear())*12 + maturity.getMonth()-now.getMonth(); if (maturity.getDate()<now.getDate()) months -= 1; return Math.max(0, months);
 }
+function remainingTermLabel(months: number) { const y=Math.floor(months/12), m=months%12; return y ? `${y}y${m ? ` ${m}m` : ""}` : `${m} month${m===1?"":"s"}`; }
 
 function ScenarioCard({
   eyebrow,
@@ -177,10 +182,12 @@ export function HouseWorkspaceOverview({
       : 0;
     const rate = Number(currentDeal?.interest_rate || 0);
     const termYears = Number(currentDeal?.term_years || 25);
+    const remainingMonths = remainingMortgageMonths(currentDeal);
+    const remainingTermYears = Math.max(1 / 12, remainingMonths / 12);
 
     const currentPayment =
       Number(currentDeal?.monthly_payment_override || 0) ||
-      monthlyPayment(balance, rate, termYears);
+      monthlyPayment(balance, rate, remainingTermYears);
 
     const ltv = homeValue > 0 ? (balance / homeValue) * 100 : 0;
 
@@ -195,9 +202,10 @@ export function HouseWorkspaceOverview({
       fixedBenchmarks.find((item) => Number(item.ltv_tier ?? 100) >= ltv) ??
       fixedBenchmarks.at(-1);
 
-    const loopRate = Number(eligibleBenchmark?.rate_percent || 0);
+    const officialFallbackRate = 4.92; // BoE July 2026 FSR, 2y fixed 75% LTV
+    const loopRate = Number(eligibleBenchmark?.rate_percent || officialFallbackRate);
     const loopPayment =
-      loopRate > 0 ? monthlyPayment(balance, loopRate, termYears) : 0;
+      loopRate > 0 ? monthlyPayment(balance, loopRate, remainingTermYears) : 0;
 
     const eligibleMarket = marketDeals
       .filter((item) => Number(item.rate_percent || 0) > 0)
@@ -225,7 +233,7 @@ export function HouseWorkspaceOverview({
     const quotePayment =
       Number(bestRecommendation?.estimated_new_payment || 0) ||
       (quoteRate > 0
-        ? monthlyPayment(balance, quoteRate, termYears)
+        ? monthlyPayment(balance, quoteRate, remainingTermYears)
         : 0);
 
     const quoteLender =
@@ -249,6 +257,7 @@ export function HouseWorkspaceOverview({
       balance,
       rate,
       termYears,
+      remainingMonths,
       currentPayment,
       ltv,
       loopRate,
@@ -332,7 +341,7 @@ export function HouseWorkspaceOverview({
   if (!currentHome && !currentDeal) return null;
 
   return (
-    <main className="w-full min-w-0">
+    <main className="mx-auto w-full min-w-0 max-w-[1460px]">
       <div className="min-w-0">
         <aside className="hidden">
           <div className="sticky top-24 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -390,7 +399,7 @@ export function HouseWorkspaceOverview({
         </aside>
 
         <div className="min-w-0 space-y-5">
-          <section id="house-scenario-overview">
+          <section id="house-scenario-overview" className="hidden">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-4xl">
@@ -426,7 +435,7 @@ export function HouseWorkspaceOverview({
             {[
               ["Mortgage balance", money(summary.balance)],
               ["LTV", summary.ltv > 0 ? `${summary.ltv.toFixed(0)}%` : "—"],
-              ["Remaining term", remainingTermLabel(summary.termYears)],
+              ["Remaining term", remainingTermLabel(summary.remainingMonths)],
               [
                 "Repayment type",
                 String(currentDeal?.repayment_type || "Repayment").replaceAll(
@@ -468,9 +477,9 @@ export function HouseWorkspaceOverview({
               rate={summary.loopRate}
               payment={summary.loopPayment}
               helper={
-                summary.ltv > 0
+                summary.benchmarkDate
                   ? `Indicative for your ${summary.ltv.toFixed(0)}% LTV band`
-                  : "Indicative benchmark"
+                  : "BoE July 2026 fallback · 75% LTV benchmark"
               }
               delta={loopDelta}
               tone="loop"
@@ -491,44 +500,7 @@ export function HouseWorkspaceOverview({
             />
           </section>
 
-          <section className="rounded-2xl border border-dashed border-violet-300 bg-violet-50/40 p-4 sm:p-5">
-            <div className="grid gap-4 lg:grid-cols-[1fr_1.25fr] lg:items-center">
-              <div>
-                <p className="text-base font-bold text-violet-800">
-                  Add a lender quote
-                </p>
-                <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                  Paste a lender product URL and LOOP will extract the rate, LTV,
-                  term and fees so it can be compared with your live mortgage.
-                </p>
-              </div>
-
-              <div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <input
-                    value={quoteUrl}
-                    onChange={(event) => setQuoteUrl(event.target.value)}
-                    placeholder="Paste lender product URL"
-                    className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none ring-violet-300 focus:ring-2"
-                  />
-                  <button
-                    type="button"
-                    onClick={importQuote}
-                    disabled={quoteBusy || !quoteUrl.trim()}
-                    className="rounded-xl bg-violet-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-40"
-                  >
-                    {quoteBusy ? "Checking…" : "Import quote"}
-                  </button>
-                </div>
-
-                {quoteMessage ? (
-                  <p className="mt-2 text-xs font-bold text-slate-600">
-                    {quoteMessage}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          </section>
+          <MortgageQuoteIntake currentHome={currentHome} currentDeal={currentDeal} />
 
           <section className="grid gap-4 xl:grid-cols-[1.5fr_.75fr]">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

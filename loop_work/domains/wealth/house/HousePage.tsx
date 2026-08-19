@@ -390,6 +390,7 @@ async function MortgageContent() {
         renewalRecommendations={renewalRecommendations ?? []}
         marketDeals={marketDeals ?? []}
         boeBenchmarks={boeBenchmarks ?? []}
+        svrKnowledge={svrKnowledge ?? []}
         monthPlan={monthPlan}
         normalMonthPlan={normalMonthPlan}
         emergencySavings={(savingsAccounts ?? []).reduce(
