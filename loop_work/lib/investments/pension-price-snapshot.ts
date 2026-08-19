@@ -30,6 +30,138 @@ export type PensionSnapshotResult = {
   failures: Array<{ glossaryId: string; fundName: string; reason: string }>;
 };
 
+export type ConfirmedPriceInput = {
+  glossaryId: string;
+  isin?: string | null;
+  unitPrice: number;
+  providerDate: string; // ISO yyyy-mm-dd
+  source: string; // e.g. "landg_fund_centre" | "agent_confirmed"
+  sourceUrl?: string | null;
+  parseConfidence: string;
+};
+
+export type ConfirmedPriceResult =
+  | { ok: true; applied: true; glossaryId: string; unitPrice: number; providerDate: string; accountsUpdated: string[] }
+  | { ok: false; applied: false; glossaryId: string; reason: string };
+
+/**
+ * The single place that ever writes a price into the live tables. Used by
+ * both the automated daily scrape (runPensionDailyPriceSnapshot below) and
+ * the agent-confirm endpoint (/api/cron/pensions-confirm-price) — same
+ * validation, same snapshot upsert, same recompute, same account rollup,
+ * regardless of whether the price came from a regex match, the AI
+ * disambiguation fallback, or a Cowork-scheduled agent reading the page
+ * directly. Deliberately the ONLY function that does this, so "how do we
+ * safely apply a price" never has two copies to drift apart — that's the
+ * exact failure mode this codebase has already hit once (see the
+ * pension-provider-fetch.ts history) and shouldn't repeat here.
+ *
+ * Every caller gets the same guardrails:
+ *   - glossary row must actually exist
+ *   - if an ISIN is supplied, it must match the glossary's own ISIN —
+ *     catches a caller (human, agent, or code) accidentally applying a
+ *     price to the wrong fund
+ *   - a >25% day-over-day move against the glossary's current price is
+ *     rejected rather than applied, for EVERY caller, not just AI-assisted
+ *     matches — an external source (agent or otherwise) can misread a page
+ *     exactly as easily as a regex can
+ *   - units are never touched here — only price and the value units×price
+ */
+export async function applyConfirmedPensionPrice(
+  supabase: SupabaseAdmin,
+  input: ConfirmedPriceInput,
+  options?: { logger?: Pick<Console, "log" | "warn" | "error"> },
+): Promise<ConfirmedPriceResult> {
+  const logger = options?.logger || console;
+  const { glossaryId, unitPrice, providerDate, source, parseConfidence } = input;
+
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+    return { ok: false, applied: false, glossaryId, reason: `Invalid unit price: ${unitPrice}` };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(providerDate)) {
+    return { ok: false, applied: false, glossaryId, reason: `Invalid provider date: ${providerDate}` };
+  }
+
+  const { data: glossary, error: glossaryError } = await supabase
+    .from("provider_fund_glossary")
+    .select("id, internal_fund_code, underlying_isin, unit_price")
+    .eq("id", glossaryId)
+    .maybeSingle();
+
+  if (glossaryError || !glossary) {
+    return { ok: false, applied: false, glossaryId, reason: glossaryError?.message || "Glossary entry not found" };
+  }
+
+  const configuredIsin = String(glossary.underlying_isin || "").trim().toUpperCase() || null;
+  const suppliedIsin = String(input.isin || "").trim().toUpperCase() || null;
+  if (configuredIsin && suppliedIsin && configuredIsin !== suppliedIsin) {
+    return { ok: false, applied: false, glossaryId, reason: `identity_mismatch: glossary ISIN ${configuredIsin} does not match supplied ISIN ${suppliedIsin}` };
+  }
+
+  const priorPrice = Number(glossary.unit_price || 0);
+  const deviates = priorPrice > 0 && Math.abs(unitPrice - priorPrice) / priorPrice > 0.25;
+  if (deviates) {
+    return { ok: false, applied: false, glossaryId, reason: `Found ${unitPrice} vs previous ${priorPrice} (>25% move) — routed to review rather than applied automatically.` };
+  }
+
+  const { error: snapshotError } = await supabase
+    .from("pension_fund_price_snapshots")
+    .upsert(
+      {
+        glossary_id: glossaryId,
+        fund_code: glossary.internal_fund_code || null,
+        isin: configuredIsin || suppliedIsin,
+        unit_price_gbp: unitPrice,
+        point_date: providerDate,
+        observed_at: new Date().toISOString(),
+        source,
+        source_url: input.sourceUrl || null,
+        parse_confidence: parseConfidence,
+      },
+      { onConflict: "glossary_id,point_date" },
+    );
+
+  if (snapshotError) {
+    return { ok: false, applied: false, glossaryId, reason: `Snapshot write failed: ${snapshotError.message}` };
+  }
+
+  await supabase.from("provider_fund_glossary").update({ unit_price: unitPrice, updated_at: new Date().toISOString() }).eq("id", glossaryId);
+
+  const { data: fundsForGlossary } = await supabase.from("pension_funds").select("id, units, pension_account_id").eq("glossary_id", glossaryId);
+  const affectedAccountIds = new Set<string>();
+  for (const fund of fundsForGlossary || []) {
+    const units = Number(fund.units || 0);
+    await supabase
+      .from("pension_funds")
+      .update({
+        unit_price: unitPrice,
+        current_value: Math.round(units * unitPrice * 100) / 100,
+        price_as_of_date: providerDate,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", fund.id);
+    if (fund.pension_account_id) affectedAccountIds.add(fund.pension_account_id);
+  }
+
+  // Roll up just the accounts this price actually touched — a caller using
+  // this outside the bulk daily job (e.g. the agent-confirm endpoint) needs
+  // the account total to be current immediately, not stale until the next
+  // full run.
+  const today = new Date().toISOString().slice(0, 10);
+  for (const accountId of affectedAccountIds) {
+    const { data: funds } = await supabase.from("pension_funds").select("current_value,price_as_of_date").eq("pension_account_id", accountId);
+    if (!funds || funds.length === 0) continue;
+    const total = funds.reduce((sum, f) => sum + Number(f.current_value || 0), 0);
+    await supabase
+      .from("pension_accounts")
+      .update({ current_value: Math.round(total * 100) / 100, value_as_of_date: funds.map((fund) => fund.price_as_of_date).filter(Boolean).sort().at(0) || today, updated_at: new Date().toISOString() })
+      .eq("id", accountId);
+  }
+
+  logger.log(`[pension-price-snapshot] applied glossary=${glossaryId} price=${unitPrice} source=${source} confidence=${parseConfidence}`);
+  return { ok: true, applied: true, glossaryId, unitPrice, providerDate, accountsUpdated: Array.from(affectedAccountIds) };
+}
+
 /**
  * Runs daily (via loop-pensions-daily). For every provider_fund_glossary
  * entry that:
@@ -99,8 +231,6 @@ export async function runPensionDailyPriceSnapshot(
     return result;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-
   for (const glossary of glossaryRows || []) {
     result.checked += 1;
     const fundName = String(glossary.internal_fund_name || "");
@@ -134,30 +264,6 @@ export async function runPensionDailyPriceSnapshot(
       const parsed = await fetchLandgFundPrice(verifiedUrl, fundName, verifiedIsin);
       const providerDate = isoProviderDate(parsed.as_of_date);
 
-      // Sanity guardrail for AI-assisted results specifically: this is the
-      // one confidence level where the number wasn't reached by exact
-      // string/attribute matching, so it gets an extra check the other
-      // strategies don't need. If it's wildly different from the price we
-      // already trust (the glossary's current unit_price, itself only ever
-      // set by a previous confident run), don't apply it — treat it the
-      // same as any other low-confidence result and route to review. A
-      // fund moving >25% in a single day is not impossible but is rare
-      // enough on a workplace pension fund that it's worth a human glance
-      // rather than an automatic write.
-      if (parsed.confidence === "ai_assisted" && parsed.unit_price !== null) {
-        const priorPrice = Number(glossary.unit_price || 0);
-        const deviates = priorPrice > 0 && Math.abs(parsed.unit_price - priorPrice) / priorPrice > 0.25;
-        if (deviates) {
-          result.needsReview += 1;
-          result.failures.push({
-            glossaryId: glossary.id,
-            fundName,
-            reason: `AI-assisted match found ${parsed.unit_price} vs previous ${priorPrice} (>25% move) — routed to review rather than applied automatically.`,
-          });
-          continue;
-        }
-      }
-
       if (parsed.unit_price === null || !providerDate) {
         result.needsReview += 1;
         result.failures.push({
@@ -170,70 +276,35 @@ export async function runPensionDailyPriceSnapshot(
         continue;
       }
 
-      // Write the snapshot row — never overwritten, one per fund per day.
-      const { error: snapshotError } = await supabase
-        .from("pension_fund_price_snapshots")
-        .upsert(
-          {
-            glossary_id: glossary.id,
-            fund_code: glossary.internal_fund_code || null,
-            isin: verifiedIsin,
-            unit_price_gbp: parsed.unit_price,
-            point_date: providerDate,
-            observed_at: new Date().toISOString(),
-            source: "landg_fund_centre",
-            source_url: verifiedUrl,
-            parse_confidence: parsed.confidence,
-          },
-          { onConflict: "glossary_id,point_date" },
-        );
+      // All actual writing (snapshot upsert, glossary/fund/account update,
+      // the day-over-day sanity bound) now lives in one shared function —
+      // see applyConfirmedPensionPrice above. Keeps this loop and the
+      // agent-confirm endpoint from ever having two copies of "how do we
+      // safely apply a price" that could drift apart.
+      const applied = await applyConfirmedPensionPrice(
+        supabase,
+        {
+          glossaryId: glossary.id,
+          isin: verifiedIsin,
+          unitPrice: parsed.unit_price,
+          providerDate,
+          source: "landg_fund_centre",
+          sourceUrl: verifiedUrl,
+          parseConfidence: parsed.confidence,
+        },
+        { logger },
+      );
 
-      if (snapshotError) {
-        result.failures.push({ glossaryId: glossary.id, fundName, reason: `Snapshot write failed: ${snapshotError.message}` });
+      if (!applied.ok) {
+        result.needsReview += 1;
+        result.failures.push({ glossaryId: glossary.id, fundName, reason: applied.reason });
         continue;
-      }
-
-      // Only apply to the live glossary/fund rows on a confident parse.
-      // "single_price_on_page", "isin_match", and "exact_name_match" are
-      // exact-match strategies, trusted automatically. "ai_assisted" is
-      // trusted too, but only after clearing the day-over-day sanity check
-      // above — anything that failed that check, or any other confidence
-      // level, was already routed to needsReview and never reaches here
-      // with a non-null price.
-      await supabase.from("provider_fund_glossary").update({ unit_price: parsed.unit_price, updated_at: new Date().toISOString() }).eq("id", glossary.id);
-
-      const fundsForGlossary = (heldFunds || []).filter((f) => f.glossary_id === glossary.id);
-      for (const fund of fundsForGlossary) {
-        const { data: fundRow } = await supabase.from("pension_funds").select("units").eq("id", fund.id).maybeSingle();
-        const units = Number(fundRow?.units || 0);
-        await supabase
-          .from("pension_funds")
-          .update({
-            unit_price: parsed.unit_price,
-            current_value: Math.round(units * parsed.unit_price * 100) / 100,
-            price_as_of_date: providerDate,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", fund.id);
       }
 
       result.updated += 1;
     } catch (caught) {
       result.failures.push({ glossaryId: glossary.id, fundName, reason: caught instanceof Error ? caught.message : String(caught) });
     }
-  }
-
-  // Roll each affected pension_account's current_value up from its funds,
-  // same as the manual recompute done earlier tonight — but now automatic.
-  const { data: accounts } = await supabase.from("pension_accounts").select("id");
-  for (const account of accounts || []) {
-    const { data: funds } = await supabase.from("pension_funds").select("current_value,price_as_of_date").eq("pension_account_id", account.id);
-    if (!funds || funds.length === 0) continue;
-    const total = funds.reduce((sum, f) => sum + Number(f.current_value || 0), 0);
-    await supabase
-      .from("pension_accounts")
-      .update({ current_value: Math.round(total * 100) / 100, value_as_of_date: funds.map(fund => fund.price_as_of_date).filter(Boolean).sort().at(0) || today, updated_at: new Date().toISOString() })
-      .eq("id", account.id);
   }
 
   result.finishedAt = new Date().toISOString();
