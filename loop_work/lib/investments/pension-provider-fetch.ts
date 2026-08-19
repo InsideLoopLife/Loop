@@ -113,6 +113,14 @@ export function extractPriceAndFeeFromText(html: string, exactFundName?: string)
     // A dropdown option isn't followed by its own "Price ###p As at..."
     // block, so this naturally ignores dropdown noise without needing to
     // detect or filter it explicitly.
+    // BUGFIX: L&G's fund-centre pages put the fund-name heading near the TOP
+    // of the page (right after the sitewide fund-switcher dropdown), while
+    // the actual "Prices" section with the number sits much further DOWN —
+    // past Fund facts, Charges, Performance tables, and Portfolio holdings.
+    // Confirmed on a live fetch: that gap is 10,000+ characters, and the
+    // price always follows the heading, never precedes it. The old 4000-char
+    // forward-only window could never reach it, so every multi-share-class
+    // page fell through to needsReview even when the name matched cleanly.
     const decodedHtml = decodeHtmlEntities(html);
     const normalisedTarget = normaliseForMatch(exactFundName);
     const positions: number[] = [];
@@ -124,10 +132,15 @@ export function extractPriceAndFeeFromText(html: string, exactFundName?: string)
       searchFrom = idx + normalisedTarget.length;
     }
 
-    const PROXIMITY_WINDOW = 4000;
+    const PROXIMITY_WINDOW = 20000;
     for (const pos of positions) {
-      const windowText = decodedHtml.slice(pos, pos + PROXIMITY_WINDOW);
-      const nearbyPriceMatch = windowText.match(/Price\s*([0-9,]+(?:\.[0-9]+)?)\s*p[\s\S]{0,120}?As at\s*([0-9]{1,2}\s+\w+\s+[0-9]{4})/i);
+      // Forward first (the common case on real L&G pages), then backward as
+      // a fallback in case a future page layout puts the price above the
+      // heading — cheap to check, and it costs nothing when it doesn't match.
+      const forwardText = decodedHtml.slice(pos, pos + PROXIMITY_WINDOW);
+      const backwardText = decodedHtml.slice(Math.max(0, pos - PROXIMITY_WINDOW), pos);
+      const priceBlockRegex = /Price\s*([0-9,]+(?:\.[0-9]+)?)\s*p[\s\S]{0,120}?As at\s*([0-9]{1,2}\s+\w+\s+[0-9]{4})/i;
+      const nearbyPriceMatch = forwardText.match(priceBlockRegex) || backwardText.match(priceBlockRegex);
       if (nearbyPriceMatch) {
         const raw = Number(nearbyPriceMatch[1].replace(/,/g, ""));
         if (Number.isFinite(raw) && raw > 0) {
