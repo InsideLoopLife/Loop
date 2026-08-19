@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { calculateMonthlyMortgagePayment } from "@/lib/calculations/mortgage";
+import { calculateMonthlyMortgagePayment, calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
 import { formatMoney } from "@/lib/format/money";
 import type {
   Home,
@@ -134,7 +134,7 @@ function ScenarioCard({
       </div>
 
       <a
-        href="/mortgage/advanced"
+        href="/mortgage?tab=rates"
         className="mt-5 block rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-center text-xs font-bold text-violet-700 transition hover:border-violet-200 hover:bg-violet-50"
       >
         View details ↓
@@ -164,7 +164,17 @@ export function HouseWorkspaceOverview({
 
   const summary = useMemo(() => {
     const homeValue = valuationMid(currentHome, valuations);
-    const balance = Number(currentDeal?.balance || 0);
+    const balance = currentDeal
+      ? calculateProjectedMortgageBalance({
+          openingBalance: Number(currentDeal.balance || 0),
+          annualInterestRate: Number(currentDeal.interest_rate || 0),
+          termYears: Number(currentDeal.term_years || 25),
+          balanceAsOfDate: currentDeal.balance_as_of_date ?? currentDeal.start_date,
+          asOfDate: new Date(),
+          monthlyPayment: currentDeal.monthly_payment_override,
+          repaymentType: currentDeal.repayment_type ?? "repayment",
+        }).projectedBalance
+      : 0;
     const rate = Number(currentDeal?.interest_rate || 0);
     const termYears = Number(currentDeal?.term_years || 25);
 
@@ -359,19 +369,19 @@ export function HouseWorkspaceOverview({
               Quick actions
             </p>
             <a
-              href="/mortgage/advanced"
+              href="/mortgage?tab=rates"
               className="mt-1 block rounded-xl px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
             >
               ＋ Add property
             </a>
             <a
-              href="/mortgage/advanced"
+              href="/mortgage?tab=rates"
               className="block rounded-xl px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
             >
               ▣ Add mortgage
             </a>
             <a
-              href="/mortgage/advanced"
+              href="/mortgage?tab=rates"
               className="block rounded-xl px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
             >
               ⇄ Compare rates
@@ -400,7 +410,7 @@ export function HouseWorkspaceOverview({
                   {summary.benchmarkDate || "Waiting for rate benchmark"}
                 </p>
                 <a
-                  href="/mortgage/advanced"
+                  href="/mortgage?tab=rates"
                   className="mt-3 inline-block rounded-xl border border-violet-300 bg-white px-4 py-2 text-xs font-bold text-violet-700"
                 >
                   Adjust assumptions
@@ -532,7 +542,7 @@ export function HouseWorkspaceOverview({
                   </p>
                 </div>
                 <a
-                  href="/mortgage/advanced"
+                  href="/mortgage?tab=rates"
                   className="text-xs font-bold text-violet-700"
                 >
                   View full breakdown →
@@ -643,7 +653,7 @@ export function HouseWorkspaceOverview({
               </div>
 
               <a
-                href="/mortgage/advanced"
+                href="/mortgage?tab=rates"
                 className="mt-4 block rounded-xl border border-violet-300 px-4 py-2.5 text-center text-xs font-bold text-violet-700"
               >
                 View full breakdown

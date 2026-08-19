@@ -38,6 +38,7 @@ import {
   type SpendingCategoryForPlan,
 } from "@/lib/planning/month-plan";
 import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
+import { HouseUnifiedWorkspace } from "@/components/mortgage/HouseUnifiedWorkspace";
 
 async function MortgageContent() {
   const { supabase, user, householdContext } = await requireWealthPageAccess({
@@ -378,29 +379,25 @@ async function MortgageContent() {
           <PageLandingExperience kind="mortgage" />
         </main>
       ) : null}
-      <MortgagePlannerClient
-        scenarios={scenarios ?? []}
-        people={peopleRows}
+      <HouseUnifiedWorkspace
         homes={homes ?? []}
         owners={normalisedOwners}
+        people={peopleRows}
         deals={deals ?? []}
         valuations={valuations ?? []}
+        liabilityAllocations={liabilityAllocations ?? []}
+        moveQueries={moveQueries ?? []}
+        renewalRecommendations={renewalRecommendations ?? []}
+        marketDeals={marketDeals ?? []}
+        boeBenchmarks={boeBenchmarks ?? []}
         monthPlan={monthPlan}
         normalMonthPlan={normalMonthPlan}
         emergencySavings={(savingsAccounts ?? []).reduce(
-          (sum: number, account: any) =>
-            sum + Number(account.current_balance || 0),
+          (sum: number, account: any) => sum + Number(account.current_balance || 0),
           0,
         )}
-        childProfileCount={childProfileCount}
-        renewalRecommendations={renewalRecommendations ?? []}
-        marketDeals={marketDeals ?? []}
-        moveQueries={moveQueries ?? []}
-        liabilityAllocations={liabilityAllocations ?? []}
-        dealPreferences={dealPreferences ?? []}
-        workspacePreference={workspacePreference ?? null}
-        boeBenchmarks={boeBenchmarks ?? []}
-        svrKnowledge={svrKnowledge ?? []}
+        categories={(categories ?? []) as SpendingCategoryForPlan[]}
+        payEvents={(payEvents ?? []) as PayEventForPlan[]}
       />
     </>
   );

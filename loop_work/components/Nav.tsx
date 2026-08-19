@@ -549,7 +549,7 @@ function NavInner() {
   const [features, setFeatures] = useState<UserFeatureAccess>(
     DEFAULT_USER_FEATURE_ACCESS,
   );
-  const [layout, setLayout] = useState<NavigationLayout>("side");
+  const [layout, setLayout] = useState<NavigationLayout>("top");
   const [mobileLayout, setMobileLayout] = useState<MobileNavigationLayout>("bar");
   const [preferenceLoaded, setPreferenceLoaded] = useState(false);
   const [hasChosenLayout, setHasChosenLayout] = useState(true);

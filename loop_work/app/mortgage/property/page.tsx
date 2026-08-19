@@ -1,1 +1,2 @@
-export { default } from "@/domains/wealth/house/HousePropertyPage";
+import { redirect } from "next/navigation";
+export default function RetiredHouseRoute() { redirect("/mortgage?tab=property"); }
