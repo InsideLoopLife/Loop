@@ -131,8 +131,32 @@ export async function runPensionDailyPriceSnapshot(
     }
 
     try {
-      const parsed = await fetchLandgFundPrice(verifiedUrl, fundName);
+      const parsed = await fetchLandgFundPrice(verifiedUrl, fundName, verifiedIsin);
       const providerDate = isoProviderDate(parsed.as_of_date);
+
+      // Sanity guardrail for AI-assisted results specifically: this is the
+      // one confidence level where the number wasn't reached by exact
+      // string/attribute matching, so it gets an extra check the other
+      // strategies don't need. If it's wildly different from the price we
+      // already trust (the glossary's current unit_price, itself only ever
+      // set by a previous confident run), don't apply it — treat it the
+      // same as any other low-confidence result and route to review. A
+      // fund moving >25% in a single day is not impossible but is rare
+      // enough on a workplace pension fund that it's worth a human glance
+      // rather than an automatic write.
+      if (parsed.confidence === "ai_assisted" && parsed.unit_price !== null) {
+        const priorPrice = Number(glossary.unit_price || 0);
+        const deviates = priorPrice > 0 && Math.abs(parsed.unit_price - priorPrice) / priorPrice > 0.25;
+        if (deviates) {
+          result.needsReview += 1;
+          result.failures.push({
+            glossaryId: glossary.id,
+            fundName,
+            reason: `AI-assisted match found ${parsed.unit_price} vs previous ${priorPrice} (>25% move) — routed to review rather than applied automatically.`,
+          });
+          continue;
+        }
+      }
 
       if (parsed.unit_price === null || !providerDate) {
         result.needsReview += 1;
@@ -170,9 +194,12 @@ export async function runPensionDailyPriceSnapshot(
       }
 
       // Only apply to the live glossary/fund rows on a confident parse.
-      // "single_price_on_page" and "exact_name_match" are both safe to
-      // trust automatically; anything else was already routed to
-      // needsReview above and never reaches here with a non-null price.
+      // "single_price_on_page", "isin_match", and "exact_name_match" are
+      // exact-match strategies, trusted automatically. "ai_assisted" is
+      // trusted too, but only after clearing the day-over-day sanity check
+      // above — anything that failed that check, or any other confidence
+      // level, was already routed to needsReview and never reaches here
+      // with a non-null price.
       await supabase.from("provider_fund_glossary").update({ unit_price: parsed.unit_price, updated_at: new Date().toISOString() }).eq("id", glossary.id);
 
       const fundsForGlossary = (heldFunds || []).filter((f) => f.glossary_id === glossary.id);
