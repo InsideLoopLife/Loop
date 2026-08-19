@@ -80,7 +80,7 @@ export function buildHouseAffordabilityScore(input: {
   emergencySavings?: number;
 }): HouseAffordabilityScore {
   const income = Math.max(0, Number(input.monthPlan.income || 0));
-  const outgoings = Math.max(0, Number(input.monthPlan.outgoing || 0));
+  const outgoings = Math.max(0, Number(input.monthPlan.outgoings || 0));
   const surplus = income - outgoings;
   const paymentRatio = income > 0 ? input.mortgagePayment / income : 1;
   const outgoingRatio = income > 0 ? outgoings / income : 1;
