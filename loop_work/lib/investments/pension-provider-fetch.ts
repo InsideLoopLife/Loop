@@ -199,17 +199,44 @@ export function extractPriceAndFeeFromText(html: string, exactFundName?: string,
     }
   }
 
-  // Couldn't confidently disambiguate. Report every candidate rather than
-  // silently picking one — callers should treat this as "needs review",
-  // not apply it automatically. Debug info here is deliberately bounded —
-  // dumping every heading on the page produced an unusably large log on a
-  // real run (L&G's sitewide fund-switcher dropdown alone is 500+
-  // entries). Instead: was the exact name found at all, and if so, what
-  // actually follows it (so a real failure is diagnosable from a short
-  // snippet, not another giant dump).
+  // Couldn't confidently disambiguate. Rather than guess a 4th time at why,
+  // this now reports GROUND TRUTH about what each strategy actually found:
+  // did the ISIN attribute exist at all, did the <h1> exist at all, and if
+  // either did, how far away (in real characters, both directions) was the
+  // nearest actual "Price" text on THIS specific fetch — not inferred from
+  // a 200-char snippet, not assumed from a differently-fetched copy of the
+  // page. Previous rounds of widening the window were guesses because this
+  // number was never actually measured on the exact response the cron job
+  // itself received. Debug info stays bounded (a handful of numbers/short
+  // strings, not a dump) — the sitewide dropdown alone is 500+ entries and
+  // logging all of it was unusable before.
+  const diagnostics: string[] = [];
+  if (isin) {
+    const escapedIsin = isin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const isinRegex = new RegExp(`data-shareclass-code=["']${escapedIsin}["']`, "i");
+    const isinMatch = decodedHtml.match(isinRegex);
+    if (isinMatch && isinMatch.index !== undefined) {
+      const nearestPriceIdx = nearestOccurrenceDistance(decodedHtml, isinMatch.index, /Price/gi);
+      diagnostics.push(`isin_attribute: found at char ${isinMatch.index}, nearest "Price" text is ${nearestPriceIdx === null ? "nowhere on the page" : `${nearestPriceIdx} chars away`}`);
+    } else {
+      diagnostics.push(`isin_attribute: "data-shareclass-code=${isin}" not found anywhere in the fetched page`);
+    }
+  }
+  if (exactFundName) {
+    const escapedName = exactFundName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    const headingRegex = new RegExp(`<h1[^>]*>(?:\\s*<[^>]+>)*\\s*${escapedName}\\s*(?:<|</h1>)`, "i");
+    const headingMatch = decodedHtml.match(headingRegex);
+    if (headingMatch && headingMatch.index !== undefined) {
+      const nearestPriceIdx = nearestOccurrenceDistance(decodedHtml, headingMatch.index, /Price/gi);
+      diagnostics.push(`h1_heading: found at char ${headingMatch.index}, nearest "Price" text is ${nearestPriceIdx === null ? "nowhere on the page" : `${nearestPriceIdx} chars away`}`);
+    } else {
+      diagnostics.push(`h1_heading: no <h1> containing this exact name found anywhere in the fetched page`);
+    }
+  }
+  diagnostics.push(`page_length: ${decodedHtml.length} chars, ${priceCandidates.length} price candidates found in total`);
+
   const foundHeadings = exactFundName
     ? (() => {
-        const decodedHtml = decodeHtmlEntities(html);
         const normalisedTarget = normaliseForMatch(exactFundName);
         const lower = decodedHtml.toLowerCase();
         const occurrences: string[] = [];
@@ -220,12 +247,32 @@ export function extractPriceAndFeeFromText(html: string, exactFundName?: string,
           occurrences.push(decodedHtml.slice(idx, idx + 200).replace(/\s+/g, " ").trim());
           searchFrom = idx + normalisedTarget.length;
         }
-        return occurrences.length
-          ? occurrences.map((s, i) => `occurrence ${i + 1}: "${s}..."`)
-          : [`exact name "${exactFundName}" not found anywhere in the fetched page at all`];
+        return [
+          ...diagnostics,
+          ...(occurrences.length
+            ? occurrences.map((s, i) => `occurrence ${i + 1}: "${s}..."`)
+            : [`exact name "${exactFundName}" not found anywhere in the fetched page at all`]),
+        ];
       })()
-    : undefined;
+    : diagnostics;
   return { unit_price: null, suggested_fee_percent, as_of_date: null, confidence: "not_found", candidate_count: priceCandidates.length, headingsFound: foundHeadings };
+}
+
+// Finds the smallest character distance (either direction) from `pos` to
+// any match of `pattern` in `haystack`. Returns null if `pattern` never
+// occurs at all. Used only for diagnostics — measuring what's actually
+// true about a specific fetch, rather than assuming from a differently
+// -obtained copy of the same page.
+function nearestOccurrenceDistance(haystack: string, pos: number, pattern: RegExp): number | null {
+  const global = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g");
+  let best: number | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = global.exec(haystack)) !== null) {
+    const dist = Math.abs(m.index - pos);
+    if (best === null || dist < best) best = dist;
+    if (m.index === global.lastIndex) global.lastIndex++; // avoid infinite loop on zero-length matches
+  }
+  return best;
 }
 
 // STRATEGY 4 (genuine last resort — only reached if strategies 1-3 all
