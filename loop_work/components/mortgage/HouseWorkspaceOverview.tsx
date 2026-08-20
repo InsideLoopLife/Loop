@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { calculateMonthlyMortgagePayment, calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
+import { getMortgageTermPosition } from "@/lib/calculations/mortgage-term";
 import { formatMoney } from "@/lib/format/money";
 import { MortgageQuoteIntake, type UserMortgageQuote } from "@/components/mortgage/MortgageQuoteIntake";
 import type {
@@ -63,13 +64,6 @@ function valuationMid(home: Home | undefined, valuations: HomeValuationSource[])
   return Number(home.property_value || 0);
 }
 
-function remainingMortgageMonths(deal?: HomeMortgageDeal) {
-  if (!deal?.start_date || !Number(deal.term_years)) return Math.max(0, Math.round(Number(deal?.term_years || 0) * 12));
-  const start = new Date(`${deal.start_date}T00:00:00`);
-  if (Number.isNaN(start.getTime())) return Math.max(0, Math.round(Number(deal.term_years || 0) * 12));
-  const maturity = new Date(start); maturity.setMonth(maturity.getMonth() + Math.round(Number(deal.term_years) * 12));
-  const now = new Date(); let months = (maturity.getFullYear()-now.getFullYear())*12 + maturity.getMonth()-now.getMonth(); if (maturity.getDate()<now.getDate()) months -= 1; return Math.max(0, months);
-}
 function remainingTermLabel(months: number) { const y=Math.floor(months/12), m=months%12; return y ? `${y}y${m ? ` ${m}m` : ""}` : `${m} month${m===1?"":"s"}`; }
 
 function ScenarioCard({
@@ -205,7 +199,8 @@ export function HouseWorkspaceOverview({
       : 0;
     const rate = Number(currentDeal?.interest_rate || 0);
     const termYears = Number(currentDeal?.term_years || 25);
-    const remainingMonths = remainingMortgageMonths(currentDeal);
+    const termPosition = getMortgageTermPosition(currentDeal);
+    const remainingMonths = termPosition.remainingMonths;
     const remainingTermYears = Math.max(1 / 12, remainingMonths / 12);
 
     const currentPayment =
@@ -381,7 +376,7 @@ export function HouseWorkspaceOverview({
   if (!currentHome && !currentDeal) return null;
 
   return (
-    <main className="mx-auto w-full min-w-0 max-w-[1460px]">
+    <main className="mx-auto w-full min-w-0 max-w-none">
       <div className="min-w-0">
         <aside className="hidden">
           <div className="sticky top-24 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">

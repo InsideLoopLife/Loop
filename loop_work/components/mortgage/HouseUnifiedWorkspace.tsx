@@ -56,7 +56,8 @@ type ModalState =
   | { type: "edit_mortgage"; deal: HomeMortgageDeal }
   | { type: "add_valuation"; homeId?: string }
   | { type: "edit_valuation"; valuation: HomeValuationSource }
-  | { type: "add_move" };
+  | { type: "add_move" }
+  | { type: "move_score"; query: PropertyMoveQuery };
 
 type Props = {
   homes: Home[];
@@ -100,6 +101,45 @@ const TAB_META: Record<Tab, { eyebrow: string; title: string; description: strin
 
 function mortgageCategory(category: SpendingCategoryForPlan) {
   return /mortgage|home loan/i.test(String(category.name || ""));
+}
+
+function moveScenarioScore(
+  query: PropertyMoveQuery,
+  monthPlan: MonthPlan,
+  emergencySavings: number,
+) {
+  const propertyValue = Number(query.asking_price || 0);
+  const mortgagePayment = Number(query.expected_payment || 0);
+  const deposit = Number(query.target_deposit || 0);
+  const mortgageBalance = Number(
+    query.expected_mortgage_balance ||
+      Math.max(0, propertyValue - deposit),
+  );
+
+  if (propertyValue <= 0 || mortgagePayment <= 0 || mortgageBalance <= 0) {
+    return null;
+  }
+
+  return buildHouseAffordabilityScore({
+    monthPlan,
+    mortgagePayment,
+    mortgageBalance,
+    propertyValue,
+    emergencySavings,
+  });
+}
+
+function moveSourceLabel(url?: string | null) {
+  if (!url) return null;
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    if (host.includes("rightmove")) return "Rightmove";
+    if (host.includes("zoopla")) return "Zoopla";
+    if (host.includes("onthemarket")) return "OnTheMarket";
+    return host;
+  } catch {
+    return "Original listing";
+  }
 }
 
 export function HouseUnifiedWorkspace(props: Props) {
@@ -166,6 +206,19 @@ export function HouseUnifiedWorkspace(props: Props) {
   const marketProxy = props.marketDeals.filter((item) => Number(item.rate_percent || 0) > 0).filter((item) => item.ltv_max == null || Number(item.ltv_max) >= ltv).sort((a,b) => Number(a.rate_percent || 99) - Number(b.rate_percent || 99))[0];
   const planningRate = Number(benchmark?.rate_percent || marketProxy?.rate_percent || 0);
 
+  const selectedMoveScore =
+    modal?.type === "move_score"
+      ? moveScenarioScore(modal.query, props.monthPlan, props.emergencySavings)
+      : null;
+  const selectedMoveNormalScore =
+    modal?.type === "move_score" && hasTemporaryIncome
+      ? moveScenarioScore(
+          modal.query,
+          props.normalMonthPlan,
+          props.emergencySavings,
+        )
+      : null;
+
   function choose(next: Tab) {
     setTab(next);
     window.history.replaceState({}, "", next === "overview" ? "/mortgage" : `/mortgage?tab=${next}`);
@@ -173,7 +226,7 @@ export function HouseUnifiedWorkspace(props: Props) {
   }
 
   return (
-    <main className="mx-auto w-full max-w-[1900px] overflow-x-hidden px-3 pb-28 pt-4 font-sans sm:px-5 lg:px-6 xl:px-8">
+    <main className="mx-auto w-[95vw] max-w-none overflow-x-hidden px-4 pb-28 pt-4 font-sans md:px-8">
       <nav className="mb-4 flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:hidden">
         {TABS.map(([id, label]) => (
           <button key={id} onClick={() => choose(id)} className={`shrink-0 rounded-full px-3 py-2 text-xs font-bold ${tab === id ? "bg-slate-950 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{label}</button>
@@ -182,7 +235,7 @@ export function HouseUnifiedWorkspace(props: Props) {
 
       <div className="grid min-w-0 gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="hidden lg:block">
-          <div className="sticky top-24 space-y-4">
+          <div className="fixed top-24 z-20 max-h-[calc(100vh-7rem)] w-[220px] space-y-4 overflow-y-auto pr-1 [scrollbar-width:thin]">
             <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
               <p className="px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">House</p>
               {TABS.map(([id, label]) => (
@@ -210,7 +263,7 @@ export function HouseUnifiedWorkspace(props: Props) {
         </aside>
 
         <div className="min-w-0">
-          <header data-house-shared-header className="mx-auto mb-6 flex min-h-[112px] w-full max-w-[1540px] items-start justify-between gap-4">
+          <header data-house-shared-header className="mx-auto mb-6 flex min-h-[112px] w-full max-w-none items-start justify-between gap-4">
             <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-600">{pageMeta.eyebrow}</p><h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">{pageMeta.title}</h1><p className="mt-2 max-w-3xl text-sm text-slate-500">{pageMeta.description}</p></div>
             <div className="shrink-0 pt-1">
               {tab === "property" ? <button onClick={() => setModal(home ? { type: "edit_home", home } : { type: "add_home" })} className="rounded-xl border border-violet-200 bg-white px-4 py-2.5 text-xs font-bold text-violet-700">Edit property</button> : null}
@@ -219,7 +272,7 @@ export function HouseUnifiedWorkspace(props: Props) {
             </div>
           </header>
           {tab === "overview" ? (
-            <div className="mx-auto w-full max-w-[1540px] space-y-6 lg:space-y-7">
+            <div className="mx-auto w-full max-w-none space-y-6 lg:space-y-7">
 
               <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
                 {[["Current mortgage",formatMoney(mortgage.balance),`${ltv.toFixed(1)}% LTV`],["Monthly payment",formatMoney(mortgage.payment),deal?`${Number(deal.interest_rate).toFixed(2)}% · ${deal.lender || ""}`:"No mortgage"],["Home value",formatMoney(value.mid),`${formatMoney(value.low)} – ${formatMoney(value.high)}`]].map(([label,main,helper]) => <article key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:min-h-[122px] lg:p-5"><p className="text-[10px] font-bold uppercase text-slate-400">{label}</p><p className="mt-2 text-2xl font-bold">{main}</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{helper}</p></article>)}
@@ -245,13 +298,13 @@ export function HouseUnifiedWorkspace(props: Props) {
           ) : null}
 
           {tab === "property" ? (
-            <div className="mx-auto max-w-[1460px] space-y-5"><section className="grid gap-4 lg:grid-cols-[1fr_.8fr]"><div className="relative min-h-[420px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">{home?.latitude && home?.longitude ? <iframe title="Property map" src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(home.longitude)-0.006}%2C${Number(home.latitude)-0.006}%2C${Number(home.longitude)+0.006}%2C${Number(home.latitude)+0.006}&layer=mapnik&marker=${home.latitude}%2C${home.longitude}`} className="absolute inset-0 h-full w-full border-0"/> : null}</div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-xl font-bold">{home?.label}</h2><p className="mt-1 text-sm text-slate-500">{home?.full_address}</p><dl className="mt-5 space-y-3">{[["Purchase",formatMoney(Number(home?.purchase_price || 0))],["Value",formatMoney(value.mid)],["Valuation range",`${formatMoney(value.low)} – ${formatMoney(value.high)}`],["Equity",formatMoney(equity)],["UPRN",home?.uprn || "—"]].map(([l,v]) => <div key={l} className="flex justify-between gap-4 border-b border-slate-100 pb-3"><dt className="text-sm text-slate-500">{l}</dt><dd className="text-sm font-bold">{v}</dd></div>)}</dl></div></section><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">Valuation sources</h2><button onClick={() => setModal({ type: "add_valuation", homeId: home?.id })} className="text-xs font-bold text-violet-700">+ Add valuation</button></div><div className="mt-4 space-y-2">{props.valuations.filter(v => v.home_id === home?.id).map(v => <button key={v.id} onClick={() => setModal({ type: "edit_valuation", valuation: v })} className="flex w-full items-center justify-between rounded-xl bg-slate-50 p-3 text-left"><span><span className="block text-sm font-bold">{v.source_name}</span><span className="text-xs text-slate-500">{v.valuation_date}</span></span><span className="font-bold">{formatMoney(Number(v.valuation_mid ?? v.valuation_amount ?? 0))}</span></button>)}</div></section></div>
+            <div className="mx-auto max-w-none space-y-5"><section className="grid gap-4 lg:grid-cols-[1fr_.8fr]"><div className="relative min-h-[420px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">{home?.latitude && home?.longitude ? <iframe title="Property map" src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(home.longitude)-0.006}%2C${Number(home.latitude)-0.006}%2C${Number(home.longitude)+0.006}%2C${Number(home.latitude)+0.006}&layer=mapnik&marker=${home.latitude}%2C${home.longitude}`} className="absolute inset-0 h-full w-full border-0"/> : null}</div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-xl font-bold">{home?.label}</h2><p className="mt-1 text-sm text-slate-500">{home?.full_address}</p><dl className="mt-5 space-y-3">{[["Purchase",formatMoney(Number(home?.purchase_price || 0))],["Value",formatMoney(value.mid)],["Valuation range",`${formatMoney(value.low)} – ${formatMoney(value.high)}`],["Equity",formatMoney(equity)],["UPRN",home?.uprn || "—"]].map(([l,v]) => <div key={l} className="flex justify-between gap-4 border-b border-slate-100 pb-3"><dt className="text-sm text-slate-500">{l}</dt><dd className="text-sm font-bold">{v}</dd></div>)}</dl></div></section><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">Valuation sources</h2><button onClick={() => setModal({ type: "add_valuation", homeId: home?.id })} className="text-xs font-bold text-violet-700">+ Add valuation</button></div><div className="mt-4 space-y-2">{props.valuations.filter(v => v.home_id === home?.id).map(v => <button key={v.id} onClick={() => setModal({ type: "edit_valuation", valuation: v })} className="flex w-full items-center justify-between rounded-xl bg-slate-50 p-3 text-left"><span><span className="block text-sm font-bold">{v.source_name}</span><span className="text-xs text-slate-500">{v.valuation_date}</span></span><span className="font-bold">{formatMoney(Number(v.valuation_mid ?? v.valuation_amount ?? 0))}</span></button>)}</div></section></div>
           ) : null}
 
-          {tab === "rates" ? <div className="mx-auto max-w-[1460px]"><HouseWorkspaceOverview homes={props.homes} deals={props.deals} valuations={props.valuations} renewalRecommendations={props.renewalRecommendations} marketDeals={props.marketDeals} moveQueries={props.moveQueries} boeBenchmarks={props.boeBenchmarks}/></div> : null}
+          {tab === "rates" ? <div className="mx-auto max-w-none"><HouseWorkspaceOverview homes={props.homes} deals={props.deals} valuations={props.valuations} renewalRecommendations={props.renewalRecommendations} marketDeals={props.marketDeals} moveQueries={props.moveQueries} boeBenchmarks={props.boeBenchmarks}/></div> : null}
 
           {tab === "affordability" ? (
-            <div className="mx-auto max-w-[1460px]">
+            <div className="mx-auto max-w-none">
               <AffordabilityPlanningPanel
                 currentScore={currentAffordability}
                 normalScore={normalAffordability}
@@ -272,23 +325,292 @@ export function HouseUnifiedWorkspace(props: Props) {
           ) : null}
 
           {tab === "overpayments" ? (
-            <div className="mx-auto w-full max-w-[1540px]"><MortgageOverpaymentPlanner deal={deal} currentBalance={mortgage.balance} currentPayment={mortgage.payment} benchmarkRate={planningRate} /></div>
+            <div className="mx-auto w-full max-w-none"><MortgageOverpaymentPlanner deal={deal} currentBalance={mortgage.balance} currentPayment={mortgage.payment} benchmarkRate={planningRate} /></div>
           ) : null}
 
           {tab === "moving" ? (
-            <div className="mx-auto max-w-[1460px] space-y-5"><section className="grid gap-3 md:grid-cols-2">{props.moveQueries.map(q => <article key={q.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex justify-between gap-3"><div><h2 className="font-bold">{q.title || q.address_hint || "Move scenario"}</h2><p className="text-xs text-slate-500">{q.postcode}</p></div><span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">{Number(q.affordability_score || 0)}/100</span></div><div className="mt-4 grid grid-cols-2 gap-2"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-400">Asking price</p><p className="font-bold">{formatMoney(Number(q.asking_price || 0))}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-400">Mortgage est.</p><p className="font-bold">{formatMoney(Number(q.expected_payment || 0))}/mo</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-400">Stamp duty</p><p className="font-bold">{formatMoney(Number(q.stamp_duty_estimate || 0))}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-400">Moving costs</p><p className="font-bold">{formatMoney(Number(q.moving_cost_estimate || 0))}</p></div></div><form action={archivePropertyMoveQuery} className="mt-4"><input type="hidden" name="id" value={q.id}/><button className="text-xs font-bold text-rose-600">Archive scenario</button></form></article>)}</section></div>
+            <div className="mx-auto max-w-none space-y-5">
+              <section className="grid gap-3 md:grid-cols-2">
+                {props.moveQueries.map((query) => {
+                  const currentScore = moveScenarioScore(
+                    query,
+                    props.monthPlan,
+                    props.emergencySavings,
+                  );
+                  const normalScore = hasTemporaryIncome
+                    ? moveScenarioScore(
+                        query,
+                        props.normalMonthPlan,
+                        props.emergencySavings,
+                      )
+                    : null;
+                  const sourceLabel = moveSourceLabel(query.property_url);
+                  const displayedScore =
+                    currentScore?.score ??
+                    (query.affordability_score == null
+                      ? null
+                      : Number(query.affordability_score));
+
+                  return (
+                    <article
+                      key={query.id}
+                      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h2 className="font-bold">
+                            {query.address_hint ||
+                              query.title ||
+                              "Move scenario"}
+                          </h2>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                            {query.postcode ? <span>{query.postcode}</span> : null}
+                            {sourceLabel ? (
+                              <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">
+                                {sourceLabel}
+                                {query.source_confidence
+                                  ? ` · ${Number(query.source_confidence).toFixed(0)}% source confidence`
+                                  : ""}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {displayedScore !== null ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setModal({ type: "move_score", query })
+                            }
+                            className="shrink-0 rounded-2xl bg-violet-50 px-3 py-2 text-left text-violet-700 transition hover:bg-violet-100"
+                            title="See why this move scores this way"
+                          >
+                            <span className="block text-sm font-bold">
+                              {displayedScore}/100
+                            </span>
+                            <span className="block text-[9px] font-bold uppercase tracking-wide">
+                              Why?
+                            </span>
+                          </button>
+                        ) : (
+                          <span className="shrink-0 rounded-full bg-slate-100 px-3 py-2 text-[10px] font-bold text-slate-500">
+                            Needs scoring
+                          </span>
+                        )}
+                      </div>
+
+                      {query.property_url ? (
+                        <a
+                          href={query.property_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-violet-700 hover:underline"
+                        >
+                          Open {sourceLabel || "original"} listing ↗
+                        </a>
+                      ) : null}
+
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        <div className="rounded-xl bg-slate-50 p-3">
+                          <p className="text-[10px] text-slate-400">Asking price</p>
+                          <p className="font-bold">
+                            {formatMoney(Number(query.asking_price || 0))}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3">
+                          <p className="text-[10px] text-slate-400">Mortgage est.</p>
+                          <p className="font-bold">
+                            {formatMoney(Number(query.expected_payment || 0))}/mo
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3">
+                          <p className="text-[10px] text-slate-400">Stamp duty</p>
+                          <p className="font-bold">
+                            {formatMoney(Number(query.stamp_duty_estimate || 0))}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3">
+                          <p className="text-[10px] text-slate-400">Moving costs</p>
+                          <p className="font-bold">
+                            {formatMoney(Number(query.moving_cost_estimate || 0))}
+                          </p>
+                        </div>
+                      </div>
+
+                      {currentScore ? (
+                        <button
+                          type="button"
+                          onClick={() => setModal({ type: "move_score", query })}
+                          className="mt-4 w-full rounded-xl border border-violet-100 bg-violet-50/50 px-3 py-2.5 text-left text-xs font-semibold text-slate-600"
+                        >
+                          Household impact:{" "}
+                          <strong className="text-violet-700">
+                            {currentScore.score}/100 {currentScore.label}
+                          </strong>
+                          {normalScore ? (
+                            <>
+                              {" "}· after temporary income change{" "}
+                              <strong className="text-violet-700">
+                                {normalScore.score}/100
+                              </strong>
+                            </>
+                          ) : null}
+                          <span className="float-right font-bold text-violet-700">
+                            Explain →
+                          </span>
+                        </button>
+                      ) : null}
+
+                      <form action={archivePropertyMoveQuery} className="mt-4">
+                        <input type="hidden" name="id" value={query.id} />
+                        <button className="text-xs font-bold text-rose-600">
+                          Archive scenario
+                        </button>
+                      </form>
+                    </article>
+                  );
+                })}
+              </section>
+            </div>
           ) : null}
         </div>
       </div>
 
       {modal ? (
-        <ModalFrame title={modal.type === "add_home" ? "Add property" : modal.type === "edit_home" ? "Edit property" : modal.type === "add_mortgage" ? "Add mortgage" : modal.type === "edit_mortgage" ? "Edit mortgage" : modal.type === "add_valuation" ? "Add valuation" : modal.type === "edit_valuation" ? "Edit valuation" : "Add move scenario"} onClose={() => setModal(null)}>
+        <ModalFrame title={modal.type === "add_home" ? "Add property" : modal.type === "edit_home" ? "Edit property" : modal.type === "add_mortgage" ? "Add mortgage" : modal.type === "edit_mortgage" ? "Edit mortgage" : modal.type === "add_valuation" ? "Add valuation" : modal.type === "edit_valuation" ? "Edit valuation" : modal.type === "move_score" ? "Why this move scores this way" : "Add move scenario"} onClose={() => setModal(null)}>
           {modal.type === "add_home" ? <HomeWizard people={props.people} owners={props.owners} action={addHome}/> : null}
           {modal.type === "edit_home" ? <><HomeWizard people={props.people} owners={props.owners} home={modal.home} action={updateHome}/><form action={deleteHome} className="mt-4"><input type="hidden" name="id" value={modal.home.id}/><button className="text-xs font-bold text-rose-600">Delete property</button></form></> : null}
           {modal.type === "add_mortgage" ? <MortgageWizard homes={props.homes} people={props.people} allocations={props.liabilityAllocations} homeId={modal.homeId} action={addHomeMortgageDeal}/> : null}
           {modal.type === "edit_mortgage" ? <><MortgageWizard homes={props.homes} people={props.people} allocations={props.liabilityAllocations} deal={modal.deal} action={updateHomeMortgageDeal}/><form action={deleteHomeMortgageDeal} className="mt-4"><input type="hidden" name="id" value={modal.deal.id}/><button className="text-xs font-bold text-rose-600">Delete mortgage</button></form></> : null}
           {modal.type === "add_valuation" ? <ValuationWizard homes={props.homes} homeId={modal.homeId} action={addHomeValuationSource}/> : null}
           {modal.type === "edit_valuation" ? <><ValuationWizard homes={props.homes} valuation={modal.valuation} action={updateHomeValuationSource}/><form action={deleteHomeValuationSource} className="mt-4"><input type="hidden" name="id" value={modal.valuation.id}/><button className="text-xs font-bold text-rose-600">Delete valuation</button></form></> : null}
+          {modal.type === "move_score" ? (
+            <div className="space-y-5">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-violet-700">
+                      Saved move
+                    </p>
+                    <h2 className="mt-1 text-xl font-bold text-slate-950">
+                      {modal.query.address_hint ||
+                        modal.query.title ||
+                        "Move scenario"}
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {modal.query.postcode}
+                    </p>
+                  </div>
+                  {selectedMoveScore ? (
+                    <div className={`rounded-2xl px-4 py-3 ring-1 ${selectedMoveScore.tone}`}>
+                      <p className="text-[10px] font-bold uppercase">Right now</p>
+                      <p className="text-2xl font-bold">
+                        {selectedMoveScore.score}/100
+                      </p>
+                      <p className="text-xs font-bold">{selectedMoveScore.label}</p>
+                    </div>
+                  ) : null}
+                </div>
+
+                {modal.query.property_url ? (
+                  <a
+                    href={modal.query.property_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex text-xs font-bold text-violet-700 hover:underline"
+                  >
+                    Open {moveSourceLabel(modal.query.property_url) || "original"} listing ↗
+                  </a>
+                ) : null}
+              </div>
+
+              {selectedMoveNormalScore ? (
+                <div className={`rounded-2xl p-4 ring-1 ${selectedMoveNormalScore.tone}`}>
+                  <p className="text-[10px] font-bold uppercase">
+                    After temporary income change
+                  </p>
+                  <p className="mt-1 text-2xl font-bold">
+                    {selectedMoveNormalScore.score}/100
+                  </p>
+                  <p className="text-xs font-bold">
+                    {selectedMoveNormalScore.label}
+                  </p>
+                </div>
+              ) : null}
+
+              {selectedMoveScore ? (
+                <div className="space-y-2">
+                  {selectedMoveScore.criteria.map((criterion) => (
+                    <details
+                      key={criterion.label}
+                      className="rounded-xl border border-slate-200 bg-white"
+                    >
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3">
+                        <div>
+                          <p className="text-xs font-bold text-slate-800">
+                            {criterion.label}
+                          </p>
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            {criterion.reason}
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-xs font-bold">
+                          {criterion.points}/{criterion.max}
+                        </span>
+                      </summary>
+                      <div className="grid gap-3 border-t border-slate-100 p-3 sm:grid-cols-3">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase text-slate-400">
+                            What it means
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-slate-600">
+                            {criterion.explanation}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase text-slate-400">
+                            How it is scored
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-slate-600">
+                            {criterion.scoring}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase text-slate-400">
+                            What improves it
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-slate-600">
+                            {criterion.improve}
+                          </p>
+                        </div>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-xl bg-amber-50 p-4 text-xs leading-5 text-amber-900">
+                  LOOP does not yet have enough mortgage/payment data on this saved
+                  scenario to justify an affordability score. Open the listing or edit
+                  the move assumptions first.
+                </div>
+              )}
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="text-[10px] uppercase text-slate-400">Asking price</p>
+                  <p className="font-bold">
+                    {formatMoney(Number(modal.query.asking_price || 0))}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="text-[10px] uppercase text-slate-400">Mortgage estimate</p>
+                  <p className="font-bold">
+                    {formatMoney(Number(modal.query.expected_payment || 0))}/mo
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
           {modal.type === "add_move" ? <MoveQueryWizard homes={props.homes}/> : null}
         </ModalFrame>
       ) : null}
