@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ModalFrame } from "@/components/ui/ModalFrame";
 import { HomeWizard } from "@/components/mortgage/HomeWizard";
@@ -11,6 +11,7 @@ import { HouseWorkspaceOverview } from "@/components/mortgage/HouseWorkspaceOver
 import { MortgageOverpaymentPlanner } from "@/components/mortgage/MortgageOverpaymentPlanner";
 import { AffordabilityPlanningPanel } from "@/components/mortgage/AffordabilityPlanningPanel";
 import { formatMoney } from "@/lib/format/money";
+import { writeHouseRouteCache } from "@/lib/client/house-route-cache";
 import type {
   MonthPlan,
   PayEventForPlan,
@@ -59,7 +60,7 @@ type ModalState =
   | { type: "add_move" }
   | { type: "move_score"; query: PropertyMoveQuery };
 
-type Props = {
+export type HouseUnifiedWorkspaceProps = {
   homes: Home[];
   owners: HomeOwner[];
   people: Person[];
@@ -79,6 +80,7 @@ type Props = {
   emergencySavings: number;
   categories: SpendingCategoryForPlan[];
   payEvents: PayEventForPlan[];
+  cacheMode?: "fresh" | "stale";
 };
 
 const TABS: [Tab, string][] = [
@@ -142,13 +144,18 @@ function moveSourceLabel(url?: string | null) {
   }
 }
 
-export function HouseUnifiedWorkspace(props: Props) {
+export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
   const search = useSearchParams();
   const requested = (search.get("tab") || "overview") as Tab;
   const [tab, setTab] = useState<Tab>(
     TABS.some(([id]) => id === requested) ? requested : "overview",
   );
   const [modal, setModal] = useState<ModalState>(null);
+
+  useEffect(() => {
+    if (props.cacheMode === "stale") return;
+    writeHouseRouteCache(props);
+  }, [props]);
 
   const home = props.homes.find((h) => h.ownership_status === "current_home") ?? props.homes[0];
   const deal = props.deals.find((d) => d.home_id === home?.id) ?? props.deals[0];
@@ -227,6 +234,12 @@ export function HouseUnifiedWorkspace(props: Props) {
 
   return (
     <main className="mx-auto w-[95vw] max-w-none overflow-x-hidden px-4 pb-28 pt-4 font-sans md:px-8">
+      {props.cacheMode === "stale" ? (
+        <div className="pointer-events-none fixed right-5 top-20 z-30 rounded-full border border-violet-100 bg-white/95 px-3 py-2 text-[10px] font-bold text-violet-700 shadow-lg backdrop-blur">
+          Refreshing live House data...
+        </div>
+      ) : null}
+
       <nav className="mb-4 flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:hidden">
         {TABS.map(([id, label]) => (
           <button key={id} onClick={() => choose(id)} className={`shrink-0 rounded-full px-3 py-2 text-xs font-bold ${tab === id ? "bg-slate-950 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{label}</button>
