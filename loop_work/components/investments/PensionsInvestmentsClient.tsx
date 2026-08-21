@@ -8860,13 +8860,28 @@ export function PensionsInvestmentsClient({
                         <AllocationBar funds={funds} />
                       </div>
                     </div>
-                    <aside className="min-w-0 bg-gradient-to-br from-teal-950 to-slate-900 p-5 text-white sm:p-7">
+                    <aside className="relative min-w-0 bg-gradient-to-br from-teal-950 to-slate-900 p-5 text-white sm:p-7">
                       <p className="text-xs font-black uppercase tracking-[0.22em] text-teal-300">
                         Pot value
                       </p>
-                      <p className="mt-2 text-4xl font-black">
-                        {formatMoney(total)}
-                      </p>
+                      <div className="relative mt-2 inline-block">
+                        <p className="text-4xl font-black">
+                          {formatMoney(total)}
+                        </p>
+                        {account.valuation_mode === "provider_value" ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setModal({ type: "quick-edit-pension-value", account })
+                            }
+                            aria-label="Quick edit pot value"
+                            title="Quick edit"
+                            className="absolute -right-8 top-0 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-white/70 transition hover:bg-white/20 hover:text-white"
+                          >
+                            <Settings className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                      </div>
                       <PensionHistoryChart accountId={account.id} />
                     </aside>
                   </div>
