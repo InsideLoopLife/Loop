@@ -90,7 +90,7 @@ function ScenarioCard({
         : "bg-blue-50 text-blue-700 ring-blue-200";
 
   return (
-    <article className={`w-[84vw] max-w-[390px] shrink-0 snap-center rounded-[1.4rem] border p-4 shadow-sm sm:p-5 md:w-auto md:max-w-none md:shrink ${toneClass}`}>
+    <article className={`w-[84vw] min-w-[300px] max-w-[390px] shrink-0 snap-center rounded-[1.4rem] border p-4 shadow-sm sm:w-[62vw] sm:p-5 md:w-[42vw] lg:w-auto lg:min-w-0 lg:max-w-none lg:shrink ${toneClass}`}>
       <div className="flex items-start justify-between gap-3">
         <span
           className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ring-1 ${badgeClass}`}
@@ -465,7 +465,7 @@ export function HouseWorkspaceOverview({
 
           <section
             id="house-property-summary"
-            className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-4"
+            className="-mx-3 flex snap-x snap-mandatory gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm [overscroll-behavior-x:contain] [-webkit-overflow-scrolling:touch] md:mx-0 md:grid md:grid-cols-4 md:overflow-visible md:px-3"
           >
             {[
               ["Mortgage balance", money(summary.balance)],
@@ -491,7 +491,7 @@ export function HouseWorkspaceOverview({
             ))}
           </section>
 
-          <section className={`-mx-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:grid md:overflow-visible md:px-0 md:pb-0 ${userQuote ? "md:grid-cols-2 xl:grid-cols-4" : "md:grid-cols-3"}`}>
+          <section className={`-mx-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-3 pb-3 [overscroll-behavior-x:contain] [-webkit-overflow-scrolling:touch] md:mx-0 md:px-0 lg:grid lg:overflow-visible lg:pb-0 ${userQuote ? "lg:grid-cols-2 2xl:grid-cols-4" : "lg:grid-cols-3"}`}>
             <ScenarioCard
               eyebrow="Current mortgage"
               title={`${currentDeal?.lender || "Current lender"}${
@@ -555,8 +555,8 @@ export function HouseWorkspaceOverview({
             onQuoteRemoved={() => setUserQuote(null)}
           />
 
-          <section className="grid gap-4 xl:grid-cols-[1.5fr_.75fr]">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <section className="grid min-w-0 gap-4 2xl:grid-cols-[1.5fr_.75fr]">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-bold text-slate-950">
@@ -574,8 +574,8 @@ export function HouseWorkspaceOverview({
                 </a>
               </div>
 
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[620px] text-left text-xs">
+              <div className="-mx-2 mt-4 overflow-x-auto px-2 pb-3 [scrollbar-width:thin] [overscroll-behavior-x:contain] [-webkit-overflow-scrolling:touch]">
+                <table className="w-full min-w-[760px] text-left text-xs">
                   <thead className="text-slate-400">
                     <tr>
                       <th className="py-2"> </th>
