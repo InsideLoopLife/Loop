@@ -507,6 +507,69 @@ export async function updatePensionAccount(formData: FormData) {
   revalidatePath("/net-worth");
 }
 
+/**
+ * Quick-edit path for manually-priced pots (provider_value mode, e.g.
+ * PensionBee) — just the number and the date, not the full pension-account
+ * settings form. Two things happen here, deliberately kept in one action so
+ * they can never drift apart:
+ *   1. Update the account's live current_value/value_as_of_date — this is
+ *      what net worth, retirement projections, and everywhere else in the
+ *      app actually reads.
+ *   2. Log a fund-less snapshot (pension_fund_id null, pension_account_id
+ *      set) so the pot's history chart picks up the edit. Previously this
+ *      table only ever got written per-fund, so accounts with no funds
+ *      (every provider_value account) could never build any history at all
+ *      — this closes that gap rather than just working around it.
+ */
+export async function quickUpdatePensionValue(formData: FormData) {
+  const { supabase, user } = await currentUser();
+  const id = String(formData.get("id") || "").trim();
+  if (!id) throw new Error("Choose a pension pot to update.");
+  const value = parseNumber(formData.get("current_value"));
+  if (value == null || value < 0) throw new Error("Enter a valid current value.");
+  const asOfDate = String(formData.get("value_as_of_date") || new Date().toISOString().slice(0, 10));
+
+  const { error: accountError } = await supabase
+    .from("pension_accounts")
+    .update({ current_value: value, value_as_of_date: asOfDate, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("user_id", user.id);
+  if (accountError) throw new Error(accountError.message);
+
+  const { data: existingSnapshot, error: lookupError } = await supabase
+    .from("pension_fund_value_snapshots")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("pension_account_id", id)
+    .is("pension_fund_id", null)
+    .eq("snapshot_date", asOfDate)
+    .maybeSingle();
+  if (lookupError) throw new Error(lookupError.message);
+
+  if (existingSnapshot) {
+    const { error: updateSnapshotError } = await supabase
+      .from("pension_fund_value_snapshots")
+      .update({ value })
+      .eq("id", existingSnapshot.id);
+    if (updateSnapshotError) throw new Error(updateSnapshotError.message);
+  } else {
+    const { error: insertSnapshotError } = await supabase.from("pension_fund_value_snapshots").insert({
+      user_id: user.id,
+      pension_account_id: id,
+      pension_fund_id: null,
+      snapshot_date: asOfDate,
+      value,
+      monthly_contribution_applied: 0,
+      source: "manual_quick_edit",
+    });
+    if (insertSnapshotError) throw new Error(insertSnapshotError.message);
+  }
+
+  revalidatePath("/investments");
+  revalidatePath("/net-worth");
+  revalidatePath("/retirement");
+}
+
 function providerValuationModeForAction(providerName: string) {
   const provider = findProvider(providerName);
   const notes = `${provider?.notes || ""} ${providerName}`.toLowerCase();
