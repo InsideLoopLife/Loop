@@ -31,8 +31,4 @@ export function getMortgageTermPosition(deal?: MortgageTermInput | null): { rema
   if (maturity.getDate() < now.getDate()) months -= 1;
 
   return { remainingMonths: Math.max(0, months) };
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 513975a2373a264ffa3aa86c1d3631640f54a6ac
