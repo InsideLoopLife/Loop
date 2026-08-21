@@ -83,6 +83,7 @@ import {
   updatePensionViewMode,
   updatePensionFund,
   updatePensionAccount,
+  quickUpdatePensionValue,
   updateDefinedBenefitPension,
   updateInvestmentHoldingGroups,
   saveMoneyboxInvestmentAccountSetup,
@@ -441,6 +442,7 @@ type Props = {
 type Modal =
   | { type: "pension-account"; personId?: string }
   | { type: "edit-pension-account"; account: PensionAccount }
+  | { type: "quick-edit-pension-value"; account: PensionAccount }
   | {
       type: "pension-fund";
       accountId?: string;
@@ -3395,6 +3397,58 @@ function AddPensionFundForm({
       <div className="flex items-end">
         <SubmitButton>Add fund</SubmitButton>
       </div>
+    </form>
+  );
+}
+function QuickValueEditForm({
+  account,
+  onDone,
+}: {
+  account: PensionAccount;
+  onDone: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+
+  // Passing an async local function as the form's action (rather than the
+  // server action directly) lets this close the modal itself once the
+  // update actually lands — the two things this does are (1) call the
+  // server action, which handles both writing the live value and logging a
+  // history snapshot, then (2) close the modal on success so there's no
+  // "now manually dismiss this" step after a two-field edit. SubmitButton
+  // tracks its own pending state via useFormStatus, which works the same
+  // way whether the action is this function or a real server action.
+  async function handleSubmit(formData: FormData) {
+    setError(null);
+    try {
+      await quickUpdatePensionValue(formData);
+      onDone();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Couldn't save that value.");
+    }
+  }
+
+  return (
+    <form action={handleSubmit} className="space-y-4">
+      <input type="hidden" name="id" value={account.id} />
+      <FormInput
+        label="Current value"
+        name="current_value"
+        type="number"
+        step="0.01"
+        required
+        defaultValue={account.current_value}
+      />
+      <FormInput
+        label="As of"
+        name="value_as_of_date"
+        type="date"
+        required
+        defaultValue={account.value_as_of_date || today}
+      />
+      {error ? (
+        <p className="text-xs font-semibold text-red-600">{error}</p>
+      ) : null}
+      <SubmitButton pendingLabel="Saving…">Save</SubmitButton>
     </form>
   );
 }
@@ -8806,13 +8860,28 @@ export function PensionsInvestmentsClient({
                         <AllocationBar funds={funds} />
                       </div>
                     </div>
-                    <aside className="min-w-0 bg-gradient-to-br from-teal-950 to-slate-900 p-5 text-white sm:p-7">
+                    <aside className="relative min-w-0 bg-gradient-to-br from-teal-950 to-slate-900 p-5 text-white sm:p-7">
                       <p className="text-xs font-black uppercase tracking-[0.22em] text-teal-300">
                         Pot value
                       </p>
-                      <p className="mt-2 text-4xl font-black">
-                        {formatMoney(total)}
-                      </p>
+                      <div className="relative mt-2 inline-block">
+                        <p className="text-4xl font-black">
+                          {formatMoney(total)}
+                        </p>
+                        {account.valuation_mode === "provider_value" ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setModal({ type: "quick-edit-pension-value", account })
+                            }
+                            aria-label="Quick edit pot value"
+                            title="Quick edit"
+                            className="absolute -right-8 top-0 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-white/70 transition hover:bg-white/20 hover:text-white"
+                          >
+                            <Settings className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                      </div>
                       <PensionHistoryChart accountId={account.id} />
                     </aside>
                   </div>
@@ -9030,15 +9099,32 @@ export function PensionsInvestmentsClient({
                       ) : null}
                     </div>
                   </div>
-                  <aside className="bg-gradient-to-br from-teal-950 to-slate-900 p-6 text-white">
+                  <aside className="relative bg-gradient-to-br from-teal-950 to-slate-900 p-6 text-white">
                     <p className="text-xs font-black uppercase tracking-[0.22em] text-teal-300">
                       Pot value
                     </p>
-                    <p className="mt-2 text-4xl font-black">
-                      {formatMoney(total)}
-                    </p>
+                    <div className="relative mt-2 inline-block">
+                      <p className="text-4xl font-black">
+                        {formatMoney(total)}
+                      </p>
+                      {account.valuation_mode === "provider_value" ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setModal({ type: "quick-edit-pension-value", account })
+                          }
+                          aria-label="Quick edit pot value"
+                          title="Quick edit"
+                          className="absolute -right-8 top-0 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-white/70 transition hover:bg-white/20 hover:text-white"
+                        >
+                          <Settings className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
                     <p className="mt-1 text-sm font-semibold text-slate-300">
-                      Provider/fund values update when refreshed or edited
+                      {account.valuation_mode === "provider_value"
+                        ? "No live provider feed — update manually via the cog above"
+                        : "Provider/fund values update when refreshed or edited"}
                     </p>
                     <PensionHistoryChart accountId={account.id} />
                     <div className="mt-6 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur">
@@ -9866,6 +9952,18 @@ export function PensionsInvestmentsClient({
           onClose={() => setModal(null)}
         >
           <AddPensionAccountWizard people={people} account={modal.account} />
+        </ModalShell>
+      ) : null}
+      {modal?.type === "quick-edit-pension-value" ? (
+        <ModalShell
+          title="Quick value update"
+          description="For manually-priced pots (no live provider feed) — just the number and the date, nothing else."
+          onClose={() => setModal(null)}
+        >
+          <QuickValueEditForm
+            account={modal.account}
+            onDone={() => setModal(null)}
+          />
         </ModalShell>
       ) : null}
       {modal?.type === "provider-fund-search" ? (

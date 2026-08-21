@@ -32,13 +32,16 @@ export async function GET(request: NextRequest) {
   if (fundsError) return NextResponse.json({ error: fundsError.message }, { status: 500 });
 
   const fundIds = (funds || []).map((fund) => fund.id);
-  if (!fundIds.length) return NextResponse.json({ points: [] });
 
-  const { data: snapshots, error: snapshotError } = await supabase
-    .from("pension_fund_value_snapshots")
-    .select("pension_fund_id, snapshot_date, value")
-    .in("pension_fund_id", fundIds)
-    .order("snapshot_date", { ascending: true });
+  // Accounts with no funds (every provider_value account, e.g. PensionBee)
+  // have nothing to join on pension_fund_id — their history lives in the
+  // fund-less snapshots (pension_fund_id null, pension_account_id set)
+  // written by the quick-value-edit action instead.
+  const snapshotQuery = fundIds.length
+    ? supabase.from("pension_fund_value_snapshots").select("pension_fund_id, snapshot_date, value").in("pension_fund_id", fundIds)
+    : supabase.from("pension_fund_value_snapshots").select("pension_fund_id, snapshot_date, value").eq("pension_account_id", accountId).is("pension_fund_id", null);
+
+  const { data: snapshots, error: snapshotError } = await snapshotQuery.order("snapshot_date", { ascending: true });
   if (snapshotError) return NextResponse.json({ error: snapshotError.message }, { status: 500 });
 
   const byDate = new Map<string, number>();
