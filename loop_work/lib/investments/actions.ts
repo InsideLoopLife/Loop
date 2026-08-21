@@ -503,8 +503,36 @@ export async function updatePensionAccount(formData: FormData) {
     updated_at: new Date().toISOString(),
   }).eq("id", id).eq("user_id", user.id);
   if (error) throw new Error(error.message);
+  await syncSinglePensionFundValue(supabase, user.id, id, parseNumber(formData.get("current_value")) ?? 0);
   revalidatePath("/investments");
   revalidatePath("/net-worth");
+}
+
+/**
+ * The displayed pot value (pensionAccountValue, in pension-valuation.ts)
+ * sums child pension_funds rows FIRST and only falls back to the account's
+ * own current_value when there are none — so updating current_value alone
+ * silently does nothing whenever a fund row exists, which is every
+ * provider_value account with a placeholder fund (e.g. PensionBee's single
+ * "Global Leaders Plan" row representing the whole pot). This keeps that
+ * placeholder row in sync whenever the account-level value changes.
+ * Deliberately conservative: only acts when there's exactly one fund under
+ * the account, since blindly redistributing a new total across several real
+ * funds would misrepresent which holding actually changed.
+ */
+async function syncSinglePensionFundValue(
+  supabase: Awaited<ReturnType<typeof currentUser>>["supabase"],
+  userId: string,
+  pensionAccountId: string,
+  value: number,
+) {
+  const { data: funds, error } = await supabase
+    .from("pension_funds")
+    .select("id")
+    .eq("pension_account_id", pensionAccountId)
+    .eq("user_id", userId);
+  if (error || !funds || funds.length !== 1) return;
+  await supabase.from("pension_funds").update({ current_value: value, updated_at: new Date().toISOString() }).eq("id", funds[0].id);
 }
 
 /**
@@ -535,6 +563,7 @@ export async function quickUpdatePensionValue(formData: FormData) {
     .eq("id", id)
     .eq("user_id", user.id);
   if (accountError) throw new Error(accountError.message);
+  await syncSinglePensionFundValue(supabase, user.id, id, value);
 
   const { data: existingSnapshot, error: lookupError } = await supabase
     .from("pension_fund_value_snapshots")
