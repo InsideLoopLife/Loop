@@ -8,17 +8,15 @@ type Props = {
 };
 
 /**
- * Presentation-only shell for the Financial Flow family.
+ * LOOP Financial Flow visual shell.
  *
- * Important:
- * - No calculations live here.
- * - No data is transformed here.
- * - No Recharts/SVG/canvas elements are restyled.
- * - Existing forms, modals, links, drag/drop and server actions remain untouched.
- *
- * This intentionally applies the House visual language from the outside so the
- * underlying Financial Flow, Income and Spending components can keep evolving
- * independently.
+ * PRESENTATION ONLY:
+ * - no data transformation
+ * - no financial calculations
+ * - no server actions
+ * - no database calls
+ * - no chart configuration changes
+ * - no recurrence / household / tax / savings logic changes
  */
 export function FinancialFlowHouseShell({ children, section }: Props) {
   return (
@@ -27,114 +25,224 @@ export function FinancialFlowHouseShell({ children, section }: Props) {
 
       <style jsx global>{`
         .loop-financial-house-shell {
-          --flow-page: #f8fafc;
-          --flow-surface: rgba(255, 255, 255, 0.96);
-          --flow-border: #e5e7eb;
-          --flow-border-soft: #eef2f7;
-          --flow-ink: #0f172a;
-          --flow-muted: #64748b;
-          --flow-green: #15803d;
-          --flow-green-soft: #f0fdf4;
-          --flow-orange: #ea580c;
-          --flow-orange-soft: #fff7ed;
-          --flow-blue: #0369a1;
-          --flow-blue-soft: #f0f9ff;
-          --flow-shadow: 0 12px 34px -28px rgba(15, 23, 42, 0.42);
-          --flow-shadow-raised: 0 18px 42px -30px rgba(15, 23, 42, 0.50);
+          --loop-flow-bg: #f8fafc;
+          --loop-flow-card: rgba(255, 255, 255, 0.97);
+          --loop-flow-border: #e7edf3;
+          --loop-flow-border-strong: #dbe4ec;
+          --loop-flow-ink: #0f172a;
+          --loop-flow-muted: #64748b;
+          --loop-flow-green: #15803d;
+          --loop-flow-green-soft: #f3fbf5;
+          --loop-flow-orange: #ea580c;
+          --loop-flow-orange-soft: #fff7ed;
+          --loop-flow-blue-soft: #f1f9fb;
+          --loop-flow-shadow: 0 14px 36px -30px rgba(15, 23, 42, 0.48);
 
           min-height: 100%;
           background:
-            radial-gradient(circle at 10% 0%, rgba(22, 163, 74, 0.035), transparent 28rem),
-            radial-gradient(circle at 92% 8%, rgba(234, 88, 12, 0.025), transparent 30rem),
-            var(--flow-page);
+            radial-gradient(circle at 8% 0%, rgba(34, 197, 94, 0.035), transparent 26rem),
+            radial-gradient(circle at 92% 2%, rgba(14, 116, 144, 0.025), transparent 28rem),
+            var(--loop-flow-bg);
         }
 
-        /* Keep the same generous desktop canvas used by the current House workspace. */
+        /* House-style wide workspace. */
         .loop-financial-house-shell main {
           width: 95vw !important;
           max-width: 2000px !important;
           margin-inline: auto !important;
+          padding-inline: clamp(0.9rem, 2vw, 2rem) !important;
+          padding-top: 1rem !important;
         }
 
-        /*
-         * Normalize the most visually-heavy existing containers.
-         * We deliberately target presentation classes only; no component
-         * structure or chart markup is changed.
-         */
+        /* Calm the existing card system without removing content. */
+        .loop-financial-house-shell main article[class*="border"],
+        .loop-financial-house-shell main section[class*="border"],
+        .loop-financial-house-shell main div[class*="border"][class*="shadow"] {
+          border-color: var(--loop-flow-border) !important;
+          box-shadow: var(--loop-flow-shadow) !important;
+        }
+
         .loop-financial-house-shell main [class*="rounded-[2.5rem]"],
+        .loop-financial-house-shell main [class*="rounded-[2.25rem]"],
         .loop-financial-house-shell main [class*="rounded-[2rem]"],
         .loop-financial-house-shell main .rounded-3xl {
           border-radius: 1.35rem !important;
         }
 
-        .loop-financial-house-shell main article[class*="border"],
-        .loop-financial-house-shell main section[class*="border"],
-        .loop-financial-house-shell main div[class*="border"][class*="shadow"] {
-          border-color: var(--flow-border-soft) !important;
-          box-shadow: var(--flow-shadow) !important;
-        }
-
-        .loop-financial-house-shell main article[class*="bg-white"],
-        .loop-financial-house-shell main section[class*="bg-white"] {
-          background: var(--flow-surface) !important;
-        }
-
-        /* Stronger hierarchy: answer first, evidence second. */
         .loop-financial-house-shell main h1,
         .loop-financial-house-shell main h2,
         .loop-financial-house-shell main h3 {
-          color: var(--flow-ink);
           letter-spacing: -0.025em;
         }
 
-        .loop-financial-house-shell main h1 {
+        /* ==========================================================
+           FINANCIAL FLOW ROUTE
+           ========================================================== */
+
+        /*
+         * The first section in FinancialFlowPage is either the dark Flow hero
+         * or the compact detail header. Make both House-like.
+         */
+        .loop-financial-house-shell[data-flow-section="flow"] main > section:first-child {
+          min-height: 0 !important;
+          overflow: visible !important;
+          border: 1px solid var(--loop-flow-border) !important;
+          border-radius: 1.4rem !important;
+          background: var(--loop-flow-card) !important;
+          color: var(--loop-flow-ink) !important;
+          padding: 1.15rem 1.25rem !important;
+          box-shadow: var(--loop-flow-shadow) !important;
+        }
+
+        /* Hide only the two decorative glow blobs from the old dark hero. */
+        .loop-financial-house-shell[data-flow-section="flow"] main > section:first-child > .absolute.blur-3xl {
+          display: none !important;
+        }
+
+        .loop-financial-house-shell[data-flow-section="flow"] main > section:first-child h1 {
+          margin-top: 0.2rem !important;
+          color: var(--loop-flow-ink) !important;
+          font-size: clamp(1.75rem, 2.2vw, 2.45rem) !important;
+          line-height: 1.08 !important;
           font-weight: 800 !important;
         }
 
-        .loop-financial-house-shell main p[class*="text-slate-500"],
-        .loop-financial-house-shell main p[class*="text-slate-600"] {
-          color: var(--flow-muted) !important;
+        .loop-financial-house-shell[data-flow-section="flow"] main > section:first-child p {
+          color: var(--loop-flow-muted) !important;
+        }
+
+        .loop-financial-house-shell[data-flow-section="flow"] main > section:first-child p[class*="uppercase"] {
+          color: var(--loop-flow-green) !important;
+        }
+
+        /* Existing month control: convert the outer black capsule to a white control. */
+        .loop-financial-house-shell[data-flow-section="flow"] main > section:first-child div[class*="bg-slate-950"][class*="rounded"] {
+          border: 1px solid var(--loop-flow-border) !important;
+          background: #ffffff !important;
+          color: var(--loop-flow-ink) !important;
+          box-shadow: none !important;
+        }
+
+        .loop-financial-house-shell[data-flow-section="flow"] main > section:first-child div[class*="bg-slate-950"][class*="rounded"] > a {
+          background: #f8fafc !important;
+          color: var(--loop-flow-muted) !important;
         }
 
         /*
-         * Financial Flow's section switcher becomes calmer and more workspace-like.
-         * Deliberately does not remove or rename any existing navigation item.
+         * Main Flow / Income / Spending / Savings switcher:
+         * retain all four existing destinations but make it a quiet tab rail.
          */
         .loop-financial-house-shell main nav[aria-label="Financial Flow sections"] {
           position: sticky;
-          top: 0.75rem;
-          z-index: 20;
-          border-radius: 1.15rem !important;
-          border-color: rgba(226, 232, 240, 0.9) !important;
-          background: rgba(255, 255, 255, 0.88) !important;
-          padding: 0.35rem !important;
-          box-shadow: 0 12px 36px -30px rgba(15, 23, 42, 0.55) !important;
-          backdrop-filter: blur(16px);
+          top: 0.5rem;
+          z-index: 30;
+          display: grid !important;
+          grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+          overflow: hidden;
+          border: 0 !important;
+          border-bottom: 1px solid var(--loop-flow-border-strong) !important;
+          border-radius: 0 !important;
+          background: rgba(248, 250, 252, 0.94) !important;
+          padding: 0 !important;
+          box-shadow: none !important;
+          backdrop-filter: blur(14px);
         }
 
         .loop-financial-house-shell main nav[aria-label="Financial Flow sections"] a {
-          min-height: 3rem;
-          border-radius: 0.9rem !important;
+          min-height: 3.25rem;
+          justify-content: flex-start !important;
+          border-radius: 0 !important;
+          border-bottom: 2px solid transparent;
+          padding-inline: 1rem !important;
+          background: transparent !important;
+          box-shadow: none !important;
+        }
+
+        .loop-financial-house-shell main nav[aria-label="Financial Flow sections"] a[class*="text-slate-950"] {
+          border-bottom-color: var(--loop-flow-green);
+          color: var(--loop-flow-ink) !important;
+        }
+
+        .loop-financial-house-shell main nav[aria-label="Financial Flow sections"] a span[class*="bg-gradient-to-r"] {
+          display: none !important;
+        }
+
+        /* Household/person selector remains visible but visually secondary. */
+        .loop-financial-house-shell main div[aria-label="Choose household scope"] {
+          margin-top: -0.2rem !important;
+          padding: 0.15rem 0 0.35rem !important;
         }
 
         /*
-         * Keep intentional pills/chips, but avoid every action feeling like a pill.
-         * Applies only to large CTA buttons, not filters/tags.
+         * The current FinancialFlowPage KPI row is the first direct grid section.
+         * Keep every existing metric; tune density and semantic surfaces.
          */
-        .loop-financial-house-shell main a[class*="px-5"][class*="py-3"],
-        .loop-financial-house-shell main button[class*="px-5"][class*="py-3"] {
-          border-radius: 0.9rem !important;
+        .loop-financial-house-shell[data-flow-section="flow"] main > section.grid {
+          gap: 0.65rem !important;
         }
 
-        /*
-         * Existing score/insight banners stay prominent without dominating
-         * the page. This preserves Savings Health and other intelligence.
-         */
-        .loop-financial-house-shell main section[class*="bg-gradient-to-r"] {
-          box-shadow: var(--flow-shadow-raised) !important;
+        .loop-financial-house-shell[data-flow-section="flow"] main > section.grid > article {
+          border: 1px solid var(--loop-flow-border) !important;
+          border-radius: 1.15rem !important;
+          background: #ffffff !important;
+          box-shadow: none !important;
         }
 
-        /* Improve table readability on 13-inch laptops without removing columns. */
+        .loop-financial-house-shell[data-flow-section="flow"] main > section.grid > article:first-child {
+          background: var(--loop-flow-green-soft) !important;
+        }
+
+        .loop-financial-house-shell[data-flow-section="flow"] main > section.grid > article:nth-child(2) {
+          background: var(--loop-flow-orange-soft) !important;
+        }
+
+        .loop-financial-house-shell[data-flow-section="flow"] main > section.grid > article:nth-child(4) {
+          background: var(--loop-flow-blue-soft) !important;
+        }
+
+        /* ==========================================================
+           CHART PROTECTION
+           No SVG/Recharts geometry is changed or hidden.
+           ========================================================== */
+
+        .loop-financial-house-shell .recharts-wrapper,
+        .loop-financial-house-shell .recharts-surface,
+        .loop-financial-house-shell canvas,
+        .loop-financial-house-shell svg {
+          max-width: 100%;
+        }
+
+        .loop-financial-house-shell .recharts-legend-wrapper,
+        .loop-financial-house-shell .recharts-tooltip-wrapper {
+          opacity: 1 !important;
+          visibility: visible !important;
+        }
+
+        /* Existing chart-height utilities remain intact. */
+        .loop-financial-house-shell main .h-56 {
+          min-height: 14rem;
+        }
+
+        .loop-financial-house-shell main .h-64 {
+          min-height: 16rem;
+        }
+
+        /* ==========================================================
+           INCOME / SPENDING / CATEGORY PAGES
+           Presentation only; existing component logic remains unchanged.
+           ========================================================== */
+
+        .loop-financial-house-shell[data-flow-section="income"] main,
+        .loop-financial-house-shell[data-flow-section="spending"] main {
+          background: transparent !important;
+        }
+
+        .loop-financial-house-shell[data-flow-section="income"] main section,
+        .loop-financial-house-shell[data-flow-section="spending"] main section {
+          scroll-margin-top: 5.5rem;
+        }
+
+        /* Tables stay tables; preserve all columns and functionality. */
         .loop-financial-house-shell main table {
           width: 100%;
           border-collapse: separate;
@@ -142,121 +250,78 @@ export function FinancialFlowHouseShell({ children, section }: Props) {
         }
 
         .loop-financial-house-shell main thead th {
-          color: #64748b;
-          font-size: 0.7rem;
-          font-weight: 800;
-          letter-spacing: 0.035em;
+          padding-top: 0.7rem;
+          padding-bottom: 0.7rem;
+          color: #64748b !important;
+          font-size: 0.68rem !important;
+          font-weight: 800 !important;
+          letter-spacing: 0.04em;
           text-transform: uppercase;
         }
 
-        .loop-financial-house-shell main tbody tr {
-          transition: background-color 140ms ease;
+        .loop-financial-house-shell main tbody td {
+          border-color: #eef2f7 !important;
         }
 
         .loop-financial-house-shell main tbody tr:hover {
-          background: rgba(248, 250, 252, 0.85);
+          background: #f8fafc;
         }
 
-        /* Preserve all current chart types and geometry. */
-        .loop-financial-house-shell .recharts-wrapper,
-        .loop-financial-house-shell .recharts-surface,
-        .loop-financial-house-shell svg,
-        .loop-financial-house-shell canvas {
-          max-width: 100%;
-        }
-
-        /* Do not hide legends, dots, slices, axes or tooltips. */
-        .loop-financial-house-shell .recharts-legend-wrapper,
-        .loop-financial-house-shell .recharts-tooltip-wrapper {
-          opacity: 1 !important;
-          visibility: visible !important;
-        }
-
-        /*
-         * Give visualisations breathing room rather than replacing them.
-         * Works for current donut/pie, line and calendar cards.
-         */
-        .loop-financial-house-shell main [class*="h-56"],
-        .loop-financial-house-shell main [class*="h-64"] {
-          min-height: 14rem;
-        }
-
-        /* Inputs/forms retain current logic; only visual consistency changes. */
+        /* Forms keep their existing server actions / validation. */
         .loop-financial-house-shell main input:not([type="checkbox"]):not([type="radio"]),
         .loop-financial-house-shell main select,
         .loop-financial-house-shell main textarea {
           border-radius: 0.9rem !important;
-          border-color: #dbe3ec !important;
-          background-color: rgba(255, 255, 255, 0.98);
+          border-color: #dce4ec !important;
         }
 
-        .loop-financial-house-shell main input:focus,
-        .loop-financial-house-shell main select:focus,
-        .loop-financial-house-shell main textarea:focus {
-          outline: none;
-          box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.10);
+        .loop-financial-house-shell main a[class*="px-5"][class*="py-3"],
+        .loop-financial-house-shell main button[class*="px-5"][class*="py-3"] {
+          border-radius: 0.85rem !important;
         }
 
-        /*
-         * Spending is allowed to retain orange as semantic emphasis,
-         * Income/Savings remain green. We tint rather than repaint.
-         */
-        .loop-financial-house-shell[data-flow-section="income"] main {
-          --flow-accent: var(--flow-green);
-          --flow-accent-soft: var(--flow-green-soft);
-        }
+        /* ==========================================================
+           13-INCH LAPTOP FIRST, THEN SCALE UP
+           ========================================================== */
 
-        .loop-financial-house-shell[data-flow-section="spending"] main {
-          --flow-accent: var(--flow-orange);
-          --flow-accent-soft: var(--flow-orange-soft);
-        }
-
-        .loop-financial-house-shell[data-flow-section="flow"] main {
-          --flow-accent: var(--flow-green);
-          --flow-accent-soft: var(--flow-green-soft);
-        }
-
-        /*
-         * Laptop-first density. A 13-inch screen should show useful evidence
-         * above the fold; larger screens naturally gain more whitespace.
-         */
-        @media (min-width: 1024px) {
+        @media (min-width: 1024px) and (max-width: 1500px) {
           .loop-financial-house-shell main {
-            padding-top: 1.1rem !important;
-            padding-bottom: 4.5rem !important;
+            width: 96vw !important;
+            padding-inline: 1rem !important;
           }
 
           .loop-financial-house-shell main > * + * {
-            margin-top: 1.15rem;
+            margin-top: 0.9rem !important;
+          }
+
+          .loop-financial-house-shell main article[class*="p-5"] {
+            padding: 1rem !important;
+          }
+
+          .loop-financial-house-shell main article p[class*="text-3xl"] {
+            font-size: 1.65rem !important;
           }
         }
 
-        /*
-         * Ultra-wide screens: do not let cards become comically stretched.
-         * The route remains 95vw but reading areas keep sensible line lengths.
-         */
         @media (min-width: 1800px) {
+          .loop-financial-house-shell main {
+            width: 94vw !important;
+          }
+
           .loop-financial-house-shell main p {
-            max-width: 78ch;
+            max-width: 82ch;
           }
         }
 
-        /*
-         * Tablet/mobile: existing component-specific card layouts continue to
-         * handle content. We only reduce outside padding and keep tab navigation
-         * horizontally usable.
-         */
         @media (max-width: 767px) {
           .loop-financial-house-shell main {
             width: 100% !important;
-            padding-inline: 0.85rem !important;
+            padding-inline: 0.75rem !important;
           }
 
           .loop-financial-house-shell main nav[aria-label="Financial Flow sections"] {
-            top: 0.4rem;
+            grid-template-columns: repeat(4, minmax(8rem, 1fr)) !important;
             overflow-x: auto;
-            grid-auto-flow: column;
-            grid-auto-columns: minmax(8rem, 1fr);
             scrollbar-width: none;
           }
 
@@ -269,10 +334,8 @@ export function FinancialFlowHouseShell({ children, section }: Props) {
           .loop-financial-house-shell *,
           .loop-financial-house-shell *::before,
           .loop-financial-house-shell *::after {
-            scroll-behavior: auto !important;
             transition-duration: 0.01ms !important;
             animation-duration: 0.01ms !important;
-            animation-iteration-count: 1 !important;
           }
         }
       `}</style>
