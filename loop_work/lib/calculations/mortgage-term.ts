@@ -1,34 +1,61 @@
-// Restores logic that used to live as a local `remainingMortgageMonths`
-// function directly inside HouseWorkspaceOverview.tsx (see
-// HouseWorkspaceOverview.tsx.housev3.bak for the original). A refactor
-// moved the import to this shared path but the module itself was never
-// created, breaking the build. Logic below is unchanged from the backup —
-// only the export shape changed, to `{ remainingMonths }` so call sites can
-// pick up further term-position fields later without a breaking change.
-
 type MortgageTermInput = {
   start_date?: string | null;
   term_years?: number | null;
 };
 
-export function getMortgageTermPosition(deal?: MortgageTermInput | null): { remainingMonths: number } {
-  const fallbackMonths = Math.max(0, Math.round(Number(deal?.term_years || 0) * 12));
+export type MortgageTermPosition = {
+  remainingMonths: number;
+  estimated: boolean;
+  note: string;
+};
 
-  if (!deal?.start_date || !Number(deal.term_years)) {
-    return { remainingMonths: fallbackMonths };
+export function getMortgageTermPosition(
+  deal?: MortgageTermInput | null,
+): MortgageTermPosition {
+  const termYears = Number(deal?.term_years || 0);
+  const fallbackMonths = Math.max(0, Math.round(termYears * 12));
+
+  if (!termYears) {
+    return {
+      remainingMonths: 0,
+      estimated: true,
+      note: "The mortgage term has not been recorded, so LOOP cannot calculate an exact remaining term.",
+    };
+  }
+
+  if (!deal?.start_date) {
+    return {
+      remainingMonths: fallbackMonths,
+      estimated: true,
+      note: "The mortgage start date is missing, so LOOP is using the full recorded mortgage term.",
+    };
   }
 
   const start = new Date(`${deal.start_date}T00:00:00`);
+
   if (Number.isNaN(start.getTime())) {
-    return { remainingMonths: fallbackMonths };
+    return {
+      remainingMonths: fallbackMonths,
+      estimated: true,
+      note: "The recorded mortgage start date could not be read, so LOOP is using the full recorded mortgage term.",
+    };
   }
 
   const maturity = new Date(start);
-  maturity.setMonth(maturity.getMonth() + Math.round(Number(deal.term_years) * 12));
+  maturity.setMonth(maturity.getMonth() + Math.round(termYears * 12));
 
   const now = new Date();
-  let months = (maturity.getFullYear() - now.getFullYear()) * 12 + (maturity.getMonth() - now.getMonth());
-  if (maturity.getDate() < now.getDate()) months -= 1;
+  let months =
+    (maturity.getFullYear() - now.getFullYear()) * 12 +
+    (maturity.getMonth() - now.getMonth());
 
-  return { remainingMonths: Math.max(0, months) };
+  if (maturity.getDate() < now.getDate()) {
+    months -= 1;
+  }
+
+  return {
+    remainingMonths: Math.max(0, months),
+    estimated: false,
+    note: "",
+  };
 }
