@@ -1,23 +1,19 @@
 "use client";
 
 import type { HouseUnifiedWorkspaceProps } from "@/components/mortgage/HouseUnifiedWorkspace";
+import {
+  readRouteSnapshot,
+  writeRouteSnapshot,
+} from "@/lib/client/route-snapshot-cache";
 
-let cachedHouseProps: HouseUnifiedWorkspaceProps | null = null;
-let cachedAt = 0;
+const CACHE_KEY = "house";
 const TTL = 5 * 60 * 1000;
 
 export function writeHouseRouteCache(props: HouseUnifiedWorkspaceProps) {
   const { cacheMode: _cacheMode, ...snapshot } = props;
-  cachedHouseProps = snapshot as HouseUnifiedWorkspaceProps;
-  cachedAt = Date.now();
+  writeRouteSnapshot(CACHE_KEY, snapshot as HouseUnifiedWorkspaceProps);
 }
 
 export function readHouseRouteCache() {
-  if (!cachedHouseProps) return null;
-  if (Date.now() - cachedAt > TTL) {
-    cachedHouseProps = null;
-    cachedAt = 0;
-    return null;
-  }
-  return cachedHouseProps;
+  return readRouteSnapshot<HouseUnifiedWorkspaceProps>(CACHE_KEY, TTL);
 }
