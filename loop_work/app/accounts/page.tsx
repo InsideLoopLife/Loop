@@ -800,18 +800,22 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   }
 
   const [{ data: pensionPerformanceAssumptions }, { data: savingsPotMovements }] = await Promise.all([
-    supabase
-      .from("pension_fund_performance_assumptions")
-      .select("pension_fund_id,pension_account_id,fund_name,current_value,annualised_5y_percent,annualised_10y_percent,as_of_date,source_url,source_name,verified_at")
-      .in("user_id", memberUserIds)
-      .order("as_of_date", { ascending: false })
-      .returns<PensionPerformanceAssumption[]>(),
-    supabase
-      .from("savings_pot_movements")
-      .select("id,savings_pot_id,amount,movement_type,effective_at,note")
-      .or(householdAllocationFilter)
-      .order("effective_at", { ascending: false })
-      .returns<SavingsPotMovementRow[]>(),
+    activeTab === "projection"
+      ? supabase
+          .from("pension_fund_performance_assumptions")
+          .select("pension_fund_id,pension_account_id,fund_name,current_value,annualised_5y_percent,annualised_10y_percent,as_of_date,source_url,source_name,verified_at")
+          .in("user_id", memberUserIds)
+          .order("as_of_date", { ascending: false })
+          .returns<PensionPerformanceAssumption[]>()
+      : Promise.resolve({ data: [] as PensionPerformanceAssumption[] }),
+    activeTab === "overview" || activeTab === "pots"
+      ? supabase
+          .from("savings_pot_movements")
+          .select("id,savings_pot_id,amount,movement_type,effective_at,note")
+          .or(householdAllocationFilter)
+          .order("effective_at", { ascending: false })
+          .returns<SavingsPotMovementRow[]>()
+      : Promise.resolve({ data: [] as SavingsPotMovementRow[] }),
   ]);
 
   const hasAiSavingsFeature = await userHasWealthFeature(supabase as any, user.id, "savings_rate_watch");

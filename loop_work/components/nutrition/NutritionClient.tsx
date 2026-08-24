@@ -10,8 +10,9 @@ import { addNutritionTotals, mealImageEmoji, NUTRITION_TOTAL_KEYS, nutritionBala
 import type { FoodLog, NutritionMeal, NutritionPerson, NutritionSettings, Supermarket } from "@/app/nutrition/page";
 import type { ProductLookupCandidate } from "@/lib/nutrition/product-data";
 import { cleanProductOrMealLabel, displayProductCandidateLabel, extractTimeHHMM, extractVolumeMl, inferFoodEntityType, isProductLikeKind, nutritionUpdateStatus, productUpdateStatusLabel } from "@/lib/nutrition/intelligence";
+import { writeRouteSnapshot } from "@/lib/client/route-snapshot-cache";
 
-type Props = { people: NutritionPerson[]; meals: NutritionMeal[]; logs: FoodLog[]; supermarkets: Supermarket[]; selectedDate: string; settings: NutritionSettings; initialOpen?: "recipe" | "log" | "edit-recipe" | null; initialMealId?: string | null; initialTab?: "overview" | "recipes" | "food-log" | "meal-cards" };
+export type NutritionClientProps = { people: NutritionPerson[]; meals: NutritionMeal[]; logs: FoodLog[]; supermarkets: Supermarket[]; selectedDate: string; settings: NutritionSettings; initialOpen?: "recipe" | "log" | "edit-recipe" | null; initialMealId?: string | null; initialTab?: "overview" | "recipes" | "food-log" | "meal-cards" };
 type Modal = { type: "recipe" } | { type: "edit-recipe"; meal: NutritionMeal } | { type: "log"; meal?: NutritionMeal } | { type: "edit-log"; log: FoodLog } | { type: "menu-import" } | null;
 type NutritionPanel = "log" | "cards" | "settings";
 
@@ -1776,7 +1777,10 @@ function RecipeCard({ meal, onLog, onEdit }: { meal: NutritionMeal; onLog: () =>
   );
 }
 
-export function NutritionClient({ people, meals, logs, supermarkets, selectedDate, settings, initialOpen = null, initialMealId = null }: Props) {
+export function NutritionClient({ people, meals, logs, supermarkets, selectedDate, settings, initialOpen = null, initialMealId = null, initialTab }: NutritionClientProps) {
+  useEffect(() => {
+    writeRouteSnapshot<NutritionClientProps>("nutrition", { people, meals, logs, supermarkets, selectedDate, settings, initialOpen, initialMealId, initialTab });
+  }, [people, meals, logs, supermarkets, selectedDate, settings, initialOpen, initialMealId, initialTab]);
   const [modal, setModal] = useState<Modal>(null);
   const [activePanel, setActivePanel] = useState<NutritionPanel>("log");
   const todayLogs = logs.filter((log) => log.eaten_on === selectedDate);

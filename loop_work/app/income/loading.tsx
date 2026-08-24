@@ -1,11 +1,2 @@
-import { Nav } from "@/components/Nav";
-import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
-
-export default function Loading() {
-  return (
-    <>
-      <Nav />
-      <WealthRouteSkeleton label="income" />
-    </>
-  );
-}
+import { IncomeCachedRouteFallback } from "@/components/loading/IncomeCachedRouteFallback";
+export default function Loading() { return <IncomeCachedRouteFallback />; }

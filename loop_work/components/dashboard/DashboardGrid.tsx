@@ -10,6 +10,7 @@ import { AddWidgetPanel } from "./AddWidgetPanel";
 import { ResponsiveWidgetContent } from "./ResponsiveWidgetContent";
 import { getWidgetDefinition } from "@/lib/dashboard/widget-registry";
 import { getSizeTier } from "@/lib/dashboard/size-tiers";
+import { writeRouteSnapshot } from "@/lib/client/route-snapshot-cache";
 import type { DashboardWidgetContext, DashboardWidgetRecord, WidgetConfig } from "@/lib/dashboard/types";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
@@ -33,7 +34,7 @@ const RESIZE_HANDLES: Array<"s" | "w" | "e" | "n" | "sw" | "nw" | "se" | "ne"> =
   "ne",
 ];
 
-interface DashboardGridProps {
+export interface DashboardGridProps {
   householdId: string;
   initialWidgets: DashboardWidgetRecord[];
   dashboardContext?: DashboardWidgetContext;
@@ -44,6 +45,14 @@ export function DashboardGrid({ householdId, initialWidgets, dashboardContext }:
   const [editing, setEditing] = useState(false);
   const [addPanelOpen, setAddPanelOpen] = useState(false);
   const [actionTarget, setActionTarget] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    writeRouteSnapshot<DashboardGridProps>("dashboard", {
+      householdId,
+      initialWidgets: widgets,
+      dashboardContext,
+    });
+  }, [householdId, widgets, dashboardContext]);
   const longPressTimer = useRef<number | null>(null);
   const pressOrigin = useRef<{ x: number; y: number } | null>(null);
 

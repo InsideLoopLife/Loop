@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -36,10 +37,18 @@ import { ModalFrame } from "@/components/ui/ModalFrame";
 import { SubmitButton } from "@/components/SubmitButton";
 import { formatMoney } from "@/lib/format/money";
 import { classifyIsaWrapper, isaAllowanceLimitForPerson, isaAllowanceRule } from "@/lib/wealth/isa-allowance";
-import { InvestmentHistoryChart } from "@/components/investments/InvestmentHistoryChart";
 import { marketDataQuality } from "@/lib/investments/market-data-quality";
-import { AmplifiedInvestmentsDashboard } from "@/components/investments/AmplifiedInvestmentsDashboard";
 import { calculatePensionSalarySacrifice } from "@/lib/investments/pension-contribution-math";
+import { writeRouteSnapshot } from "@/lib/client/route-snapshot-cache";
+
+const InvestmentHistoryChart = dynamic(
+  () => import("@/components/investments/InvestmentHistoryChart").then((m) => m.InvestmentHistoryChart),
+  { loading: () => <div className="h-48 animate-pulse rounded-3xl bg-slate-100" /> },
+);
+const AmplifiedInvestmentsDashboard = dynamic(
+  () => import("@/components/investments/AmplifiedInvestmentsDashboard").then((m) => m.AmplifiedInvestmentsDashboard),
+  { loading: () => <div className="h-72 animate-pulse rounded-3xl bg-slate-100" /> },
+);
 import {
   investmentProviders,
   pensionProviders,
@@ -412,7 +421,7 @@ type SnapTradeConnectionSummary = {
   lastSyncedAt: string | null;
 };
 
-type Props = {
+export type PensionsInvestmentsClientProps = {
   people: Person[];
   pensionAccounts: PensionAccount[];
   pensionFunds: PensionFund[];
@@ -7223,7 +7232,15 @@ export function PensionsInvestmentsClient({
   initialPensionViewMode = "cards",
   investmentDataTier,
   snapTradeConnection,
-}: Props) {
+}: PensionsInvestmentsClientProps) {
+  useEffect(() => {
+    writeRouteSnapshot<PensionsInvestmentsClientProps>("investments-core", {
+      people, pensionAccounts, pensionFunds, investmentAccounts, investmentAccountOwners,
+      investmentPieSettings, investmentHoldings, dbPensionSchemes, dbPensionEvents, payEvents,
+      pensionContributionEvents, initialInvestmentViewMode, initialPensionViewMode,
+      investmentDataTier, snapTradeConnection,
+    });
+  }, [people, pensionAccounts, pensionFunds, investmentAccounts, investmentAccountOwners, investmentPieSettings, investmentHoldings, dbPensionSchemes, dbPensionEvents, payEvents, pensionContributionEvents, initialInvestmentViewMode, initialPensionViewMode, investmentDataTier, snapTradeConnection]);
   const [area, setArea] = useState<"pensions" | "db" | "investments">(
     "investments",
   );

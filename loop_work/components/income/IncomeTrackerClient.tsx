@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SectionCard } from "@/components/SectionCard";
 import { ModalFrame } from "@/components/ui/ModalFrame";
 import { PayEventWizard } from "@/components/household/PayEventWizard";
 import { formatMoney } from "@/lib/format/money";
+import { writeRouteSnapshot } from "@/lib/client/route-snapshot-cache";
 import {
   estimateAnnualTakeHome,
   PensionMethod,
@@ -112,7 +113,7 @@ type IncomeDeduction = {
   effective_until: string | null;
 };
 
-type Props = {
+export type IncomeTrackerClientProps = {
   entries: IncomeEntry[];
   people: Person[];
   payEvents: PayEvent[];
@@ -722,7 +723,13 @@ export function IncomeTrackerClient({
   signedInPersonId = null,
   canViewHouseholdIncome = true,
   schemaWarning = null,
-}: Props) {
+}: IncomeTrackerClientProps) {
+  useEffect(() => {
+    writeRouteSnapshot<IncomeTrackerClientProps>("income", {
+      entries, people, payEvents, studentLoanAccounts, studentLoanBalanceEvents,
+      incomeDeductions, hasHousehold, signedInPersonId, canViewHouseholdIncome, schemaWarning,
+    });
+  }, [entries, people, payEvents, studentLoanAccounts, studentLoanBalanceEvents, incomeDeductions, hasHousehold, signedInPersonId, canViewHouseholdIncome, schemaWarning]);
   const [modal, setModal] = useState<IncomeModalState>(null);
   const missingOwnProfileFilter = "__own_profile_missing__";
   const [personFilter, setPersonFilter] = useState(

@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, CheckCircle2, ChevronRight, Home, LineChart, PiggyBank, ShieldCheck, Trash2, WalletCards, type LucideIcon } from "lucide-react";
 import { FormInput } from "@/components/FormInput";
 import { SectionCard } from "@/components/SectionCard";
 import { SubmitButton } from "@/components/SubmitButton";
 import { addAsset, addLiability, deleteAsset, deleteLiability } from "@/app/net-worth/actions";
 import { formatMoney } from "@/lib/format/money";
+import { writeRouteSnapshot } from "@/lib/client/route-snapshot-cache";
 
 type Person = {
   id: string;
@@ -19,7 +20,7 @@ type Person = {
 type Asset = { id: string; person_id: string | null; name: string; value: number; type: string; source_type?: string | null };
 type Liability = { id: string; person_id: string | null; name: string; balance: number; type: string; source_type?: string | null };
 
-type Props = {
+export type NetWorthClientProps = {
   currentUserId: string;
   householdName?: string | null;
   people: Person[];
@@ -180,7 +181,10 @@ function AddModal({ type, people, onClose }: { type: "asset" | "liability"; peop
   );
 }
 
-export function NetWorthClient({ currentUserId, householdName, people, assets, liabilities }: Props) {
+export function NetWorthClient({ currentUserId, householdName, people, assets, liabilities }: NetWorthClientProps) {
+  useEffect(() => {
+    writeRouteSnapshot<NetWorthClientProps>("net-worth", { currentUserId, householdName, people, assets, liabilities });
+  }, [currentUserId, householdName, people, assets, liabilities]);
   const [personFilter, setPersonFilter] = useState(selfPersonId(people, currentUserId) || "all");
   const [modal, setModal] = useState<Modal>(null);
   const [addOpen, setAddOpen] = useState(false);

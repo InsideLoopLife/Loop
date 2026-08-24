@@ -1,5 +1,2 @@
-import { LoopWealthRouteLoading } from "@/components/loading/LoopWealthRouteLoading";
-
-export default function Loading() {
-  return <LoopWealthRouteLoading label="net worth" />;
-}
+import { NetWorthCachedRouteFallback } from "@/components/loading/NetWorthCachedRouteFallback";
+export default function Loading() { return <NetWorthCachedRouteFallback />; }
