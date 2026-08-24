@@ -1,43 +1,30 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, BrainCircuit, Building2, CircleAlert, Landmark, PiggyBank, Sparkles, WalletCards } from "lucide-react";
 import { Nav } from "@/components/Nav";
 import { createClient } from "@/lib/supabase/server";
 import { buildFinancialBriefing } from "@/lib/briefing/build-financial-briefing";
 import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
 import { featureEnabled, getEffectiveEntitlements } from "@/lib/tiers/entitlements";
-import { formatMoney } from "@/lib/format/money";
+import { BriefingStory } from "@/components/briefing/BriefingStory";
 
-const money = (v: number) => formatMoney(v);
-const signed = (v:number) => `${v>=0?"+":"−"}${money(Math.abs(v))}`;
-function tone(v:number){return v>0?"text-emerald-700 bg-emerald-50 border-emerald-200":v<0?"text-rose-700 bg-rose-50 border-rose-200":"text-slate-600 bg-slate-50 border-slate-200"}
+export default async function BriefingPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
-export default async function BriefingPage(){
- const supabase=await createClient(); const {data:{user}}=await supabase.auth.getUser(); if(!user) redirect("/login");
- const entitlements=await getEffectiveEntitlements(user.id); if(!featureEnabled(entitlements,"ai_financial_briefing")) redirect("/dashboard");
- const context=await getActiveHouseholdContext(supabase,user); const b=await buildFinancialBriefing(supabase,user,visibleDataOrFilter(context));
- const up=b.weeklyChange>=0; const totalFlow=Math.max(1,b.flow.income);
- return <><Nav/><main className="mx-auto w-[95vw] max-w-[1900px] space-y-6 py-7">
-  <section className="overflow-hidden rounded-[2.2rem] border border-white/80 bg-[radial-gradient(circle_at_85%_15%,rgba(110,231,183,.24),transparent_26%),radial-gradient(circle_at_58%_10%,rgba(129,140,248,.20),transparent_30%),linear-gradient(135deg,#fff,#f8fbff)] p-7 shadow-[0_30px_80px_-52px_rgba(15,23,42,.6)]">
-   <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between"><div><p className="text-xs font-black uppercase tracking-[.22em] text-indigo-500">Your LOOP</p><h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950 md:text-5xl">Welcome back, {b.firstName}</h1><p className="mt-3 max-w-3xl text-base font-semibold text-slate-600">A daily financial briefing built from the information you have connected to LOOP.</p></div><div className={`rounded-3xl border px-5 py-4 ${tone(b.weeklyChange)}`}><p className="text-xs font-black uppercase tracking-wider">This week</p><p className="mt-1 flex items-center gap-2 text-3xl font-black">{up?<ArrowUpRight/>:<ArrowDownRight/>}{signed(b.weeklyChange)}</p></div></div>
-   <div className="mt-8 grid gap-4 lg:grid-cols-[1.35fr_.65fr]">
-    <div className="rounded-[2rem] bg-slate-950 p-6 text-white"><p className="text-xs font-black uppercase tracking-[.2em] text-emerald-300">Current position</p><div className="mt-3 flex flex-wrap items-end justify-between gap-5"><div><p className="text-sm font-bold text-slate-300">Household net worth</p><p className="mt-1 text-5xl font-black">{money(b.currentNetWorth)}</p></div><div className="grid grid-cols-2 gap-3 text-right"><div><p className="text-xs font-bold text-slate-400">Assets</p><p className="text-xl font-black">{money(b.assets)}</p></div><div><p className="text-xs font-bold text-slate-400">Liabilities</p><p className="text-xl font-black">{money(b.liabilities)}</p></div></div></div><div className="mt-7 grid gap-3 sm:grid-cols-3">{b.contributors.map(c=><Link key={c.key} href={c.href} className="rounded-2xl bg-white/8 p-4 transition hover:bg-white/12"><p className="text-xs font-bold text-slate-400">{c.label}</p><p className={`mt-1 text-xl font-black ${c.amount>=0?"text-emerald-300":"text-rose-300"}`}>{signed(c.amount)}</p></Link>)}</div></div>
-    <div className="rounded-[2rem] border border-indigo-100 bg-indigo-50/70 p-6"><div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-indigo-600 shadow-sm"><BrainCircuit/></span><div><p className="text-xs font-black uppercase tracking-[.18em] text-indigo-500">AI financial briefing</p><h2 className="text-2xl font-black text-slate-950">What changed and why</h2></div></div><div className="mt-5 space-y-3">{b.narrative.map((x,i)=><p key={i} className="rounded-2xl bg-white/80 p-4 text-sm font-semibold leading-6 text-slate-700">{x}</p>)}</div></div>
-   </div>
-  </section>
+  const entitlements = await getEffectiveEntitlements(user.id);
+  if (!featureEnabled(entitlements, "ai_financial_briefing")) redirect("/dashboard");
 
-  <section><div className="mb-4 flex items-end justify-between"><div><p className="text-xs font-black uppercase tracking-[.2em] text-orange-500">Priority order</p><h2 className="text-3xl font-black text-slate-950">Your next three decisions</h2></div><Link href="/loopwatch" className="text-sm font-black text-indigo-700">Open LoopWatch →</Link></div><div className="grid gap-4 lg:grid-cols-3">{b.actions.slice(0,3).map(a=><Link href={a.href} key={a.rank} className="group rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-xl"><div className="flex items-center justify-between"><span className="grid h-10 w-10 place-items-center rounded-full bg-emerald-100 font-black text-emerald-700">{a.rank}</span><span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase text-slate-500">{a.confidence} confidence</span></div><h3 className="mt-5 text-xl font-black text-slate-950">{a.title}</h3><p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{a.body}</p><p className="mt-4 text-sm font-black text-orange-600">{a.impact}</p><ArrowRight className="mt-5 h-5 w-5 transition group-hover:translate-x-1"/></Link>)}</div></section>
+  const context = await getActiveHouseholdContext(supabase, user);
+  const briefing = await buildFinancialBriefing(supabase, user, visibleDataOrFilter(context));
 
-  <section className="grid gap-5 xl:grid-cols-2">
-   <article className="rounded-[2rem] border border-slate-200 bg-white p-6"><div className="flex items-center gap-3"><WalletCards className="text-indigo-600"/><div><p className="text-xs font-black uppercase tracking-[.18em] text-slate-400">Financial Flow</p><h2 className="text-2xl font-black">Where this month is going</h2></div></div><div className="mt-6 h-7 overflow-hidden rounded-full bg-slate-100"><div className="flex h-full">{[[b.flow.spending,"bg-orange-400"],[b.flow.savings,"bg-emerald-400"],[b.flow.pensions,"bg-indigo-400"],[Math.max(0,b.flow.unassigned),"bg-sky-300"]].map(([v,c],i)=><div key={i} className={String(c)} style={{width:`${Math.max(0,Number(v))/totalFlow*100}%`}}/>)}</div></div><div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">{[["Income",b.flow.income],["Spending",b.flow.spending],["Savings",b.flow.savings],["Unassigned",b.flow.unassigned]].map(([l,v])=><div key={String(l)} className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold text-slate-500">{l}</p><p className="mt-1 text-xl font-black">{money(Number(v))}</p></div>)}</div></article>
-   <article className="rounded-[2rem] border border-slate-200 bg-white p-6"><div className="flex items-center gap-3"><BarChart3 className="text-emerald-600"/><div><p className="text-xs font-black uppercase tracking-[.18em] text-slate-400">Portfolio & markets</p><h2 className="text-2xl font-black">Your visible exposure</h2></div></div><div className="mt-5 grid grid-cols-2 gap-4"><div className="rounded-2xl bg-slate-950 p-5 text-white"><p className="text-xs font-bold text-slate-400">Priced investments</p><p className="mt-1 text-3xl font-black">{money(b.investments.value)}</p><p className="mt-2 text-xs text-slate-400">{b.investments.evidence}</p></div><div className="rounded-2xl bg-emerald-50 p-5"><p className="text-xs font-bold text-emerald-700">Largest exposure</p><p className="mt-1 text-2xl font-black text-slate-950">{b.investments.topExposure||"Not enough data"}</p><p className="mt-2 text-sm font-bold text-emerald-700">{b.investments.topExposure?`${b.investments.topExposurePercent.toFixed(0)}% of priced holdings`:"Refresh holdings to analyse"}</p></div></div></article>
-  </section>
-
-  <section className="grid gap-5 lg:grid-cols-3">
-   <article className="rounded-[2rem] border border-slate-200 bg-white p-6"><PiggyBank className="text-emerald-600"/><h2 className="mt-4 text-2xl font-black">Savings & goals</h2><p className="mt-4 text-4xl font-black">{money(b.savings.balance)}</p><p className="mt-2 text-sm font-semibold text-slate-500">{b.savings.blendedRate.toFixed(2)}% blended rate</p><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-2xl bg-emerald-50 p-3"><p className="text-xs font-bold">In this month</p><p className="font-black text-emerald-700">{money(b.savings.monthlyDeposits)}</p></div><div className="rounded-2xl bg-orange-50 p-3"><p className="text-xs font-bold">Taken out</p><p className="font-black text-orange-700">{money(b.savings.monthlyWithdrawals)}</p></div></div></article>
-   <article className="rounded-[2rem] border border-slate-200 bg-white p-6"><Building2 className="text-indigo-600"/><h2 className="mt-4 text-2xl font-black">Home & mortgage</h2>{b.home?<><p className="mt-4 text-sm font-bold text-slate-500">Estimated equity</p><p className="text-4xl font-black">{money(b.home.equity)}</p><p className="mt-3 text-sm font-semibold text-slate-600">LTV approximately {b.home.ltv.toFixed(0)}% · Mortgage {money(b.home.mortgage)}</p></>:<p className="mt-5 text-sm font-semibold text-slate-600">Add your home and mortgage to bring property equity into this briefing.</p>}</article>
-   <article className="rounded-[2rem] border border-slate-200 bg-white p-6"><Landmark className="text-orange-600"/><h2 className="mt-4 text-2xl font-black">Evidence health</h2><div className="mt-4 space-y-3">{b.dataQuality.length?b.dataQuality.slice(0,3).map((q,i)=><div key={i} className="flex gap-3 rounded-2xl bg-slate-50 p-3"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-orange-500"/><p className="text-sm font-semibold text-slate-600"><b className="text-slate-900">{q.area}:</b> {q.issue}</p></div>):<div className="rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-800">Your core financial records look sufficiently complete for this briefing.</div>}</div></article>
-  </section>
-  <p className="pb-6 text-center text-xs font-semibold text-slate-400">Generated {new Date(b.generatedAt).toLocaleString("en-GB")} · Figures may include estimates and are not financial advice.</p>
- </main></>;
+  return (
+    <>
+      <Nav />
+      <main className="mx-auto w-[95vw] max-w-[1900px] py-7">
+        <BriefingStory initial={briefing} />
+      </main>
+    </>
+  );
 }

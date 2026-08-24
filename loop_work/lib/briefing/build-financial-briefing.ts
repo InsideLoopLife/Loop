@@ -2,9 +2,13 @@ import { calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
 
 export type BriefingContributor = { key: string; label: string; amount: number; href: string; tone: "positive" | "negative" | "neutral" };
 export type BriefingAction = { rank: number; title: string; body: string; impact: string; href: string; confidence: "high" | "medium" | "low" };
+export type BriefingSeriesPoint = { date: string; netWorth: number; investments: number; savings: number; pensions: number; propertyEquity: number };
+export type BriefingPeriod = "day" | "week" | "month";
+export type BriefingDelta = { period: BriefingPeriod; netWorth: number; investments: number; savings: number; pensions: number; propertyEquity: number };
 export type FinancialBriefing = {
   firstName: string;
   currentNetWorth: number;
+  dailyChange: number;
   weeklyChange: number;
   monthlyChange: number;
   assets: number;
@@ -17,6 +21,8 @@ export type FinancialBriefing = {
   savings: { balance: number; monthlyDeposits: number; monthlyWithdrawals: number; confirmedInterest: number; accruedInterest: number; blendedRate: number };
   home: { value: number; mortgage: number; equity: number; ltv: number; fixedEnd: string | null } | null;
   dataQuality: { area: string; issue: string; severity: "info" | "warning" | "critical" }[];
+  series: BriefingSeriesPoint[];
+  deltas: BriefingDelta[];
   generatedAt: string;
 };
 
@@ -65,6 +71,8 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
   const liabilitiesTotal = manualLiabilities + mortgageValue + accountLiabilities;
   const currentNetWorth = assetsTotal - liabilitiesTotal;
   const latest = snapshots.at(-1); const weekRef = [...snapshots].reverse().find((s:any) => s.snapshot_date <= daysAgo(7).slice(0,10)); const monthRef = snapshots[0];
+  const dayRef = [...snapshots].reverse().find((s:any) => s.snapshot_date <= daysAgo(1).slice(0,10)) || snapshots.at(-2);
+  const dailyChange = latest && dayRef ? n(latest.net_worth)-n(dayRef.net_worth) : investmentWeeklyChange;
   const weeklyChange = latest && weekRef ? n(latest.net_worth)-n(weekRef.net_worth) : investmentWeeklyChange + sum(mortgages, (m:any) => Math.max(0,n(m.monthly_payment_override)/4));
   const monthlyChange = latest && monthRef ? n(latest.net_worth)-n(monthRef.net_worth) : weeklyChange*4;
 
@@ -76,6 +84,44 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
   const annualInterest = sum(savingsAccounts, (a:any) => Math.abs(n(a.current_balance))*n(a.interest_rate)/100);
   const blendedRate = savingsBalance ? annualInterest/savingsBalance*100 : 0;
   const accruedInterest = Math.max(0, annualInterest/12-confirmedInterest);
+
+  // Time series for charting — daily net worth + category breakdown over the trailing window.
+  // Falls back to a synthetic two-point series (anchored on today's live totals) when history
+  // hasn't accumulated yet, so charts always have something to render rather than going blank.
+  const series: BriefingSeriesPoint[] = snapshots.length
+    ? snapshots.map((s: any) => ({
+        date: s.snapshot_date,
+        netWorth: n(s.net_worth),
+        investments: n(s.investment_value),
+        savings: n(s.savings_value),
+        pensions: n(s.pension_value),
+        propertyEquity: n(s.property_equity),
+      }))
+    : [
+        { date: daysAgo(1).slice(0, 10), netWorth: currentNetWorth - dailyChange, investments: investmentValue - investmentWeeklyChange, savings: savingsBalance, pensions: pensionValue, propertyEquity: propertyValue - mortgageValue },
+        { date: new Date().toISOString().slice(0, 10), netWorth: currentNetWorth, investments: investmentValue, savings: savingsBalance, pensions: pensionValue, propertyEquity: propertyValue - mortgageValue },
+      ];
+
+  function seriesRefFor(days: number) {
+    const cutoff = daysAgo(days).slice(0, 10);
+    return [...series].reverse().find((s) => s.date <= cutoff) || series[0];
+  }
+  const latestPoint = series.at(-1)!;
+  const deltas: BriefingDelta[] = ([
+    ["day", 1],
+    ["week", 7],
+    ["month", 30],
+  ] as [BriefingPeriod, number][]).map(([period, days]) => {
+    const ref = seriesRefFor(days);
+    return {
+      period,
+      netWorth: latestPoint.netWorth - ref.netWorth,
+      investments: latestPoint.investments - ref.investments,
+      savings: latestPoint.savings - ref.savings,
+      pensions: latestPoint.pensions - ref.pensions,
+      propertyEquity: latestPoint.propertyEquity - ref.propertyEquity,
+    };
+  });
 
   const activePay = payEvents.find((p:any) => !p.effective_until || p.effective_until >= new Date().toISOString().slice(0,10));
   const income = n(activePay?.monthly_take_home_override) || n(activePay?.gross_annual_salary)*0.68/12;
@@ -109,18 +155,20 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
   while (actions.length < 3 && dataQuality[actions.length]) actions.push({rank:actions.length+1,title:`Improve ${dataQuality[actions.length].area.toLowerCase()} evidence`,body:dataQuality[actions.length].issue,impact:"Increase the confidence of future LOOP analysis",href:"/account",confidence:"high"});
 
   const direction = weeklyChange > 5 ? "increased" : weeklyChange < -5 ? "decreased" : "was broadly unchanged";
+  const dayDirection = dailyChange > 2 ? "climbed" : dailyChange < -2 ? "dipped" : "held steady";
   const narrative = [
-    `Your household net worth ${direction} this week${Math.abs(weeklyChange)>5?` by approximately £${Math.abs(Math.round(weeklyChange)).toLocaleString("en-GB")}`:""}.`,
+    `Your household net worth ${dayDirection} ${Math.abs(dailyChange)>2?`by £${Math.abs(Math.round(dailyChange)).toLocaleString("en-GB")} `:""}today, and ${direction}${Math.abs(weeklyChange)>5?` by approximately £${Math.abs(Math.round(weeklyChange)).toLocaleString("en-GB")}`:""} over the past week.`,
     contributors[0] ? `${contributors[0].label} was the largest measurable contributor at ${contributors[0].amount>=0?"+":"-"}£${Math.abs(Math.round(contributors[0].amount)).toLocaleString("en-GB")}.` : "No single material movement is currently evidenced.",
     investmentValue>0 && top ? `${top[0]} is your largest visible investment exposure at about ${topExposurePercent.toFixed(0)}% of priced holdings.` : "Add or refresh investment holdings to unlock market-exposure commentary.",
+    savingsBalance>0 ? `Savings sit at ${blendedRate.toFixed(2)}% blended rate, with £${Math.round(deposits).toLocaleString("en-GB")} banked and £${Math.round(withdrawals).toLocaleString("en-GB")} withdrawn this month.` : "No savings balances are linked yet — connect an account to bring this into your briefing.",
   ];
 
   return {
-    firstName,currentNetWorth,weeklyChange,monthlyChange,assets:assetsTotal,liabilities:liabilitiesTotal,contributors,narrative,actions,
+    firstName,currentNetWorth,dailyChange,weeklyChange,monthlyChange,assets:assetsTotal,liabilities:liabilitiesTotal,contributors,narrative,actions,
     flow:{income,spending,savings:plannedSavings,pensions,unassigned},
     investments:{value:investmentValue,weeklyChange:investmentWeeklyChange,topExposure:top?.[0]||null,topExposurePercent,evidence:holdings.length?`${holdings.length} priced holding${holdings.length===1?"":"s"}`:"No priced holdings"},
     savings:{balance:savingsBalance,monthlyDeposits:deposits,monthlyWithdrawals:withdrawals,confirmedInterest,accruedInterest,blendedRate},
     home: homes.length ? {value:propertyValue,mortgage:mortgageValue,equity:propertyValue-mortgageValue,ltv:propertyValue?mortgageValue/propertyValue*100:0,fixedEnd:mortgages.map((m:any)=>m.end_date).filter(Boolean).sort()[0]||null}:null,
-    dataQuality,generatedAt:new Date().toISOString(),
+    dataQuality,series,deltas,generatedAt:new Date().toISOString(),
   };
 }
