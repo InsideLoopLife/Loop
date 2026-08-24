@@ -1,2 +1,5 @@
-import { InvestmentsCachedRouteFallback } from "@/components/loading/InvestmentsCachedRouteFallback";
-export default function Loading() { return <InvestmentsCachedRouteFallback />; }
+import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
+
+export default function InvestmentsLoading() {
+  return <InstantRouteLoading routeKey="investments" label="investments and pensions" />;
+}

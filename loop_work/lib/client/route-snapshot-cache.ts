@@ -30,6 +30,10 @@ export function writeRouteSnapshot<T>(key: string, value: T) {
   } catch {
     // Optional enhancement only: storage failures must never break a route.
   }
+
+  window.dispatchEvent(
+    new CustomEvent("loop:route-snapshot-written", { detail: { key } }),
+  );
 }
 
 export function readRouteSnapshot<T>(key: string, ttlMs: number): T | null {

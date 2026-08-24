@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
+import { FinancialFlowWorkspaceNav } from "@/components/financial-flow/FinancialFlowWorkspaceNav";
+import { RouteBootSnapshotPublisher } from "@/components/performance/RouteBootSnapshotPublisher";
 import { SectionCard } from "@/components/SectionCard";
 import { StatCard } from "@/components/StatCard";
 import { FormInput } from "@/components/FormInput";
@@ -600,7 +602,7 @@ function TabLink({ tab, activeTab }: { tab: SavingsTab; activeTab: SavingsTab })
   return (
     <Link
       href={`/accounts?tab=${tab}`}
-      className={`rounded-full px-4 py-2 text-sm font-black transition ${activeTab === tab ? "bg-slate-950 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"}`}
+      className={`shrink-0 snap-start rounded-full px-4 py-2 text-sm font-black transition ${activeTab === tab ? "bg-slate-950 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"}`}
     >
       {config.label}
     </Link>
@@ -1479,6 +1481,24 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   return (
     <>
       <Nav />
+      <FinancialFlowWorkspaceNav section="savings" />
+      <RouteBootSnapshotPublisher
+        routeKey="accounts"
+        payload={{
+          version: 1,
+          eyebrow: "Financial Flow · Savings",
+          title: "Savings, pots and cash optimisation",
+          headline: formatMoney(totalSavings),
+          description: "Your latest savings position is visible while balances, rates and goals refresh.",
+          tone: "green",
+          metrics: [
+            { label: "Monthly top-up", value: formatMoney(monthlyTopUps) },
+            { label: "Savings health", value: `${intelligence.score}/100` },
+            { label: "12m projection", value: formatMoney(twelveMonthSavings) },
+            { label: "Tracked accounts", value: String(accountRows.length) },
+          ],
+        }}
+      />
       <main className="mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -1499,7 +1519,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
           <Link href="/accounts?tab=projection"><StatCard title="12m projection" value={formatMoney(twelveMonthSavings)} helper="Savings assumptions" /></Link>
         </section>
 
-        <nav className="sticky top-3 z-20 flex flex-wrap gap-2 rounded-[2rem] border border-white/70 bg-white/80 p-3 shadow-sm backdrop-blur-xl">
+        <nav aria-label="Savings workspace sections" className="sticky top-3 z-20 -mx-1 flex snap-x snap-mandatory flex-nowrap gap-2 overflow-x-auto rounded-[1.35rem] border border-white/70 bg-white/90 p-3 shadow-sm backdrop-blur-xl [overscroll-behavior-x:contain] [scrollbar-width:thin]">
           {tabs.filter((tab) => !("hidden" in tab && tab.hidden)).map((tab) => <TabLink key={tab.key} tab={tab.key} activeTab={activeTab} />)}
         </nav>
 

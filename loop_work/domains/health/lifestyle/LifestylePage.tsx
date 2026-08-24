@@ -3,6 +3,7 @@ import { PageLandingExperience } from "@/components/landing/PageLandingExperienc
 import { visibleDataOrFilter } from "@/lib/auth/household-context";
 import { requireHealthPageAccess } from "@/domains/health/access";
 import { LifestyleClient } from "@/components/lifestyle/LifestyleClient";
+import { RouteBootSnapshotPublisher } from "@/components/performance/RouteBootSnapshotPublisher";
 
 type Person = { id: string; name: string; relationship: string };
 type DealBill = {
@@ -63,6 +64,28 @@ export default async function LifestylePage() {
   return (
     <>
       <Nav />
+      <RouteBootSnapshotPublisher
+        routeKey="lifestyle"
+        payload={{
+          version: 1,
+          eyebrow: "Lifestyle",
+          title: "Your household lifestyle view",
+          headline: `${(billsResult.data ?? []).length} tracked bill${(billsResult.data ?? []).length === 1 ? "" : "s"}`,
+          description: "Bills, food and household lifestyle context are refreshing now.",
+          tone: "blue",
+          metrics: [
+            {
+              label: "Monthly bills",
+              value: new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(
+                (billsResult.data ?? []).reduce((sum, bill) => sum + Number(bill.monthly_cost || 0), 0),
+              ),
+            },
+            { label: "Meals", value: String((mealsResult.data ?? []).length) },
+            { label: "31d food logs", value: String((foodLogsResult.data ?? []).length) },
+            { label: "People", value: String((peopleResult.data ?? []).length) },
+          ],
+        }}
+      />
       {((billsResult.data ?? []).length + (mealsResult.data ?? []).length + (foodLogsResult.data ?? []).length) === 0 ? (
         <main className="mx-auto w-[95vw] max-w-[2000px] px-4 py-6 sm:px-6 lg:px-8">
           <PageLandingExperience kind="lifestyle" />

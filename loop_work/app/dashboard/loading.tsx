@@ -1,2 +1,5 @@
-import { DashboardCachedRouteFallback } from "@/components/loading/DashboardCachedRouteFallback";
-export default function DashboardLoading() { return <DashboardCachedRouteFallback />; }
+import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
+
+export default function DashboardLoading() {
+  return <InstantRouteLoading routeKey="dashboard" label="dashboard" />;
+}

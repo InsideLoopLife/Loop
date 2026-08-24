@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 type Props = {
   children: ReactNode;
-  section: "flow" | "income" | "spending";
+  section: "flow" | "income" | "spending" | "savings";
 };
 
 /**
@@ -233,13 +233,37 @@ export function FinancialFlowHouseShell({ children, section }: Props) {
            ========================================================== */
 
         .loop-financial-house-shell[data-flow-section="income"] main,
-        .loop-financial-house-shell[data-flow-section="spending"] main {
+        .loop-financial-house-shell[data-flow-section="spending"] main,
+        .loop-financial-house-shell[data-flow-section="savings"] main {
           background: transparent !important;
         }
 
         .loop-financial-house-shell[data-flow-section="income"] main section,
-        .loop-financial-house-shell[data-flow-section="spending"] main section {
+        .loop-financial-house-shell[data-flow-section="spending"] main section,
+        .loop-financial-house-shell[data-flow-section="savings"] main section {
           scroll-margin-top: 5.5rem;
+        }
+
+        .loop-financial-house-shell[data-flow-section="savings"] main > header {
+          border: 1px solid var(--loop-flow-border) !important;
+          border-radius: 1.35rem !important;
+          background: rgba(255, 255, 255, 0.94) !important;
+          padding: 1.15rem 1.25rem !important;
+          box-shadow: var(--loop-flow-shadow) !important;
+        }
+
+        .loop-financial-house-shell[data-flow-section="savings"] main nav[aria-label="Savings workspace sections"] {
+          display: flex !important;
+          flex-wrap: nowrap !important;
+          gap: 0.5rem !important;
+          overflow-x: auto !important;
+          overscroll-behavior-x: contain;
+          scrollbar-width: thin;
+        }
+
+        .loop-financial-house-shell[data-flow-section="savings"] main nav[aria-label="Savings workspace sections"] a {
+          flex: 0 0 auto;
+          scroll-snap-align: start;
         }
 
         /* Tables stay tables; preserve all columns and functionality. */

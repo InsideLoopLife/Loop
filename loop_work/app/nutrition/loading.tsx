@@ -1,2 +1,5 @@
-import { NutritionCachedRouteFallback } from "@/components/loading/NutritionCachedRouteFallback";
-export default function Loading() { return <NutritionCachedRouteFallback />; }
+import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
+
+export default function NutritionLoading() {
+  return <InstantRouteLoading routeKey="nutrition" label="nutrition" />;
+}

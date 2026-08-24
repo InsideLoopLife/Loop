@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
+import { FinancialFlowWorkspaceNav } from "@/components/financial-flow/FinancialFlowWorkspaceNav";
+import { RouteBootSnapshotPublisher } from "@/components/performance/RouteBootSnapshotPublisher";
 import { PageLandingExperience } from "@/components/landing/PageLandingExperience";
 import { createClient } from "@/lib/supabase/server";
 import { dedupeHouseholdPeople, getActiveHouseholdContext, householdMemberDataOrFilter, householdPeopleOrFilter } from "@/lib/auth/household-context";
@@ -148,6 +150,24 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
   return (
     <>
       <Nav />
+      <FinancialFlowWorkspaceNav section="spending" month={resolvedSearchParams.month} />
+      <RouteBootSnapshotPublisher
+        routeKey="spending"
+        payload={{
+          version: 1,
+          eyebrow: "Financial Flow · Spending",
+          title: "Your spending workspace",
+          headline: `${(plannedItems ?? []).length} planned item${(plannedItems ?? []).length === 1 ? "" : "s"}`,
+          description: "Bills, logged spending and category context are refreshing from the latest household data.",
+          tone: "orange",
+          metrics: [
+            { label: "Logged entries", value: String((entries ?? []).length) },
+            { label: "Categories", value: String((categories ?? []).length) },
+            { label: "Child costs", value: String((childCosts ?? []).length) },
+            { label: "New suggestions", value: String((regularCandidates ?? []).length) },
+          ],
+        }}
+      />
       <main className="mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         {((entries ?? []).length + (plannedItems ?? []).length + (childCosts ?? []).length + (regularCandidates ?? []).length) === 0 ? <PageLandingExperience kind="spending" /> : null}
         <SpendingPlannerClient

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
+import { FinancialFlowWorkspaceNav } from "@/components/financial-flow/FinancialFlowWorkspaceNav";
 import { PageLandingExperience } from "@/components/landing/PageLandingExperience";
 import { createClient } from "@/lib/supabase/server";
 import { IncomeTrackerClient } from "@/components/income/IncomeTrackerClient";
@@ -263,6 +264,7 @@ export default async function IncomePage() {
   return (
     <>
       <Nav />
+      <FinancialFlowWorkspaceNav section="income" />
       {canonicalEntries.length +
         canonicalPayEvents.length +
         canonicalStudentLoans.length ===

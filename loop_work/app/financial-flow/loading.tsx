@@ -1,11 +1,5 @@
-import { Nav } from "@/components/Nav";
-import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
+import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
 
-export default function Loading() {
-  return (
-    <>
-      <Nav />
-      <WealthRouteSkeleton label="financial flow" />
-    </>
-  );
+export default function FinancialFlowLoading() {
+  return <InstantRouteLoading routeKey="financial-flow" label="financial flow" />;
 }

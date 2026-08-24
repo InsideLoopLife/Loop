@@ -1,2 +1,5 @@
-import { RetirementCachedRouteFallback } from "@/components/loading/RetirementCachedRouteFallback";
-export default function Loading() { return <RetirementCachedRouteFallback />; }
+import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
+
+export default function RetirementLoading() {
+  return <InstantRouteLoading routeKey="retirement" label="retirement planning" />;
+}

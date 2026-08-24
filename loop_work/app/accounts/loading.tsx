@@ -1,5 +1,5 @@
-import { LoopWealthRouteLoading } from "@/components/loading/LoopWealthRouteLoading";
+import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
 
-export default function Loading() {
-  return <LoopWealthRouteLoading label="accounts" />;
+export default function AccountsLoading() {
+  return <InstantRouteLoading routeKey="accounts" label="savings and pots" />;
 }

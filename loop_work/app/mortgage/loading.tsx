@@ -1,11 +1,5 @@
-import { Nav } from "@/components/Nav";
-import { HouseCachedRouteFallback } from "@/components/mortgage/HouseCachedRouteFallback";
+import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
 
-export default function Loading() {
-  return (
-    <>
-      <Nav />
-      <HouseCachedRouteFallback />
-    </>
-  );
+export default function MortgageLoading() {
+  return <InstantRouteLoading routeKey="mortgage" label="house" />;
 }

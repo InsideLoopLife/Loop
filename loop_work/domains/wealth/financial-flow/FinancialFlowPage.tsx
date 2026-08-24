@@ -39,6 +39,8 @@ import {
 import { requireWealthPageAccess } from "@/domains/wealth/access";
 import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
+import { FinancialFlowWorkspaceNav } from "@/components/financial-flow/FinancialFlowWorkspaceNav";
+import { RouteBootSnapshotPublisher } from "@/components/performance/RouteBootSnapshotPublisher";
 
 type TabKey = "flow" | "income" | "spending" | "savings";
 type Tone = "orange" | "green" | "blue" | "slate";
@@ -1190,6 +1192,24 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
 
   return (
     <>
+      <FinancialFlowWorkspaceNav section={activeTab} month={month.key} />
+      <RouteBootSnapshotPublisher
+        routeKey="financial-flow"
+        payload={{
+          version: 1,
+          eyebrow: "Financial Flow",
+          title: `${monthLabel(month.key)} household flow`,
+          headline: formatMoney(model.leftoverCash),
+          description: "Available after tracked spending and savings. Fresh month detail is loading now.",
+          tone: model.leftoverCash >= 0 ? "green" : "orange",
+          metrics: [
+            { label: "Income", value: formatMoney(model.totalIncome) },
+            { label: "Spending", value: formatMoney(model.committedSpending) },
+            { label: "Savings", value: formatMoney(model.savingsTotal) },
+            { label: "Savings rate", value: `${Math.round(savingsRate)}%` },
+          ],
+        }}
+      />
       <main className="mx-auto w-[95vw] max-w-none space-y-6 px-4 py-6 md:px-8">
         {activeTab === "flow" ? <section className="relative overflow-hidden rounded-[2.5rem] border border-white/70 bg-slate-950 p-7 text-white shadow-[0_36px_120px_-70px_rgba(15,23,42,.95)] md:p-9">
           <div className="absolute -right-28 -top-28 h-96 w-96 rounded-full bg-emerald-500/30 blur-3xl" />
@@ -1213,14 +1233,6 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
         )}
 
         {!hasFlowData ? <PageLandingExperience kind="financial-flow" /> : null}
-
-        <nav className="grid overflow-hidden rounded-full border border-slate-200 bg-white/90 p-1 shadow-sm backdrop-blur md:grid-cols-4" aria-label="Financial Flow sections">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.key;
-            return <Link key={tab.key} href={queryHref(tab.key, month.key, scopeIds)} className={`flex items-center justify-center gap-3 rounded-full px-5 py-4 text-sm font-black transition ${active ? "bg-white text-slate-950 shadow-md ring-1 ring-slate-100" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"}`}><Icon className="h-5 w-5" /> {tab.label}{active ? <span className="ml-2 h-1.5 w-12 rounded-full bg-gradient-to-r from-cyan-400 via-emerald-400 to-orange-400" /> : null}</Link>;
-          })}
-        </nav>
 
         <ScopeSelector people={people} activeTab={activeTab} month={month.key} scopeIds={scopeIds} />
 

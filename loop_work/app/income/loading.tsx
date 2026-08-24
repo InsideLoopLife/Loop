@@ -1,2 +1,5 @@
-import { IncomeCachedRouteFallback } from "@/components/loading/IncomeCachedRouteFallback";
-export default function Loading() { return <IncomeCachedRouteFallback />; }
+import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
+
+export default function IncomeLoading() {
+  return <InstantRouteLoading routeKey="income" label="income" />;
+}
