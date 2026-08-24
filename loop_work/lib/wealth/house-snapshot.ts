@@ -92,112 +92,181 @@ export function buildHouseAffordabilityScore(input: {
   const income = Math.max(0, Number(input.monthPlan.income || 0));
   const outgoings = Math.max(0, Number(input.monthPlan.outgoings || 0));
   const surplus = income - outgoings;
-  const paymentRatio = income > 0 ? input.mortgagePayment / income : 1;
+  const mortgagePayment = Math.max(0, Number(input.mortgagePayment || 0));
+
+  const paymentRatio = income > 0 ? mortgagePayment / income : 1;
   const outgoingRatio = income > 0 ? outgoings / income : 1;
-  const ltv = input.propertyValue > 0 ? input.mortgageBalance / input.propertyValue : 1;
+  const ltv =
+    input.propertyValue > 0
+      ? Math.max(0, Number(input.mortgageBalance || 0)) / input.propertyValue
+      : 1;
 
   const incomes = input.monthPlan.incomeItems.filter(
     (item) =>
       Number(item.value || 0) > 100 &&
       !/dividend|side income|interest/i.test(item.label),
   );
+
   const incomeCount = new Set(
-    incomes.map((item) => item.personId || item.label.split(" · ")[0] || item.label),
+    incomes.map(
+      (item) => item.personId || item.label.split(" · ")[0] || item.label,
+    ),
   ).size;
-  const dual = incomeCount >= 2;
+
+  const multiIncome = incomeCount >= 2;
+
+  const childMonthly = input.monthPlan.outgoingItems
+    .filter((item) =>
+      /child|nursery|childcare|wraparound|school|after school|breakfast club/i.test(
+        String(item.label || ""),
+      ),
+    )
+    .reduce((sum, item) => sum + Math.max(0, Number(item.value || 0)), 0);
+
+  const debtMonthly = input.monthPlan.outgoingItems
+    .filter((item) =>
+      /loan|credit|debt|finance|hp\b|hire purchase|student loan/i.test(
+        String(item.label || ""),
+      ),
+    )
+    .reduce((sum, item) => sum + Math.max(0, Number(item.value || 0)), 0);
+
+  const committedExMortgage = Math.max(0, outgoings - mortgagePayment);
+  const committedHouseholdLoad =
+    income > 0 ? (mortgagePayment + committedExMortgage) / income : 1;
+
   const bufferMonths =
     Number(input.emergencySavings || 0) > 0 && outgoings > 0
       ? Number(input.emergencySavings || 0) / outgoings
       : surplus > 0 && outgoings > 0
         ? (surplus * 3) / outgoings
         : 0;
-  const maintenance = input.propertyValue > 0 ? (input.propertyValue * 0.01) / 12 : 0;
+
+  const stressPayment =
+    Number(input.mortgageBalance || 0) > 0
+      ? calculateMonthlyMortgagePayment({
+          balance: Number(input.mortgageBalance || 0),
+          annualInterestRate: 6.5,
+          termYears: 25,
+        })
+      : 0;
+
+  const stressRatio = income > 0 ? stressPayment / income : 1;
+  const stressResidual = income - committedExMortgage - stressPayment;
+
+  const householdPressure =
+    childMonthly > 0 || debtMonthly > 0
+      ? "This household has additional child/debt commitments, so LOOP places more weight on residual cash and stress resilience."
+      : "No large child/debt commitment was detected in the current month plan.";
+
+  function band(
+    value: number,
+    strong: number,
+    watch: number,
+    maxPoints: number,
+  ) {
+    if (value <= strong) return maxPoints;
+    if (value <= watch) return Math.round(maxPoints * 0.6);
+    return 0;
+  }
+
+  const residualFloor =
+    650 +
+    (multiIncome ? 350 : 150) +
+    Math.min(900, childMonthly * 0.35) +
+    Math.min(600, debtMonthly * 0.25);
 
   const criteria: HouseAffordabilityCriterion[] = [
     {
-      label: "Housing cost vs net income",
-      max: 25,
-      points: points(paymentRatio, dual ? 0.28 : 0.25, dual ? 0.38 : 0.35, 25),
-      reason: `${(paymentRatio * 100).toFixed(1)}% of tracked net income.`,
+      label: "Mortgage share of net income",
+      max: 20,
+      points: band(paymentRatio, multiIncome ? 0.30 : 0.28, multiIncome ? 0.40 : 0.38, 20),
+      reason: `${(paymentRatio * 100).toFixed(1)}% of tracked net household income.`,
       explanation:
-        "Your monthly mortgage payment as a share of tracked household net income. Lower means the mortgage consumes less of the household's usable monthly cash.",
-      scoring: dual
-        ? "Full points at 28% or less, partial points up to 38%, then zero. LOOP allows a little more headroom for households with more than one meaningful income."
-        : "Full points at 25% or less, partial points up to 35%, then zero.",
+        "This shows how much usable household income goes to the mortgage itself. LOOP treats this as a resilience measure, not an average-household benchmark: a higher percentage can still be workable when residual income and other commitments remain strong.",
+      scoring:
+        multiIncome
+          ? "Planning resilience band: strong at 30% or below, watch from 30–40%, pressured above 40%. These are LOOP planning bands, not a claim about what a normal household spends."
+          : "Planning resilience band: strong at 28% or below, watch from 28–38%, pressured above 38%. These are LOOP planning bands, not a claim about what a normal household spends.",
       improve:
-        "A lower mortgage payment, a smaller balance, a lower interest rate, or higher sustainable household income improves this measure.",
+        "A lower payment, lower rate, smaller mortgage, or higher sustainable household income improves this measure.",
     },
     {
-      label: "Total outgoing load",
+      label: "Whole-household committed load",
       max: 20,
-      points: points(outgoingRatio, 0.35, 0.45, 20),
-      reason: `${(outgoingRatio * 100).toFixed(1)}% of tracked net income.`,
+      points: band(committedHouseholdLoad, 0.55, 0.72, 20),
+      reason: `${(committedHouseholdLoad * 100).toFixed(1)}% of net income is currently tracked as outgoings.`,
       explanation:
-        "All tracked monthly outgoings as a share of household net income. This is broader than the mortgage and shows how much of monthly income is already committed.",
+        `This looks beyond the mortgage and asks how much household income is already committed across the month. ${householdPressure}`,
       scoring:
-        "Full points at 35% or less, partial points up to 45%, then zero. A zero here does not mean the household is insolvent; it means the committed-spend ratio is above LOOP's resilience threshold.",
+        "Strong at 55% or below, watch from 55–72%, pressured above 72%. The purpose is to judge remaining flexibility, not compare the household with a national average.",
       improve:
-        "Reduce recurring commitments, refinance expensive debt, remove duplicate spending records, or increase sustainable household income.",
+        "Reduce recurring commitments or expensive debt, remove duplicate spending records, or increase sustainable household income.",
+    },
+    {
+      label: "Rate stress resilience",
+      max: 20,
+      points:
+        stressRatio <= 0.35 && stressResidual >= residualFloor
+          ? 20
+          : stressRatio <= 0.45 && stressResidual >= residualFloor * 0.6
+            ? 12
+            : 0,
+      reason: `At a 6.5% planning stress, the modelled payment is ${formatMoney(stressPayment)}/mo and leaves ${formatMoney(stressResidual)} after other tracked outgoings.`,
+      explanation:
+        "This asks whether the household still has room if mortgage costs rise materially. It uses a conservative planning stress rather than assuming today's rate lasts forever.",
+      scoring:
+        `Strong when the stressed mortgage remains at or below 35% of net income and leaves at least ${formatMoney(residualFloor)} monthly residual cash; watch up to 45% with a reduced residual buffer. This is a LOOP planning test, not a lender affordability decision.`,
+      improve:
+        "Lower the mortgage balance, extend the term where appropriate, improve the rate, increase sustainable income, or build more monthly headroom before taking on a larger mortgage.",
     },
     {
       label: "Loan-to-value",
       max: 15,
-      points: ltv < 0.8 ? 15 : ltv <= 0.9 ? 8 : 0,
+      points: ltv < 0.8 ? 15 : ltv <= 0.9 ? 9 : 0,
       reason: `${(ltv * 100).toFixed(1)}% LTV.`,
       explanation:
-        "Mortgage balance divided by the current property value. Lower LTV generally means more equity and a larger buffer against property-price falls.",
+        "Mortgage balance divided by current property value. Lower LTV generally means more equity, a larger property-price buffer and access to more competitive mortgage bands.",
       scoring:
-        "Full points below 80% LTV, partial points from 80% to 90%, then zero above 90%.",
+        "Strong below 80% LTV, watch from 80–90%, pressured above 90%. LOOP only uses evidenced property values.",
       improve:
-        "Mortgage repayments, overpayments, or a higher evidenced property valuation can lower LTV. LOOP should never assume a higher property value without evidence.",
+        "Repayments, overpayments or additional deposit/equity can lower LTV. Property valuations should only move when there is evidence.",
     },
     {
-      label: "Cash buffer",
+      label: "Accessible cash buffer",
       max: 15,
       points:
-        bufferMonths >= (dual ? 3 : 6)
+        bufferMonths >= (multiIncome ? 3 : 6)
           ? 15
-          : bufferMonths >= (dual ? 1.5 : 3)
-            ? 8
+          : bufferMonths >= (multiIncome ? 1.5 : 3)
+            ? 9
             : 0,
       reason: `${bufferMonths.toFixed(1)} months of tracked outgoings.`,
       explanation:
-        "How long accessible cash savings could cover the household's tracked monthly outgoings if income stopped or fell sharply.",
-      scoring: dual
-        ? "For a multi-income household, full points at 3+ months and partial points at 1.5+ months."
-        : "For a single-income household, full points at 6+ months and partial points at 3+ months.",
-      improve:
-        "Build accessible emergency savings, reduce unavoidable monthly commitments, and make sure LOOP is not counting locked investments or pension assets as emergency cash.",
-    },
-    {
-      label: "Maintenance runway",
-      max: 10,
-      points: surplus >= maintenance ? 10 : surplus >= maintenance / 2 ? 5 : 0,
-      reason: `${formatMoney(surplus)} surplus vs ${formatMoney(maintenance)} monthly maintenance guide.`,
-      explanation:
-        "Whether the household's monthly surplus leaves room for normal home maintenance rather than requiring every unexpected repair to come from debt or savings.",
+        "How long accessible emergency savings could cover the household's tracked monthly outgoings if income stopped or fell sharply.",
       scoring:
-        "LOOP currently uses 1% of property value per year, divided monthly, as a simple maintenance guide. Full points when monthly surplus meets or exceeds that guide.",
+        multiIncome
+          ? "Strong at 3+ months and watch at 1.5–3 months for a multi-income household."
+          : "Strong at 6+ months and watch at 3–6 months for a single-income household.",
       improve:
-        "Increase monthly surplus, maintain a dedicated home-repair pot, or lower recurring commitments. The 1% guide is a planning assumption rather than a prediction of actual repairs.",
+        "Build accessible emergency savings and make sure LOOP is not treating locked investments or pension assets as emergency cash.",
     },
     {
-      label: "Residual monthly income",
-      max: 15,
+      label: "Residual household headroom",
+      max: 10,
       points:
-        surplus >= (dual ? 1500 : 900)
-          ? 15
-          : surplus >= (dual ? 750 : 350)
-            ? 8
+        surplus >= residualFloor
+          ? 10
+          : surplus >= residualFloor * 0.6
+            ? 6
             : 0,
-      reason: `${formatMoney(surplus)} after tracked outgoings.`,
+      reason: `${formatMoney(surplus)} remains after tracked outgoings; LOOP's current household-aware planning floor is ${formatMoney(residualFloor)}.`,
       explanation:
-        "The monthly amount left after tracked outgoings. This is the household's room for saving, investing, overpayments, irregular costs and unexpected changes.",
-      scoring: dual
-        ? "For multi-income households, full points at £1,500+ residual monthly income and partial points at £750+."
-        : "For single-income households, full points at £900+ residual monthly income and partial points at £350+.",
+        "Residual cash pays for irregular costs, savings, repairs and surprises. LOOP scales this planning floor when it detects multiple incomes, childcare or debt rather than applying one fixed cash target to every household.",
+      scoring:
+        `Strong when monthly residual income is at least ${formatMoney(residualFloor)}, watch at 60–100% of that amount, pressured below it.`,
       improve:
-        "Increase sustainable income or reduce recurring outgoings. Temporary pay reductions should be shown separately from the household's normal underlying position.",
+        "Increase sustainable income, reduce fixed/debt commitments or childcare pressure where practical, and make sure all recurring spending is classified correctly.",
     },
   ];
 

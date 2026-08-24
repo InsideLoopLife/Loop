@@ -293,38 +293,40 @@ export default async function InvestmentsPage() {
     supabase.from("integration_connections").select("status, external_connection_id, last_synced_at, updated_at").eq("user_id", user.id).eq("provider", "SnapTrade").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
 
-  // Pull the newest price snapshots first, then sort them oldest-to-newest for charting.
-  // The previous query ordered ASC with a small limit, so once a user had many old rows
-  // the live chart could miss all recent points and render as empty on Render/local builds.
-  const { data: investmentSnapshotsLatest } = await supabase
-    .from("investment_price_snapshots")
-    .select("id, holding_id, snapshot_at, snapshot_date, price, units, value, source")
-    .eq("user_id", dataOwnerUserId)
-    .order("snapshot_at", { ascending: false })
-    .limit(2500)
-    .returns<InvestmentSnapshot[]>();
+  // Chart history, instrument-resolution state and the market ticker are independent.
+  // Run them together so Investments avoids three extra server-latency steps.
+  const popularSymbols = ["SPY", "QQQ", "AAPL", "NVDA", "MSFT", "AMZN", "META", "VUSA"];
 
+  const [
+    { data: investmentSnapshotsLatest },
+    { data: investmentCoveragePlaceholdersData },
+    popularMarketRows,
+  ] = await Promise.all([
+    supabase
+      .from("investment_price_snapshots")
+      .select("id, holding_id, snapshot_at, snapshot_date, price, units, value, source")
+      .eq("user_id", dataOwnerUserId)
+      .order("snapshot_at", { ascending: false })
+      .limit(2500)
+      .returns<InvestmentSnapshot[]>(),
+    supabase
+      .from("investment_instrument_coverage_placeholders")
+      .select("id, investment_account_id, request_id, query, exchange_hint, status, eta_text, progress, resolved_ticker, resolved_exchange, resolved_asset_name, created_at, updated_at")
+      .eq("user_id", dataOwnerUserId)
+      .neq("status", "archived")
+      .order("created_at", { ascending: false })
+      .limit(100)
+      .returns<InvestmentCoveragePlaceholder[]>(),
+    getLatestInstrumentPrices(supabase, popularSymbols, 120),
+  ]);
+
+  // Query newest snapshots, but keep chart input oldest-to-newest.
   const investmentSnapshotsData = (investmentSnapshotsLatest ?? []).slice().sort((a, b) => {
     const left = String(a.snapshot_at || a.snapshot_date || "");
     const right = String(b.snapshot_at || b.snapshot_date || "");
     return left.localeCompare(right);
   });
 
-  const { data: investmentCoveragePlaceholdersData } = await supabase
-    .from("investment_instrument_coverage_placeholders")
-    .select("id, investment_account_id, request_id, query, exchange_hint, status, eta_text, progress, resolved_ticker, resolved_exchange, resolved_asset_name, created_at, updated_at")
-    .eq("user_id", dataOwnerUserId)
-    .neq("status", "archived")
-    .order("created_at", { ascending: false })
-    .limit(100)
-    .returns<InvestmentCoveragePlaceholder[]>();
-
-  const popularSymbols = ["SPY", "QQQ", "AAPL", "NVDA", "MSFT", "AMZN", "META", "VUSA"];
-  const popularMarketRows = await getLatestInstrumentPrices(
-    supabase,
-    popularSymbols,
-    120,
-  );
   const latestPopularMarketTicks = latestPricePerTicker(
     popularMarketRows,
   ) as PopularMarketTick[];

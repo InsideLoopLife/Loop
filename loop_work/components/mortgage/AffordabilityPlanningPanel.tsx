@@ -65,6 +65,80 @@ export function AffordabilityPlanningPanel({
 
   const endLabel = readableDate(temporaryIncomeContext?.endDate ?? null);
 
+  const buyingPower = useMemo(() => {
+    const grossIncome =
+      incomeBasis === "current"
+        ? Number(currentGrossHouseholdIncome || 0)
+        : Number(normalGrossHouseholdIncome || 0);
+    const netIncome =
+      incomeBasis === "current"
+        ? Number(currentMonthlyNetIncome || 0)
+        : Number(normalMonthlyNetIncome || 0);
+
+    const safeTermYears = Math.max(5, Math.min(40, Number(termYears || 25)));
+    const stressRate = 6.5;
+    const monthlyStressRate = stressRate / 100 / 12;
+    const periods = Math.max(1, Math.round(safeTermYears * 12));
+
+    const incomeMultipleMortgage = Math.max(0, grossIncome * 4.5);
+    const currentEquity = Math.max(0, propertyValue - mortgageBalance);
+    const essentialKnown = Math.max(0, fixedExMortgage) + Math.max(0, childMonthly);
+
+    const residualFloor =
+      Math.max(900, netIncome * 0.20) +
+      Math.min(700, Math.max(0, childMonthly) * 0.25);
+
+    const sharePaymentCapacity = Math.max(0, netIncome * 0.35);
+    const residualPaymentCapacity = Math.max(
+      0,
+      netIncome - essentialKnown - residualFloor,
+    );
+    const stressedPaymentCapacity = Math.min(
+      sharePaymentCapacity,
+      residualPaymentCapacity,
+    );
+
+    const cashflowMortgage =
+      monthlyStressRate > 0
+        ? stressedPaymentCapacity *
+          ((1 - Math.pow(1 + monthlyStressRate, -periods)) / monthlyStressRate)
+        : stressedPaymentCapacity * periods;
+
+    const maxMortgage = Math.max(
+      0,
+      Math.min(incomeMultipleMortgage, cashflowMortgage),
+    );
+
+    const indicativePurchasePrice = Math.max(0, maxMortgage + currentEquity);
+
+    const limitingFactor =
+      incomeMultipleMortgage <= cashflowMortgage
+        ? "Income multiple"
+        : "Household cash-flow stress test";
+
+    return {
+      stressRate,
+      incomeMultipleMortgage,
+      cashflowMortgage,
+      maxMortgage,
+      currentEquity,
+      indicativePurchasePrice,
+      residualFloor,
+      limitingFactor,
+    };
+  }, [
+    childMonthly,
+    currentGrossHouseholdIncome,
+    currentMonthlyNetIncome,
+    fixedExMortgage,
+    incomeBasis,
+    mortgageBalance,
+    normalGrossHouseholdIncome,
+    normalMonthlyNetIncome,
+    propertyValue,
+    termYears,
+  ]);
+
   const criteria = useMemo(
     () =>
       currentScore.criteria.map((current) => ({
@@ -102,6 +176,73 @@ export function AffordabilityPlanningPanel({
           </p>
         </section>
       ) : null}
+
+      <section className="rounded-2xl border border-violet-100 bg-gradient-to-br from-white via-white to-violet-50/60 p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-violet-700">
+              Indicative buying range
+            </p>
+            <div className="mt-2 flex flex-wrap items-end gap-x-5 gap-y-2">
+              <div>
+                <p className="text-xs font-semibold text-slate-400">Max mortgage</p>
+                <p className="text-3xl font-bold tracking-tight text-slate-950">
+                  {formatMoney(buyingPower.maxMortgage)}
+                </p>
+              </div>
+              <div className="pb-1 text-xl font-semibold text-slate-300">+</div>
+              <div>
+                <p className="text-xs font-semibold text-slate-400">Current equity</p>
+                <p className="text-xl font-bold text-slate-700">
+                  {formatMoney(buyingPower.currentEquity)}
+                </p>
+              </div>
+              <div className="pb-1 text-xl font-semibold text-slate-300">=</div>
+              <div>
+                <p className="text-xs font-semibold text-slate-400">
+                  Indicative property price
+                </p>
+                <p className="text-3xl font-bold tracking-tight text-violet-700">
+                  {formatMoney(buyingPower.indicativePurchasePrice)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <details className="group min-w-0 rounded-xl border border-violet-100 bg-white/80 lg:w-[360px]">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-bold text-violet-700">
+              <span>See how LOOP calculated this</span>
+              <span className="transition group-open:rotate-180">⌄</span>
+            </summary>
+            <div className="space-y-2 border-t border-violet-100 px-4 py-3 text-[11px] leading-5 text-slate-600">
+              <p>
+                <strong>Income ceiling:</strong>{" "}
+                {formatMoney(buyingPower.incomeMultipleMortgage)} at 4.5× sustainable
+                household gross income.
+              </p>
+              <p>
+                <strong>Cash-flow ceiling:</strong>{" "}
+                {formatMoney(buyingPower.cashflowMortgage)} using a{" "}
+                {buyingPower.stressRate.toFixed(1)}% planning stress and the current
+                mortgage term.
+              </p>
+              <p>
+                <strong>Limiting factor:</strong> {buyingPower.limitingFactor}.
+              </p>
+              <p>
+                LOOP keeps at least {formatMoney(buyingPower.residualFloor)} monthly
+                residual headroom and caps stressed mortgage payments at 35% of
+                tracked net household income.
+              </p>
+              <p className="text-slate-400">
+                Planning estimate only, not a lender decision. Credit history,
+                lender criteria, age, property type, fees and other underwriting can
+                change the amount available.
+              </p>
+            </div>
+          </details>
+        </div>
+      </section>
 
       <section className={`grid gap-4 ${hasTemporaryIncome ? "md:grid-cols-2" : ""}`}>
         <div className={`rounded-2xl p-5 ring-1 ${currentScore.tone}`}>
@@ -180,7 +321,7 @@ export function AffordabilityPlanningPanel({
                 </div>
                 <div>
                   <p className="text-[10px] font-bold uppercase text-slate-400">
-                    How LOOP scores it
+                    LOOP resilience band
                   </p>
                   <p className="mt-1 text-xs leading-5 text-slate-600">
                     {current.scoring}

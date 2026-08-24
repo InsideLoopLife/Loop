@@ -75,6 +75,9 @@ async function MortgageContent() {
     { data: moveQueries },
     { data: boeBenchmarks },
     { data: svrKnowledge },
+    { data: liabilityAllocations },
+    { data: dealPreferences },
+    { data: workspacePreference },
   ] = await Promise.all([
     supabase
       .from("mortgage_scenarios")
@@ -219,13 +222,6 @@ async function MortgageContent() {
       .from("lender_svr_knowledge")
       .select("lender_name, recorded_svr_percent, current_bank_rate, tracks_bank_rate, implied_current_svr_percent, recorded_spread_percent")
       .returns<LenderSvrKnowledge[]>(),
-  ]);
-
-  const [
-    { data: liabilityAllocations },
-    { data: dealPreferences },
-    { data: workspacePreference },
-  ] = await Promise.all([
     supabase
       .from("mortgage_liability_allocation_effective")
       .select("id, home_mortgage_deal_id, person_id, liability_percent, source")

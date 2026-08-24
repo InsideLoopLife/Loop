@@ -1,16 +1,39 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { ModalFrame } from "@/components/ui/ModalFrame";
 import { HomeWizard } from "@/components/mortgage/HomeWizard";
 import { MortgageWizard } from "@/components/mortgage/MortgageWizard";
 import { ValuationWizard } from "@/components/mortgage/ValuationWizard";
 import { MoveQueryWizard } from "@/components/mortgage/MoveQueryWizard";
-import { HouseWorkspaceOverview } from "@/components/mortgage/HouseWorkspaceOverview";
-import { MortgageOverpaymentPlanner } from "@/components/mortgage/MortgageOverpaymentPlanner";
-import { AffordabilityPlanningPanel } from "@/components/mortgage/AffordabilityPlanningPanel";
 import { formatMoney } from "@/lib/format/money";
+
+function DeferredHousePanel({ label }: { label: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="h-3 w-28 animate-pulse rounded-full bg-slate-100" />
+      <div className="mt-4 h-8 w-56 animate-pulse rounded-xl bg-slate-100" />
+      <p className="mt-3 text-xs font-semibold text-slate-400">{label}</p>
+    </div>
+  );
+}
+
+const HouseWorkspaceOverview = dynamic(
+  () => import("@/components/mortgage/HouseWorkspaceOverview").then((m) => m.HouseWorkspaceOverview),
+  { loading: () => <DeferredHousePanel label="Loading mortgage comparisons…" /> },
+);
+
+const AffordabilityPlanningPanel = dynamic(
+  () => import("@/components/mortgage/AffordabilityPlanningPanel").then((m) => m.AffordabilityPlanningPanel),
+  { loading: () => <DeferredHousePanel label="Analysing household affordability…" /> },
+);
+
+const MortgageOverpaymentPlanner = dynamic(
+  () => import("@/components/mortgage/MortgageOverpaymentPlanner").then((m) => m.MortgageOverpaymentPlanner),
+  { loading: () => <DeferredHousePanel label="Preparing overpayment scenarios…" /> },
+);
 import { writeHouseRouteCache } from "@/lib/client/house-route-cache";
 import type {
   MonthPlan,
@@ -151,11 +174,48 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
     TABS.some(([id]) => id === requested) ? requested : "overview",
   );
   const [modal, setModal] = useState<ModalState>(null);
+  const [showMaps, setShowMaps] = useState(false);
+
+  useEffect(() => {
+    const win = window as Window & {
+      requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    let timer: number | null = null;
+    let idle: number | null = null;
+    const reveal = () => setShowMaps(true);
+    if (win.requestIdleCallback) idle = win.requestIdleCallback(reveal, { timeout: 900 });
+    else timer = window.setTimeout(reveal, 350);
+    return () => {
+      if (idle !== null && win.cancelIdleCallback) win.cancelIdleCallback(idle);
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (props.cacheMode === "stale") return;
     writeHouseRouteCache(props);
   }, [props]);
+
+  useEffect(() => {
+    const win = window as Window & {
+      requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    let timer: number | null = null;
+    let idle: number | null = null;
+    const warmTabs = () => {
+      void import("@/components/mortgage/HouseWorkspaceOverview");
+      void import("@/components/mortgage/AffordabilityPlanningPanel");
+      void import("@/components/mortgage/MortgageOverpaymentPlanner");
+    };
+    if (win.requestIdleCallback) idle = win.requestIdleCallback(warmTabs, { timeout: 1800 });
+    else timer = window.setTimeout(warmTabs, 1200);
+    return () => {
+      if (idle !== null && win.cancelIdleCallback) win.cancelIdleCallback(idle);
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, []);
 
   const home = props.homes.find((h) => h.ownership_status === "current_home") ?? props.homes[0];
   const deal = props.deals.find((d) => d.home_id === home?.id) ?? props.deals[0];
@@ -300,7 +360,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
               <section className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm">
                 <div className="grid lg:grid-cols-[1.15fr_.85fr]">
                   <div className="relative min-h-[280px] overflow-hidden bg-slate-100 sm:min-h-[360px] lg:min-h-[470px]">
-                    {home?.latitude && home?.longitude ? <iframe title={`${home.label} map`} src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(home.longitude)-0.006}%2C${Number(home.latitude)-0.006}%2C${Number(home.longitude)+0.006}%2C${Number(home.latitude)+0.006}&layer=mapnik&marker=${home.latitude}%2C${home.longitude}`} className="absolute inset-0 h-full w-full border-0" loading="lazy"/> : null}
+                    {showMaps && home?.latitude && home?.longitude ? <iframe title={`${home.label} map`} src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(home.longitude)-0.006}%2C${Number(home.latitude)-0.006}%2C${Number(home.longitude)+0.006}%2C${Number(home.latitude)+0.006}&layer=mapnik&marker=${home.latitude}%2C${home.longitude}`} className="absolute inset-0 h-full w-full border-0" loading="lazy"/> : null}
                     <button onClick={() => choose("affordability")} className={`absolute right-4 top-4 rounded-2xl p-4 text-left shadow-lg ring-1 transition hover:scale-[1.02] ${currentAffordability.tone}`}><p className="text-[10px] font-bold uppercase">Affordability</p><p className="text-3xl font-bold">{currentAffordability.score}/100</p><p className="text-[11px] font-semibold">{currentAffordability.label}{hasTemporaryIncome ? ` · normal ${normalAffordability.score}/100` : ""} · Open →</p></button>
                     <div className="absolute inset-x-4 bottom-4 grid gap-2 sm:grid-cols-3"><div className="rounded-xl bg-white/95 p-3 shadow-lg"><p className="text-[10px] font-bold uppercase text-slate-400">Current home</p><p className="font-bold">{home?.label || "Home"}</p></div><div className="rounded-xl bg-white/95 p-3 shadow-lg"><p className="text-[10px] font-bold uppercase text-slate-400">Valuation range</p><p className="font-bold">{formatMoney(value.low)} – {formatMoney(value.high)}</p></div><div className="rounded-xl bg-white/95 p-3 shadow-lg"><p className="text-[10px] font-bold uppercase text-slate-400">Mortgage</p><p className="font-bold">{formatMoney(mortgage.balance)}</p><p className="text-[10px] text-slate-500">{ltv.toFixed(1)}% LTV · {formatMoney(mortgage.payment)}/mo</p></div></div>
                   </div>
@@ -311,7 +371,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
           ) : null}
 
           {tab === "property" ? (
-            <div className="mx-auto max-w-none space-y-5"><section className="grid gap-4 lg:grid-cols-[1fr_.8fr]"><div className="relative min-h-[420px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">{home?.latitude && home?.longitude ? <iframe title="Property map" src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(home.longitude)-0.006}%2C${Number(home.latitude)-0.006}%2C${Number(home.longitude)+0.006}%2C${Number(home.latitude)+0.006}&layer=mapnik&marker=${home.latitude}%2C${home.longitude}`} className="absolute inset-0 h-full w-full border-0"/> : null}</div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-xl font-bold">{home?.label}</h2><p className="mt-1 text-sm text-slate-500">{home?.full_address}</p><dl className="mt-5 space-y-3">{[["Purchase",formatMoney(Number(home?.purchase_price || 0))],["Value",formatMoney(value.mid)],["Valuation range",`${formatMoney(value.low)} – ${formatMoney(value.high)}`],["Equity",formatMoney(equity)],["UPRN",home?.uprn || "—"]].map(([l,v]) => <div key={l} className="flex justify-between gap-4 border-b border-slate-100 pb-3"><dt className="text-sm text-slate-500">{l}</dt><dd className="text-sm font-bold">{v}</dd></div>)}</dl></div></section><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">Valuation sources</h2><button onClick={() => setModal({ type: "add_valuation", homeId: home?.id })} className="text-xs font-bold text-violet-700">+ Add valuation</button></div><div className="mt-4 space-y-2">{props.valuations.filter(v => v.home_id === home?.id).map(v => <button key={v.id} onClick={() => setModal({ type: "edit_valuation", valuation: v })} className="flex w-full items-center justify-between rounded-xl bg-slate-50 p-3 text-left"><span><span className="block text-sm font-bold">{v.source_name}</span><span className="text-xs text-slate-500">{v.valuation_date}</span></span><span className="font-bold">{formatMoney(Number(v.valuation_mid ?? v.valuation_amount ?? 0))}</span></button>)}</div></section></div>
+            <div className="mx-auto max-w-none space-y-5"><section className="grid gap-4 lg:grid-cols-[1fr_.8fr]"><div className="relative min-h-[420px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">{showMaps && home?.latitude && home?.longitude ? <iframe title="Property map" src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(home.longitude)-0.006}%2C${Number(home.latitude)-0.006}%2C${Number(home.longitude)+0.006}%2C${Number(home.latitude)+0.006}&layer=mapnik&marker=${home.latitude}%2C${home.longitude}`} className="absolute inset-0 h-full w-full border-0"/> : null}</div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-xl font-bold">{home?.label}</h2><p className="mt-1 text-sm text-slate-500">{home?.full_address}</p><dl className="mt-5 space-y-3">{[["Purchase",formatMoney(Number(home?.purchase_price || 0))],["Value",formatMoney(value.mid)],["Valuation range",`${formatMoney(value.low)} – ${formatMoney(value.high)}`],["Equity",formatMoney(equity)],["UPRN",home?.uprn || "—"]].map(([l,v]) => <div key={l} className="flex justify-between gap-4 border-b border-slate-100 pb-3"><dt className="text-sm text-slate-500">{l}</dt><dd className="text-sm font-bold">{v}</dd></div>)}</dl></div></section><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">Valuation sources</h2><button onClick={() => setModal({ type: "add_valuation", homeId: home?.id })} className="text-xs font-bold text-violet-700">+ Add valuation</button></div><div className="mt-4 space-y-2">{props.valuations.filter(v => v.home_id === home?.id).map(v => <button key={v.id} onClick={() => setModal({ type: "edit_valuation", valuation: v })} className="flex w-full items-center justify-between rounded-xl bg-slate-50 p-3 text-left"><span><span className="block text-sm font-bold">{v.source_name}</span><span className="text-xs text-slate-500">{v.valuation_date}</span></span><span className="font-bold">{formatMoney(Number(v.valuation_mid ?? v.valuation_amount ?? 0))}</span></button>)}</div></section></div>
           ) : null}
 
           {tab === "rates" ? <div className="mx-auto max-w-none"><HouseWorkspaceOverview homes={props.homes} deals={props.deals} valuations={props.valuations} renewalRecommendations={props.renewalRecommendations} marketDeals={props.marketDeals} moveQueries={props.moveQueries} boeBenchmarks={props.boeBenchmarks}/></div> : null}
