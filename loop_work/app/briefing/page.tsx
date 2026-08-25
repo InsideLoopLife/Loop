@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { Nav } from "@/components/Nav";
 import { createClient } from "@/lib/supabase/server";
 import { buildFinancialBriefing } from "@/lib/briefing/build-financial-briefing";
 import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
@@ -20,11 +19,8 @@ export default async function BriefingPage() {
   const briefing = await buildFinancialBriefing(supabase, user, visibleDataOrFilter(context));
 
   return (
-    <>
-      <Nav />
-      <main className="mx-auto w-[95vw] max-w-[1900px] py-7">
-        <BriefingStory initial={briefing} />
-      </main>
-    </>
+    <main className="mx-auto w-[95vw] max-w-[1900px] py-7">
+      <BriefingStory initial={briefing} />
+    </main>
   );
 }
