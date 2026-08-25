@@ -246,6 +246,7 @@ type Props = {
   householdPets?: HouseholdPet[];
   homeProfile?: HomeProfile | null;
   categoryGroups?: { id: string; name: string; icon?: string | null }[];
+  initialAddMode?: AddMode;
 };
 
 type AddMode = "monthly" | "one_off" | "child_cost" | "category" | "bank_import";
@@ -1327,13 +1328,13 @@ function duplicateLabelsMatch(left: string, right: string) {
   return a.includes(b) || b.includes(a);
 }
 
-export function SpendingPlannerClient({ people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [] }: Props) {
+export function SpendingPlannerClient({ people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], initialAddMode }: Props) {
   const initialMonthValue = initialMonth && /^\d{4}-\d{2}$/.test(initialMonth) ? initialMonth : currentMonth();
   const [selectedPersonId, setSelectedPersonId] = useState(initialPersonId || "");
   const [directionFilter, setDirectionFilter] = useState<"all" | "income" | "outgoing">(initialDirectionFilter);
   const [year, setYear] = useState(Number(initialMonthValue.slice(0, 4)));
   const [selectedMonth, setSelectedMonth] = useState(initialMonthValue);
-  const [modal, setModal] = useState<ModalState>(null);
+  const [modal, setModal] = useState<ModalState>(initialAddMode ? { type: "add", mode: initialAddMode } : null);
   const [editingEnabled, setEditingEnabled] = useState(false);
   const [selectedLineIds, setSelectedLineIds] = useState<string[]>([]);
   const personDisplayMode = flowSettings?.personDisplayMode ?? "both";
@@ -1617,32 +1618,25 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
         <StatCard title="Timeline lines" value={String(timelineItems.length)} helper="Visible for selected month" />
       </section>
 
-      <section className="grid gap-3 md:grid-cols-5">
-        {[
-          { mode: "monthly" as const, title: "Monthly", helper: `${plannedItems.filter((item) => item.recurrence === "monthly").length} live monthly item(s).`, button: "Add monthly", show: true, emoji: "📅", accent: "bg-sky-50 text-sky-600" },
-          { mode: "one_off" as const, title: "One-off", helper: `${selectedSummary.entriesForMonth.length} spend(s) in ${formatMonthLabel(selectedSummary.month)}.`, button: "Add spend", show: true, emoji: "🧾", accent: "bg-orange-50 text-orange-600" },
-          { mode: "child_cost" as const, title: "Child costs", helper: hasChildren ? `${childOptions.length} child profile(s) available for nursery, wraparound or activities.` : "Enable this after adding a child profile.", button: "Add child cost", show: shouldShowChildCosts, emoji: "👶", accent: "bg-pink-50 text-pink-600" },
-          { mode: "bank_import" as const, title: "Bank import", helper: "Import transactions and approve repeat payments.", button: "Import", show: true, emoji: "🏦", accent: "bg-violet-50 text-violet-600" },
-          { mode: "category" as const, title: "Categories", helper: categories.length ? `${categories.length} reporting buckets.` : "Set your default categories first.", button: "Add category", show: true, emoji: "🗂️", accent: "bg-emerald-50 text-emerald-600" },
-        ].filter((action) => action.show).map((action) => (
-          <div key={action.mode} className="flex min-h-40 flex-col justify-between rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-            <div>
-              <span className={`inline-grid h-10 w-10 place-items-center rounded-2xl text-lg ${action.accent}`}>{action.emoji}</span>
-              <p className="mt-3 font-black text-slate-950">{action.title}</p>
-              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">{action.helper}</p>
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">Add or manage</p>
+          <p className="mt-1 text-sm font-bold text-slate-600">
+            {plannedItems.filter((item) => item.recurrence === "monthly").length} regular · {selectedSummary.entriesForMonth.length} one-off · {childCosts.length} child cost
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <details className="relative">
+            <summary className="cursor-pointer list-none rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white">+ Add</summary>
+            <div className="absolute right-0 z-40 mt-2 grid min-w-56 gap-1 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+              <button type="button" onClick={() => openAdd("monthly")} className="rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50">Regular payment</button>
+              <button type="button" onClick={() => openAdd("one_off")} className="rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50">One-off spend</button>
+              {shouldShowChildCosts ? <button type="button" onClick={() => openAdd("child_cost")} className="rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50">Child cost</button> : null}
+              <button type="button" onClick={() => openAdd("bank_import")} className="rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50">Import bank CSV</button>
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" onClick={() => openAdd(action.mode)} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-slate-800">
-                + {action.button}
-              </button>
-              {action.mode === "category" ? (
-                <a href="/spending/categories" className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">
-                  Manage categories and groups
-                </a>
-              ) : null}
-            </div>
-          </div>
-        ))}
+          </details>
+          <a href="/spending/categories" className="rounded-full bg-slate-100 px-4 py-2 text-xs font-black text-slate-700">Categories</a>
+        </div>
       </section>
 
 

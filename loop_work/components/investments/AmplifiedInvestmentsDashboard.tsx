@@ -259,10 +259,9 @@ function openingValueForOneDay(holding: InvestmentHolding) {
   return 0;
 }
 
-function syntheticOneDayPointsForHolding(holding: InvestmentHolding) {
-  const current = holdingValue(holding); const open = openingValueForOneDay(holding);
-  if (current > 0 && open > 0) return [ { date: holding.day_open_at || "Open", value: open }, { date: holding.latest_price_date || "Now", value: current } ];
-  return current > 0 ? [{ date: "Start", value: current }, { date: "Now", value: current }] : [];
+function realOneDayPointsForHolding(holding: InvestmentHolding, snapshots: InvestmentSnapshot[]) {
+  const holdingIds = holdingSnapshotIds(holding);
+  return aggregateSnapshots(snapshots, holdingIds, "1D", holdingValue(holding));
 }
 
 function syntheticOneDayPortfolioPoints(holdings: InvestmentHolding[], totalValue: number) {
@@ -276,7 +275,7 @@ function holdingPeriodPoints(holding: InvestmentHolding, snapshots: InvestmentSn
   const holdingIds = holdingSnapshotIds(holding);
   const points = aggregateSnapshots(snapshots, holdingIds, period, holdingValue(holding));
   if (points.length >= 2) return points;
-  if (period === "1D") return syntheticOneDayPointsForHolding(holding);
+  if (period === "1D") return realOneDayPointsForHolding(holding, snapshots);
   const cost = holdingCost(holding); const value = holdingValue(holding);
   if (period === "5Y" && cost > 0 && value > 0 && Math.abs(value - cost) >= 0.01) return [ { date: "Cost", value: cost }, { date: "Now", value } ];
   return value > 0 ? [{ date: "Start", value }, { date: "Now", value }] : [];
@@ -943,7 +942,7 @@ export function AmplifiedInvestmentsDashboard({
   const tableItems = bundledHoldings.map((holding) => {
       const value = holdingValue(holding); const localMove = movementForHolding(holding, snapshots, period); const remoteMove = remoteAssetMoves[assetBundleKey(holding)]; const move = period !== "1D" && remoteMove?.has ? { change: Number(remoteMove.change || 0), pct: Number(remoteMove.pct || 0), has: true } : localMove;
       let points = holdingPeriodPoints(holding, snapshots, period);
-      if (points.length < 2 && move.has && value > 0 && 1 + move.pct / 100 > 0) points = [{ date: "Start", value: value / (1 + move.pct / 100) }, { date: "Now", value }];
+      // Chart points are real stored snapshots only. The day-move figure remains a separate headline metric.
       return { holding, value, move, points, allocation: representedValue > 0 ? (value / representedValue) * 100 : 0 };
     }).filter((item) => item.value > 0).sort((a, b) => b.value - a.value);
 

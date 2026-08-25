@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { CalendarDays, ChevronRight, CirclePlus, PiggyBank, Target, TrendingUp, WalletCards, X } from "lucide-react";
-import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { SavingsAllocationDonut, SavingsTrendSvg } from "@/components/charts/StableSavingsCharts";
 import { formatMoney } from "@/lib/format/money";
 import { FinancialInstitutionLogo } from "@/components/savings/FinancialInstitutionLogo";
 import { SavingsGoalVisual } from "@/components/savings/SavingsGoalVisual";
+import { SavingsMarketHealthDeferred } from "@/components/financial-flow/SavingsMarketHealthDeferred";
 
 export type SavingsFlowAccountRow = {
   id: string;
@@ -67,6 +68,7 @@ type Props = {
   healthScore: number;
   marketStatus: "healthy" | "partial" | "unavailable";
   annualOpportunity: number;
+  scopePersonIds?: string[];
 };
 
 function clamp(value: number, max = 100) {
@@ -74,6 +76,7 @@ function clamp(value: number, max = 100) {
 }
 
 function scoreClass(score: number) {
+  if (score < 0) return "bg-slate-100 text-slate-500";
   if (score >= 80) return "bg-emerald-100 text-emerald-800";
   if (score >= 55) return "bg-amber-100 text-amber-800";
   return "bg-red-100 text-red-700";
@@ -125,6 +128,7 @@ export function SavingsFlowDetail({
   healthScore,
   marketStatus,
   annualOpportunity,
+  scopePersonIds = [],
 }: Props) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
@@ -150,13 +154,7 @@ export function SavingsFlowDetail({
 
   return (
     <div className="space-y-6">
-      <section className={`flex flex-wrap items-center justify-between gap-5 rounded-[2rem] border p-5 shadow-sm ${marketStatus === "healthy" ? "border-emerald-200 bg-gradient-to-r from-emerald-50 to-white" : "border-amber-200 bg-gradient-to-r from-amber-50 to-white"}`}>
-        <div className="flex items-center gap-4">
-          <div className="grid h-20 w-20 shrink-0 place-items-center rounded-full bg-slate-950 text-white"><span className="text-2xl font-black">{healthScore}</span><span className="-mt-5 text-[10px] font-black text-white/50">/100</span></div>
-          <div><p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">Savings Health Score</p><h2 className="mt-1 text-2xl font-black text-slate-950">{marketStatus === "healthy" ? `${formatMoney(annualOpportunity)}/yr estimated rate opportunity` : "Market comparison is incomplete"}</h2><p className="mt-1 text-sm font-semibold text-slate-600">{marketStatus === "healthy" ? "Based on rates, access fit, tax efficiency, protection spread, goals and data quality." : "LOOP will not show £0 as no opportunity until enough fresh, reviewed savings products are available."}</p></div>
-        </div>
-        <Link href="/accounts?tab=ai" className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white">See score and actions</Link>
-      </section>
+      <SavingsMarketHealthDeferred scopePersonIds={scopePersonIds} />
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.2fr_1fr_1.25fr_auto]">
         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">Savings % of {scopeSavingsLabel}</p>
@@ -178,13 +176,12 @@ export function SavingsFlowDetail({
         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
           <h2 className="text-xl font-black text-slate-950">Savings allocation</h2>
           <p className="mt-1 text-sm font-semibold text-slate-500">What is earmarked to goals versus still unassigned.</p>
-          <div className="mt-3 h-56"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={allocationData} dataKey="value" nameKey="name" innerRadius="55%" outerRadius="82%" paddingAngle={3}>{allocationData.map((entry) => <Cell key={entry.name} fill={entry.colour} />)}</Pie><Tooltip formatter={(value) => formatMoney(Number(value))} /><Legend /></PieChart></ResponsiveContainer></div>
-          <p className="text-center text-2xl font-black text-slate-950">{formatMoney(totalSavings)}</p><p className="text-center text-xs font-bold text-slate-400">Total tracked savings</p>
+          <SavingsAllocationDonut earmarked={earmarkedToPots} unassigned={unallocated} total={totalSavings} />
         </article>
 
         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
           <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-black text-slate-950">Savings trend</h2><p className="mt-1 text-sm font-semibold text-slate-500">Recorded deposits, withdrawals and interest followed by projection.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">24m</span></div>
-          <div className="mt-4 h-64"><ResponsiveContainer width="100%" height="100%"><LineChart data={chartData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" /><YAxis tickFormatter={(value) => `£${Math.round(Number(value) / 1000)}k`} tick={{ fontSize: 10 }} width={52} /><Tooltip formatter={(value) => value == null ? "—" : formatMoney(Number(value))} /><Legend /><Line type="monotone" dataKey="recorded" name="Recorded" stroke="#0f172a" strokeWidth={2.5} dot={{ r: 2 }} connectNulls={false} /><Line type="monotone" dataKey="projected" name="Projected" stroke="#10b981" strokeDasharray="7 5" strokeWidth={2.5} dot={false} connectNulls /></LineChart></ResponsiveContainer></div>
+          <div className="mt-4"><SavingsTrendSvg data={chartData} /></div>
         </article>
 
         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
@@ -202,7 +199,7 @@ export function SavingsFlowDetail({
                       <p className="text-xs font-bold text-slate-400">{account.provider}{account.endDate ? ` · ends ${account.endDate}` : ""}</p>
                     </div>
                   </div>
-                  <span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore}</span>
+                  <span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore < 0 ? "Checking" : account.maximisedScore}</span>
                 </div>
                 <div className="mt-3 flex items-end justify-between">
                   <div>
@@ -219,7 +216,7 @@ export function SavingsFlowDetail({
           <div className="mt-4 hidden overflow-x-auto md:block">
             <table className="w-full min-w-[700px] text-left text-sm">
               <thead><tr className="border-b border-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-400"><th className="pb-3">Account</th><th className="pb-3">This month / total</th><th className="pb-3">Interest rate</th><th className="pb-3">Max score</th><th className="pb-3">End date</th></tr></thead>
-              <tbody>{accounts.map((account) => <tr key={account.id} className="border-b border-slate-50"><td className="py-3"><div className="flex items-center gap-3"><FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-9 w-9 rounded-xl" /><div><p className="font-black text-slate-950">{account.name}</p><p className="text-xs font-bold text-slate-400">{account.provider}</p></div></div></td><td className="py-3 font-black text-slate-950">{formatMoney(account.savedThisMonth)} / {formatMoney(account.balance)}</td><td className="py-3 font-black text-slate-950">{account.interestRate.toFixed(2)}% AER</td><td className="py-3"><span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`rounded-full px-3 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore}</span></td><td className="py-3 font-bold text-slate-500">{account.endDate || "—"}</td></tr>)}</tbody>
+              <tbody>{accounts.map((account) => <tr key={account.id} className="border-b border-slate-50"><td className="py-3"><div className="flex items-center gap-3"><FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-9 w-9 rounded-xl" /><div><p className="font-black text-slate-950">{account.name}</p><p className="text-xs font-bold text-slate-400">{account.provider}</p></div></div></td><td className="py-3 font-black text-slate-950">{formatMoney(account.savedThisMonth)} / {formatMoney(account.balance)}</td><td className="py-3 font-black text-slate-950">{account.interestRate.toFixed(2)}% AER</td><td className="py-3"><span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`rounded-full px-3 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore < 0 ? "Checking" : account.maximisedScore}</span></td><td className="py-3 font-bold text-slate-500">{account.endDate || "—"}</td></tr>)}</tbody>
             </table>
           </div>
           {!accounts.length ? <p className="mt-4 rounded-2xl border border-dashed border-slate-200 p-5 text-center text-sm font-bold text-slate-400">No tracked savings accounts in this scope.</p> : null}

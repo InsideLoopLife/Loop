@@ -5,9 +5,10 @@ import { RouteBootSnapshotPublisher } from "@/components/performance/RouteBootSn
 import { PageLandingExperience } from "@/components/landing/PageLandingExperience";
 import { createClient } from "@/lib/supabase/server";
 import { dedupeHouseholdPeople, getActiveHouseholdContext, householdMemberDataOrFilter, householdPeopleOrFilter } from "@/lib/auth/household-context";
-import { SpendingPlannerClient, type BankImport, type RegularPaymentCandidate, type ChildCost, type PayEvent, type Person, type PlannedItem, type SpendingCategory, type SpendingEntry, type StudentLoanAccount } from "@/components/spending/SpendingPlannerClient";
+import { type BankImport, type RegularPaymentCandidate, type ChildCost, type PayEvent, type Person, type PlannedItem, type SpendingCategory, type SpendingEntry, type StudentLoanAccount } from "@/components/spending/SpendingPlannerClient";
+import { SpendingPlannerDeferredClient } from "@/components/spending/SpendingPlannerDeferredClient";
 
-export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string }> }) {
+export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string; add?: string }> }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const supabase = await createClient();
   const {
@@ -82,48 +83,13 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       .or(householdVisibleFilter)
       .order("starts_on", { ascending: false })
       .returns<ChildCost[]>(),
-    supabase
-      .from("bank_imports")
-      .select("id, person_id, account_name, provider_name, original_filename, imported_rows, detected_rows, status, created_at")
-      .or(householdVisibleFilter)
-      .order("created_at", { ascending: false })
-      .limit(8)
-      .returns<BankImport[]>(),
-    supabase
-      .from("bank_regular_payment_candidates")
-      .select("id, person_id, account_name, normalized_key, direction, label_suggestion, amount_average, amount_min, amount_max, day_of_month, first_seen, last_seen, occurrence_count, seen_month_count, confidence, sample_descriptions, sample_dates, notes, status")
-      .or(householdVisibleFilter)
-      .eq("status", "suggested")
-      .order("confidence", { ascending: false })
-      .limit(30)
-      .returns<RegularPaymentCandidate[]>(),
-    supabase
-      .from("student_loan_accounts")
-      .select("id, person_id, plan, current_balance, balance_date, interest_rate, payroll_monthly_override, notes")
-      .eq("user_id", dataOwnerUserId)
-      .order("balance_date", { ascending: false })
-      .returns<StudentLoanAccount[]>(),
-    supabase
-      .from("financial_accounts")
-      .select("id, name, provider, account_type, owner_person_id, ownership_scope")
-      .or(householdVisibleFilter)
-      .eq("is_liability", false)
-      .order("provider"),
-    supabase
-      .from("household_pets")
-      .select("id, name, species, breed, avatar_url")
-      .or(householdContext.householdId ? `user_id.eq.${user.id},household_id.eq.${householdContext.householdId}` : `user_id.eq.${user.id}`)
-      .eq("status", "active")
-      .order("name"),
-    householdContext.householdId
-      ? supabase.from("household_living_profiles").select("property_kind, tenure, heating_type").eq("household_id", householdContext.householdId).maybeSingle()
-      : Promise.resolve({ data: null }),
-    supabase
-      .from("spending_category_groups")
-      .select("id, name, icon")
-      .or(householdVisibleFilter)
-      .order("sort_order")
-      .order("name"),
+    Promise.resolve({ data: [] as BankImport[] }),
+    Promise.resolve({ data: [] as RegularPaymentCandidate[] }),
+    Promise.resolve({ data: [] as StudentLoanAccount[] }),
+    Promise.resolve({ data: [] as any[] }),
+    Promise.resolve({ data: [] as any[] }),
+    Promise.resolve({ data: null }),
+    Promise.resolve({ data: [] as any[] }),
     supabase
       .from("app_household_members")
       .select("id", { count: "exact", head: true })
@@ -170,7 +136,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       />
       <main className="mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         {((entries ?? []).length + (plannedItems ?? []).length + (childCosts ?? []).length + (regularCandidates ?? []).length) === 0 ? <PageLandingExperience kind="spending" /> : null}
-        <SpendingPlannerClient
+        <SpendingPlannerDeferredClient
           people={peopleWithAvatars}
           categories={categories ?? []}
           entries={entries ?? []}
@@ -190,6 +156,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
           initialDirectionFilter={resolvedSearchParams.direction === "income" || resolvedSearchParams.direction === "outgoing" ? resolvedSearchParams.direction : "all"}
           hasHousehold={hasActiveHousehold}
           compactPage
+          initialAddMode={resolvedSearchParams.add === "monthly" || resolvedSearchParams.add === "one_off" || resolvedSearchParams.add === "child_cost" || resolvedSearchParams.add === "category" || resolvedSearchParams.add === "bank_import" ? resolvedSearchParams.add : undefined}
           flowSettings={{
             personDisplayMode: ((profile as any)?.spending_person_display_mode || "both") as any,
             dateFormat: ((profile as any)?.spending_date_format || "day_month_ordinal") as any,

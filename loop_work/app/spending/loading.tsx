@@ -1,5 +1,5 @@
-import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
+import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 
 export default function SpendingLoading() {
-  return <InstantRouteLoading routeKey="spending" label="spending" />;
+  return <WealthRouteSkeleton label="spending" />;
 }

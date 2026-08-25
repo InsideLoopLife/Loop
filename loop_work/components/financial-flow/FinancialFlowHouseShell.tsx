@@ -354,6 +354,183 @@ export function FinancialFlowHouseShell({ children, section }: Props) {
           }
         }
 
+
+        /* ==========================================================
+           V4 — House-style retained workspace hierarchy
+           ========================================================== */
+        .loop-financial-workspace-nav {
+          width: 95vw;
+          max-width: 2000px;
+          margin: 0.85rem auto 0;
+          padding-inline: clamp(0.9rem, 2vw, 2rem);
+        }
+
+        .loop-flow-nav-card {
+          border: 1px solid var(--loop-flow-border);
+          border-radius: 1.25rem;
+          background: rgba(255,255,255,.96);
+          padding: .75rem;
+          box-shadow: var(--loop-flow-shadow);
+        }
+
+        .loop-flow-nav-heading {
+          display: none;
+        }
+
+        .loop-flow-nav-card nav {
+          display: grid;
+          grid-template-columns: repeat(4,minmax(0,1fr));
+          gap: .35rem;
+        }
+
+        .loop-flow-nav-card nav a {
+          display: flex;
+          align-items: center;
+          gap: .65rem;
+          border-radius: .9rem;
+          padding: .7rem .8rem;
+          color: #64748b;
+        }
+
+        .loop-flow-nav-card nav a.is-active {
+          background: #f1f5f9;
+          color: #0f172a;
+        }
+
+        .loop-flow-nav-icon {
+          display: grid;
+          height: 2rem;
+          width: 2rem;
+          flex: 0 0 auto;
+          place-items: center;
+          border-radius: .7rem;
+          background: #fff;
+          border: 1px solid #e2e8f0;
+        }
+
+        .loop-flow-nav-card nav strong,
+        .loop-flow-nav-card nav small {
+          display: block;
+        }
+
+        .loop-flow-nav-card nav strong { font-size: .82rem; }
+        .loop-flow-nav-card nav small { margin-top: .1rem; font-size: .65rem; opacity: .7; }
+
+        .loop-flow-nav-actions {
+          display: flex;
+          gap: .45rem;
+          margin-top: .55rem;
+          padding-top: .55rem;
+          border-top: 1px solid #eef2f7;
+        }
+
+        .loop-flow-nav-actions button,
+        .loop-flow-nav-actions a {
+          display: inline-flex;
+          align-items: center;
+          gap: .4rem;
+          border-radius: .8rem;
+          padding: .6rem .8rem;
+          font-size: .72rem;
+          font-weight: 900;
+        }
+
+        .loop-flow-nav-actions button {
+          background: #0f172a;
+          color: white;
+        }
+
+        .loop-flow-nav-actions a {
+          background: #f8fafc;
+          color: #475569;
+        }
+
+        @media (min-width: 1180px) {
+          .loop-financial-house-shell {
+            --loop-flow-side: 220px;
+          }
+
+          .loop-financial-workspace-nav {
+            position: fixed;
+            left: max(1.5rem, calc((100vw - min(96vw, 2000px)) / 2));
+            top: 4.25rem;
+            z-index: 32;
+            width: var(--loop-flow-side);
+            margin: 0;
+            padding: 0;
+          }
+
+          .loop-flow-nav-card {
+            border-radius: 1rem;
+            padding: .75rem;
+          }
+
+          .loop-flow-nav-heading {
+            display: block;
+            padding: .35rem .45rem .7rem;
+            border-bottom: 1px solid #eef2f7;
+            margin-bottom: .45rem;
+          }
+
+          .loop-flow-nav-heading p {
+            color: #15803d;
+            font-size: .68rem;
+            font-weight: 900;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+          }
+
+          .loop-flow-nav-heading span {
+            display: block;
+            margin-top: .2rem;
+            color: #94a3b8;
+            font-size: .68rem;
+            font-weight: 700;
+          }
+
+          .loop-flow-nav-card nav {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: .2rem;
+          }
+
+          .loop-flow-nav-card nav a {
+            min-height: 3.15rem;
+            padding: .55rem .6rem;
+          }
+
+          .loop-flow-nav-card nav a.is-active {
+            background: #f5f3ff;
+            color: #6d28d9;
+          }
+
+          .loop-flow-nav-actions {
+            display: grid;
+            grid-template-columns: 1fr;
+          }
+
+          .loop-financial-house-shell main,
+          .loop-financial-house-shell > .loop-financial-workspace-nav ~ main {
+            width: min(calc(96vw - var(--loop-flow-side) - 1.5rem), 1760px) !important;
+            margin-left: calc(max(1.5rem, (100vw - min(96vw, 2000px)) / 2) + var(--loop-flow-side) + 1.5rem) !important;
+            margin-right: auto !important;
+            padding-inline: 0 !important;
+          }
+
+          .loop-financial-house-shell[data-flow-section="flow"] main > section:first-child {
+            padding: .9rem 1rem !important;
+          }
+        }
+
+        /* Keep the primary page calm: charts and timelines carry the visual weight. */
+        .loop-financial-house-shell main > * + * {
+          margin-top: .9rem !important;
+        }
+
+        .loop-financial-house-shell main section[class*="grid"] {
+          gap: .65rem !important;
+        }
+
         @media (prefers-reduced-motion: reduce) {
           .loop-financial-house-shell *,
           .loop-financial-house-shell *::before,

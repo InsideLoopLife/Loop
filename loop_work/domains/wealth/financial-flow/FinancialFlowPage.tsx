@@ -37,7 +37,6 @@ import {
   visibleDataOrFilter,
 } from "@/lib/auth/household-context";
 import { requireWealthPageAccess } from "@/domains/wealth/access";
-import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 import { FinancialFlowWorkspaceNav } from "@/components/financial-flow/FinancialFlowWorkspaceNav";
 import { RouteBootSnapshotPublisher } from "@/components/performance/RouteBootSnapshotPublisher";
@@ -769,19 +768,54 @@ const FLOW_TONE_BADGE: Record<Tone, string> = {
 };
 
 function MainFlowDiagram({ model, people }: { model: MonthModel; people: Person[] }) {
-  const spendingPct = percentNumber(model.committedSpending, model.totalIncome);
-  const savingsPct = percentNumber(model.savingsTotal, model.totalIncome);
-  const leftoverPct = percentNumber(model.leftoverCash, model.totalIncome);
-  const detailRows: FlowLine[] = [...model.spendRows.slice(0, 8), ...model.savingsRows, { key: "leftover", label: "Unallocated cash", amount: model.leftoverCash, icon: WalletCards, tone: "blue" as Tone }].filter((row) => row.amount > 0);
-  return <>
-    <FlowSankeyDiagram model={model} people={people} />
-    <section className="rounded-[2.25rem] border border-white/70 bg-white/92 p-5 shadow-sm md:p-6"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
-    ["Income", model.totalIncome, "100%", "bg-sky-50 text-sky-800"],
-    ["Spending", model.committedSpending, `${spendingPct}%`, "bg-orange-50 text-orange-800"],
-    ["Savings", model.savingsTotal, `${savingsPct}%`, "bg-emerald-50 text-emerald-800"],
-    ["Available", model.leftoverCash, `${leftoverPct}%`, "bg-slate-950 text-white"],
-  ].map(([label, amount, value, classes]) => <article key={String(label)} className={`rounded-3xl p-5 ${classes}`}><p className="text-xs font-black uppercase tracking-wide opacity-65">{label}</p><p className="mt-2 text-3xl font-black">{formatMoney(Number(amount))}</p><p className="mt-1 text-sm font-black opacity-65">{value}</p></article>)}</div><div className="mt-5"><div className="mb-3 flex items-end justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Household flow lines</p><h2 className="text-xl font-black text-slate-950">Grouped categories and their sources</h2></div><Link href={`/spending?month=${model.key}`} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white">Manage spending</Link></div><div className="grid gap-2 lg:grid-cols-2">{detailRows.map((row) => <details key={row.key} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-4"><div className="flex items-center gap-3"><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${FLOW_TONE_BADGE[row.tone]}`}><row.icon className="h-4 w-4" /></span><div><p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Grouped as</p><p className="font-black text-slate-900">{row.label}</p></div></div><div className="text-right"><p className="font-black text-slate-950">{formatMoney(row.amount)}</p><p className="text-xs font-black text-slate-500">{percent(row.amount, model.totalIncome)} · show sources</p></div></summary><div className="mt-3 space-y-2 border-t border-slate-200 pt-3">{(row.evidence?.length ? row.evidence : [{ key: row.key, label: row.label, amount: row.amount, href: row.href }]).map((item) => <div key={item.key} className="flex items-center justify-between gap-3 rounded-xl bg-white p-3"><div><p className="text-xs font-black text-slate-900">{item.label}</p><p className="text-[10px] font-bold text-slate-400">Category: {row.label}</p></div><div className="flex items-center gap-2"><p className="text-sm font-black">{formatMoney(item.amount)}</p><Link href={item.href || `/spending?month=${model.key}`} className="rounded-full bg-slate-100 px-3 py-1.5 text-[10px] font-black text-slate-700">Change category</Link></div></div>)}</div></details>)}{!detailRows.length ? <p className="rounded-2xl border border-dashed border-slate-200 p-6 text-sm font-bold text-slate-400">Add income, bills and savings to build the flow.</p> : null}</div></div></section>
-  </>;
+  const detailRows: FlowLine[] = [
+    ...model.spendRows.slice(0, 8),
+    ...model.savingsRows,
+    { key: "leftover", label: "Available cash", amount: model.leftoverCash, icon: WalletCards, tone: "blue" as Tone },
+  ].filter((row) => row.amount > 0);
+
+  return (
+    <>
+      <FlowSankeyDiagram model={model} people={people} />
+      <details className="rounded-[1.35rem] border border-slate-200 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Flow detail</p>
+            <p className="mt-1 text-sm font-black text-slate-950">See the lines behind this picture</p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-600">
+            {detailRows.length} groups
+          </span>
+        </summary>
+        <div className="grid gap-2 border-t border-slate-100 p-4 lg:grid-cols-2">
+          {detailRows.map((row) => (
+            <details key={row.key} className="rounded-xl bg-slate-50 p-3">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+                <span className="font-black text-slate-900">{row.label}</span>
+                <span className="text-sm font-black text-slate-950">{formatMoney(row.amount)}</span>
+              </summary>
+              <div className="mt-2 space-y-2 border-t border-slate-200 pt-2">
+                {(row.evidence?.length
+                  ? row.evidence
+                  : [{ key: row.key, label: row.label, amount: row.amount, href: row.href }]
+                ).map((item) => (
+                  <div key={item.key} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2">
+                    <span className="text-xs font-bold text-slate-600">{item.label}</span>
+                    <span className="flex items-center gap-2">
+                      <strong className="text-xs text-slate-950">{formatMoney(item.amount)}</strong>
+                      <Link href={item.href || `/spending?month=${model.key}`} className="text-[10px] font-black text-emerald-700">
+                        Edit
+                      </Link>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          ))}
+        </div>
+      </details>
+    </>
+  );
 }
 
 function stackedSegments(items: Array<{ amount: number; colour: string; label: string }>, total: number) {
@@ -883,9 +917,6 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
   const activeTab: TabKey = tabs.some((tab) => tab.key === params.tab) ? (params.tab as TabKey) : "flow";
   const month = parseMonth(params.month);
   const { supabase, user, householdContext } = await requireWealthPageAccess();
-  // savings_rate_deals now lives in the separate rates-catalogue
-  // Supabase project.
-  const ratesSupabase = createWorkerDatabaseClient("rates");
   const memberFilter = householdMemberDataOrFilter(householdContext);
   const visibleFilter = visibleDataOrFilter(householdContext);
   const allocationFilter = householdContext.householdId
@@ -906,7 +937,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     activeTab === "savings" ? supabase.from("savings_account_movements").select("id, financial_account_id, movement_type, amount, previous_balance, balance_delta, resulting_balance, effective_at, created_at, note, source_type").or(visibleFilter).order("effective_at", { ascending: false }).limit(1500).returns<SavingsMovement[]>() : Promise.resolve({ data: [] as SavingsMovement[] }),
     activeTab === "savings" ? supabase.from("savings_pots").select("id, person_id, name, target_amount, target_date, monthly_target, current_allocated_amount, priority, status, goal_type, reference_image_url").or(visibleFilter).in("status", ["active", "paused", "completed"]).order("priority", { ascending: true }).returns<SavingsPot[]>() : Promise.resolve({ data: [] as SavingsPot[] }),
     activeTab === "savings" ? supabase.from("savings_pot_allocations").select("id, savings_pot_id, financial_account_id, amount, allocation_percent").or(allocationFilter).returns<SavingsPotAllocation[]>() : Promise.resolve({ data: [] as SavingsPotAllocation[] }),
-    activeTab === "savings" ? ratesSupabase.from("savings_rate_deals").select("id, provider_slug, provider_name, product_name, account_type, gross_aer, minimum_balance, maximum_balance, monthly_min_deposit, monthly_max_deposit, access_type, withdrawal_rules, notice_period_days, term_length_months, requires_existing_customer, last_checked_at, status").eq("status", "active").order("gross_aer", { ascending: false }).limit(150).returns<SavingsRateDeal[]>() : Promise.resolve({ data: [] as SavingsRateDeal[] }),
+    Promise.resolve({ data: [] as SavingsRateDeal[] }),
     supabase.from("child_costs").select("id, child_id, label, cost_kind, category_id, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on").or(memberFilter).returns<ChildCostForPlan[]>(),
   ]);
 
@@ -1058,7 +1089,9 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
   const model = buildModel(month.key, true);
   const savingsRate = model.totalIncome > 0 ? (model.savingsTotal / model.totalIncome) * 100 : 0;
   const hasFlowData = model.totalIncome > 0 || model.committedSpending > 0 || model.savingsTotal > 0 || (plannedResult.data || []).length > 0 || (accountsResult.data || []).length > 0 || (potsResult.data || []).length > 0;
-  const yearMonths = Array.from({ length: 12 }, (_, index) => `${month.key.slice(0, 4)}-${String(index + 1).padStart(2, "0")}`).map((key) => buildModel(key, false));
+  const yearMonths = activeTab === "flow"
+    ? Array.from({ length: 12 }, (_, index) => `${month.key.slice(0, 4)}-${String(index + 1).padStart(2, "0")}`).map((key) => buildModel(key, false))
+    : [];
 
   const scopedSavingsAccounts = (accountsResult.data || []).filter((account) => {
     if (account.is_liability || !personOwned(account, scopeIds)) return false;
@@ -1111,7 +1144,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
       balance,
       savedThisMonth: deposited > 0 ? deposited : n(account.monthly_top_up_amount),
       interestRate: n(account.interest_rate),
-      maximisedScore: score,
+      maximisedScore: compatibleDeals.length ? score : -1,
       annualOpportunity: Math.max(0, eligibleBalance * (bestRate - n(account.interest_rate)) / 100),
       endDate: account.interest_rate_end_date || account.end_date || null,
     };
@@ -1255,6 +1288,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
             healthScore={savingsHealth.score}
             marketStatus={savingsHealth.catalogue.status}
             annualOpportunity={flowAccountRows.reduce((sum, account) => sum + account.annualOpportunity, 0)}
+            scopePersonIds={scopeIds}
           />
         ) : (
           <>
