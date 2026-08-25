@@ -531,6 +531,73 @@ export function FinancialFlowHouseShell({ children, section }: Props) {
           gap: .65rem !important;
         }
 
+
+        /* V4.5 — one primary navigation system.
+           The fixed House-style workspace rail is authoritative on desktop.
+           Any older primary Financial Flow switcher is suppressed; detail
+           navigation inside Accounts/Pots remains untouched. */
+        .loop-financial-house-shell main nav[aria-label="Financial Flow sections"] {
+          display: none !important;
+        }
+
+        @media (max-width: 1179px) {
+          .loop-financial-workspace-nav {
+            position: sticky;
+            top: 0.4rem;
+            z-index: 38;
+            margin-top: 0.5rem;
+          }
+
+          .loop-flow-nav-card {
+            padding: 0.45rem;
+            border-radius: 1rem;
+          }
+
+          .loop-flow-nav-heading {
+            display: none !important;
+          }
+
+          .loop-flow-nav-card nav {
+            display: flex;
+            gap: 0.25rem;
+            overflow-x: auto;
+            scroll-snap-type: x mandatory;
+            scrollbar-width: none;
+          }
+
+          .loop-flow-nav-card nav::-webkit-scrollbar {
+            display: none;
+          }
+
+          .loop-flow-nav-card nav a {
+            min-width: max-content;
+            flex: 0 0 auto;
+            scroll-snap-align: start;
+            padding: 0.55rem 0.7rem;
+          }
+
+          .loop-flow-nav-card nav a small {
+            display: none;
+          }
+
+          .loop-flow-nav-card nav a strong {
+            font-size: 0.75rem;
+          }
+
+          .loop-flow-nav-actions {
+            margin-top: 0.35rem;
+            padding-top: 0.35rem;
+          }
+        }
+
+        @media (min-width: 1180px) {
+          /* Content title starts where House content starts; the rail already
+             communicates the selected section, so no second tab treatment. */
+          .loop-financial-house-shell main > section:first-child {
+            margin-top: 0 !important;
+          }
+        }
+
         @media (prefers-reduced-motion: reduce) {
           .loop-financial-house-shell *,
           .loop-financial-house-shell *::before,

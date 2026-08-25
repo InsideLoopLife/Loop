@@ -1256,26 +1256,20 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
         }}
       />
       <main className="mx-auto w-[95vw] max-w-none space-y-6 px-4 py-6 md:px-8">
-        {activeTab === "flow" ? <section className="relative overflow-hidden rounded-[2.5rem] border border-white/70 bg-slate-950 p-7 text-white shadow-[0_36px_120px_-70px_rgba(15,23,42,.95)] md:p-9">
-          <div className="absolute -right-28 -top-28 h-96 w-96 rounded-full bg-emerald-500/30 blur-3xl" />
-          <div className="absolute -bottom-36 left-1/4 h-96 w-96 rounded-full bg-orange-500/20 blur-3xl" />
-          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-200">Your financial flow</p>
-              <h1 className="mt-3 text-4xl font-black tracking-tight md:text-5xl">See how your money flows</h1>
-              <p className="mt-3 max-w-3xl text-sm font-medium leading-6 text-slate-300">Start with the flow, then jump into income, spending or savings to add, edit or remove the lines that feed it.</p>
-            </div>
-            <MonthControls activeTab={activeTab} month={month.key} scopeIds={scopeIds} />
+        <section className="flex flex-wrap items-end justify-between gap-4 rounded-[1.25rem] border border-slate-200 bg-white px-5 py-4 shadow-sm">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Financial Flow</p>
+            <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">
+              {monthLabel(month.key)} {activeTab === "flow" ? "overview" : activeTab === "savings" ? "savings & pots" : activeTab}
+            </h1>
+            <p className="mt-1 max-w-2xl text-sm font-semibold text-slate-500">
+              {activeTab === "flow"
+                ? "Your month at a glance. Open a section only when you need to change the underlying lines."
+                : "The left workspace rail is your primary navigation; this area stays focused on the selected section."}
+            </p>
           </div>
-        </section> : (
-          <section className="flex flex-wrap items-center justify-between gap-4 rounded-[2rem] border border-white/70 bg-white/90 p-4 shadow-sm">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">Financial Flow</p>
-              <h1 className="text-2xl font-black text-slate-950 capitalize">{activeTab} detail</h1>
-            </div>
-            <MonthControls activeTab={activeTab} month={month.key} scopeIds={scopeIds} />
-          </section>
-        )}
+          <MonthControls activeTab={activeTab} month={month.key} scopeIds={scopeIds} />
+        </section>
 
         {!hasFlowData ? <PageLandingExperience kind="financial-flow" /> : null}
 
