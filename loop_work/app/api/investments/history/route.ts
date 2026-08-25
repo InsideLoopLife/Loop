@@ -11,6 +11,7 @@ import {
   venueFor,
 } from "@/lib/investments/market-venues";
 import { investmentDataEntitlementForProfile } from "@/lib/wealth/user-tiers";
+import { loadInvestmentSnapshotSettings } from "@/lib/investments/snapshot-settings";
 import {
   buildPortfolioHistory,
   snapshotPriceGbp,
@@ -706,6 +707,7 @@ export async function GET(request: NextRequest) {
   const accountId = request.nextUrl.searchParams.get("accountId");
   const portfolio = request.nextUrl.searchParams.get("portfolio") === "1";
   const movements = request.nextUrl.searchParams.get("movements") === "1";
+  const observedSeries = request.nextUrl.searchParams.get("series") === "1";
   const portfolioAccountIds = String(request.nextUrl.searchParams.get("accountIds") || "").split(",").map((value) => value.trim()).filter(Boolean);
   const range = request.nextUrl.searchParams.get("range") || "1m";
   const since = sinceForRange(range);
@@ -718,6 +720,7 @@ export async function GET(request: NextRequest) {
     .eq("user_id", user.id)
     .maybeSingle();
   const entitlement = investmentDataEntitlementForProfile(profile);
+  const snapshotSettings = await loadInvestmentSnapshotSettings(supabase as any);
 
   if (!isHoldingScope && !accountId && !portfolio && !movements) {
     return NextResponse.json(
@@ -743,6 +746,97 @@ export async function GET(request: NextRequest) {
   const holdingsError = holdingsResult.error;
   if (holdingsError)
     return NextResponse.json({ error: holdingsError.message }, { status: 500 });
+
+
+  if (observedSeries) {
+    const tier = String(
+      (profile as any)?.market_data_tier_override ||
+        (profile as any)?.market_data_tier ||
+        (profile as any)?.payment_tier_override ||
+        (profile as any)?.payment_tier ||
+        "free",
+    ).toLowerCase();
+    const cadenceMinutes = entitlement.canUseRealtimePrices
+      ? Math.max(1, Number(snapshotSettings.realtimeMinutes || 1))
+      : ["plus", "pro", "premium", "go"].includes(tier)
+        ? Math.max(1, Number(snapshotSettings.plusProMinutes || 10))
+        : Math.max(1, Number(snapshotSettings.freeMinutes || 30));
+
+    const bucketMs = cadenceMinutes * 60 * 1000;
+    const seriesByHolding: Record<string, Array<{
+      at: string;
+      label: string;
+      price: number;
+      value: number;
+      source: string;
+    }>> = {};
+
+    await Promise.all(
+      currentHoldings.slice(0, 16).map(async (holding) => {
+        const listingId = String(holding.listing_id || "");
+        const units = Number(holding.units || 0);
+        if (!listingId || !(units > 0)) {
+          seriesByHolding[holding.id] = [];
+          return;
+        }
+
+        const result = await supabase
+          .from("investment_instrument_price_points")
+          .select("listing_id, point_at, observed_at, price_gbp, gbp_price, source, quality")
+          .eq("listing_id", listingId)
+          .gte("point_at", since)
+          .order("point_at", { ascending: true })
+          .limit(Math.min(2500, Math.max(600, maxPointsForRange(range) * 3)));
+
+        if (result.error) {
+          seriesByHolding[holding.id] = [];
+          return;
+        }
+
+        const bucketed = new Map<number, any>();
+        for (const row of result.data || []) {
+          const at = String((row as any).point_at || (row as any).observed_at || "");
+          const stamp = Date.parse(at);
+          const price = Number((row as any).gbp_price ?? (row as any).price_gbp ?? 0);
+          if (!Number.isFinite(stamp) || !(price > 0)) continue;
+          const bucket = Math.floor(stamp / bucketMs) * bucketMs;
+          bucketed.set(bucket, { ...row, at, price });
+        }
+
+        const observed = Array.from(bucketed.entries())
+          .sort(([a], [b]) => a - b)
+          .map(([, row]) => ({
+            at: row.at,
+            label: labelFor(row.at, range),
+            price: row.price,
+            value: row.price * units,
+            source: String(row.source || "stored market observation"),
+          }));
+
+        seriesByHolding[holding.id] = downsample(
+          observed,
+          maxPointsForRange(range),
+        );
+      }),
+    );
+
+    return NextResponse.json(
+      {
+        ok: true,
+        range,
+        mode: "holding-series",
+        observed: true,
+        cadenceMinutes,
+        seriesByHolding,
+        entitlement,
+      },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=20, stale-while-revalidate=60",
+        },
+      },
+    );
+  }
 
   if (movements) {
     const movementRows = await buildHoldingMovements(
