@@ -1,5 +1,5 @@
-import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
+import { FinancialFlowRetainedLoading } from "@/components/financial-flow/FinancialFlowRetainedLoading";
 
 export default function SpendingLoading() {
-  return <WealthRouteSkeleton label="spending" />;
+  return <FinancialFlowRetainedLoading fallbackSection="spending" />;
 }

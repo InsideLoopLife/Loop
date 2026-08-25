@@ -247,6 +247,7 @@ type Props = {
   homeProfile?: HomeProfile | null;
   categoryGroups?: { id: string; name: string; icon?: string | null }[];
   initialAddMode?: AddMode;
+  initialAddTemplate?: SimpleFlowTemplate;
 };
 
 type AddMode = "monthly" | "one_off" | "child_cost" | "category" | "bank_import";
@@ -1328,13 +1329,13 @@ function duplicateLabelsMatch(left: string, right: string) {
   return a.includes(b) || b.includes(a);
 }
 
-export function SpendingPlannerClient({ people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], initialAddMode }: Props) {
+export function SpendingPlannerClient({ people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], initialAddMode, initialAddTemplate }: Props) {
   const initialMonthValue = initialMonth && /^\d{4}-\d{2}$/.test(initialMonth) ? initialMonth : currentMonth();
   const [selectedPersonId, setSelectedPersonId] = useState(initialPersonId || "");
   const [directionFilter, setDirectionFilter] = useState<"all" | "income" | "outgoing">(initialDirectionFilter);
   const [year, setYear] = useState(Number(initialMonthValue.slice(0, 4)));
   const [selectedMonth, setSelectedMonth] = useState(initialMonthValue);
-  const [modal, setModal] = useState<ModalState>(initialAddMode ? { type: "add", mode: initialAddMode } : null);
+  const [modal, setModal] = useState<ModalState>(initialAddMode ? { type: "add", mode: initialAddMode, template: initialAddTemplate } : null);
   const [editingEnabled, setEditingEnabled] = useState(false);
   const [selectedLineIds, setSelectedLineIds] = useState<string[]>([]);
   const personDisplayMode = flowSettings?.personDisplayMode ?? "both";

@@ -8,6 +8,8 @@ import { formatMoney } from "@/lib/format/money";
 import { FinancialInstitutionLogo } from "@/components/savings/FinancialInstitutionLogo";
 import { SavingsGoalVisual } from "@/components/savings/SavingsGoalVisual";
 import { SavingsMarketHealthDeferred } from "@/components/financial-flow/SavingsMarketHealthDeferred";
+import { useEffect } from "react";
+import { useFinancialFlowRetained } from "@/components/financial-flow/FinancialFlowRetainedStore";
 
 export type SavingsFlowAccountRow = {
   id: string;
@@ -101,7 +103,7 @@ function CalendarBars({ row, active = false }: { row: SavingsFlowYearMonth; acti
         <p className="text-xs font-black text-slate-950">{shortMonth(row.key)}</p>
         <p className="text-[10px] font-black text-slate-500">{formatMoney(row.closingBalance)}</p>
       </div>
-      <div className="mt-3 grid gap-1" title={`${formatMoney(row.savedIn)} saved · ${formatMoney(row.withdrawn)} withdrawn · ${formatMoney(interest)} interest`}>
+      <div className="mt-3 grid gap-1" title={`${formatMoney(row.savedIn)} saved (recorded) · ${formatMoney(row.withdrawn)} withdrawn (recorded) · ${formatMoney(row.interestConfirmed)} interest recorded/accrued · ${formatMoney(row.interestEstimated)} interest estimated`}>
         <div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-400" style={{ width: `${clamp(row.savedIn / max * 100)}%` }} /></div>
         <div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-orange-400" style={{ width: `${clamp(row.withdrawn / max * 100)}%` }} /></div>
         <div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-sky-400" style={{ width: `${clamp(interest / max * 100)}%` }} /></div>
@@ -132,6 +134,7 @@ export function SavingsFlowDetail({
 }: Props) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const { rememberSavings } = useFinancialFlowRetained();
   const currentMonth = yearMonths.find((row) => row.key === monthKey) || yearMonths[0];
   const unallocated = Math.max(0, totalSavings - earmarkedToPots);
   const chartData = useMemo(() => {
@@ -152,6 +155,49 @@ export function SavingsFlowDetail({
   ].filter((row) => row.value > 0.005), [earmarkedToPots, totalSavings, unallocated]);
   const totalInterest = providerConfirmedInterest + accruedThroughYesterday + estimatedInterest;
 
+  useEffect(() => {
+    rememberSavings({
+      monthKey,
+      scopeSavingsPercent,
+      scopeSavingsLabel,
+      blendedRate,
+      providerConfirmedInterest,
+      accruedThroughYesterday,
+      estimatedInterest,
+      unassignedEquity,
+      totalSavings,
+      earmarkedToPots,
+      accounts,
+      pots,
+      trend,
+      yearMonths,
+      healthScore,
+      marketStatus,
+      annualOpportunity,
+      scopePersonIds,
+    });
+  }, [
+    rememberSavings,
+    monthKey,
+    scopeSavingsPercent,
+    scopeSavingsLabel,
+    blendedRate,
+    providerConfirmedInterest,
+    accruedThroughYesterday,
+    estimatedInterest,
+    unassignedEquity,
+    totalSavings,
+    earmarkedToPots,
+    accounts,
+    pots,
+    trend,
+    yearMonths,
+    healthScore,
+    marketStatus,
+    annualOpportunity,
+    scopePersonIds,
+  ]);
+
   return (
     <div className="space-y-6">
       <SavingsMarketHealthDeferred scopePersonIds={scopePersonIds} />
@@ -162,7 +208,7 @@ export function SavingsFlowDetail({
           <p className={`mt-1 text-sm font-black ${scopeSavingsPercent >= 20 ? "text-emerald-700" : "text-amber-700"}`}>{scopeSavingsPercent >= 20 ? "Above 20% target" : "Below 20% target"}</p>
         </article>
         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm"><p className="text-sm font-bold text-slate-500">Blended savings rate</p><div className="mt-2 flex items-center justify-between"><p className="text-3xl font-black text-slate-950">{blendedRate.toFixed(2)}%</p><span className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-50 text-violet-700"><TrendingUp className="h-5 w-5" /></span></div><p className="mt-1 text-sm font-medium text-slate-500">Balance-weighted across selected savers</p></article>
-        <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm"><p className="text-sm font-bold text-slate-500">Savings interest this month</p><div className="mt-2 flex items-center justify-between"><p className="text-3xl font-black text-slate-950">{formatMoney(totalInterest)}</p><span className="grid h-11 w-11 place-items-center rounded-2xl bg-sky-50 text-sky-700"><TrendingUp className="h-5 w-5" /></span></div><p className="mt-1 text-[11px] font-black text-blue-700">Paid {formatMoney(providerConfirmedInterest)} · accrued through yesterday {formatMoney(accruedThroughYesterday)} · today est. {formatMoney(estimatedInterest)}</p></article>
+        <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm"><p className="text-sm font-bold text-slate-500">Savings interest this month</p><div className="mt-2 flex items-center justify-between"><p className="text-3xl font-black text-slate-950">{formatMoney(totalInterest)}</p><span className="grid h-11 w-11 place-items-center rounded-2xl bg-sky-50 text-sky-700"><TrendingUp className="h-5 w-5" /></span></div><div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-black"><span className="rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">Recorded paid {formatMoney(providerConfirmedInterest)}</span><span className="rounded-full bg-sky-50 px-2 py-1 text-sky-700">Accrued estimate {formatMoney(accruedThroughYesterday)}</span><span className="rounded-full border border-dashed border-sky-300 bg-white px-2 py-1 text-sky-700">Today estimate {formatMoney(estimatedInterest)}</span></div></article>
         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm"><p className="text-sm font-bold text-slate-500">Unassigned equity</p><div className="mt-2 flex items-center justify-between"><p className="text-3xl font-black text-slate-950">{formatMoney(unassignedEquity)}</p><span className="grid h-11 w-11 place-items-center rounded-2xl bg-cyan-50 text-cyan-700"><WalletCards className="h-5 w-5" /></span></div><p className="mt-1 text-sm font-medium text-slate-500">Available after this month&apos;s commitments</p></article>
         <button type="button" onClick={() => setCalendarOpen(true)} className="rounded-[2rem] border border-white/70 bg-white/90 p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
           <div className="flex items-center justify-between gap-2"><p className="text-sm font-black text-slate-700">Savings year calendar</p><CalendarDays className="h-5 w-5 text-orange-500" /></div>

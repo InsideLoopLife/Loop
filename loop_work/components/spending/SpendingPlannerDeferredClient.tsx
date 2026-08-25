@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ComponentProps } from "react";
+import { useFinancialFlowRetained } from "@/components/financial-flow/FinancialFlowRetainedStore";
 import {
   SpendingPlannerClient,
   type BankImport,
@@ -22,6 +23,11 @@ type DeferredPayload = {
 
 export function SpendingPlannerDeferredClient(props: PlannerProps) {
   const [deferred, setDeferred] = useState<DeferredPayload>({});
+  const { rememberSpending } = useFinancialFlowRetained();
+
+  useEffect(() => {
+    rememberSpending(props as unknown as Record<string, unknown>);
+  }, [rememberSpending, props]);
 
   useEffect(() => {
     const controller = new AbortController();

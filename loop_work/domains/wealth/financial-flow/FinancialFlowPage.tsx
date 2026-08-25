@@ -40,6 +40,7 @@ import { requireWealthPageAccess } from "@/domains/wealth/access";
 import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 import { FinancialFlowWorkspaceNav } from "@/components/financial-flow/FinancialFlowWorkspaceNav";
 import { RouteBootSnapshotPublisher } from "@/components/performance/RouteBootSnapshotPublisher";
+import { FinancialFlowRetainedOverviewBridge } from "@/components/financial-flow/FinancialFlowRetainedOverviewBridge";
 
 type TabKey = "flow" | "income" | "spending" | "savings";
 type Tone = "orange" | "green" | "blue" | "slate";
@@ -1226,6 +1227,17 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
   return (
     <>
       <FinancialFlowWorkspaceNav section={activeTab} month={month.key} />
+      <FinancialFlowRetainedOverviewBridge
+        summary={{
+          month: month.key,
+          income: model.totalIncome,
+          spending: model.committedSpending,
+          savings: model.savingsTotal,
+          available: model.leftoverCash,
+          savingsRate,
+          scopeLabel,
+        }}
+      />
       <RouteBootSnapshotPublisher
         routeKey="financial-flow"
         payload={{

@@ -8,7 +8,7 @@ import { dedupeHouseholdPeople, getActiveHouseholdContext, householdMemberDataOr
 import { type BankImport, type RegularPaymentCandidate, type ChildCost, type PayEvent, type Person, type PlannedItem, type SpendingCategory, type SpendingEntry, type StudentLoanAccount } from "@/components/spending/SpendingPlannerClient";
 import { SpendingPlannerDeferredClient } from "@/components/spending/SpendingPlannerDeferredClient";
 
-export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string; add?: string }> }) {
+export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string; add?: string; prefill_label?: string; prefill_amount?: string }> }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const supabase = await createClient();
   const {
@@ -157,6 +157,13 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
           hasHousehold={hasActiveHousehold}
           compactPage
           initialAddMode={resolvedSearchParams.add === "monthly" || resolvedSearchParams.add === "one_off" || resolvedSearchParams.add === "child_cost" || resolvedSearchParams.add === "category" || resolvedSearchParams.add === "bank_import" ? resolvedSearchParams.add : undefined}
+          initialAddTemplate={(resolvedSearchParams.prefill_label || resolvedSearchParams.prefill_amount) ? {
+            label: resolvedSearchParams.prefill_label || undefined,
+            amount: resolvedSearchParams.prefill_amount ? Number(resolvedSearchParams.prefill_amount) : undefined,
+            direction: "outgoing",
+            recurrence: resolvedSearchParams.add === "monthly" ? "monthly" : "one_off",
+            itemType: resolvedSearchParams.add === "monthly" ? "bill" : "one_off",
+          } : undefined}
           flowSettings={{
             personDisplayMode: ((profile as any)?.spending_person_display_mode || "both") as any,
             dateFormat: ((profile as any)?.spending_date_format || "day_month_ordinal") as any,

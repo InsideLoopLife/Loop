@@ -1,5 +1,5 @@
-import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
+import { FinancialFlowRetainedLoading } from "@/components/financial-flow/FinancialFlowRetainedLoading";
 
 export default function FinancialFlowLoading() {
-  return <InstantRouteLoading routeKey="financial-flow" label="financial flow" />;
+  return <FinancialFlowRetainedLoading fallbackSection="flow" />;
 }

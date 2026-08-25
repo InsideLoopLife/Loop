@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { Nav } from "@/components/Nav";
 import { PersistentNavProvider } from "@/components/shell/PersistentNavContext";
+import { FinancialFlowRetainedProvider } from "@/components/financial-flow/FinancialFlowRetainedStore";
 
 const APP_ROUTE_PREFIXES = [
   "/briefing", "/dashboard", "/financial-flow", "/income", "/spending",
@@ -26,7 +27,9 @@ export function PersistentLoopShell({ children }: { children: ReactNode }) {
   return (
     <>
       <Nav persistent />
-      <PersistentNavProvider>{children}</PersistentNavProvider>
+      <FinancialFlowRetainedProvider>
+        <PersistentNavProvider>{children}</PersistentNavProvider>
+      </FinancialFlowRetainedProvider>
     </>
   );
 }
