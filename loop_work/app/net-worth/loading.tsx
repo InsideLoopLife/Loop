@@ -1,5 +1,7 @@
-import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
+import { Suspense } from "react";
+import { NetWorthCachedRouteFallback } from "@/components/loading/NetWorthCachedRouteFallback";
+import { InstantBootSnapshot } from "@/components/performance/InstantBootSnapshot";
+import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 
-export default function NetWorthLoading() {
-  return <InstantRouteLoading routeKey="net-worth" label="net worth" />;
-}
+function ColdSnapshot() { return <Suspense fallback={<WealthRouteSkeleton label="net worth" />}><InstantBootSnapshot routeKey="net-worth" fallbackLabel="net worth" /></Suspense>; }
+export default function Loading() { return <NetWorthCachedRouteFallback coldFallback={<ColdSnapshot />} />; }

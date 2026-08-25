@@ -1,5 +1,7 @@
-import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
+import { Suspense } from "react";
+import { RetirementCachedRouteFallback } from "@/components/loading/RetirementCachedRouteFallback";
+import { InstantBootSnapshot } from "@/components/performance/InstantBootSnapshot";
+import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 
-export default function RetirementLoading() {
-  return <InstantRouteLoading routeKey="retirement" label="retirement planning" />;
-}
+function ColdSnapshot() { return <Suspense fallback={<WealthRouteSkeleton label="retirement planning" />}><InstantBootSnapshot routeKey="retirement" fallbackLabel="retirement planning" /></Suspense>; }
+export default function Loading() { return <RetirementCachedRouteFallback coldFallback={<ColdSnapshot />} />; }

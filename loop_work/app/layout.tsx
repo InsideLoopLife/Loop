@@ -3,6 +3,7 @@ import "./globals.css";
 import { PageTour } from "@/components/PageTour";
 import { RouteFreshnessManager } from "@/components/cache/RouteFreshnessManager";
 import { RouteBootAutoPublisher } from "@/components/performance/RouteBootAutoPublisher";
+import { PersistentLoopShell } from "@/components/shell/PersistentLoopShell";
 
 export const metadata: Metadata = {
   title: "LOOP — Health, Wealth & Life, Connected",
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}<PageTour /><RouteFreshnessManager /><RouteBootAutoPublisher /></body>
+      <body><PersistentLoopShell>{children}</PersistentLoopShell><PageTour /><RouteFreshnessManager /><RouteBootAutoPublisher /></body>
     </html>
   );
 }

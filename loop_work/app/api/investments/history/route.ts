@@ -836,6 +836,15 @@ export async function GET(request: NextRequest) {
     | "market_performance_estimate"
     | "insufficient_portfolio_history" = "stored";
   let marketHistoryEvidence: MarketHistoryResult | null = null;
+  let snapshotEvidencePoints: Array<{
+    at: string;
+    price: number;
+    value: number;
+    coverage: number;
+    coveredHoldings: number;
+    expectedHoldings: number;
+    source: string;
+  }> = [];
 
   if (accountId || portfolio) {
     const holdingIds = currentHoldings.map((holding) => holding.id);
@@ -880,6 +889,15 @@ export async function GET(request: NextRequest) {
       currentValue,
     });
     quality = built.quality;
+    snapshotEvidencePoints = built.candidatePoints.map((point) => ({
+      at: point.at,
+      price: point.price,
+      value: point.value,
+      coverage: point.coverage,
+      coveredHoldings: point.coveredHoldings,
+      expectedHoldings: point.expectedHoldings,
+      source: point.source,
+    }));
     points = built.points.map((point) => ({
       at: point.at,
       label: labelFor(point.at, range),
@@ -1107,6 +1125,7 @@ export async function GET(request: NextRequest) {
     mode: isHoldingScope ? "holding" : portfolio ? "portfolio" : "account",
     currentValue,
     points,
+    snapshotEvidencePoints,
     entitlement,
     sourceMode,
     quality,

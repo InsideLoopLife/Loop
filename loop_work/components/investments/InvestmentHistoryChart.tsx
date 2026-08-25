@@ -11,7 +11,18 @@ type Point = {
   source?: string;
 };
 
+type SnapshotEvidencePoint = {
+  at: string;
+  price: number;
+  value: number;
+  coverage: number;
+  coveredHoldings: number;
+  expectedHoldings: number;
+  source?: string;
+};
+
 const EMPTY_POINTS: Point[] = [];
+const EMPTY_SNAPSHOT_POINTS: SnapshotEvidencePoint[] = [];
 
 type HistoryQuality = {
   reliable: boolean;
@@ -222,7 +233,14 @@ export function InvestmentHistoryChart({
   refreshMs,
   prefetchRanges = false,
 }: Props) {
-  type RangeEntry = { points: Point[]; quality: HistoryQuality | null; sourceMode: string; status: string; fetchedAt: number };
+  type RangeEntry = {
+    points: Point[];
+    snapshotPoints: SnapshotEvidencePoint[];
+    quality: HistoryQuality | null;
+    sourceMode: string;
+    status: string;
+    fetchedAt: number;
+  };
   // BUGFIX (the "flash to a different chart" complaint): previously this
   // component held ONE set of points/status for whichever range was
   // currently selected, and re-fetched from scratch on every single
@@ -286,6 +304,9 @@ export function InvestmentHistoryChart({
         const nextQuality = data.quality && typeof data.quality === "object" ? (data.quality as HistoryQuality) : null;
         cacheRef.current.set(key, {
           points: rows,
+          snapshotPoints: Array.isArray(data.snapshotEvidencePoints)
+            ? data.snapshotEvidencePoints
+            : [],
           quality: nextQuality,
           sourceMode: String(data.sourceMode || ""),
           status: rows.length ? "" : nextQuality?.note || "No reliable history yet",
@@ -298,6 +319,7 @@ export function InvestmentHistoryChart({
         if (cancelled) return;
         cacheRef.current.set(key, {
           points: existing?.points || [],
+          snapshotPoints: existing?.snapshotPoints || [],
           quality: existing?.quality || null,
           sourceMode: existing?.sourceMode || "",
           status: caught instanceof Error ? caught.message : "Could not load history",
@@ -339,6 +361,7 @@ export function InvestmentHistoryChart({
   const currentKey = historyCacheKey(range, holdingId, accountId);
   const active = renderedRange?.key === currentKey ? renderedRange.entry : null;
   const points = active?.points ?? EMPTY_POINTS;
+  const snapshotPoints = active?.snapshotPoints ?? EMPTY_SNAPSHOT_POINTS;
   const status = active ? active.status : "Loading history...";
   const quality = active?.quality || null;
   const sourceMode = active?.sourceMode || "";
@@ -353,6 +376,17 @@ export function InvestmentHistoryChart({
         )
         .filter((value) => Number.isFinite(value)),
     [points, mode],
+  );
+  const snapshotValues = useMemo(
+    () =>
+      snapshotPoints
+        .map((point) =>
+          mode === "price"
+            ? Number(point.price || 0)
+            : Number(point.value || 0),
+        )
+        .filter((value) => Number.isFinite(value) && value > 0),
+    [snapshotPoints, mode],
   );
   const { width, height, padX, padTop, padBottom } = dimensions(compact);
   const path = buildLinePath(values, width, height, padX, padTop, padBottom);
@@ -625,6 +659,42 @@ export function InvestmentHistoryChart({
               strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
             />
+            {!compact
+              ? snapshotPoints.map((snapshot, snapshotIndex) => {
+                  const snapshotValue = mode === "price"
+                    ? Number(snapshot.price || 0)
+                    : Number(snapshot.value || 0);
+                  if (!(snapshotValue > 0) || !values.length) return null;
+                  const nearestIndex = points.reduce((best, point, pointIndex) => {
+                    const target = Date.parse(snapshot.at);
+                    const bestDistance = Math.abs(Date.parse(points[best]?.at || "") - target);
+                    const distance = Math.abs(Date.parse(point.at) - target);
+                    return distance < bestDistance ? pointIndex : best;
+                  }, 0);
+                  const x = scaledPoint(
+                    values[Math.min(nearestIndex, values.length - 1)] || snapshotValue,
+                    Math.min(nearestIndex, values.length - 1),
+                    values, width, height, padX, padTop, padBottom,
+                  ).x;
+                  const y = scaledPoint(
+                    snapshotValue, 0, values, width, height, padX, padTop, padBottom,
+                  ).y;
+                  return (
+                    <circle
+                      key={`snapshot-${snapshot.at}-${snapshotIndex}`}
+                      cx={x}
+                      cy={y}
+                      r="5"
+                      fill="white"
+                      stroke="rgba(15,23,42,.72)"
+                      strokeWidth="3"
+                      vectorEffect="non-scaling-stroke"
+                    >
+                      <title>{`Saved LOOP snapshot · ${formatTooltipDate(snapshot.at)} · ${numberLabel(snapshotValue, mode)} · ${Math.round(snapshot.coverage * 100)}% holding coverage`}</title>
+                    </circle>
+                  );
+                })
+              : null}
             {hoverSvgPoint ? (
               <g>
                 <line
@@ -640,6 +710,45 @@ export function InvestmentHistoryChart({
               </g>
             ) : null}
           </svg>
+        ) : snapshotValues.length ? (
+          <div className="flex h-full flex-col">
+            <svg
+              viewBox={`0 0 ${width} ${height}`}
+              className="min-h-0 flex-1 w-full"
+              role="img"
+              aria-label={`${title} saved snapshot evidence`}
+              preserveAspectRatio="none"
+            >
+              {snapshotPoints.map((snapshot, index) => {
+                const snapshotValue = mode === "price"
+                  ? Number(snapshot.price || 0)
+                  : Number(snapshot.value || 0);
+                if (!(snapshotValue > 0)) return null;
+                const point = scaledPoint(
+                  snapshotValue, index, snapshotValues, width, height, padX, padTop, padBottom,
+                );
+                return (
+                  <circle
+                    key={`evidence-${snapshot.at}-${index}`}
+                    cx={point.x}
+                    cy={point.y}
+                    r={compact ? "5" : "7"}
+                    fill="white"
+                    stroke="rgba(15,23,42,.72)"
+                    strokeWidth={compact ? "3" : "4"}
+                    vectorEffect="non-scaling-stroke"
+                  >
+                    <title>{`Saved LOOP snapshot · ${formatTooltipDate(snapshot.at)} · ${numberLabel(snapshotValue, mode)} · ${Math.round(snapshot.coverage * 100)}% holding coverage`}</title>
+                  </circle>
+                );
+              })}
+            </svg>
+            {!compact ? (
+              <p className="pb-2 text-center text-xs font-bold text-slate-500">
+                {snapshotValues.length} real saved snapshot point{snapshotValues.length === 1 ? "" : "s"} · line held back until the account history is complete enough to connect safely
+              </p>
+            ) : null}
+          </div>
         ) : values.length === 1 ? (
           <div className="flex h-full items-center justify-center text-center text-xs font-black text-slate-400">
             1 snapshot · {numberLabel(latest, mode)}
@@ -704,6 +813,9 @@ export function InvestmentHistoryChart({
       {!compact && values.length >= 2 ? (
         <div className="mt-2 text-center text-[0.7rem] font-bold text-slate-400">
           {firstLabel} → {lastLabel}
+          {snapshotPoints.length
+            ? ` · ${snapshotPoints.length} saved LOOP snapshot point${snapshotPoints.length === 1 ? "" : "s"} shown as outlined dots`
+            : ""}
         </div>
       ) : null}
       {!compact && hoverPoint && hoverValue !== null ? (

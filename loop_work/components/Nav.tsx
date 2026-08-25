@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePersistentNavMounted } from "@/components/shell/PersistentNavContext";
 import {
   DEFAULT_USER_FEATURE_ACCESS,
   type UserFeatureAccess,
@@ -959,7 +960,10 @@ function NavInner() {
   );
 }
 
-export function Nav() {
+export function Nav({ persistent = false }: { persistent?: boolean } = {}) {
+  const persistentNavMounted = usePersistentNavMounted();
+  if (persistentNavMounted && !persistent) return null;
+
   return (
     <Suspense fallback={null}>
       <NavInner />

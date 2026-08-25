@@ -53,7 +53,10 @@ function hrefFor(
   if (section === "flow") return `/financial-flow${suffix}`;
   if (section === "income") return `/income${suffix}`;
   if (section === "spending") return `/spending${suffix}`;
-  return "/accounts";
+  const savingsQuery = new URLSearchParams();
+  savingsQuery.set("tab", "savings");
+  if (month) savingsQuery.set("month", month);
+  return `/financial-flow?${savingsQuery.toString()}`;
 }
 
 export function FinancialFlowWorkspaceNav({

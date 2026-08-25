@@ -1,5 +1,7 @@
-import { InstantRouteLoading } from "@/components/loading/InstantRouteLoading";
+import { Suspense } from "react";
+import { DashboardCachedRouteFallback } from "@/components/loading/DashboardCachedRouteFallback";
+import { InstantBootSnapshot } from "@/components/performance/InstantBootSnapshot";
+import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 
-export default function DashboardLoading() {
-  return <InstantRouteLoading routeKey="dashboard" label="dashboard" />;
-}
+function ColdSnapshot() { return <Suspense fallback={<WealthRouteSkeleton label="dashboard" />}><InstantBootSnapshot routeKey="dashboard" fallbackLabel="dashboard" /></Suspense>; }
+export default function Loading() { return <DashboardCachedRouteFallback coldFallback={<ColdSnapshot />} />; }
