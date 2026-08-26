@@ -8,7 +8,7 @@ import { PeriodToggle } from "./PeriodToggle";
 import { ChatMessage, type ChatMessageData } from "./ChatMessage";
 import { ChatComposer } from "./ChatComposer";
 import { UsageMeter, type ChatBudget } from "./UsageMeter";
-import type { BriefingCardKey } from "@/lib/briefing/chat-cards";
+import { isBriefingCardKey, type BriefingCardKey } from "@/lib/briefing/chat-cards";
 
 function id() {
   return Math.random().toString(36).slice(2);
@@ -40,6 +40,25 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => data?.budget && setBudget(data.budget))
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/briefing/chat")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const stored = Array.isArray(data?.messages) ? data.messages : [];
+        if (!stored.length) return;
+        const restored: ChatMessageData[] = stored
+          .filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+          .map((m: any) => ({ id: id(), role: m.role, content: m.content, card: isBriefingCardKey(m.card) ? m.card : null, typed: false }));
+        // Keep the live opener bubble, then continue with today's real history —
+        // this is what lets a link the assistant gave earlier stay usable: the
+        // conversation is still here after navigating back.
+        setMessages((prev) => [prev[0], ...restored]);
+      })
+      .catch(() => {});
+    // Only ever run once on mount — this hydrates from the day's saved
+    // session, it shouldn't re-run as local state changes afterwards.
   }, []);
 
   async function handleSend(text: string) {

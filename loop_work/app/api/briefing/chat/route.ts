@@ -6,6 +6,7 @@ import { featureEnabled, getEffectiveEntitlements } from "@/lib/tiers/entitlemen
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 import { BRIEFING_CARD_DESCRIPTIONS, BRIEFING_CARD_KEYS, isBriefingCardKey, type BriefingCardKey } from "@/lib/briefing/chat-cards";
+import { appendTodaysChatMessages, loadTodaysChatMessages } from "@/lib/briefing/chat-session";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +74,25 @@ function fallbackReply(message: string, briefing: FinancialBriefing): { reply: s
   return { reply: briefing.narrative[0] || `Your net worth is ${money(briefing.currentNetWorth)}.`, card: null };
 }
 
+// GET returns today's persisted conversation (UTC-day scoped) so the chat
+// shell can hydrate with continuity after navigation or a reload, instead
+// of always starting over.
+export async function GET() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
+  const entitlements = await getEffectiveEntitlements(user.id);
+  if (!featureEnabled(entitlements, "ai_financial_briefing")) {
+    return NextResponse.json({ error: "Not entitled" }, { status: 403 });
+  }
+
+  const messages = await loadTodaysChatMessages(supabase, user.id);
+  return NextResponse.json({ messages });
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient();
   const {
@@ -92,6 +112,17 @@ export async function POST(request: Request) {
     .slice(-MAX_HISTORY_TURNS) as ChatTurn[];
   if (!message) return NextResponse.json({ error: "Message is required" }, { status: 400 });
 
+  // Every branch below funnels through this so the day's conversation is
+  // persisted regardless of whether the reply came from the model or a
+  // fallback — a fallback answer is still a real exchange worth remembering.
+  async function respond(result: Omit<ChatReply, "budget">, budget: ChatBudget, card: BriefingCardKey | null) {
+    await appendTodaysChatMessages(supabase, user!.id, [
+      { role: "user", content: message },
+      { role: "assistant", content: result.reply, card },
+    ]);
+    return NextResponse.json({ ...result, budget } satisfies ChatReply);
+  }
+
   const context = await getActiveHouseholdContext(supabase, user);
   const briefing = await buildFinancialBriefing(supabase, user, visibleDataOrFilter(context));
   const fallback = fallbackReply(message, briefing);
@@ -102,10 +133,10 @@ export async function POST(request: Request) {
   const budget: ChatBudget = { usedToday: budgetCheck.usedToday, dailyLimit: budgetCheck.dailyLimit, tierKey: budgetCheck.tierKey };
 
   const secret = await getActiveIntegrationSecret(supabase, user.id, "openai");
-  if (!secret?.value) return NextResponse.json({ ...fallback, source: "fallback", budget } satisfies ChatReply);
+  if (!secret?.value) return respond({ ...fallback, source: "fallback" }, budget, fallback.card);
 
   if (!budgetCheck.allowed) {
-    return NextResponse.json({ ...fallback, source: "fallback", note: `${budgetCheck.reason} Resets at midnight.`, budget } satisfies ChatReply);
+    return respond({ ...fallback, source: "fallback", note: `${budgetCheck.reason} Resets at midnight.` }, budget, fallback.card);
   }
 
   try {
@@ -144,7 +175,7 @@ Rules:
       }),
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) return NextResponse.json({ ...fallback, source: "fallback", budget } satisfies ChatReply);
+    if (!response.ok) return respond({ ...fallback, source: "fallback" }, budget, fallback.card);
 
     const text = String(
       payload.output_text ||
@@ -157,8 +188,8 @@ Rules:
 
     await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budgetCheck.tierKey, routeKey: ROUTE_KEY, provider: "openai", model: process.env.LOOP_FINANCIAL_BRIEFING_CHAT_MODEL || "gpt-4.1-mini" });
 
-    return NextResponse.json({ reply, card, source: "ai", budget: { ...budget, usedToday: budget.usedToday + 1 } } satisfies ChatReply);
+    return respond({ reply, card, source: "ai" }, { ...budget, usedToday: budget.usedToday + 1 }, card);
   } catch {
-    return NextResponse.json({ ...fallback, source: "fallback", budget } satisfies ChatReply);
+    return respond({ ...fallback, source: "fallback" }, budget, fallback.card);
   }
 }
