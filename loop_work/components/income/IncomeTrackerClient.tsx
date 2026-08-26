@@ -865,6 +865,17 @@ export function IncomeTrackerClient({
   );
   const monthlyNet = filtered.reduce((sum, line) => sum + line.monthlyNet, 0);
   const keptPercent = monthlyGross > 0 ? (monthlyNet / monthlyGross) * 100 : 0;
+  const incomeTimeline = Array.from({ length: 6 }, (_, index) => {
+    const [year, monthNumber] = month.split("-").map(Number);
+    const date = new Date(year, monthNumber - 1 + index, 1);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const activePay = payEvents.filter((event) => { if (effectivePersonFilter !== "all" && event.person_id !== effectivePersonFilter) return false; return isActiveInMonth(event.effective_from, event.effective_until, monthKey); });
+    const maternityPeople = new Set(activePay.filter((event) => event.pay_kind === "maternity").map((event) => event.person_id || "household"));
+    const recurring = activePay.filter((event) => !(maternityPeople.has(event.person_id || "household") && event.pay_kind !== "maternity"));
+    const rows = recurring.map((event) => { const breakdown = getPayEventBreakdown(event, monthKey); return { id: event.id, label: event.pay_kind === "maternity" ? "Maternity pay" : event.label, amount: breakdown.monthlyNet }; });
+    return { key: monthKey, label: new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric" }).format(date), amount: rows.reduce((sum, row) => sum + row.amount, 0), rows };
+  });
+
   const currentPerson =
     effectivePersonFilter === "all"
       ? null
@@ -1225,6 +1236,16 @@ export function IncomeTrackerClient({
               and side income.
             </p>
           ) : null}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Income timeline" description="The next six months of recurring take-home income from the salary and maternity changes already recorded in LOOP.">
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+          {incomeTimeline.map((item, index) => { const previous = index > 0 ? incomeTimeline[index - 1] : null; const changed = previous && Math.abs(item.amount - previous.amount) > 0.5; return (
+            <article key={item.key} className={`rounded-3xl border p-4 ${changed ? "border-orange-200 bg-orange-50/70" : "border-slate-200 bg-slate-50"}`}>
+              <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">{item.label}</p><p className="mt-2 text-xl font-black text-slate-950">{formatMoney(item.amount)}</p><p className="mt-1 text-[10px] font-bold text-slate-500">{item.rows.length ? item.rows.map((row) => row.label).join(" + ") : "No recurring pay recorded"}</p>{changed ? <p className="mt-2 text-[10px] font-black text-orange-700">Income change</p> : null}
+            </article>
+          ); })}
         </div>
       </SectionCard>
 

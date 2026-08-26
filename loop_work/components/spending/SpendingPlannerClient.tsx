@@ -262,10 +262,12 @@ type ModalState =
 
 function QuickCategoryForm({
   categories,
+  categoryGroups,
   lineIds,
   onDone,
 }: {
   categories: SpendingCategory[];
+  categoryGroups: { id: string; name: string; icon?: string | null }[];
   lineIds: string[];
   onDone?: () => void;
 }) {
@@ -296,7 +298,7 @@ function QuickCategoryForm({
               <span className="grid h-10 w-10 place-items-center rounded-2xl bg-white text-lg shadow-sm">{category.category_icon || guessCategoryIcon(category.name)}</span>
               <span>
                 <span className="block text-sm font-black text-slate-950">{category.name}</span>
-                <span className="block text-xs font-bold capitalize text-slate-500">{category.type}</span>
+                <span className="block text-xs font-bold capitalize text-slate-500">{category.type}{category.group_id ? ` · ${categoryGroups.find((group) => group.id === category.group_id)?.name || "Grouped"}` : " · No group"}</span>
               </span>
             </button>
           );
@@ -305,7 +307,7 @@ function QuickCategoryForm({
       <input type="hidden" name="category_id" value={chosen} />
       <div className="flex flex-wrap gap-3">
         <button disabled={!chosen || lineIds.length === 0} className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">Apply category</button>
-        <span className="rounded-2xl bg-slate-50 px-4 py-3 text-xs font-bold text-slate-500">Need a new bucket? Add it from Categories, then use this quick picker.</span>
+        <a href="#spending-groups" className="rounded-2xl bg-slate-50 px-4 py-3 text-xs font-black text-slate-600 hover:bg-slate-100">Manage groups & categories here</a>
       </div>
     </form>
   );
@@ -1329,12 +1331,95 @@ function duplicateLabelsMatch(left: string, right: string) {
   return a.includes(b) || b.includes(a);
 }
 
+
+type SpendingQuickCapturePreview = {
+  label: string;
+  amount: number | null;
+  mode: AddMode;
+  recurrence: PlannedItem["recurrence"];
+  itemType: PlannedItem["item_type"];
+  categoryId: string | null;
+  categoryKey: string | null;
+  categoryLabel: string;
+  groupId: string | null;
+  groupLabel: string;
+  reason: string;
+};
+
+function quickCaptureAmount(value: string) {
+  const match = value.replace(/,/g, "").match(/(?:£\s*)?(\d+(?:\.\d{1,2})?)/);
+  return match ? Number(match[1]) : null;
+}
+
+function quickCaptureLabel(value: string) {
+  return value
+    .replace(/£\s*\d[\d,]*(?:\.\d{1,2})?/g, "")
+    .replace(/\b\d+(?:\.\d{1,2})?\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function inferSpendingQuickCapture(
+  value: string,
+  categories: SpendingCategory[],
+  categoryGroups: { id: string; name: string; icon?: string | null }[],
+): SpendingQuickCapturePreview {
+  const text = value.toLowerCase();
+  const label = quickCaptureLabel(value) || "New spending";
+  const amount = quickCaptureAmount(value);
+
+  const child = /(nursery|childcare|school club|after school|breakfast club|child cost|kids? club)/.test(text);
+  const recurring = /(monthly|every month|subscription|netflix|spotify|mortgage|rent|council tax|broadband|phone|insurance|energy|electric|gas|water)/.test(text);
+  const mode: AddMode = child ? "child_cost" : recurring ? "monthly" : "one_off";
+  const recurrence: PlannedItem["recurrence"] = recurring ? "monthly" : "one_off";
+
+  const standard = standardCategoryForLabel(label);
+  const category =
+    categories.find((row) => row.standard_category_key === standard.key) ||
+    categories.find((row) => row.name.toLowerCase() === standard.label.toLowerCase()) ||
+    null;
+  const group = category?.group_id
+    ? categoryGroups.find((row) => row.id === category.group_id) || null
+    : null;
+
+  let itemType: PlannedItem["item_type"] = recurring ? "bill" : "one_off";
+  if (/(netflix|spotify|subscription|prime|disney)/.test(text)) itemType = "subscription";
+  else if (/(mortgage|rent)/.test(text)) itemType = "mortgage_rent";
+  else if (/(energy|electric|gas|water|council tax|utility)/.test(text)) itemType = "utilities";
+  else if (/(nursery|childcare)/.test(text)) itemType = "childcare";
+  else if (/(tesco|aldi|sainsbury|asda|morrisons|food|grocery)/.test(text)) itemType = "grocery";
+
+  const categoryLabel = category?.name || standard.label || "Uncategorised";
+  const groupLabel = group?.name || "No group yet";
+  const reason = child
+    ? `LOOP recognised this as a child/family cost from “${label}”.`
+    : recurring
+      ? `LOOP recognised a recurring bill/subscription pattern from “${label}”.`
+      : `No recurring wording was detected, so LOOP is treating “${label}” as a one-off spend.`;
+
+  return {
+    label,
+    amount,
+    mode,
+    recurrence,
+    itemType,
+    categoryId: category?.id || null,
+    categoryKey: category?.standard_category_key || standard.key || null,
+    categoryLabel,
+    groupId: group?.id || null,
+    groupLabel,
+    reason,
+  };
+}
+
 export function SpendingPlannerClient({ people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], initialAddMode, initialAddTemplate }: Props) {
   const initialMonthValue = initialMonth && /^\d{4}-\d{2}$/.test(initialMonth) ? initialMonth : currentMonth();
   const [selectedPersonId, setSelectedPersonId] = useState(initialPersonId || "");
   const [directionFilter, setDirectionFilter] = useState<"all" | "income" | "outgoing">(initialDirectionFilter);
   const [year, setYear] = useState(Number(initialMonthValue.slice(0, 4)));
   const [selectedMonth, setSelectedMonth] = useState(initialMonthValue);
+  const [quickCapture, setQuickCapture] = useState("");
+  const [quickModeOverride, setQuickModeOverride] = useState<AddMode | null>(null);
   const [modal, setModal] = useState<ModalState>(initialAddMode ? { type: "add", mode: initialAddMode, template: initialAddTemplate } : null);
   const [editingEnabled, setEditingEnabled] = useState(false);
   const [selectedLineIds, setSelectedLineIds] = useState<string[]>([]);
@@ -1538,6 +1623,12 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
 
   const accountHolder = people.find((person) => person.relationship === "self") || people.find((person) => person.relationship !== "child") || null;
   const reportingMonthLabel = formatMonthLabel(selectedMonth);
+  const quickPreview = inferSpendingQuickCapture(quickCapture, categories, categoryGroups);
+  const effectiveQuickMode = quickModeOverride || quickPreview.mode;
+  const quickGroupCounts = categoryGroups.map((group) => ({
+    ...group,
+    count: categories.filter((category) => category.group_id === group.id).length,
+  }));
   const adults = people.filter((person) => person.relationship !== "child");
   const suggestedCategoryId = (label: string, itemType?: string | null) => {
     const suggestion = standardCategoryForLabel(`${label} ${String(itemType || "").replaceAll("_", " ")}`);
@@ -1611,6 +1702,106 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
         </div>
         <a href="/financial-flow?tab=spending" className="inline-flex shrink-0 items-center gap-1.5 rounded-[7px] bg-slate-950 px-4 py-2 text-sm font-black text-white hover:bg-slate-800">← Back to Flow</a>
       </div>
+
+      <section className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Quick add</p>
+            <h2 className="mt-1 text-lg font-black text-slate-950">Add spending in one line</h2>
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              Try “Netflix £18”, “Tesco £95” or “Nursery £336”. LOOP pre-fills the existing form; nothing saves until you confirm it.
+            </p>
+          </div>
+          <a href="#spending-groups" className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-200">
+            Groups & categories
+          </a>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <input
+            value={quickCapture}
+            onChange={(event) => {
+              setQuickCapture(event.target.value);
+              setQuickModeOverride(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || !quickCapture.trim()) return;
+              event.preventDefault();
+              openAdd(effectiveQuickMode, {
+                label: quickPreview.label,
+                amount: quickPreview.amount ?? undefined,
+                direction: "outgoing",
+                itemType: quickPreview.itemType,
+                recurrence: effectiveQuickMode === "monthly" ? "monthly" : "one_off",
+                categoryKey: quickPreview.categoryKey || undefined,
+              });
+            }}
+            placeholder='e.g. "Netflix £18"'
+            className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-emerald-300 focus:bg-white"
+          />
+          <button
+            type="button"
+            disabled={!quickCapture.trim()}
+            onClick={() => openAdd(effectiveQuickMode, {
+              label: quickPreview.label,
+              amount: quickPreview.amount ?? undefined,
+              direction: "outgoing",
+              itemType: quickPreview.itemType,
+              recurrence: effectiveQuickMode === "monthly" ? "monthly" : "one_off",
+              categoryKey: quickPreview.categoryKey || undefined,
+            })}
+            className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:bg-slate-300"
+          >
+            Add
+          </button>
+        </div>
+
+        {quickCapture.trim() ? (
+          <div className="mt-3">
+            <div className="flex flex-wrap gap-2">
+              {quickPreview.amount != null ? (
+                <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-700">
+                  £{quickPreview.amount.toLocaleString("en-GB", { maximumFractionDigits: 2 })}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setQuickModeOverride(effectiveQuickMode === "monthly" ? "one_off" : "monthly")}
+                className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-800"
+                title="Click to switch between regular and one-off"
+              >
+                {effectiveQuickMode === "monthly" ? "Monthly" : effectiveQuickMode === "child_cost" ? "Child cost" : "One-off"}
+              </button>
+              <a href="#spending-groups" className="rounded-full bg-violet-50 px-3 py-1.5 text-xs font-black text-violet-800">
+                {quickPreview.categoryLabel}
+              </a>
+              <a href="#spending-groups" className="rounded-full bg-sky-50 px-3 py-1.5 text-xs font-black text-sky-800">
+                {quickPreview.groupLabel}
+              </a>
+            </div>
+            <p className="mt-2 text-xs font-semibold text-slate-500">
+              <span className="font-black text-slate-700">Why?</span> {quickPreview.reason} Category suggestion: {quickPreview.categoryLabel}{quickPreview.groupLabel !== "No group yet" ? ` in ${quickPreview.groupLabel}` : ""}.
+            </p>
+          </div>
+        ) : null}
+
+        {quickGroupCounts.length ? (
+          <div className="mt-4 border-t border-slate-100 pt-3">
+            <p className="mb-2 text-[10px] font-black uppercase tracking-wide text-slate-400">Jump to a group</p>
+            <div className="flex flex-wrap gap-2">
+              {quickGroupCounts.map((group) => (
+                <a
+                  key={group.id}
+                  href={`#spending-group-${group.id}`}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-600 hover:border-slate-300"
+                >
+                  {group.icon ? `${group.icon} ` : ""}{group.name} · {group.count}
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       <section className="grid gap-4 md:grid-cols-4">
         <StatCard title={`${formatMonthLabel(selectedSummary.month)} income`} value={money(selectedSummary.income)} helper={currentPersonLabel} />
@@ -1988,7 +2179,7 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
       </SectionCard>
 
 
-      <SectionCard collapsible defaultOpen={false} title="Budget categories" description={`Actual household activity for ${reportingMonthLabel}, organised by the groups set up on "Manage categories and groups". Shared costs are kept separate from each adult and included once in the household total.`}>
+      <SectionCard id="spending-groups" collapsible defaultOpen={false} title="Groups & categories" description={`Where spending lives in ${reportingMonthLabel}. Use the group chips above to jump here; routine re-categorising can be done directly from the spending line.`}>
         {(() => {
           const groupsById = new Map(categoryGroups.map((group) => [group.id, group]));
           const byGroup = new Map<string, SpendingCategory[]>();
@@ -2038,7 +2229,7 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
                 const group = key === "__ungrouped" ? null : groupsById.get(key);
                 const groupCategories = byGroup.get(key) || [];
                 return (
-                  <div key={key}>
+                  <div key={key} id={group ? `spending-group-${group.id}` : "spending-group-ungrouped"} className="scroll-mt-28">
                     <p className="mb-3 text-xs font-black uppercase tracking-wide text-slate-400">{group ? `${group.icon ? `${group.icon} ` : ""}${group.name}` : "Ungrouped"}</p>
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                       {groupCategories.map(renderCategoryCard)}
@@ -2092,7 +2283,7 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
 
       {modal?.type === "quick_category" ? (
         <Modal title={`Quick categorise${modal.title ? ` · ${modal.title}` : ""}`} onClose={() => setModal(null)}>
-          <QuickCategoryForm categories={categories} lineIds={modal.lineIds} onDone={() => { setSelectedLineIds([]); setModal(null); }} />
+          <QuickCategoryForm categories={categories} categoryGroups={categoryGroups} lineIds={modal.lineIds} onDone={() => { setSelectedLineIds([]); setModal(null); }} />
         </Modal>
       ) : null}
 

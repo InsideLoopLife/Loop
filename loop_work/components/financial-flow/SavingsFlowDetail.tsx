@@ -10,6 +10,7 @@ import { SavingsGoalVisual } from "@/components/savings/SavingsGoalVisual";
 import { SavingsMarketHealthDeferred } from "@/components/financial-flow/SavingsMarketHealthDeferred";
 import { useEffect } from "react";
 import { useFinancialFlowRetained } from "@/components/financial-flow/FinancialFlowRetainedStore";
+import { FinancialFlowReasonCard } from "@/components/financial-flow/FinancialFlowReasonCard";
 
 export type SavingsFlowAccountRow = {
   id: string;
@@ -103,7 +104,7 @@ function CalendarBars({ row, active = false }: { row: SavingsFlowYearMonth; acti
         <p className="text-xs font-black text-slate-950">{shortMonth(row.key)}</p>
         <p className="text-[10px] font-black text-slate-500">{formatMoney(row.closingBalance)}</p>
       </div>
-      <div className="mt-3 grid gap-1" title={`${formatMoney(row.savedIn)} saved (recorded) · ${formatMoney(row.withdrawn)} withdrawn (recorded) · ${formatMoney(row.interestConfirmed)} interest recorded/accrued · ${formatMoney(row.interestEstimated)} interest estimated`}>
+      <div className="mt-3 grid gap-1" title={`${formatMoney(row.savedIn)} saved (recorded) Â· ${formatMoney(row.withdrawn)} withdrawn (recorded) Â· ${formatMoney(row.interestConfirmed)} interest recorded/accrued Â· ${formatMoney(row.interestEstimated)} interest estimated`}>
         <div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-400" style={{ width: `${clamp(row.savedIn / max * 100)}%` }} /></div>
         <div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-orange-400" style={{ width: `${clamp(row.withdrawn / max * 100)}%` }} /></div>
         <div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-sky-400" style={{ width: `${clamp(interest / max * 100)}%` }} /></div>
@@ -154,6 +155,27 @@ export function SavingsFlowDetail({
     { name: "Unassigned savings", value: unallocated, colour: "#10b981" },
   ].filter((row) => row.value > 0.005), [earmarkedToPots, totalSavings, unallocated]);
   const totalInterest = providerConfirmedInterest + accruedThroughYesterday + estimatedInterest;
+  const topOpportunity = [...accounts].sort((a, b) => b.annualOpportunity - a.annualOpportunity)[0] || null;
+  const accountsWithOpportunity = accounts.filter((account) => account.annualOpportunity > 0.5);
+  const reasoningLines = [
+    {
+      label: "Savings rate",
+      value: `${Math.round(scopeSavingsPercent)}%`,
+      explanation: `This is the share of ${scopeSavingsLabel} currently assigned to tracked savings in Financial Flow.`,
+    },
+    {
+      label: "Interest this month",
+      value: formatMoney(totalInterest),
+      explanation: `${formatMoney(providerConfirmedInterest)} paid/confirmed + ${formatMoney(accruedThroughYesterday)} accrued estimate + ${formatMoney(estimatedInterest)} today estimate.`,
+    },
+    {
+      label: "Rate opportunity",
+      value: annualOpportunity > 0.5 ? `~${formatMoney(annualOpportunity)}/yr` : "No material gap found",
+      explanation: topOpportunity && topOpportunity.annualOpportunity > 0.5
+        ? `${topOpportunity.name} currently contributes the largest indicative gap. LOOP compares eligible balance and current rate with broadly compatible logged deals.`
+        : "LOOP has not found a material broadly compatible rate gap in the currently checked catalogue.",
+    },
+  ];
 
   useEffect(() => {
     rememberSavings({
@@ -201,6 +223,21 @@ export function SavingsFlowDetail({
   return (
     <div className="space-y-6">
       <SavingsMarketHealthDeferred scopePersonIds={scopePersonIds} />
+      <FinancialFlowReasonCard
+        title={annualOpportunity > 0.5 ? "There may be a savings-rate improvement available" : "How LOOP is reading your savings"}
+        summary={annualOpportunity > 0.5
+          ? `LOOP currently estimates around ${formatMoney(annualOpportunity)} a year of potential extra interest across ${accountsWithOpportunity.length || 1} tracked account${accountsWithOpportunity.length === 1 ? "" : "s"}. It is an indication, not an automatic recommendation to move money.`
+          : "These figures combine recorded balances, your current rates and clearly-labelled estimates. The reasoning stays visible so the score is not a black box."}
+        lines={reasoningLines}
+        actionHref="/accounts?tab=accounts"
+        actionLabel="Manage savings"
+      />
+
+      <div className="flex flex-wrap gap-2">
+        <Link href="/accounts?tab=accounts" className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:border-slate-300">Accounts</Link>
+        <Link href="/accounts?tab=pots" className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:border-slate-300">Pots & goals</Link>
+        <button type="button" onClick={() => setCalendarOpen(true)} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:border-slate-300">Savings activity</button>
+      </div>
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.2fr_1fr_1.25fr_auto]">
         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">Savings % of {scopeSavingsLabel}</p>
@@ -221,7 +258,7 @@ export function SavingsFlowDetail({
       <section className="grid gap-5 xl:grid-cols-[0.75fr_1.05fr_1.45fr]">
         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
           <h2 className="text-xl font-black text-slate-950">Savings allocation</h2>
-          <p className="mt-1 text-sm font-semibold text-slate-500">What is earmarked to goals versus still unassigned.</p>
+          <p className="mt-1 text-sm font-semibold text-slate-500">What is already attached to a goal versus money that is still flexible. This is allocation, not a recommendation to move cash.</p>
           <SavingsAllocationDonut earmarked={earmarkedToPots} unassigned={unallocated} total={totalSavings} />
         </article>
 
@@ -231,7 +268,7 @@ export function SavingsFlowDetail({
         </article>
 
         <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-black text-slate-950">Lines in this month</h2><p className="mt-1 text-sm font-semibold text-slate-500">This month / total balance, rate, maximised score and end date.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">{monthKey}</span></div>
+          <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-black text-slate-950">Savings accounts</h2><p className="mt-1 text-sm font-semibold text-slate-500">Balance, this month&apos;s saving and current rate. Scores are supporting evidence, not the primary thing you need to decode.</p></div><Link href="/accounts?tab=accounts" className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">Manage</Link></div>
 
           {/* mobile: cards, no horizontal scroll needed to read a rate or score */}
           <div className="mt-4 space-y-2.5 md:hidden">
@@ -242,7 +279,7 @@ export function SavingsFlowDetail({
                     <FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-9 w-9 rounded-xl" />
                     <div>
                       <p className="font-black text-slate-950">{account.name}</p>
-                      <p className="text-xs font-bold text-slate-400">{account.provider}{account.endDate ? ` · ends ${account.endDate}` : ""}</p>
+                      <p className="text-xs font-bold text-slate-400">{account.provider}{account.endDate ? ` Â· ends ${account.endDate}` : ""}</p>
                     </div>
                   </div>
                   <span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore < 0 ? "Checking" : account.maximisedScore}</span>
@@ -262,7 +299,7 @@ export function SavingsFlowDetail({
           <div className="mt-4 hidden overflow-x-auto md:block">
             <table className="w-full min-w-[700px] text-left text-sm">
               <thead><tr className="border-b border-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-400"><th className="pb-3">Account</th><th className="pb-3">This month / total</th><th className="pb-3">Interest rate</th><th className="pb-3">Max score</th><th className="pb-3">End date</th></tr></thead>
-              <tbody>{accounts.map((account) => <tr key={account.id} className="border-b border-slate-50"><td className="py-3"><div className="flex items-center gap-3"><FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-9 w-9 rounded-xl" /><div><p className="font-black text-slate-950">{account.name}</p><p className="text-xs font-bold text-slate-400">{account.provider}</p></div></div></td><td className="py-3 font-black text-slate-950">{formatMoney(account.savedThisMonth)} / {formatMoney(account.balance)}</td><td className="py-3 font-black text-slate-950">{account.interestRate.toFixed(2)}% AER</td><td className="py-3"><span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`rounded-full px-3 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore < 0 ? "Checking" : account.maximisedScore}</span></td><td className="py-3 font-bold text-slate-500">{account.endDate || "—"}</td></tr>)}</tbody>
+              <tbody>{accounts.map((account) => <tr key={account.id} className="border-b border-slate-50"><td className="py-3"><div className="flex items-center gap-3"><FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-9 w-9 rounded-xl" /><div><p className="font-black text-slate-950">{account.name}</p><p className="text-xs font-bold text-slate-400">{account.provider}</p></div></div></td><td className="py-3 font-black text-slate-950">{formatMoney(account.savedThisMonth)} / {formatMoney(account.balance)}</td><td className="py-3 font-black text-slate-950">{account.interestRate.toFixed(2)}% AER</td><td className="py-3"><span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`rounded-full px-3 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore < 0 ? "Checking" : account.maximisedScore}</span></td><td className="py-3 font-bold text-slate-500">{account.endDate || "â€”"}</td></tr>)}</tbody>
             </table>
           </div>
           {!accounts.length ? <p className="mt-4 rounded-2xl border border-dashed border-slate-200 p-5 text-center text-sm font-bold text-slate-400">No tracked savings accounts in this scope.</p> : null}
@@ -282,7 +319,7 @@ export function SavingsFlowDetail({
         <article className="rounded-[2rem] border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-emerald-50 p-5 shadow-sm"><p className="text-xs font-black uppercase tracking-[0.16em] text-blue-700">Current month</p><h2 className="mt-2 text-2xl font-black text-slate-950">{currentMonth ? longMonth(currentMonth.key) : longMonth(monthKey)}</h2><div className="mt-4 space-y-3 text-sm font-bold"><div className="flex justify-between"><span className="text-slate-500">Saved in</span><span className="text-emerald-700">{formatMoney(currentMonth?.savedIn || 0)}</span></div><div className="flex justify-between"><span className="text-slate-500">Withdrawn</span><span className="text-orange-700">{formatMoney(currentMonth?.withdrawn || 0)}</span></div><div className="flex justify-between"><span className="text-slate-500">Interest</span><span className="text-sky-700">{formatMoney((currentMonth?.interestConfirmed || 0) + (currentMonth?.interestEstimated || 0))}</span></div><div className="flex justify-between border-t border-slate-200 pt-3"><span className="text-slate-500">Closing balance</span><span>{formatMoney(currentMonth?.closingBalance || 0)}</span></div></div></article>
       </section>
 
-      {calendarOpen ? <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-label="Savings year calendar" className="w-full max-w-5xl rounded-[2rem] bg-white p-6 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Financial Flow · Savings</p><h2 className="mt-1 text-2xl font-black text-slate-950">Savings year calendar</h2></div><button type="button" onClick={() => setCalendarOpen(false)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-700"><X className="h-5 w-5" /></button></div><div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{yearMonths.map((row) => <CalendarBars key={row.key} row={row} active={row.key === monthKey} />)}</div><div className="mt-5 flex flex-wrap gap-4 text-xs font-black text-slate-500"><span className="inline-flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-emerald-400" />Saved in</span><span className="inline-flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-orange-400" />Withdrawn</span><span className="inline-flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-sky-400" />Interest</span></div></section></div> : null}
+      {calendarOpen ? <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-label="Savings year calendar" className="w-full max-w-5xl rounded-[2rem] bg-white p-6 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Financial Flow Â· Savings</p><h2 className="mt-1 text-2xl font-black text-slate-950">Savings year calendar</h2></div><button type="button" onClick={() => setCalendarOpen(false)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-700"><X className="h-5 w-5" /></button></div><div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{yearMonths.map((row) => <CalendarBars key={row.key} row={row} active={row.key === monthKey} />)}</div><div className="mt-5 flex flex-wrap gap-4 text-xs font-black text-slate-500"><span className="inline-flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-emerald-400" />Saved in</span><span className="inline-flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-orange-400" />Withdrawn</span><span className="inline-flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-sky-400" />Interest</span></div></section></div> : null}
 
       {contextOpen ? <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-label="Add more savings context" className="w-full max-w-2xl rounded-[2rem] bg-white p-6 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">More context</p><h2 className="mt-1 text-2xl font-black text-slate-950">Make this savings view smarter</h2><p className="mt-2 text-sm font-semibold text-slate-500">Add the missing account, movement, goal or bank relationship behind the numbers.</p></div><button type="button" onClick={() => setContextOpen(false)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-700"><X className="h-5 w-5" /></button></div><div className="mt-5 grid gap-3 sm:grid-cols-2"><Link href="/accounts?tab=add" className="rounded-3xl border border-slate-200 p-5 font-black text-slate-950 hover:bg-slate-50">Add a savings account<p className="mt-1 text-xs font-semibold text-slate-500">Track balance, rate and ownership.</p></Link><Link href="/accounts?tab=accounts" className="rounded-3xl border border-slate-200 p-5 font-black text-slate-950 hover:bg-slate-50">Log a deposit or withdrawal<p className="mt-1 text-xs font-semibold text-slate-500">Add a dated ledger movement.</p></Link><Link href="/accounts?tab=pots" className="rounded-3xl border border-slate-200 p-5 font-black text-slate-950 hover:bg-slate-50">Create or fund a pot<p className="mt-1 text-xs font-semibold text-slate-500">Turn spare cash into a goal.</p></Link><Link href="/account?section=wealth" className="rounded-3xl border border-slate-200 p-5 font-black text-slate-950 hover:bg-slate-50">Add a bank relationship<p className="mt-1 text-xs font-semibold text-slate-500">Improve existing-customer eligibility checks.</p></Link></div></section></div> : null}
     </div>

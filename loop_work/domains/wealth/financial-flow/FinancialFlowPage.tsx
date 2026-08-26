@@ -41,6 +41,7 @@ import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 import { FinancialFlowWorkspaceNav } from "@/components/financial-flow/FinancialFlowWorkspaceNav";
 import { RouteBootSnapshotPublisher } from "@/components/performance/RouteBootSnapshotPublisher";
 import { FinancialFlowRetainedOverviewBridge } from "@/components/financial-flow/FinancialFlowRetainedOverviewBridge";
+import { IncomeFlowScopeView, type IncomeFlowScope } from "@/components/financial-flow/IncomeFlowScopeView";
 
 type TabKey = "flow" | "income" | "spending" | "savings";
 type Tone = "orange" | "green" | "blue" | "slate";
@@ -955,11 +956,11 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
   const categoryById = new Map((categoriesResult.data || []).map((category) => [category.id, category]));
   const groupById = new Map((categoryGroupsResult.data || []).map((group) => [group.id, group]));
 
-  function buildModel(monthKey: string, scoped = true): MonthModel {
+  function buildModel(monthKey: string, scoped = true, overrideScopeIds?: string[]): MonthModel {
     const parsed = parseMonth(monthKey);
     const rangeStart = iso(parsed.start);
     const rangeEnd = iso(parsed.end);
-    const activeScope = scoped ? scopeIds : [];
+    const activeScope = overrideScopeIds ?? (scoped ? scopeIds : []);
 
     const activePay = (payResult.data || []).filter((event) => personOwned(event, activeScope) && isActiveInMonth(event.effective_from, event.effective_until, rangeStart, rangeEnd));
     const maternityPeople = new Set(activePay.filter(isMaternityPay).map((event) => event.person_id || "household"));
@@ -1089,6 +1090,12 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
 
   const model = buildModel(month.key, true);
   const savingsRate = model.totalIncome > 0 ? (model.savingsTotal / model.totalIncome) * 100 : 0;
+  const incomeScopeViews: IncomeFlowScope[] = activeTab === "income"
+    ? [{ key: "all", label: "Whole household", ids: [] as string[] }, ...people.map((person) => ({ key: person.id, label: person.name, ids: [person.id] }))].map((scope) => {
+        const scopedModel = scope.key === "all" ? buildModel(month.key, true, []) : buildModel(month.key, true, scope.ids);
+        return { key: scope.key, label: scope.label, totalIncome: scopedModel.totalIncome, committedSpending: scopedModel.committedSpending, savingsTotal: scopedModel.savingsTotal, leftoverCash: scopedModel.leftoverCash, savingsRate: scopedModel.totalIncome > 0 ? scopedModel.savingsTotal / scopedModel.totalIncome * 100 : 0, lines: scopedModel.incomeLines.map((line) => ({ key: line.key, label: line.label, amount: line.amount, kind: line.key.startsWith("pay-") ? "direct" as const : "other" as const })) };
+      }) : [];
+  const initialIncomeScopeKey = scopeIds.length === 1 ? scopeIds[0] : "all";
   const hasFlowData = model.totalIncome > 0 || model.committedSpending > 0 || model.savingsTotal > 0 || (plannedResult.data || []).length > 0 || (accountsResult.data || []).length > 0 || (potsResult.data || []).length > 0;
   const yearMonths = activeTab === "flow"
     ? Array.from({ length: 12 }, (_, index) => `${month.key.slice(0, 4)}-${String(index + 1).padStart(2, "0")}`).map((key) => buildModel(key, false))
@@ -1273,7 +1280,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
 
         {!hasFlowData ? <PageLandingExperience kind="financial-flow" /> : null}
 
-        <ScopeSelector people={people} activeTab={activeTab} month={month.key} scopeIds={scopeIds} />
+        {activeTab === "income" ? null : <div className="my-2 py-2"><ScopeSelector people={people} activeTab={activeTab} month={month.key} scopeIds={scopeIds} /></div>}
 
         {activeTab === "savings" ? (
           <SavingsFlowDetail
@@ -1296,6 +1303,8 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
             annualOpportunity={flowAccountRows.reduce((sum, account) => sum + account.annualOpportunity, 0)}
             scopePersonIds={scopeIds}
           />
+        ) : activeTab === "income" ? (
+          <IncomeFlowScopeView month={month.key} people={people.map((person) => ({ id: person.id, name: person.name, avatarUrl: person.avatar_url }))} scopes={incomeScopeViews} initialScopeKey={initialIncomeScopeKey} />
         ) : (
           <>
             <section className={`grid gap-4 md:grid-cols-4 ${activeTab === "spending" ? "xl:grid-cols-5" : ""}`}>
@@ -1313,7 +1322,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
 
             {activeTab === "flow" ? <MainFlowDiagram model={model} people={people} /> : <DetailPanel activeTab={activeTab} month={month.key} incomeLines={model.incomeLines} spendRows={model.spendRows} savingsRows={model.savingsRows.length ? model.savingsRows : [{ key: "savings-plan", label: "Savings plan", amount: 0, icon: PiggyBank, tone: "green" }]} />}
 
-            <MoneyFlowCalendar months={yearMonths} selectedMonth={month.key} activeTab={activeTab} scopeIds={scopeIds} />
+            {yearMonths.length ? <MoneyFlowCalendar months={yearMonths} selectedMonth={month.key} activeTab={activeTab} scopeIds={scopeIds} /> : null}
           </>
         )}
       </main>
