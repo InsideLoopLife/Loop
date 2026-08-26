@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { useEffect, useMemo, useState, useTransition, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import Link from "next/link";
 import { NurseryCostForm } from "@/components/household/NurseryCostForm";
 import { ChildCostWizard } from "@/components/household/ChildCostWizard";
@@ -27,6 +27,8 @@ import {
   addSpendingEntry,
   deletePlannedItem,
   deleteSpendingCategory,
+  deleteSpendingCategoriesBulk,
+  deleteFinancialFlowLinesBulk,
   deleteSpendingEntry,
   dismissRegularPaymentCandidate,
   importBankCsv,
@@ -1418,6 +1420,10 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
   const [directionFilter, setDirectionFilter] = useState<"all" | "income" | "outgoing">(initialDirectionFilter);
   const [year, setYear] = useState(Number(initialMonthValue.slice(0, 4)));
   const [selectedMonth, setSelectedMonth] = useState(initialMonthValue);
+  const [optimisticDeletedLineIds, setOptimisticDeletedLineIds] = useState<string[]>([]);
+  const [optimisticDeletedCategoryIds, setOptimisticDeletedCategoryIds] = useState<string[]>([]);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [deletePending, startDeleteTransition] = useTransition();
   const [quickCapture, setQuickCapture] = useState("");
   const [quickModeOverride, setQuickModeOverride] = useState<AddMode | null>(null);
   const [modal, setModal] = useState<ModalState>(initialAddMode ? { type: "add", mode: initialAddMode, template: initialAddTemplate } : null);
@@ -1607,6 +1613,27 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
     .filter((row) => row.days <= 180)
     .sort((a, b) => a.days - b.days);
 
+
+  function deleteLinesOptimistically(lineIds: string[]) {
+    const ids = Array.from(new Set(lineIds.filter(Boolean)));
+    if (!ids.length || !confirmDelete(`Delete ${ids.length} selected item${ids.length === 1 ? "" : "s"}?`)) return;
+    setOptimisticDeletedLineIds((current) => Array.from(new Set([...current, ...ids])));
+    setSelectedLineIds((current) => current.filter((id) => !ids.includes(id)));
+    startDeleteTransition(async () => {
+      try { await deleteFinancialFlowLinesBulk(ids); }
+      catch (error) { setOptimisticDeletedLineIds((current) => current.filter((id) => !ids.includes(id))); console.error(error); }
+    });
+  }
+  function deleteCategoriesOptimistically(ids: string[]) {
+    const clean = Array.from(new Set(ids.filter(Boolean)));
+    if (!clean.length || !confirmDelete(`Delete ${clean.length} categor${clean.length === 1 ? "y" : "ies"}?`)) return;
+    setOptimisticDeletedCategoryIds((current) => Array.from(new Set([...current, ...clean])));
+    setSelectedCategoryIds((current) => current.filter((id) => !clean.includes(id)));
+    startDeleteTransition(async () => {
+      try { await deleteSpendingCategoriesBulk(clean); }
+      catch (error) { setOptimisticDeletedCategoryIds((current) => current.filter((id) => !clean.includes(id))); console.error(error); }
+    });
+  }
 
   function openAdd(mode: AddMode, template?: SimpleFlowTemplate) {
     setModal({ type: "add", mode, template });
@@ -1927,6 +1954,7 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
                 <button type="submit" disabled={selectedLineIds.length === 0} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300">
                   Apply to {selectedLineIds.length || 0}
                 </button>
+                <button type="button" disabled={!selectedLineIds.length || deletePending} onClick={() => deleteLinesOptimistically(selectedLineIds)} className="rounded-full bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-40">Delete selected</button>
                 <button type="button" onClick={() => setSelectedLineIds([])} className="rounded-full bg-slate-100 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-200">Clear</button>
               </div>
             </div>
@@ -1938,7 +1966,7 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
             const isSelected = selectableId ? selectedLineIds.includes(selectableId) : false;
             const avatarUrl = personAvatarUrl(peopleById, item.personId);
             return (
-              <div key={item.id} title={("lifecycleHint" in item && item.lifecycleHint) ? item.lifecycleHint : undefined} className="group/line relative min-h-[6.25rem] rounded-2xl border border-slate-200 bg-white p-4">
+              <div key={item.id} title={("lifecycleHint" in item && item.lifecycleHint) ? item.lifecycleHint : undefined} className={`${selectableId && optimisticDeletedLineIds.includes(selectableId) ? "hidden" : ""} group/line relative min-h-[6.25rem] rounded-2xl border border-slate-200 bg-white p-4`}>
                 <div className="flex min-h-[4.25rem] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
                     {editingEnabled && selectableId ? (
@@ -1994,17 +2022,11 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
                     {editingEnabled && "item" in item && item.item ? (
                       <>
                         <button type="button" onClick={() => setModal({ type: "edit_planned", item: item.item })} className="text-sm font-bold text-slate-700 hover:text-slate-950">Edit</button>
-                        <form action={deletePlannedItem} onSubmit={(event) => { if (!confirmDelete(`Delete ${item.title}?`)) event.preventDefault(); }}>
-                          <input type="hidden" name="id" value={item.item.id} />
-                          <button className="text-sm font-medium text-red-600">Delete</button>
-                        </form>
+                        <button type="button" disabled={deletePending} onClick={() => deleteLinesOptimistically([`planned:${item.item.id}`])} className="text-sm font-medium text-red-600 disabled:opacity-40">Delete</button>
                       </>
                     ) : null}
                     {editingEnabled && "entry" in item && item.entry ? (
-                      <form action={deleteSpendingEntry} onSubmit={(event) => { if (!confirmDelete(`Delete ${item.title}?`)) event.preventDefault(); }}>
-                        <input type="hidden" name="id" value={item.entry.id} />
-                        <button className="text-sm font-medium text-red-600">Delete</button>
-                      </form>
+                      <button type="button" disabled={deletePending} onClick={() => deleteLinesOptimistically([`entry:${item.entry.id}`])} className="text-sm font-medium text-red-600 disabled:opacity-40">Delete</button>
                     ) : null}
                     {editingEnabled && "childCost" in item && item.childCost ? (
                       <>
@@ -2192,7 +2214,7 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
           const renderCategoryCard = (category: SpendingCategory) => {
             const totals = categoryCumulativeTotals.get(category.id) || { accountHolder: 0, shared: 0, byPerson: [], household: 0 };
             return (
-              <div key={category.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div key={category.id} className={`${optimisticDeletedCategoryIds.includes(category.id) ? "hidden" : ""} rounded-3xl border border-slate-200 bg-white p-4 shadow-sm`}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex min-w-0 items-start gap-3">
                     <CategoryIcon icon={category.category_icon} label={category.name} />
@@ -2202,10 +2224,10 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
                     </div>
                   </div>
                   {editingEnabled ? (
-                    <form action={deleteSpendingCategory} onSubmit={(event) => { if (!confirmDelete(`Delete ${category.name}?`)) event.preventDefault(); }}>
-                      <input type="hidden" name="id" value={category.id} />
-                      <button className="text-xs font-black text-red-600">Delete</button>
-                    </form>
+                    <div className="flex items-center gap-2">
+                      <input type="checkbox" checked={selectedCategoryIds.includes(category.id)} onChange={() => setSelectedCategoryIds((current) => current.includes(category.id) ? current.filter((id) => id !== category.id) : [...current, category.id])} aria-label={`Select ${category.name}`} className="h-4 w-4 rounded border-slate-300" />
+                      <button type="button" disabled={deletePending} onClick={() => deleteCategoriesOptimistically([category.id])} className="text-xs font-black text-red-600 disabled:opacity-40">Delete</button>
+                    </div>
                   ) : null}
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-2">
@@ -2225,6 +2247,7 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
           };
           return (
             <div className="space-y-6">
+              {editingEnabled ? <div className="sticky top-20 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur"><p className="text-xs font-black text-slate-600">{selectedCategoryIds.length} categories selected</p><div className="flex gap-2"><button type="button" disabled={!selectedCategoryIds.length || deletePending} onClick={() => deleteCategoriesOptimistically(selectedCategoryIds)} className="rounded-full bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-40">Delete selected</button><button type="button" onClick={() => setSelectedCategoryIds([])} className="rounded-full bg-slate-100 px-4 py-2 text-xs font-black text-slate-600">Clear</button></div></div> : null}
               {orderedKeys.map((key) => {
                 const group = key === "__ungrouped" ? null : groupsById.get(key);
                 const groupCategories = byGroup.get(key) || [];

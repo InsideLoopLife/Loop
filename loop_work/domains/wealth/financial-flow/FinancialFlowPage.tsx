@@ -27,6 +27,7 @@ import { calculateSavingsAccruedBalance } from "@/lib/wealth/savings-accrual";
 import { buildSavingsTrajectory, movementDelta, movementDirection } from "@/lib/wealth/savings-ledger";
 import { estimateSavingsInterestForMonth } from "@/lib/wealth/savings-interest";
 import { buildSavingsIntelligence, savingsDealEligibleBalance, savingsDealMatchesAccount } from "@/lib/wealth/savings-intelligence";
+import { getCachedSavingsRateDeals } from "@/lib/wealth/cached-savings-rate-deals";
 import { estimateAnnualTakeHome, type PensionMethod, type StudentLoanPlan } from "@/lib/calculations/tax";
 import { calculateNhsMaternityMonthlyAmount, type MaternityPayMode } from "@/lib/calculations/maternity";
 import { getChildCostMonthlyAmount, type ChildCostForPlan } from "@/lib/planning/month-plan";
@@ -925,6 +926,8 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     ? `user_id.eq.${user.id},household_id.eq.${householdContext.householdId}`
     : `user_id.eq.${user.id}`;
 
+  const cachedSavingsRateDeals = activeTab === "savings" ? await getCachedSavingsRateDeals() : [];
+
   const [profileResult, peopleResult, payResult, incomeResult, plannedResult, spendingEntriesResult, categoriesResult, categoryGroupsResult, accountsResult, pensionsResult, movementsResult, potsResult, potAllocationsResult, dealsResult, childCostsResult] = await Promise.all([
     supabase.from("app_user_profiles").select("*").eq("user_id", user.id).maybeSingle(),
     supabase.from("people").select("id, name, relationship, user_id, linked_user_id, email, invite_email, birth_date, account_status, active_until, avatar_url").or(householdPeopleOrFilter(householdContext)).order("relationship").order("name").returns<Person[]>(),
@@ -939,7 +942,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     activeTab === "savings" ? supabase.from("savings_account_movements").select("id, financial_account_id, movement_type, amount, previous_balance, balance_delta, resulting_balance, effective_at, created_at, note, source_type").or(visibleFilter).order("effective_at", { ascending: false }).limit(1500).returns<SavingsMovement[]>() : Promise.resolve({ data: [] as SavingsMovement[] }),
     activeTab === "savings" ? supabase.from("savings_pots").select("id, person_id, name, target_amount, target_date, monthly_target, current_allocated_amount, priority, status, goal_type, reference_image_url").or(visibleFilter).in("status", ["active", "paused", "completed"]).order("priority", { ascending: true }).returns<SavingsPot[]>() : Promise.resolve({ data: [] as SavingsPot[] }),
     activeTab === "savings" ? supabase.from("savings_pot_allocations").select("id, savings_pot_id, financial_account_id, amount, allocation_percent").or(allocationFilter).returns<SavingsPotAllocation[]>() : Promise.resolve({ data: [] as SavingsPotAllocation[] }),
-    Promise.resolve({ data: [] as SavingsRateDeal[] }),
+    Promise.resolve({ data: cachedSavingsRateDeals as SavingsRateDeal[] }),
     supabase.from("child_costs").select("id, child_id, label, cost_kind, category_id, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on").or(memberFilter).returns<ChildCostForPlan[]>(),
   ]);
 
@@ -1119,7 +1122,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
   const blendedSavingsRate = totalTrackedSavings > 0
     ? scopedSavingsAccounts.reduce((sum, account) => sum + calculateSavingsAccruedBalance(account as any).estimatedBalance * n(account.interest_rate), 0) / totalTrackedSavings
     : 0;
-  const savingsTrend = buildSavingsTrajectory(scopedSavingsAccounts as any, scopedMovements as any, 24).map((point) => ({ label: point.date.slice(0, 7), balance: point.balance, kind: point.kind === "actual" ? "recorded" as const : "projected" as const }));
+  const savingsTrend = buildSavingsTrajectory(scopedSavingsAccounts as any, scopedMovements as any, 60).map((point) => ({ label: point.date.slice(0, 7), balance: point.balance, kind: point.kind === "actual" ? "recorded" as const : "projected" as const }));
   const savingsHealth = buildSavingsIntelligence({
     accounts: scopedSavingsAccounts as any,
     deals: (dealsResult.data || []) as any,
@@ -1302,6 +1305,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
             marketStatus={savingsHealth.catalogue.status}
             annualOpportunity={flowAccountRows.reduce((sum, account) => sum + account.annualOpportunity, 0)}
             scopePersonIds={scopeIds}
+            committedMonthlySpend={model.committedSpending}
           />
         ) : activeTab === "income" ? (
           <IncomeFlowScopeView month={month.key} people={people.map((person) => ({ id: person.id, name: person.name, avatarUrl: person.avatar_url }))} scopes={incomeScopeViews} initialScopeKey={initialIncomeScopeKey} />

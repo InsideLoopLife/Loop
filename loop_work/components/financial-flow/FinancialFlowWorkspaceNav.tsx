@@ -81,13 +81,13 @@ export function FinancialFlowWorkspaceNav({
 
   useEffect(() => {
     const id = window.setTimeout(() => {
-      router.prefetch("/financial-flow");
-      router.prefetch("/financial-flow?tab=savings");
-      router.prefetch("/income");
-      router.prefetch("/spending");
-    }, 80);
+      for (const item of ITEMS) {
+        router.prefetch(summaryHrefFor(item.key, month));
+        router.prefetch(detailHrefFor(item.key, month));
+      }
+    }, 40);
     return () => window.clearTimeout(id);
-  }, [router]);
+  }, [router, month]);
   const monthQuery = month ? `&month=${encodeURIComponent(month)}` : "";
 
   return (
@@ -109,6 +109,8 @@ export function FinancialFlowWorkspaceNav({
                   key={item.key}
                   href={href}
                   prefetch
+                  onMouseEnter={() => router.prefetch(href)}
+                  onFocus={() => router.prefetch(href)}
                   onClick={() => beginTransition(item.key, month)}
                   className={active ? "is-active" : ""}
                 >

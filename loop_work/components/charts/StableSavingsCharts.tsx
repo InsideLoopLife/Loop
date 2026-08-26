@@ -105,93 +105,50 @@ export function SavingsTrendSvg({ data }: { data: TrendPoint[] }) {
   const width = 760;
   const height = 260;
   const [hover, setHover] = useState<number | null>(null);
-
-  const values = data.flatMap((point) =>
-    [point.recorded, point.projected].filter((value): value is number => value != null && Number.isFinite(value)),
-  );
-
-  const firstProjected = data.findIndex((point) => point.projected != null && point.recorded == null);
-  const hasGap = data.some((point) => point.recorded == null && point.projected == null);
-
-  if (!values.length) {
-    return (
-      <div className="grid h-64 place-items-center rounded-2xl border border-dashed border-slate-200 text-center text-sm font-bold text-slate-400">
-        No recorded savings balance history yet.<br />LOOP will not invent a line between missing months.
-      </div>
-    );
-  }
-
+  const [range, setRange] = useState<"1Y" | "2Y" | "5Y" | "MAX">("2Y");
+  const visible = useMemo(() => {
+    if (range === "MAX" || !data.length) return data;
+    const months = range === "1Y" ? 12 : range === "2Y" ? 24 : 60;
+    const half = Math.floor(months / 2);
+    const now = new Date();
+    const minDate = new Date(now.getFullYear(), now.getMonth() - half, 1);
+    const maxDate = new Date(now.getFullYear(), now.getMonth() + half, 1);
+    return data.filter((point) => {
+      const d = new Date(`${point.label}-01T12:00:00`);
+      return Number.isFinite(d.getTime()) && d >= minDate && d <= maxDate;
+    });
+  }, [data, range]);
+  const values = visible.flatMap((point) => [point.recorded, point.projected].filter((value): value is number => value != null && Number.isFinite(value)));
+  const firstProjected = visible.findIndex((point) => point.projected != null && point.recorded == null);
+  const hasGap = visible.some((point) => point.recorded == null && point.projected == null);
+  if (!values.length) return <div className="grid h-64 place-items-center rounded-2xl border border-dashed border-slate-200 text-center text-sm font-bold text-slate-400">No recorded savings balance history yet.<br />LOOP will not invent a line between missing months.</div>;
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const recorded = pointsFor(data.map((point) => point.recorded ?? null), width, height, min, max);
-  const projected = pointsFor(data.map((point) => point.projected ?? null), width, height, min, max);
-  const active = hover == null ? null : data[hover];
-
-  const projectionBoundaryX = firstProjected > 0 && data.length > 1
-    ? 36 + (firstProjected / (data.length - 1)) * (width - 72)
-    : null;
-
-  const markerPoints = useMemo(
-    () => pointsFor(data.map((row) => row.recorded ?? row.projected ?? null), width, height, min, max),
-    [data, min, max],
-  );
-
-  return (
-    <div>
-      <div className="mb-3 flex flex-wrap gap-2">
-        <LegendChip kind="recorded" label="Recorded ledger balance" />
-        <LegendChip kind="projected" label="Projected from current plan" />
-        {hasGap ? <LegendChip kind="gap" label="Gap = no recorded evidence" /> : null}
-      </div>
-      <div className="relative h-64 w-full">
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" preserveAspectRatio="none" onMouseLeave={() => setHover(null)} role="img" aria-label="Recorded and projected savings balance">
-          {projectionBoundaryX != null ? (
-            <rect x={projectionBoundaryX} y="0" width={width - projectionBoundaryX} height={height} fill="rgba(16,185,129,.045)" />
-          ) : null}
-          {[0.25, 0.5, 0.75].map((ratio) => (
-            <line key={ratio} x1="36" x2={width - 36} y1={26 + (height - 52) * ratio} y2={26 + (height - 52) * ratio} stroke="#e2e8f0" strokeDasharray="4 7" />
-          ))}
-          {projectionBoundaryX != null ? (
-            <line x1={projectionBoundaryX} x2={projectionBoundaryX} y1="18" y2={height - 18} stroke="#10b981" strokeDasharray="3 6" opacity=".7" />
-          ) : null}
-          <path d={pathFor(recorded)} fill="none" stroke="#0f172a" strokeWidth="3" vectorEffect="non-scaling-stroke" />
-          <path d={pathFor(projected)} fill="none" stroke="#10b981" strokeWidth="3" strokeDasharray="8 6" vectorEffect="non-scaling-stroke" />
-          {data.map((point, index) => {
-            const marker = markerPoints[index];
-            if (!marker) return null;
-            const isRecorded = point.recorded != null;
-            return (
-              <circle
-                key={`${point.label}-${index}`}
-                cx={marker.x}
-                cy={marker.y}
-                r={hover === index ? 6 : isRecorded ? 4 : 3}
-                fill={isRecorded ? "#0f172a" : "white"}
-                stroke={isRecorded ? "#0f172a" : "#10b981"}
-                strokeWidth={isRecorded ? 1 : 2.5}
-                onMouseEnter={() => setHover(index)}
-              >
-                <title>{`${point.label} · ${isRecorded ? "Recorded" : "Projected"} · ${formatMoney(Number(point.recorded ?? point.projected ?? 0))}`}</title>
-              </circle>
-            );
-          })}
-        </svg>
-        <div className="absolute inset-x-2 bottom-0 flex justify-between text-[10px] font-bold text-slate-400">
-          <span>{data[0]?.label}</span><span>{data[data.length - 1]?.label}</span>
-        </div>
-        {active ? (
-          <div className="absolute right-3 top-3 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs font-bold shadow-lg">
-            <p className="font-black text-slate-950">{active.label}</p>
-            {active.recorded != null ? <p>Recorded ledger balance {formatMoney(active.recorded)}</p> : null}
-            {active.projected != null && active.recorded == null ? <p className="text-emerald-700">Projection {formatMoney(active.projected)}</p> : null}
-          </div>
-        ) : null}
-      </div>
-      <p className="mt-2 text-[10px] font-bold text-slate-400">
-        Solid points are observed ledger balances. Outlined/dashed values are projections; missing evidence remains a visible break.
-      </p>
+  const recorded = pointsFor(visible.map((point) => point.recorded ?? null), width, height, min, max);
+  const projected = pointsFor(visible.map((point) => point.projected ?? null), width, height, min, max);
+  const markerPoints = pointsFor(visible.map((row) => row.recorded ?? row.projected ?? null), width, height, min, max);
+  const active = hover == null ? null : visible[hover];
+  const projectionBoundaryX = firstProjected > 0 && visible.length > 1 ? 36 + (firstProjected / (visible.length - 1)) * (width - 72) : null;
+  return <div>
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap gap-2"><LegendChip kind="recorded" label="Recorded ledger balance" /><LegendChip kind="projected" label="Projected from current plan" />{hasGap ? <LegendChip kind="gap" label="Gap = no recorded evidence" /> : null}</div>
+      <div className="flex rounded-full bg-slate-100 p-1">{(["1Y","2Y","5Y","MAX"] as const).map((option) => <button key={option} type="button" onClick={() => { setRange(option); setHover(null); }} className={`rounded-full px-3 py-1 text-[10px] font-black ${range === option ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}>{option === "MAX" ? "Max" : option}</button>)}</div>
     </div>
-  );
+    <div className="relative h-64 w-full">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" preserveAspectRatio="none" onMouseLeave={() => setHover(null)} role="img" aria-label="Recorded and projected savings balance">
+        {projectionBoundaryX != null ? <rect x={projectionBoundaryX} y="0" width={width - projectionBoundaryX} height={height} fill="rgba(16,185,129,.045)" /> : null}
+        {[0.25,0.5,0.75].map((ratio) => <line key={ratio} x1="36" x2={width-36} y1={26+(height-52)*ratio} y2={26+(height-52)*ratio} stroke="#e2e8f0" strokeDasharray="4 7" />)}
+        {projectionBoundaryX != null ? <line x1={projectionBoundaryX} x2={projectionBoundaryX} y1="18" y2={height-18} stroke="#10b981" strokeDasharray="3 6" opacity=".7" /> : null}
+        <path d={pathFor(recorded)} fill="none" stroke="#0f172a" strokeWidth="3" vectorEffect="non-scaling-stroke" className="animate-pulse" />
+        <path d={pathFor(projected)} fill="none" stroke="#10b981" strokeWidth="3" strokeDasharray="8 6" vectorEffect="non-scaling-stroke" className="animate-pulse" />
+        {markerPoints.map((marker,index) => marker ? <circle key={`hit-${index}`} cx={marker.x} cy={marker.y} r="11" fill="transparent" onMouseEnter={() => setHover(index)} /> : null)}
+        {hover != null && markerPoints[hover] ? <circle cx={markerPoints[hover]!.x} cy={markerPoints[hover]!.y} r="6" fill={visible[hover]?.recorded != null ? "#0f172a" : "white"} stroke={visible[hover]?.recorded != null ? "#0f172a" : "#10b981"} strokeWidth="2.5" /> : null}
+      </svg>
+      <div className="absolute inset-x-2 bottom-0 flex justify-between text-[10px] font-bold text-slate-400"><span>{visible[0]?.label}</span><span>{visible[visible.length-1]?.label}</span></div>
+      {active ? <div className="absolute right-3 top-3 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs font-bold shadow-lg"><p className="font-black text-slate-950">{active.label}</p>{active.recorded != null ? <p>Recorded ledger balance {formatMoney(active.recorded)}</p> : null}{active.projected != null && active.recorded == null ? <p className="text-emerald-700">Projection {formatMoney(active.projected)}</p> : null}</div> : null}
+    </div>
+    <p className="mt-2 text-[10px] font-bold text-slate-400">The selected window is centred on today where possible — for example 5Y aims for 2.5 years behind and 2.5 years ahead. Hover the line to reveal individual points.</p>
+  </div>;
 }
 
 export function SavingsMovementSvg({ data }: { data: MovementPoint[] }) {

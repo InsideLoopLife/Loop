@@ -473,6 +473,38 @@ export async function deletePlannedItem(formData: FormData) {
   revalidateSpendingViews();
 }
 
+export async function deleteSpendingCategoriesBulk(ids: string[]) {
+  const cleanIds = Array.from(new Set((ids || []).map(String).filter(Boolean))).slice(0, 100);
+  if (!cleanIds.length) return;
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  const householdContext = await getActiveHouseholdContext(supabase, user);
+  for (const id of cleanIds) {
+    const { error } = await applyMutableRecordFilter(supabase.from("spending_categories").delete(), id, householdContext);
+    if (error) throw new Error(error.message);
+  }
+  revalidateSpendingStructure();
+}
+
+export async function deleteFinancialFlowLinesBulk(lineIds: string[]) {
+  const clean = Array.from(new Set((lineIds || []).map(String).filter(Boolean))).slice(0, 100);
+  if (!clean.length) return;
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  const householdContext = await getActiveHouseholdContext(supabase, user);
+  for (const lineId of clean) {
+    const [kind, id] = lineId.split(":", 2);
+    if (!id) continue;
+    const table = kind === "planned" ? "planned_items" : kind === "entry" ? "spending_entries" : null;
+    if (!table) continue;
+    const { error } = await applyMutableRecordFilter(supabase.from(table).delete(), id, householdContext);
+    if (error) throw new Error(error.message);
+  }
+  revalidateSpendingViews();
+}
+
 export async function deleteSpendingCategory(formData: FormData) {
   const supabase = await createClient();
   const {
