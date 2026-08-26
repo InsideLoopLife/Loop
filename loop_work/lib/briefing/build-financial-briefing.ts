@@ -5,6 +5,8 @@ export type BriefingAction = { rank: number; title: string; body: string; impact
 export type BriefingSeriesPoint = { date: string; netWorth: number; investments: number; savings: number; pensions: number; propertyEquity: number };
 export type BriefingPeriod = "day" | "week" | "month";
 export type BriefingDelta = { period: BriefingPeriod; netWorth: number; investments: number; savings: number; pensions: number; propertyEquity: number };
+export type BriefingHoldingRow = { name: string; group: string; value: number; dayChangeGbp: number; dayChangePercent: number };
+export type BriefingPensionFundRow = { name: string; group: string; value: number; feePercent: number | null };
 export type FinancialBriefing = {
   firstName: string;
   currentNetWorth: number;
@@ -23,6 +25,8 @@ export type FinancialBriefing = {
   dataQuality: { area: string; issue: string; severity: "info" | "warning" | "critical" }[];
   series: BriefingSeriesPoint[];
   deltas: BriefingDelta[];
+  holdings: BriefingHoldingRow[];
+  pensionFunds: BriefingPensionFundRow[];
   generatedAt: string;
 };
 
@@ -47,7 +51,7 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
     rows(scope(supabase.from("homes").select("id,label,property_value,estimated_value_mid,updated_at"))),
     rows(scope(supabase.from("home_mortgage_deals").select("id,home_id,balance,balance_as_of_date,interest_rate,term_years,monthly_payment_override,repayment_type,start_date,end_date"))),
     rows(scope(supabase.from("pension_accounts").select("id,current_value,value_as_of_date,updated_at"))),
-    rows(scope(supabase.from("pension_funds").select("pension_account_id,current_value,units,unit_price"))),
+    rows(scope(supabase.from("pension_funds").select("pension_account_id,fund_name,group_label,current_value,units,unit_price,annual_fund_fee_percent"))),
     rows(scope(supabase.from("investment_accounts").select("id,label,provider"))),
     rows(scope(supabase.from("investment_holdings").select("investment_account_id,asset_name,ticker,group_label,units,latest_price,day_change_gbp,day_change_percent,updated_at"))),
     rows(scope(supabase.from("financial_accounts").select("id,name,account_type,current_balance,is_liability,interest_rate"))),
@@ -144,6 +148,7 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
   const dataQuality: FinancialBriefing["dataQuality"] = [];
   if (!homes.length) dataQuality.push({area:"Home",issue:"No property is linked, so property equity is excluded.",severity:"info"});
   if (!holdings.length) dataQuality.push({area:"Investments",issue:"No priced holdings are available for market-movement analysis.",severity:"warning"});
+  if (!pensionFunds.length && pensionValue>0) dataQuality.push({area:"Pensions",issue:"Pension pot value is known but no individual fund breakdown is logged.",severity:"info"});
   if (!movements.length && savingsBalance>0) dataQuality.push({area:"Savings",issue:"No savings movements are logged this month, so deposits and withdrawals may be incomplete.",severity:"warning"});
   if (!activePay) dataQuality.push({area:"Income",issue:"No active income record was found, so Financial Flow capacity is estimated conservatively.",severity:"critical"});
 
@@ -163,12 +168,24 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
     savingsBalance>0 ? `Savings sit at ${blendedRate.toFixed(2)}% blended rate, with £${Math.round(deposits).toLocaleString("en-GB")} banked and £${Math.round(withdrawals).toLocaleString("en-GB")} withdrawn this month.` : "No savings balances are linked yet — connect an account to bring this into your briefing.",
   ];
 
+  const holdingsTable: BriefingHoldingRow[] = holdings
+    .map((h: any) => ({ name: String(h.asset_name || h.ticker || h.group_label || "Holding"), group: String(h.group_label || h.ticker || "Other"), value: n(h.units) * n(h.latest_price), dayChangeGbp: n(h.day_change_gbp), dayChangePercent: n(h.day_change_percent) }))
+    .filter((h) => h.value > 0.5)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 25);
+
+  const pensionFundsTable: BriefingPensionFundRow[] = pensionFunds
+    .map((f: any) => ({ name: String(f.fund_name || f.group_label || "Pension fund"), group: String(f.group_label || "Pension"), value: n(f.current_value) || n(f.units) * n(f.unit_price), feePercent: f.annual_fund_fee_percent != null ? n(f.annual_fund_fee_percent) : null }))
+    .filter((f) => f.value > 0.5)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 25);
+
   return {
     firstName,currentNetWorth,dailyChange,weeklyChange,monthlyChange,assets:assetsTotal,liabilities:liabilitiesTotal,contributors,narrative,actions,
     flow:{income,spending,savings:plannedSavings,pensions,unassigned},
     investments:{value:investmentValue,weeklyChange:investmentWeeklyChange,topExposure:top?.[0]||null,topExposurePercent,evidence:holdings.length?`${holdings.length} priced holding${holdings.length===1?"":"s"}`:"No priced holdings"},
     savings:{balance:savingsBalance,monthlyDeposits:deposits,monthlyWithdrawals:withdrawals,confirmedInterest,accruedInterest,blendedRate},
     home: homes.length ? {value:propertyValue,mortgage:mortgageValue,equity:propertyValue-mortgageValue,ltv:propertyValue?mortgageValue/propertyValue*100:0,fixedEnd:mortgages.map((m:any)=>m.end_date).filter(Boolean).sort()[0]||null}:null,
-    dataQuality,series,deltas,generatedAt:new Date().toISOString(),
+    dataQuality,series,deltas,holdings:holdingsTable,pensionFunds:pensionFundsTable,generatedAt:new Date().toISOString(),
   };
 }

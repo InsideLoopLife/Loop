@@ -7,6 +7,7 @@ import { useLiveBriefing } from "./useLiveBriefing";
 import { PeriodToggle } from "./PeriodToggle";
 import { ChatMessage, type ChatMessageData } from "./ChatMessage";
 import { ChatComposer } from "./ChatComposer";
+import { UsageMeter, type ChatBudget } from "./UsageMeter";
 import type { BriefingCardKey } from "@/lib/briefing/chat-cards";
 
 function id() {
@@ -27,11 +28,19 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
   ]);
   const [sending, setSending] = useState(false);
   const [budgetNote, setBudgetNote] = useState<string | null>(null);
+  const [budget, setBudget] = useState<ChatBudget>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, sending]);
+
+  useEffect(() => {
+    fetch("/api/briefing/usage")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => data?.budget && setBudget(data.budget))
+      .catch(() => {});
+  }, []);
 
   async function handleSend(text: string) {
     const userMessage: ChatMessageData = { id: id(), role: "user", content: text };
@@ -53,6 +62,7 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
       const card: BriefingCardKey | null = data.card ?? null;
       setMessages((prev) => [...prev, { id: id(), role: "assistant", content: data.reply, card, typed: true }]);
       if (data.note) setBudgetNote(data.note);
+      if (data.budget) setBudget(data.budget);
     } catch {
       setMessages((prev) => [...prev, { id: id(), role: "assistant", content: "I couldn't reach LOOP just then — try again in a moment.", card: null, typed: true }]);
     } finally {
@@ -62,7 +72,7 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
 
   return (
     <div className="flex min-h-[calc(100vh-6rem)] flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-3 pb-4">
+      <header className="flex flex-wrap items-start justify-between gap-3 pb-4">
         <div>
           <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[.22em] text-indigo-500">
             Your LOOP
@@ -72,7 +82,10 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
           </p>
           <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">Welcome back, {briefing.firstName}</h1>
         </div>
-        <PeriodToggle value={period} onChange={setPeriod} />
+        <div className="flex flex-col items-end gap-2">
+          <UsageMeter budget={budget} />
+          <PeriodToggle value={period} onChange={setPeriod} />
+        </div>
       </header>
 
       <div className="flex-1 space-y-5 pb-4">

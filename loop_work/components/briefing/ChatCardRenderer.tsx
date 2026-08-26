@@ -10,6 +10,8 @@ import { PortfolioBeat } from "./PortfolioBeat";
 import { SavingsBeat } from "./SavingsBeat";
 import { HomeBeat } from "./HomeBeat";
 import { EvidenceBeat } from "./EvidenceBeat";
+import { HoldingsTableCard } from "./HoldingsTableCard";
+import { PensionFundsTableCard } from "./PensionFundsTableCard";
 
 export function ChatCardRenderer({ card, briefing, period }: { card: BriefingCardKey; briefing: FinancialBriefing; period: BriefingPeriod }) {
   switch (card) {
@@ -29,6 +31,10 @@ export function ChatCardRenderer({ card, briefing, period }: { card: BriefingCar
       return <HomeBeat home={briefing.home} series={briefing.series} period={period} />;
     case "evidence":
       return <EvidenceBeat dataQuality={briefing.dataQuality} generatedAt={briefing.generatedAt} />;
+    case "holdings_table":
+      return <HoldingsTableCard holdings={briefing.holdings} />;
+    case "pension_funds_table":
+      return <PensionFundsTableCard funds={briefing.pensionFunds} />;
     default:
       return null;
   }

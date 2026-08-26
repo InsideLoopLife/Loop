@@ -13,6 +13,8 @@ export const BRIEFING_CARD_KEYS = [
   "savings",
   "home",
   "evidence",
+  "holdings_table",
+  "pension_funds_table",
 ] as const;
 
 export type BriefingCardKey = (typeof BRIEFING_CARD_KEYS)[number];
@@ -29,5 +31,7 @@ export const BRIEFING_CARD_DESCRIPTIONS: Record<BriefingCardKey, string> = {
   portfolio: "Investment portfolio value, largest single exposure, and a live investments trend graph.",
   savings: "Savings balance, blended interest rate, this month's deposits/withdrawals, and a live savings trend graph.",
   home: "Home equity, mortgage LTV, and a live property equity trend graph, if a property is linked.",
-  evidence: "Data-quality notes — what's missing or incomplete in the household's records. No graph.",
+  evidence: "ONLY for when the user broadly asks what data is missing/incomplete across their whole household. Never use this as a filler for a single unanswerable question — use card: null for that instead.",
+  holdings_table: "Real table of individual investment holdings by name, current value and today's change. Use for 'what investments/holdings/funds do I have' style questions.",
+  pension_funds_table: "Real table of individual pension funds by name, current value and annual fee. Use for 'what pension funds do I have' style questions.",
 };
