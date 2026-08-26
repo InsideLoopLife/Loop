@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { buildFinancialBriefing } from "@/lib/briefing/build-financial-briefing";
 import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
 import { featureEnabled, getEffectiveEntitlements } from "@/lib/tiers/entitlements";
-import { BriefingStory } from "@/components/briefing/BriefingStory";
+import { ChatBriefingShell } from "@/components/briefing/ChatBriefingShell";
 
 export default async function BriefingPage() {
   const supabase = await createClient();
@@ -19,8 +19,8 @@ export default async function BriefingPage() {
   const briefing = await buildFinancialBriefing(supabase, user, visibleDataOrFilter(context));
 
   return (
-    <main className="mx-auto w-[95vw] max-w-[1900px] py-7">
-      <BriefingStory initial={briefing} />
+    <main className="mx-auto w-full max-w-[900px] px-4 py-7">
+      <ChatBriefingShell initial={briefing} />
     </main>
   );
 }
