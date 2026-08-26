@@ -200,6 +200,7 @@ export function SavingsFlowDetail({
       marketStatus,
       annualOpportunity,
       scopePersonIds,
+      committedMonthlySpend,
     });
   }, [
     rememberSavings,
@@ -221,6 +222,7 @@ export function SavingsFlowDetail({
     marketStatus,
     annualOpportunity,
     scopePersonIds,
+    committedMonthlySpend,
   ]);
 
   return (

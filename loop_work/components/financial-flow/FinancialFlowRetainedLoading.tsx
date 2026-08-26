@@ -52,6 +52,7 @@ export function FinancialFlowRetainedLoading({
       marketStatus: "healthy" | "partial" | "unavailable";
       annualOpportunity: number;
       scopePersonIds?: string[];
+      committedMonthlySpend: number;
     };
     return (
       <>
