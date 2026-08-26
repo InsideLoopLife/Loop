@@ -33,5 +33,5 @@ export const BRIEFING_CARD_DESCRIPTIONS: Record<BriefingCardKey, string> = {
   home: "Home equity, mortgage LTV, and a live property equity trend graph, if a property is linked.",
   evidence: "ONLY for when the user broadly asks what data is missing/incomplete across their whole household. Never use this as a filler for a single unanswerable question — use card: null for that instead.",
   holdings_table: "Real table of individual investment holdings by name, current value and today's change. Use for 'what investments/holdings/funds do I have' style questions.",
-  pension_funds_table: "Real table of individual pension funds by name, current value and annual fee. Use for 'what pension funds do I have' style questions.",
+  pension_funds_table: "Real table of individual pension funds by name, current value, 5-year annualised performance (where available) and annual fee. Use for 'what pension funds do I have' or 'how are my pensions performing' style questions.",
 };

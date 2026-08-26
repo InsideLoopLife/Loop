@@ -41,10 +41,15 @@ function money(value: number) {
 // chat should never go silent just because the AI layer is unavailable.
 function fallbackReply(message: string, briefing: FinancialBriefing): { reply: string; card: BriefingCardKey | null } {
   const q = message.toLowerCase();
-  if (/pension.?fund|which pension|what pension/.test(q)) {
-    return briefing.pensionFunds.length
-      ? { reply: `You have ${briefing.pensionFunds.length} pension fund${briefing.pensionFunds.length === 1 ? "" : "s"} logged, totalling ${money(briefing.pensionFunds.reduce((t, f) => t + f.value, 0))}.`, card: "pension_funds_table" }
-      : { reply: "Your pension pot value is tracked, but no individual fund breakdown is logged yet — add fund detail on a pension account to see it here.", card: null };
+  if (/pension.?fund|which pension|what pension|pension.*(up|down|perform)/.test(q)) {
+    if (!briefing.pensionFunds.length) return { reply: "Your pension pot value is tracked, but no individual fund breakdown is logged yet — add fund detail on a pension account to see it here.", card: null };
+    const withPerf = briefing.pensionFunds.filter((f) => f.annualised5y != null);
+    const best = [...withPerf].sort((a, b) => (b.annualised5y ?? 0) - (a.annualised5y ?? 0))[0];
+    const worst = [...withPerf].sort((a, b) => (a.annualised5y ?? 0) - (b.annualised5y ?? 0))[0];
+    const perfLine = best && worst && best.name !== worst.name
+      ? ` ${best.name} leads on 5-year annualised return at ${best.annualised5y?.toFixed(1)}%, while ${worst.name} is lowest at ${worst.annualised5y?.toFixed(1)}%.`
+      : "";
+    return { reply: `You have ${briefing.pensionFunds.length} pension fund${briefing.pensionFunds.length === 1 ? "" : "s"} logged, totalling ${money(briefing.pensionFunds.reduce((t, f) => t + f.value, 0))}.${perfLine}`, card: "pension_funds_table" };
   }
   if (/holding|which (invest|fund|stock|share)|what (invest|fund|stock|share)/.test(q)) {
     return briefing.holdings.length
@@ -163,7 +168,8 @@ Rules:
 - Stay strictly within the provided data for any number you state.
 - Prefer a table or graph card over plain text whenever the data for one exists — holdings_table and pension_funds_table give real per-item detail, not just totals, so reach for them whenever the question is about "what/which" holdings or funds someone has.
 - If the user asks to see a graph, chart, or trend for something, pick the card for that category even if you already showed it earlier — every value-based card already includes a live trend graph, so re-showing it is correct and expected.
-- If nothing in the data answers the question, set card to null. Do NOT attach the evidence card as a generic fallback — that card is reserved specifically for when the user asks broadly what data is missing or incomplete across their whole household, and attaching it for an unrelated unanswerable question is misleading since it always reports the household's core records as fine.`;
+- If nothing in the data answers the question, set card to null. Do NOT attach the evidence card as a generic fallback — that card is reserved specifically for when the user asks broadly what data is missing or incomplete across their whole household, and attaching it for an unrelated unanswerable question is misleading since it always reports the household's core records as fine.
+- Be specific and genuinely interesting, not generic. When a table is available (holdings, pension funds), name the actual best/worst performer or highest-fee item rather than only stating a total — e.g. "X leads at Y%, while Z lags at W%" is far more useful than "performance varies." Pull out one concrete standout fact whenever the data supports it.`;
 
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",

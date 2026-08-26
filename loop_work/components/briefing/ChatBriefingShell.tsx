@@ -7,7 +7,6 @@ import { useLiveBriefing } from "./useLiveBriefing";
 import { PeriodToggle } from "./PeriodToggle";
 import { ChatMessage, type ChatMessageData } from "./ChatMessage";
 import { ChatComposer } from "./ChatComposer";
-import { UsageMeter, type ChatBudget } from "./UsageMeter";
 import { isBriefingCardKey, type BriefingCardKey } from "@/lib/briefing/chat-cards";
 
 function id() {
@@ -28,19 +27,11 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
   ]);
   const [sending, setSending] = useState(false);
   const [budgetNote, setBudgetNote] = useState<string | null>(null);
-  const [budget, setBudget] = useState<ChatBudget>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, sending]);
-
-  useEffect(() => {
-    fetch("/api/briefing/usage")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => data?.budget && setBudget(data.budget))
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     fetch("/api/briefing/chat")
@@ -81,7 +72,12 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
       const card: BriefingCardKey | null = data.card ?? null;
       setMessages((prev) => [...prev, { id: id(), role: "assistant", content: data.reply, card, typed: true }]);
       if (data.note) setBudgetNote(data.note);
-      if (data.budget) setBudget(data.budget);
+      // The AI usage indicator lives in the top nav (under Account) now —
+      // push the fresh count there via a DOM event rather than duplicating
+      // a second usage widget on this page.
+      if (data.budget && typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("loop:ai-usage-updated", { detail: data.budget }));
+      }
     } catch {
       setMessages((prev) => [...prev, { id: id(), role: "assistant", content: "I couldn't reach LOOP just then — try again in a moment.", card: null, typed: true }]);
     } finally {
@@ -101,10 +97,7 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
           </p>
           <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">Welcome back, {briefing.firstName}</h1>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <UsageMeter budget={budget} />
-          <PeriodToggle value={period} onChange={setPeriod} />
-        </div>
+        <PeriodToggle value={period} onChange={setPeriod} />
       </header>
 
       <div className="flex-1 space-y-5 pb-4">

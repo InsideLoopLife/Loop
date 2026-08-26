@@ -6,7 +6,7 @@ export type BriefingSeriesPoint = { date: string; netWorth: number; investments:
 export type BriefingPeriod = "day" | "week" | "month";
 export type BriefingDelta = { period: BriefingPeriod; netWorth: number; investments: number; savings: number; pensions: number; propertyEquity: number };
 export type BriefingHoldingRow = { name: string; group: string; value: number; dayChangeGbp: number; dayChangePercent: number };
-export type BriefingPensionFundRow = { name: string; group: string; value: number; feePercent: number | null };
+export type BriefingPensionFundRow = { name: string; group: string; value: number; feePercent: number | null; annualised5y: number | null; annualised10y: number | null; asOf: string | null };
 export type FinancialBriefing = {
   firstName: string;
   currentNetWorth: number;
@@ -45,13 +45,13 @@ async function one(query: PromiseLike<any>) {
 export async function buildFinancialBriefing(supabase: any, user: { id: string; email?: string | null }, visibleFilter?: string): Promise<FinancialBriefing> {
   const scope = (query: any) => visibleFilter ? query.or(visibleFilter) : query.eq("user_id", user.id);
   const [profile, assets, liabilities, homes, mortgages, pensionAccounts, pensionFunds, investmentAccounts, holdings, financialAccounts, movements, payEvents, plannedItems, snapshots] = await Promise.all([
-    one(supabase.from("app_user_profiles").select("display_name,full_name,name").eq("user_id", user.id).maybeSingle()),
+    one(supabase.from("app_user_profiles").select("display_name,full_name").eq("user_id", user.id).maybeSingle()),
     rows(scope(supabase.from("assets").select("value,type,created_at"))),
     rows(scope(supabase.from("liabilities").select("balance,type,created_at"))),
     rows(scope(supabase.from("homes").select("id,label,property_value,estimated_value_mid,updated_at"))),
     rows(scope(supabase.from("home_mortgage_deals").select("id,home_id,balance,balance_as_of_date,interest_rate,term_years,monthly_payment_override,repayment_type,start_date,end_date"))),
     rows(scope(supabase.from("pension_accounts").select("id,current_value,value_as_of_date,updated_at"))),
-    rows(scope(supabase.from("pension_funds").select("pension_account_id,fund_name,group_label,current_value,units,unit_price,annual_fund_fee_percent"))),
+    rows(scope(supabase.from("pension_funds").select("pension_account_id,fund_name,group_label,current_value,units,unit_price,annual_fund_fee_percent,performance_annualised_5y_percent,performance_annualised_10y_percent,performance_planning_rate_percent,performance_as_of_date"))),
     rows(scope(supabase.from("investment_accounts").select("id,label,provider"))),
     rows(scope(supabase.from("investment_holdings").select("investment_account_id,asset_name,ticker,group_label,units,latest_price,day_change_gbp,day_change_percent,updated_at"))),
     rows(scope(supabase.from("financial_accounts").select("id,name,account_type,current_balance,is_liability,interest_rate"))),
@@ -61,7 +61,7 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
     rows(supabase.from("financial_position_snapshots").select("snapshot_date,net_worth,total_assets,total_liabilities,investment_value,savings_value,pension_value,property_equity").eq("user_id", user.id).gte("snapshot_date", daysAgo(40).slice(0,10)).order("snapshot_date", { ascending: true })),
   ]);
 
-  const firstName = String(profile?.display_name || profile?.full_name || profile?.name || user.email?.split("@")[0] || "there").trim().split(/\s+/)[0];
+  const firstName = String(profile?.display_name || profile?.full_name || user.email?.split("@")[0] || "there").trim().split(/\s+/)[0];
   const manualAssets = sum(assets, (r:any) => n(r.value));
   const manualLiabilities = sum(liabilities, (r:any) => n(r.balance));
   const propertyValue = sum(homes, (r:any) => n(r.estimated_value_mid) || n(r.property_value));
@@ -175,7 +175,15 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
     .slice(0, 25);
 
   const pensionFundsTable: BriefingPensionFundRow[] = pensionFunds
-    .map((f: any) => ({ name: String(f.fund_name || f.group_label || "Pension fund"), group: String(f.group_label || "Pension"), value: n(f.current_value) || n(f.units) * n(f.unit_price), feePercent: f.annual_fund_fee_percent != null ? n(f.annual_fund_fee_percent) : null }))
+    .map((f: any) => ({
+      name: String(f.fund_name || f.group_label || "Pension fund"),
+      group: String(f.group_label || "Pension"),
+      value: n(f.current_value) || n(f.units) * n(f.unit_price),
+      feePercent: f.annual_fund_fee_percent != null ? n(f.annual_fund_fee_percent) : null,
+      annualised5y: f.performance_annualised_5y_percent != null ? n(f.performance_annualised_5y_percent) : null,
+      annualised10y: f.performance_annualised_10y_percent != null ? n(f.performance_annualised_10y_percent) : null,
+      asOf: f.performance_as_of_date || null,
+    }))
     .filter((f) => f.value > 0.5)
     .sort((a, b) => b.value - a.value)
     .slice(0, 25);

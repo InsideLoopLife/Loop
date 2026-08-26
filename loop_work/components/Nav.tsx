@@ -77,6 +77,8 @@ const healthLinks: NavLink[] = [
 
 const eagerWealthRoutes = ["/briefing", "/dashboard", "/financial-flow", "/investments", "/mortgage"];
 
+type NavAiUsage = { usedToday: number; dailyLimit: number | null; tierKey: string };
+
 type NavigationBootstrap = {
   navigationLayout?: NavigationLayout;
   hasChosenNavigationLayout?: boolean;
@@ -85,6 +87,7 @@ type NavigationBootstrap = {
   unreadCount?: number;
   isAdmin?: boolean;
   features?: Partial<UserFeatureAccess>;
+  aiUsage?: NavAiUsage | null;
 };
 
 let navigationBootstrapPromise: Promise<NavigationBootstrap | null> | null = null;
@@ -376,6 +379,7 @@ function AccountModal({
   onMobileLayoutChange,
   unreadCount,
   showAdmin,
+  aiUsage,
 }: {
   open: boolean;
   onClose: () => void;
@@ -386,6 +390,7 @@ function AccountModal({
   onMobileLayoutChange: (layout: MobileNavigationLayout) => void;
   unreadCount: number;
   showAdmin: boolean;
+  aiUsage: NavAiUsage | null;
 }) {
   if (!open) return null;
 
@@ -426,6 +431,31 @@ function AccountModal({
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {aiUsage ? (
+          <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className={`h-4 w-4 ${aiUsage.dailyLimit != null && aiUsage.usedToday >= aiUsage.dailyLimit ? "text-rose-500" : "text-indigo-600"}`} />
+                <p className="text-sm font-black text-slate-800">AI usage today</p>
+              </div>
+              <p className="text-xs font-black uppercase tracking-wide text-indigo-600">{aiUsage.tierKey} plan</p>
+            </div>
+            <p className="mt-1 text-2xl font-black text-slate-950">
+              {aiUsage.usedToday}
+              {aiUsage.dailyLimit != null && <span className="text-base text-slate-400"> / {aiUsage.dailyLimit} messages</span>}
+            </p>
+            {aiUsage.dailyLimit != null && (
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white">
+                <div
+                  className={`h-full rounded-full ${aiUsage.usedToday >= aiUsage.dailyLimit ? "bg-rose-400" : "bg-indigo-500"}`}
+                  style={{ width: `${Math.min(100, Math.round((aiUsage.usedToday / Math.max(1, aiUsage.dailyLimit)) * 100))}%` }}
+                />
+              </div>
+            )}
+            <p className="mt-2 text-xs font-semibold text-slate-500">Resets daily at midnight. Limits are set per plan in the admin panel.</p>
+          </div>
+        ) : null}
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           <Link
@@ -546,6 +576,7 @@ function NavInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [aiUsage, setAiUsage] = useState<NavAiUsage | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
   const [features, setFeatures] = useState<UserFeatureAccess>(
     DEFAULT_USER_FEATURE_ACCESS,
@@ -636,6 +667,7 @@ function NavInner() {
         const localConfirmed = window.localStorage.getItem("loop:navigation-layout-confirmed-v28_84") === "true";
         setHasChosenLayout(Boolean(payload.hasChosenNavigationLayout) || localConfirmed);
         setUnreadCount(Number(payload.unreadCount || 0));
+        setAiUsage(payload.aiUsage ?? null);
         setShowAdmin(Boolean(payload.isAdmin));
         setFeatures({ ...DEFAULT_USER_FEATURE_ACCESS, ...(payload.features || {}) });
       })
@@ -661,6 +693,15 @@ function NavInner() {
       mounted = false;
       window.clearInterval(timer);
     };
+  }, []);
+
+  useEffect(() => {
+    function onUsageUpdate(event: Event) {
+      const detail = (event as CustomEvent<NavAiUsage>).detail;
+      if (detail) setAiUsage(detail);
+    }
+    window.addEventListener("loop:ai-usage-updated", onUsageUpdate);
+    return () => window.removeEventListener("loop:ai-usage-updated", onUsageUpdate);
   }, []);
 
   useEffect(() => {
@@ -764,6 +805,7 @@ function NavInner() {
         onMobileLayoutChange={changeMobileLayout}
         unreadCount={unreadCount}
         showAdmin={showAdmin}
+        aiUsage={aiUsage}
       />
     </>
   );
@@ -940,6 +982,18 @@ function NavInner() {
                   Health
                 </Link>
               </div>
+              {aiUsage ? (
+                <button
+                  type="button"
+                  onClick={() => setAccountOpen(true)}
+                  title={`${aiUsage.usedToday}${aiUsage.dailyLimit != null ? ` of ${aiUsage.dailyLimit}` : ""} AI messages used today (${aiUsage.tierKey} plan)`}
+                  className="hidden shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 shadow-sm sm:flex"
+                >
+                  <Sparkles className={`h-3.5 w-3.5 ${aiUsage.dailyLimit != null && aiUsage.usedToday >= aiUsage.dailyLimit ? "text-rose-500" : "text-indigo-500"}`} />
+                  {aiUsage.usedToday}
+                  {aiUsage.dailyLimit != null && <span className="text-slate-400">/{aiUsage.dailyLimit}</span>}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setAccountOpen(true)}

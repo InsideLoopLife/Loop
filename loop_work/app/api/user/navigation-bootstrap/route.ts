@@ -6,6 +6,7 @@ import {
   loadUserFeatureAccess,
 } from "@/lib/features/user-feature-access";
 import { featureEnabled, getEffectiveEntitlements } from "@/lib/tiers/entitlements";
+import { checkAiRouteAllowed } from "@/lib/ai/route-budget";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export async function GET() {
 
   if (!user) {
     return NextResponse.json(
-      { features: DEFAULT_USER_FEATURE_ACCESS, isAdmin: false, unreadCount: 0 },
+      { features: DEFAULT_USER_FEATURE_ACCESS, isAdmin: false, unreadCount: 0, aiUsage: null },
       { status: 401 },
     );
   }
@@ -32,13 +33,20 @@ export async function GET() {
     .eq("user_id", user.id)
     .eq("status", "unread");
 
-  const featuresPromise = Promise.all([
-    loadUserFeatureAccess(supabase, user.id),
-    getEffectiveEntitlements(user.id),
-  ]).then(([features, entitlements]) => ({
+  const entitlementsPromise = getEffectiveEntitlements(user.id);
+
+  const featuresPromise = Promise.all([loadUserFeatureAccess(supabase, user.id), entitlementsPromise]).then(([features, entitlements]) => ({
     ...features,
     aiFinancialBriefing: featureEnabled(entitlements, "ai_financial_briefing"),
   }));
+
+  // Only checked for users entitled to the briefing chat — no point querying
+  // usage for a feature the user can't use.
+  const aiUsagePromise = entitlementsPromise.then(async (entitlements) => {
+    if (!featureEnabled(entitlements, "ai_financial_briefing")) return null;
+    const budget = await checkAiRouteAllowed(supabase, user.id, "financial_briefing_chat");
+    return { usedToday: budget.usedToday, dailyLimit: budget.dailyLimit, tierKey: budget.tierKey };
+  });
 
   const email = String(user.email || "").toLowerCase();
   const adminPromise = allowedAdminEmails().includes(email)
@@ -51,11 +59,12 @@ export async function GET() {
         .then(({ data, error }) => Boolean(data) || Boolean(error))
     : Promise.resolve(false);
 
-  const [profileResult, unreadResult, features, isAdmin] = await Promise.all([
+  const [profileResult, unreadResult, features, isAdmin, aiUsage] = await Promise.all([
     profilePromise,
     unreadPromise,
     featuresPromise,
     adminPromise,
+    aiUsagePromise,
   ]);
 
   return NextResponse.json(
@@ -67,6 +76,7 @@ export async function GET() {
       unreadCount: unreadResult.count ?? 0,
       features,
       isAdmin,
+      aiUsage,
     },
     { headers: { "Cache-Control": "private, no-store" } },
   );
