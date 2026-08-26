@@ -663,6 +663,46 @@ export async function addPensionFund(formData: FormData) {
   revalidatePath("/net-worth");
 }
 
+
+export async function updatePensionFundManualPerformance(formData: FormData) {
+  const { supabase, user } = await currentUser();
+  const id = String(formData.get("id") || "");
+  if (!id) throw new Error("Choose a pension fund first.");
+
+  const valueOrNull = (name: string) => {
+    const raw = String(formData.get(name) || "").trim();
+    if (!raw) return null;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) throw new Error(`${name} must be a number.`);
+    return parsed;
+  };
+
+  const performance5y = valueOrNull("performance_annualised_5y_percent");
+  const performance10y = valueOrNull("performance_annualised_10y_percent");
+  const sourceUrl = nullableString(formData.get("performance_source_url"));
+  const asOfDate =
+    nullableString(formData.get("performance_as_of_date")) ||
+    new Date().toISOString().slice(0, 10);
+
+  const { error } = await supabase
+    .from("pension_funds")
+    .update({
+      performance_annualised_5y_percent: performance5y,
+      performance_annualised_10y_percent: performance10y,
+      performance_as_of_date: asOfDate,
+      performance_source_url: sourceUrl,
+      performance_status: "manual_user_supplied",
+      performance_verified_at: null,
+      updated_at: new Date().toISOString(),
+    } as any)
+    .eq("id", id)
+    .eq("user_id", user.id);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/investments");
+  revalidatePath("/net-worth");
+}
+
 export async function updatePensionFund(formData: FormData) {
   const { supabase, user } = await currentUser();
   const id = String(formData.get("id") || "");

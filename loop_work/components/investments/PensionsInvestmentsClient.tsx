@@ -91,6 +91,7 @@ import {
   updateInvestmentViewMode,
   updatePensionViewMode,
   updatePensionFund,
+  updatePensionFundManualPerformance,
   updatePensionAccount,
   quickUpdatePensionValue,
   updateDefinedBenefitPension,
@@ -5808,6 +5809,57 @@ function PensionContributionLogicCard({
   account: PensionAccount;
   payEvents: PayEvent[];
 }) {
+
+  const privateKind = String(account.pension_type || "").toLowerCase();
+  const isPrivatePension =
+    privateKind.includes("private") ||
+    privateKind.includes("personal") ||
+    privateKind.includes("sipp");
+
+  if (isPrivatePension) {
+    const regular = Math.max(0, Number(account.fixed_monthly_contribution || 0));
+    return (
+      <div className="mt-4 rounded-[1.5rem] border border-teal-100 bg-white p-4 shadow-sm sm:mt-6 sm:rounded-[2rem] sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-teal-700">Private pension contributions</p>
+            <h3 className="mt-1 text-lg font-black text-slate-950">Money going into this pension</h3>
+            <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-500 sm:text-sm">
+              Private pensions are tracked from contributions and provider confirmations. Salary sacrifice and employer NI are hidden because they are not part of this pot&apos;s contribution method.
+            </p>
+          </div>
+          <span className="rounded-full bg-teal-50 px-3 py-2 text-xs font-black text-teal-800">Private / manually tracked</span>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Regular contribution</p>
+            <p className="mt-1 text-2xl font-black text-slate-950">{formatMoney(regular)}</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">per month</p>
+          </div>
+          <span className="hidden text-xl font-black text-slate-300 sm:block">+</span>
+          <div className="rounded-2xl bg-sky-50 p-4">
+            <p className="text-[10px] font-black uppercase tracking-wide text-sky-600">Manual threads</p>
+            <p className="mt-1 text-base font-black text-slate-950">Add when money moves</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">Contribution, transfer or fund purchase</p>
+          </div>
+          <span className="hidden text-xl font-black text-slate-300 sm:block">→</span>
+          <div className="rounded-2xl bg-teal-50 p-4">
+            <p className="text-[10px] font-black uppercase tracking-wide text-teal-700">Expected regular input</p>
+            <p className="mt-1 text-2xl font-black text-teal-950">{formatMoney(regular)}</p>
+            <p className="mt-1 text-xs font-semibold text-teal-700">before any one-offs</p>
+          </div>
+        </div>
+
+        <p className="mt-3 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white">
+          {regular > 0
+            ? `LOOP expects ${formatMoney(regular)} per month from the private contribution setting. Manual threads remain separate evidence.`
+            : "No regular contribution is set. Use the thread below whenever you make a contribution or transfer."}
+        </p>
+      </div>
+    );
+  }
+
   const result = projectedAccountContributionBreakdown(account, payEvents);
   const activePay = activePayForPerson(payEvents, account.person_id);
   const passback = Number(account.employer_ni_passback_percent ?? 100);
@@ -10757,13 +10809,13 @@ function PensionContributionThread({
       <div className="grid gap-2 sm:grid-cols-3">
         <div className="rounded-2xl bg-slate-950 p-4 text-white">
           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">5-year annual return</p>
-          <p className="mt-1 text-xl font-black">{return5y == null ? "Building history" : `${return5y.toFixed(2)}%`}</p>
-          <p className="mt-1 text-[11px] font-semibold text-slate-400">Value-weighted, verified fund history</p>
+          <p className="mt-1 text-xl font-black">{return5y == null ? "Not enough verified history" : `${return5y.toFixed(2)}%`}</p>
+          <p className="mt-1 text-[11px] font-semibold text-slate-400">{funds.some((item) => item.performance_status === "manual_user_supplied") ? "Includes user-supplied annualised returns" : "Value-weighted, verified fund history"}</p>
         </div>
         <div className="rounded-2xl bg-slate-950 p-4 text-white">
           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">10-year annual return</p>
-          <p className="mt-1 text-xl font-black">{return10y == null ? "Building history" : `${return10y.toFixed(2)}%`}</p>
-          <p className="mt-1 text-[11px] font-semibold text-slate-400">Historical return, not a guarantee</p>
+          <p className="mt-1 text-xl font-black">{return10y == null ? "Not enough verified history" : `${return10y.toFixed(2)}%`}</p>
+          <p className="mt-1 text-[11px] font-semibold text-slate-400">{funds.some((item) => item.performance_status === "manual_user_supplied") ? "Manual values are shown as user supplied" : "Historical return, not a guarantee"}</p>
         </div>
         <div className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Last checked</p>
@@ -10780,7 +10832,34 @@ function PensionContributionThread({
                 <div className="min-w-0"><p className="truncate text-sm font-black text-slate-950">{item.fund_name}</p><p className="text-xs font-semibold text-slate-500">{item.contribution_active ? "Active for new contributions" : "Held · no new contributions"} · {item.performance_as_of_date || item.performance_status || "history building"}</p></div>
                 <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-black text-violet-700">5y {item.performance_annualised_5y_percent == null ? "—" : `${Number(item.performance_annualised_5y_percent).toFixed(2)}%`}</span>
                 <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">10y {item.performance_annualised_10y_percent == null ? "—" : `${Number(item.performance_annualised_10y_percent).toFixed(2)}%`}</span>
-                {item.performance_source_url ? <a href={item.performance_source_url} target="_blank" rel="noreferrer" className="text-xs font-black text-teal-700">Evidence ↗</a> : <span className="text-xs font-black text-amber-700">Needs evidence</span>}
+                <div className="flex flex-wrap items-center gap-2">
+                  {item.performance_source_url ? <a href={item.performance_source_url} target="_blank" rel="noreferrer" className="text-xs font-black text-teal-700">Evidence ↗</a> : <span className="text-xs font-black text-amber-700">Needs evidence</span>}
+                  {item.performance_status === "manual_user_supplied" ? <span className="rounded-full bg-orange-50 px-2 py-1 text-[10px] font-black text-orange-700">User supplied</span> : null}
+                  <details className="relative">
+                    <summary className="cursor-pointer list-none rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-700">Edit returns</summary>
+                    <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:absolute sm:right-0 sm:z-30 sm:w-[24rem] sm:bg-white sm:shadow-xl">
+                      <form action={updatePensionFundManualPerformance} className="grid gap-3 sm:grid-cols-2">
+                        <input type="hidden" name="id" value={item.id} />
+                        <label className="text-[10px] font-black uppercase text-slate-500">5-year annualised %
+                          <input name="performance_annualised_5y_percent" type="number" step="0.01" defaultValue={item.performance_annualised_5y_percent ?? ""} className={inputClass} placeholder="Leave blank if unknown" />
+                        </label>
+                        <label className="text-[10px] font-black uppercase text-slate-500">10-year annualised %
+                          <input name="performance_annualised_10y_percent" type="number" step="0.01" defaultValue={item.performance_annualised_10y_percent ?? ""} className={inputClass} placeholder="Leave blank if unknown" />
+                        </label>
+                        <label className="text-[10px] font-black uppercase text-slate-500">As at
+                          <input name="performance_as_of_date" type="date" defaultValue={item.performance_as_of_date || today} className={inputClass} />
+                        </label>
+                        <label className="text-[10px] font-black uppercase text-slate-500">Provider / factsheet URL
+                          <input name="performance_source_url" defaultValue={item.performance_source_url || ""} className={inputClass} placeholder="Optional but recommended" />
+                        </label>
+                        <p className="sm:col-span-2 text-[10px] font-semibold leading-4 text-slate-500">
+                          Manual values are stored as user-supplied evidence. LOOP will not relabel them as researched or provider-verified history.
+                        </p>
+                        <button className="sm:col-span-2 rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white">Save manual returns</button>
+                      </form>
+                    </div>
+                  </details>
+                </div>
               </div>
             ))}
           </div>
@@ -10789,8 +10868,11 @@ function PensionContributionThread({
       {funds.length ? (
         <details className="rounded-2xl border border-dashed border-teal-200 bg-teal-50/60 p-4">
           <summary className="cursor-pointer text-sm font-black text-teal-900">
-            Add a dated pension purchase
+            + Add a manual pension thread
           </summary>
+          <p className="mt-2 text-xs font-semibold text-teal-800/80">
+            Use this when the provider does not sync the transaction automatically. Amount + date are enough; unit price and units can be added when your statement provides them.
+          </p>
           <form action={addPensionContributionEvent} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <input type="hidden" name="pension_account_id" value={account.id} />
             <label className="text-xs font-black uppercase text-slate-500">

@@ -101,6 +101,7 @@ export function AddPensionFundWizard({
       <div style={{ display: currentStepId === "fees" ? "block" : "none" }} className="space-y-4">
         <FormInput label="Fund fee % / year" name="annual_fund_fee_percent" type="number" step="any" defaultValue={defaults?.annual_fund_fee_percent ?? ""} />
         <FormInput label="Fee/source URL" name="fee_source_url" defaultValue={defaults?.fee_source_url ?? ""} placeholder="Provider fund factsheet" />
+        <p className="rounded-2xl bg-sky-50 px-4 py-3 text-xs font-semibold text-sky-900">If this is a manually tracked fund and 5-year / 10-year annualised returns are available on your statement or factsheet, add them later under <strong>Fund return evidence → Edit returns</strong>. Leave them blank when the provider does not publish enough history.</p>
       </div>
 
       <div style={{ display: currentStepId === "notes" ? "block" : "none" }}>
