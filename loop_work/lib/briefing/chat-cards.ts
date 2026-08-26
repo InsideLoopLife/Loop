@@ -22,12 +22,12 @@ export function isBriefingCardKey(value: unknown): value is BriefingCardKey {
 }
 
 export const BRIEFING_CARD_DESCRIPTIONS: Record<BriefingCardKey, string> = {
-  net_worth: "Household net worth headline, assets/liabilities split, and the net worth trend line.",
-  category_grid: "Live grid of investments, savings, pensions and property equity, each with its own trend line.",
-  actions: "The three ranked priority decisions/recommendations.",
-  flow: "Monthly Financial Flow: income vs spending, savings and unassigned money.",
-  portfolio: "Investment portfolio value and largest single exposure.",
-  savings: "Savings balance, blended interest rate, and this month's deposits/withdrawals.",
-  home: "Home equity and mortgage LTV, if a property is linked.",
-  evidence: "Data-quality notes — what's missing or incomplete in the household's records.",
+  net_worth: "Household net worth headline, assets/liabilities split, and a live net worth trend graph.",
+  category_grid: "Live grid of investments, savings, pensions and property equity, each with its own trend graph.",
+  actions: "The three ranked priority decisions/recommendations. No graph.",
+  flow: "Monthly Financial Flow: income vs spending, savings and unassigned money. No graph.",
+  portfolio: "Investment portfolio value, largest single exposure, and a live investments trend graph.",
+  savings: "Savings balance, blended interest rate, this month's deposits/withdrawals, and a live savings trend graph.",
+  home: "Home equity, mortgage LTV, and a live property equity trend graph, if a property is linked.",
+  evidence: "Data-quality notes — what's missing or incomplete in the household's records. No graph.",
 };

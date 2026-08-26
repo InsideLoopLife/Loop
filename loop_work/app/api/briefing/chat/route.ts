@@ -111,7 +111,7 @@ ${history.map((t) => `${t.role}: ${t.content}`).join("\n") || "(none yet)"}
 New message from ${briefing.firstName}: ${JSON.stringify(message)}
 
 Reply with JSON only, matching exactly: {"reply": "your natural, concise chat reply (2-4 sentences max, no markdown headers)", "card": "one of ${BRIEFING_CARD_KEYS.join("|")}, or null"}.
-Rules: Be warm but concise, like a knowledgeable friend, not a report. Never give regulated financial advice — frame suggestions as things to consider or discuss with a professional. Stay strictly within the provided data for any number you state.`;
+Rules: Be warm but concise, like a knowledgeable friend, not a report. Never give regulated financial advice — frame suggestions as things to consider or discuss with a professional. Stay strictly within the provided data for any number you state. If the user asks to see a graph, chart, or trend for something, pick the card for that category even if you already showed it earlier in the conversation — every value-based card already includes a live trend graph, so re-showing it is correct and expected in that case.`;
 
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",

@@ -24,9 +24,9 @@ export function ChatCardRenderer({ card, briefing, period }: { card: BriefingCar
     case "portfolio":
       return <PortfolioBeat investments={briefing.investments} series={briefing.series} period={period} />;
     case "savings":
-      return <SavingsBeat savings={briefing.savings} />;
+      return <SavingsBeat savings={briefing.savings} series={briefing.series} period={period} />;
     case "home":
-      return <HomeBeat home={briefing.home} />;
+      return <HomeBeat home={briefing.home} series={briefing.series} period={period} />;
     case "evidence":
       return <EvidenceBeat dataQuality={briefing.dataQuality} generatedAt={briefing.generatedAt} />;
     default:

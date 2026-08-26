@@ -25,7 +25,7 @@ export function ChatComposer({
   }
 
   return (
-    <div className="sticky bottom-3 z-10 pt-2">
+    <div className="sticky bottom-6 z-10 pt-2">
       <form onSubmit={submit} className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 p-1.5 pl-5 shadow-[0_18px_48px_-24px_rgba(15,23,42,.35)] backdrop-blur">
         <input
           value={value}
