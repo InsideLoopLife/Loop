@@ -6,7 +6,7 @@ import {
   loadUserFeatureAccess,
 } from "@/lib/features/user-feature-access";
 import { featureEnabled, getEffectiveEntitlements } from "@/lib/tiers/entitlements";
-import { checkAiRouteAllowed } from "@/lib/ai/route-budget";
+import { getMonthlyChatBudget } from "@/lib/briefing/chat-usage";
 
 export const dynamic = "force-dynamic";
 
@@ -16,14 +16,14 @@ export async function GET() {
 
   if (!user) {
     return NextResponse.json(
-      { features: DEFAULT_USER_FEATURE_ACCESS, isAdmin: false, unreadCount: 0, aiUsage: null },
+      { features: DEFAULT_USER_FEATURE_ACCESS, isAdmin: false, unreadCount: 0, aiUsage: null, avatarUrl: null },
       { status: 401 },
     );
   }
 
   const profilePromise = supabase
     .from("app_user_profiles")
-    .select("ui_navigation_layout, ui_navigation_layout_chosen_at, ui_mobile_navigation_layout, ui_mobile_navigation_layout_chosen_at")
+    .select("ui_navigation_layout, ui_navigation_layout_chosen_at, ui_mobile_navigation_layout, ui_mobile_navigation_layout_chosen_at, avatar_url")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -41,11 +41,12 @@ export async function GET() {
   }));
 
   // Only checked for users entitled to the briefing chat — no point querying
-  // usage for a feature the user can't use.
+  // usage for a feature the user can't use. This feeds the Account panel's
+  // usage section only — there's deliberately no always-visible header badge.
   const aiUsagePromise = entitlementsPromise.then(async (entitlements) => {
     if (!featureEnabled(entitlements, "ai_financial_briefing")) return null;
-    const budget = await checkAiRouteAllowed(supabase, user.id, "financial_briefing_chat");
-    return { usedToday: budget.usedToday, dailyLimit: budget.dailyLimit, tierKey: budget.tierKey };
+    const budget = await getMonthlyChatBudget(supabase, user.id, "financial_briefing_chat");
+    return { usedThisMonth: budget.usedThisMonth, monthlyLimit: budget.monthlyLimit, tierKey: budget.tierKey };
   });
 
   const email = String(user.email || "").toLowerCase();
@@ -77,6 +78,7 @@ export async function GET() {
       features,
       isAdmin,
       aiUsage,
+      avatarUrl: profileResult.data?.avatar_url || null,
     },
     { headers: { "Cache-Control": "private, no-store" } },
   );

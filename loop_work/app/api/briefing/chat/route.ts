@@ -4,7 +4,8 @@ import { buildFinancialBriefing, type FinancialBriefing } from "@/lib/briefing/b
 import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
 import { featureEnabled, getEffectiveEntitlements } from "@/lib/tiers/entitlements";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
-import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
+import { recordAiRouteUsage } from "@/lib/ai/route-budget";
+import { getMonthlyChatBudget } from "@/lib/briefing/chat-usage";
 import { BRIEFING_CARD_DESCRIPTIONS, BRIEFING_CARD_KEYS, isBriefingCardKey, type BriefingCardKey } from "@/lib/briefing/chat-cards";
 import { appendTodaysChatMessages, loadTodaysChatMessages } from "@/lib/briefing/chat-session";
 import { computePensionProjection, detectPensionProjectionYears, type BriefingLineChart } from "@/lib/briefing/projections";
@@ -16,7 +17,7 @@ const MAX_HISTORY_TURNS = 8;
 
 type ChatTurn = { role: "user" | "assistant"; content: string };
 
-type ChatBudget = { usedToday: number; dailyLimit: number | null; tierKey: string };
+type ChatBudget = { usedThisMonth: number; monthlyLimit: number | null; tierKey: string };
 type ChatReply = { reply: string; card: BriefingCardKey | null; chart?: BriefingLineChart | null; source: "ai" | "fallback"; note?: string; budget: ChatBudget };
 
 function safeJson(text: string) {
@@ -143,15 +144,15 @@ export async function POST(request: Request) {
     : { ...fallback, chart: null as BriefingLineChart | null };
 
   // Checked up front regardless of whether an OpenAI key is configured, so the
-  // usage meter always has real numbers to show, even in a pure-fallback reply.
-  const budgetCheck = await checkAiRouteAllowed(supabase, user.id, ROUTE_KEY);
-  const budget: ChatBudget = { usedToday: budgetCheck.usedToday, dailyLimit: budgetCheck.dailyLimit, tierKey: budgetCheck.tierKey };
+  // usage indicator always has real numbers to show, even in a pure-fallback reply.
+  const budgetCheck = await getMonthlyChatBudget(supabase, user.id, ROUTE_KEY);
+  const budget: ChatBudget = { usedThisMonth: budgetCheck.usedThisMonth, monthlyLimit: budgetCheck.monthlyLimit, tierKey: budgetCheck.tierKey };
 
   const secret = await getActiveIntegrationSecret(supabase, user.id, "openai");
   if (!secret?.value) return respond({ ...fallbackWithProjection, source: "fallback" }, budget);
 
   if (!budgetCheck.allowed) {
-    return respond({ ...fallbackWithProjection, source: "fallback", note: `${budgetCheck.reason} Resets at midnight.` }, budget);
+    return respond({ ...fallbackWithProjection, source: "fallback", note: `${budgetCheck.reason} Resets next month.` }, budget);
   }
 
   try {
@@ -210,7 +211,7 @@ Rules:
 
     await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budgetCheck.tierKey, routeKey: ROUTE_KEY, provider: "openai", model: process.env.LOOP_FINANCIAL_BRIEFING_CHAT_MODEL || "gpt-4.1-mini" });
 
-    return respond({ reply, card, chart: projectionChart, source: "ai" }, { ...budget, usedToday: budget.usedToday + 1 });
+    return respond({ reply, card, chart: projectionChart, source: "ai" }, { ...budget, usedThisMonth: budget.usedThisMonth + 1 });
   } catch {
     return respond({ ...fallbackWithProjection, source: "fallback" }, budget);
   }

@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Radio } from "lucide-react";
+import { Radio, Sparkles } from "lucide-react";
 import type { FinancialBriefing, BriefingPeriod } from "@/lib/briefing/build-financial-briefing";
 import { useLiveBriefing } from "./useLiveBriefing";
 import { PeriodToggle } from "./PeriodToggle";
 import { ChatMessage, type ChatMessageData } from "./ChatMessage";
 import { ChatComposer } from "./ChatComposer";
+import { TodaysChartsRail } from "./TodaysChartsRail";
 import { isBriefingCardKey, type BriefingCardKey } from "@/lib/briefing/chat-cards";
+
+type PageBudget = { usedThisMonth: number; monthlyLimit: number | null; tierKey: string } | null;
 
 function id() {
   return Math.random().toString(36).slice(2);
@@ -27,11 +30,19 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
   ]);
   const [sending, setSending] = useState(false);
   const [budgetNote, setBudgetNote] = useState<string | null>(null);
+  const [budget, setBudget] = useState<PageBudget>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, sending]);
+
+  useEffect(() => {
+    fetch("/api/briefing/usage")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => data?.budget && setBudget(data.budget))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/briefing/chat")
@@ -72,11 +83,10 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
       const card: BriefingCardKey | null = data.card ?? null;
       setMessages((prev) => [...prev, { id: id(), role: "assistant", content: data.reply, card, chart: data.chart ?? null, typed: true }]);
       if (data.note) setBudgetNote(data.note);
-      // The AI usage indicator lives in the top nav (under Account) now —
-      // push the fresh count there via a DOM event rather than duplicating
-      // a second usage widget on this page.
-      if (data.budget && typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("loop:ai-usage-updated", { detail: data.budget }));
+      if (data.budget) {
+        setBudget(data.budget);
+        // Account panel usage detail stays in sync too, without a second fetch.
+        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("loop:ai-usage-updated", { detail: data.budget }));
       }
     } catch {
       setMessages((prev) => [...prev, { id: id(), role: "assistant", content: "I couldn't reach LOOP just then — try again in a moment.", card: null, typed: true }]);
@@ -85,39 +95,56 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
     }
   }
 
-  return (
-    <div className="flex min-h-[calc(100vh-6rem)] flex-col">
-      <header className="flex flex-wrap items-start justify-between gap-3 pb-4">
-        <div>
-          <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[.22em] text-indigo-500">
-            Your LOOP
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-600">
-              <Radio className={`h-3 w-3 ${status === "live" ? "animate-pulse" : ""}`} /> {status === "live" ? "Live" : "Refreshing…"}
-            </span>
-          </p>
-          <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">Welcome back, {briefing.firstName}</h1>
-        </div>
-        <PeriodToggle value={period} onChange={setPeriod} />
-      </header>
+  const unlimited = budget?.monthlyLimit == null;
+  const nearLimit = budget && !unlimited && budget.usedThisMonth >= (budget.monthlyLimit as number);
 
-      <div className="flex-1 space-y-5 pb-4">
-        {messages.map((message) => (
-          <ChatMessage key={message.id} message={message} briefing={briefing} period={period} />
-        ))}
-        {sending && (
-          <div className="flex items-center gap-2.5 pl-9 text-sm font-semibold text-slate-400">
-            <span className="flex gap-1">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300 [animation-delay:-0.3s]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300 [animation-delay:-0.15s]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300" />
-            </span>
-            LOOP is thinking…
+  return (
+    <div className="flex gap-6">
+      <div className="flex min-h-[calc(100vh-6rem)] flex-1 flex-col">
+        <header className="flex flex-wrap items-start justify-between gap-3 pb-4">
+          <div>
+            <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[.22em] text-indigo-500">
+              Your LOOP
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-600">
+                <Radio className={`h-3 w-3 ${status === "live" ? "animate-pulse" : ""}`} /> {status === "live" ? "Live" : "Refreshing…"}
+              </span>
+            </p>
+            <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">Welcome back, {briefing.firstName}</h1>
           </div>
-        )}
-        <div ref={scrollRef} />
+          <div className="flex flex-col items-end gap-2">
+            {budget && (
+              <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-black ${nearLimit ? "border-rose-200 bg-rose-50 text-rose-600" : "border-slate-200 bg-white text-slate-600"}`}>
+                <Sparkles className={`h-3.5 w-3.5 ${nearLimit ? "text-rose-500" : "text-indigo-500"}`} />
+                {budget.usedThisMonth}
+                {!unlimited && <span className="text-slate-400">/{budget.monthlyLimit}</span>}
+                <span className="text-slate-400">this month</span>
+              </span>
+            )}
+            <PeriodToggle value={period} onChange={setPeriod} />
+          </div>
+        </header>
+
+        <div className="flex-1 space-y-5 pb-4">
+          {messages.map((message) => (
+            <ChatMessage key={message.id} message={message} briefing={briefing} period={period} />
+          ))}
+          {sending && (
+            <div className="flex items-center gap-2.5 pl-9 text-sm font-semibold text-slate-400">
+              <span className="flex gap-1">
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300 [animation-delay:-0.3s]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300 [animation-delay:-0.15s]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300" />
+              </span>
+              LOOP is thinking…
+            </div>
+          )}
+          <div ref={scrollRef} />
+        </div>
+
+        <ChatComposer onSend={handleSend} disabled={sending} hint={budgetNote} />
       </div>
 
-      <ChatComposer onSend={handleSend} disabled={sending} hint={budgetNote} />
+      <TodaysChartsRail messages={messages} />
     </div>
   );
 }

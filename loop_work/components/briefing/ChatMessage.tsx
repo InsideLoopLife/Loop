@@ -27,7 +27,7 @@ export function ChatMessage({ message, briefing, period }: { message: ChatMessag
   }
 
   return (
-    <div className="flex justify-start">
+    <div id={`msg-${message.id}`} className="flex scroll-mt-6 justify-start">
       <div className="max-w-[92%] space-y-3">
         <div className="flex items-start gap-2.5">
           <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-indigo-100 text-indigo-600">

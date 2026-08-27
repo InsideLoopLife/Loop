@@ -19,7 +19,7 @@ export default async function BriefingPage() {
   const briefing = await buildFinancialBriefing(supabase, user, visibleDataOrFilter(context));
 
   return (
-    <main className="mx-auto w-full max-w-[1200px] px-4 pb-10 pt-7">
+    <main className="mx-auto w-full max-w-[1500px] px-4 pb-16 pt-7">
       <ChatBriefingShell initial={briefing} />
     </main>
   );

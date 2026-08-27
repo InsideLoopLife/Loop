@@ -77,7 +77,7 @@ const healthLinks: NavLink[] = [
 
 const eagerWealthRoutes = ["/briefing", "/dashboard", "/financial-flow", "/investments", "/mortgage"];
 
-type NavAiUsage = { usedToday: number; dailyLimit: number | null; tierKey: string };
+type NavAiUsage = { usedThisMonth: number; monthlyLimit: number | null; tierKey: string };
 
 type NavigationBootstrap = {
   navigationLayout?: NavigationLayout;
@@ -88,6 +88,7 @@ type NavigationBootstrap = {
   isAdmin?: boolean;
   features?: Partial<UserFeatureAccess>;
   aiUsage?: NavAiUsage | null;
+  avatarUrl?: string | null;
 };
 
 let navigationBootstrapPromise: Promise<NavigationBootstrap | null> | null = null;
@@ -436,24 +437,24 @@ function AccountModal({
           <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <Sparkles className={`h-4 w-4 ${aiUsage.dailyLimit != null && aiUsage.usedToday >= aiUsage.dailyLimit ? "text-rose-500" : "text-indigo-600"}`} />
-                <p className="text-sm font-black text-slate-800">AI usage today</p>
+                <Sparkles className={`h-4 w-4 ${aiUsage.monthlyLimit != null && aiUsage.usedThisMonth >= aiUsage.monthlyLimit ? "text-rose-500" : "text-indigo-600"}`} />
+                <p className="text-sm font-black text-slate-800">Your LOOP AI usage this month</p>
               </div>
               <p className="text-xs font-black uppercase tracking-wide text-indigo-600">{aiUsage.tierKey} plan</p>
             </div>
             <p className="mt-1 text-2xl font-black text-slate-950">
-              {aiUsage.usedToday}
-              {aiUsage.dailyLimit != null && <span className="text-base text-slate-400"> / {aiUsage.dailyLimit} messages</span>}
+              {aiUsage.usedThisMonth}
+              {aiUsage.monthlyLimit != null && <span className="text-base text-slate-400"> / {aiUsage.monthlyLimit} messages</span>}
             </p>
-            {aiUsage.dailyLimit != null && (
+            {aiUsage.monthlyLimit != null && (
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white">
                 <div
-                  className={`h-full rounded-full ${aiUsage.usedToday >= aiUsage.dailyLimit ? "bg-rose-400" : "bg-indigo-500"}`}
-                  style={{ width: `${Math.min(100, Math.round((aiUsage.usedToday / Math.max(1, aiUsage.dailyLimit)) * 100))}%` }}
+                  className={`h-full rounded-full ${aiUsage.usedThisMonth >= aiUsage.monthlyLimit ? "bg-rose-400" : "bg-indigo-500"}`}
+                  style={{ width: `${Math.min(100, Math.round((aiUsage.usedThisMonth / Math.max(1, aiUsage.monthlyLimit)) * 100))}%` }}
                 />
               </div>
             )}
-            <p className="mt-2 text-xs font-semibold text-slate-500">Resets daily at midnight. Limits are set per plan in the admin panel.</p>
+            <p className="mt-2 text-xs font-semibold text-slate-500">Resets on the 1st of each month. Limits are set per plan in the admin panel.</p>
           </div>
         ) : null}
 
@@ -577,6 +578,7 @@ function NavInner() {
   const searchParams = useSearchParams();
   const [unreadCount, setUnreadCount] = useState(0);
   const [aiUsage, setAiUsage] = useState<NavAiUsage | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
   const [features, setFeatures] = useState<UserFeatureAccess>(
     DEFAULT_USER_FEATURE_ACCESS,
@@ -668,6 +670,7 @@ function NavInner() {
         setHasChosenLayout(Boolean(payload.hasChosenNavigationLayout) || localConfirmed);
         setUnreadCount(Number(payload.unreadCount || 0));
         setAiUsage(payload.aiUsage ?? null);
+        setAvatarUrl(payload.avatarUrl ?? null);
         setShowAdmin(Boolean(payload.isAdmin));
         setFeatures({ ...DEFAULT_USER_FEATURE_ACCESS, ...(payload.features || {}) });
       })
@@ -819,7 +822,7 @@ function NavInner() {
             <Brand />
             <div className="flex items-center gap-2">
               <Link href={domain === "wealth" ? "/nutrition" : wealthHome} className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">{domain === "wealth" ? "Health" : "Wealth"}</Link>
-              <button type="button" onClick={() => setAccountOpen(true)} className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-slate-700" aria-label="Account and settings"><UserRound className="h-5 w-5" />{unreadCount > 0 ? <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-violet-600 ring-2 ring-white" /> : null}</button>
+              <button type="button" onClick={() => setAccountOpen(true)} className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-slate-700" aria-label="Account and settings">{avatarUrl ? <img src={avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" /> : <UserRound className="h-5 w-5" />}{unreadCount > 0 ? <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-violet-600 ring-2 ring-white" /> : null}</button>
               {mobileLayout === "cards" ? <button type="button" onClick={() => setMobileOpen(true)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-950 text-white" aria-label="Open navigation cards"><Menu className="h-5 w-5" /></button> : null}
             </div>
           </div>
@@ -938,7 +941,7 @@ function NavInner() {
               onClick={() => setAccountOpen(true)}
               className="relative flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-black text-slate-200 hover:bg-white/10"
             >
-              <CircleUserRound className="h-5 w-5" />
+              {avatarUrl ? <img src={avatarUrl} alt="" className="h-5 w-5 rounded-full object-cover" /> : <CircleUserRound className="h-5 w-5" />}
               <span className="flex-1">Account & settings</span>
               <ChevronDown className="h-4 w-4" />
               {unreadCount > 0 ? (
@@ -982,24 +985,16 @@ function NavInner() {
                   Health
                 </Link>
               </div>
-              {aiUsage ? (
-                <button
-                  type="button"
-                  onClick={() => setAccountOpen(true)}
-                  title={`${aiUsage.usedToday}${aiUsage.dailyLimit != null ? ` of ${aiUsage.dailyLimit}` : ""} AI messages used today (${aiUsage.tierKey} plan)`}
-                  className="hidden shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 shadow-sm sm:flex"
-                >
-                  <Sparkles className={`h-3.5 w-3.5 ${aiUsage.dailyLimit != null && aiUsage.usedToday >= aiUsage.dailyLimit ? "text-rose-500" : "text-indigo-500"}`} />
-                  {aiUsage.usedToday}
-                  {aiUsage.dailyLimit != null && <span className="text-slate-400">/{aiUsage.dailyLimit}</span>}
-                </button>
-              ) : null}
               <button
                 type="button"
                 onClick={() => setAccountOpen(true)}
                 className="relative flex shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700 shadow-sm"
               >
-                <UserRound className="h-4 w-4" />
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="" className="h-5 w-5 rounded-full object-cover" />
+                ) : (
+                  <UserRound className="h-4 w-4" />
+                )}
                 <span className="hidden sm:inline">Account</span>
                 <ChevronDown className="h-4 w-4" />
                 {unreadCount > 0 ? (
