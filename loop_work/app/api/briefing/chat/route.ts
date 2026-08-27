@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { buildFinancialBriefing, type FinancialBriefing } from "@/lib/briefing/build-financial-briefing";
+import { buildFinancialBriefing } from "@/lib/briefing/build-financial-briefing";
 import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
 import { featureEnabled, getEffectiveEntitlements } from "@/lib/tiers/entitlements";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
@@ -8,7 +8,9 @@ import { recordAiRouteUsage } from "@/lib/ai/route-budget";
 import { getMonthlyChatBudget } from "@/lib/briefing/chat-usage";
 import { BRIEFING_CARD_DESCRIPTIONS, BRIEFING_CARD_KEYS, isBriefingCardKey, type BriefingCardKey } from "@/lib/briefing/chat-cards";
 import { appendTodaysChatMessages, loadTodaysChatMessages } from "@/lib/briefing/chat-session";
-import { computePensionProjection, detectPensionProjectionYears, type BriefingLineChart } from "@/lib/briefing/projections";
+import { runLogicLibrary } from "@/lib/briefing/logic-library";
+import { logLogicLibraryGap } from "@/lib/briefing/logic-gaps";
+import type { BriefingLineChart } from "@/lib/briefing/projections";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,7 @@ const MAX_HISTORY_TURNS = 8;
 type ChatTurn = { role: "user" | "assistant"; content: string };
 
 type ChatBudget = { usedThisMonth: number; monthlyLimit: number | null; tierKey: string };
-type ChatReply = { reply: string; card: BriefingCardKey | null; chart?: BriefingLineChart | null; source: "ai" | "fallback"; note?: string; budget: ChatBudget };
+type ChatReply = { reply: string; card: BriefingCardKey | null; chart?: BriefingLineChart | null; source: "logic" | "ai" | "fallback"; note?: string; budget: ChatBudget };
 
 function safeJson(text: string) {
   try {
@@ -31,54 +33,6 @@ function safeJson(text: string) {
   } catch {
     return null;
   }
-}
-
-function money(value: number) {
-  return `£${Math.round(Number(value || 0)).toLocaleString("en-GB")}`;
-}
-
-// Grounded, template-based answer used whenever AI isn't available (no key
-// configured, budget exhausted, or the model call itself fails). It's not
-// as flexible as a free-form answer but every figure in it is real, and the
-// chat should never go silent just because the AI layer is unavailable.
-function fallbackReply(message: string, briefing: FinancialBriefing): { reply: string; card: BriefingCardKey | null } {
-  const q = message.toLowerCase();
-  if (/pension.?fund|which pension|what pension|pension.*(up|down|perform)/.test(q)) {
-    if (!briefing.pensionFunds.length) return { reply: "Your pension pot value is tracked, but no individual fund breakdown is logged yet — add fund detail on a pension account to see it here.", card: null };
-    const withPerf = briefing.pensionFunds.filter((f) => f.annualised5y != null);
-    const best = [...withPerf].sort((a, b) => (b.annualised5y ?? 0) - (a.annualised5y ?? 0))[0];
-    const worst = [...withPerf].sort((a, b) => (a.annualised5y ?? 0) - (b.annualised5y ?? 0))[0];
-    const perfLine = best && worst && best.name !== worst.name
-      ? ` ${best.name} leads on 5-year annualised return at ${best.annualised5y?.toFixed(1)}%, while ${worst.name} is lowest at ${worst.annualised5y?.toFixed(1)}%.`
-      : "";
-    return { reply: `You have ${briefing.pensionFunds.length} pension fund${briefing.pensionFunds.length === 1 ? "" : "s"} logged, totalling ${money(briefing.pensionFunds.reduce((t, f) => t + f.value, 0))}.${perfLine}`, card: "pension_funds_table" };
-  }
-  if (/holding|which (invest|fund|stock|share)|what (invest|fund|stock|share)/.test(q)) {
-    return briefing.holdings.length
-      ? { reply: `You have ${briefing.holdings.length} priced holding${briefing.holdings.length === 1 ? "" : "s"} worth ${money(briefing.investments.value)} in total.`, card: "holdings_table" }
-      : { reply: "No priced holdings are linked yet — connect or add investment accounts to see them here.", card: null };
-  }
-  if (/net.?worth|overall|total|worth/.test(q)) {
-    return { reply: `Your household net worth is ${money(briefing.currentNetWorth)} — ${money(briefing.assets)} in assets against ${money(briefing.liabilities)} in liabilities.`, card: "net_worth" };
-  }
-  if (/invest|portfolio|stock|fund|share/.test(q)) {
-    return { reply: `Your priced investments are worth ${money(briefing.investments.value)}. ${briefing.investments.topExposure ? `${briefing.investments.topExposure} is your largest exposure at about ${briefing.investments.topExposurePercent.toFixed(0)}%.` : "Connect or refresh holdings for exposure detail."}`, card: "portfolio" };
-  }
-  if (/saving|isa|interest|rate/.test(q)) {
-    return { reply: `Savings sit at ${money(briefing.savings.balance)}, blended rate ${briefing.savings.blendedRate.toFixed(2)}%. £${Math.round(briefing.savings.monthlyDeposits).toLocaleString("en-GB")} banked this month.`, card: "savings" };
-  }
-  if (/mortgage|house|home|property|equity|ltv/.test(q)) {
-    return briefing.home
-      ? { reply: `Estimated home equity is ${money(briefing.home.equity)}, mortgage ${money(briefing.home.mortgage)}, LTV around ${briefing.home.ltv.toFixed(0)}%.`, card: "home" }
-      : { reply: "No property is linked yet, so I can't show equity or LTV.", card: null };
-  }
-  if (/spend|budget|flow|income|outgoing/.test(q)) {
-    return { reply: `This month: ${money(briefing.flow.income)} income, ${money(briefing.flow.spending)} spending, ${money(briefing.flow.savings)} to savings, ${money(briefing.flow.unassigned)} unassigned.`, card: "flow" };
-  }
-  if (/what should i do|next step|priorit|recommend|advice/.test(q)) {
-    return { reply: briefing.actions[0] ? `Top priority: ${briefing.actions[0].title}. ${briefing.actions[0].body}` : "Nothing urgent stands out right now.", card: "actions" };
-  }
-  return { reply: briefing.narrative[0] || `Your net worth is ${money(briefing.currentNetWorth)}.`, card: null };
 }
 
 // GET returns today's persisted conversation (UTC-day scoped) so the chat
@@ -120,8 +74,8 @@ export async function POST(request: Request) {
   if (!message) return NextResponse.json({ error: "Message is required" }, { status: 400 });
 
   // Every branch below funnels through this so the day's conversation is
-  // persisted regardless of whether the reply came from the model or a
-  // fallback — a fallback answer is still a real exchange worth remembering.
+  // persisted regardless of source — logic-library, AI, or fallback are
+  // all real exchanges worth remembering.
   async function respond(result: Omit<ChatReply, "budget">, budget: ChatBudget) {
     await appendTodaysChatMessages(supabase, user!.id, [
       { role: "user", content: message },
@@ -133,37 +87,40 @@ export async function POST(request: Request) {
   const context = await getActiveHouseholdContext(supabase, user);
   const briefing = await buildFinancialBriefing(supabase, user, visibleDataOrFilter(context));
 
-  // Computed deterministically, never by the model — real compound-interest
-  // maths on real fund data, not a guess dressed up as an answer.
-  const projectionYears = detectPensionProjectionYears(message);
-  const projectionChart = projectionYears ? computePensionProjection(briefing, projectionYears) : null;
-
-  const fallback = fallbackReply(message, briefing);
-  const fallbackWithProjection = projectionChart
-    ? { reply: `${projectionChart.subtitle}. ${projectionChart.note}`, card: null as BriefingCardKey | null, chart: projectionChart }
-    : { ...fallback, chart: null as BriefingLineChart | null };
-
-  // Checked up front regardless of whether an OpenAI key is configured, so the
-  // usage indicator always has real numbers to show, even in a pure-fallback reply.
+  // Budget is still resolved up front purely for display — the usage
+  // indicator should always show real numbers, whichever path answers.
   const budgetCheck = await getMonthlyChatBudget(supabase, user.id, ROUTE_KEY);
   const budget: ChatBudget = { usedThisMonth: budgetCheck.usedThisMonth, monthlyLimit: budgetCheck.monthlyLimit, tierKey: budgetCheck.tierKey };
 
+  // The logic library is tried FIRST, before any AI cost is even
+  // considered. A covered question costs zero tokens and answers
+  // instantly — this is the actual mechanism that makes AI usage shrink
+  // over time as more question shapes get a skill here.
+  const logicResult = runLogicLibrary(message, briefing);
+  if (logicResult) {
+    return respond({ ...logicResult, source: "logic" }, budget);
+  }
+
+  // Nothing in the logic library covers this — log it so a recurring
+  // pattern can become a new skill later, then fall through to a real AI
+  // call (which does cost a token, subject to the monthly budget below).
+  await logLogicLibraryGap(supabase, user.id, message);
+
+  const genericFallback = { reply: briefing.narrative[0] || "I don't have a specific answer for that yet.", card: null as BriefingCardKey | null, chart: null as BriefingLineChart | null };
+
   const secret = await getActiveIntegrationSecret(supabase, user.id, "openai");
-  if (!secret?.value) return respond({ ...fallbackWithProjection, source: "fallback" }, budget);
+  if (!secret?.value) return respond({ ...genericFallback, source: "fallback" }, budget);
 
   if (!budgetCheck.allowed) {
-    return respond({ ...fallbackWithProjection, source: "fallback", note: `${budgetCheck.reason} Resets next month.` }, budget);
+    return respond({ ...genericFallback, source: "fallback", note: `${budgetCheck.reason} Resets next month.` }, budget);
   }
 
   try {
     const cardMenu = BRIEFING_CARD_KEYS.map((key) => `"${key}": ${BRIEFING_CARD_DESCRIPTIONS[key]}`).join("\n");
-    const projectionBlock = projectionChart
-      ? `\nA pension projection has ALREADY been computed and will be shown as a chart automatically — do not attempt your own projection or maths. Use these exact pre-computed numbers in your reply: ${projectionChart.subtitle}. ${projectionChart.note} Set "card" to null in this case, since the chart is shown separately.\n`
-      : "";
     const prompt = `You are the conversational financial briefing assistant inside LOOP, a private UK household finance app. You are talking to ${briefing.firstName}.
 
 Ground every reply strictly in the household data JSON below — never invent or estimate a figure that isn't in it. If something specific isn't in the data (e.g. a spending category or asset type that doesn't exist for this household), say so plainly and suggest what to add or connect — do not pad the reply with unrelated data-quality commentary.
-${projectionBlock}
+
 Household data (all figures already computed, GBP):
 ${JSON.stringify(briefing)}
 
@@ -179,7 +136,7 @@ Reply with JSON only, matching exactly: {"reply": "your natural, concise chat re
 Rules:
 - Be warm but concise, like a knowledgeable friend, not a report.
 - Never give regulated financial advice — frame suggestions as things to consider or discuss with a professional.
-- Stay strictly within the provided data for any number you state. Never do your own compound-interest, growth, or projection maths — if a projection is needed and wasn't pre-computed above, say projections aren't available for that yet rather than estimating one.
+- Stay strictly within the provided data for any number you state. Never do your own compound-interest, growth, or projection maths — if a projection is needed, say projections aren't available for that yet rather than estimating one.
 - Prefer a table or graph card over plain text whenever the data for one exists — holdings_table and pension_funds_table give real per-item detail, not just totals, so reach for them whenever the question is about "what/which" holdings or funds someone has.
 - If the user asks to see a graph, chart, or trend for something, pick the card for that category even if you already showed it earlier — every value-based card already includes a live trend graph, so re-showing it is correct and expected.
 - If nothing in the data answers the question, set card to null. Do NOT attach the evidence card as a generic fallback — that card is reserved specifically for when the user asks broadly what data is missing or incomplete across their whole household, and attaching it for an unrelated unanswerable question is misleading since it always reports the household's core records as fine.
@@ -195,7 +152,7 @@ Rules:
       }),
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) return respond({ ...fallbackWithProjection, source: "fallback" }, budget);
+    if (!response.ok) return respond({ ...genericFallback, source: "fallback" }, budget);
 
     const text = String(
       payload.output_text ||
@@ -203,16 +160,13 @@ Rules:
         "",
     );
     const parsed = safeJson(text);
-    const reply = typeof parsed?.reply === "string" && parsed.reply.trim() ? parsed.reply.trim() : fallbackWithProjection.reply;
-    // A pre-computed chart always takes priority over a model-picked card —
-    // they're mutually exclusive on the client, and the chart is the more
-    // specific, more accurate answer when one was computed.
-    const card = projectionChart ? null : isBriefingCardKey(parsed?.card) ? parsed.card : null;
+    const reply = typeof parsed?.reply === "string" && parsed.reply.trim() ? parsed.reply.trim() : genericFallback.reply;
+    const card = isBriefingCardKey(parsed?.card) ? parsed.card : null;
 
     await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budgetCheck.tierKey, routeKey: ROUTE_KEY, provider: "openai", model: process.env.LOOP_FINANCIAL_BRIEFING_CHAT_MODEL || "gpt-4.1-mini" });
 
-    return respond({ reply, card, chart: projectionChart, source: "ai" }, { ...budget, usedThisMonth: budget.usedThisMonth + 1 });
+    return respond({ reply, card, chart: null, source: "ai" }, { ...budget, usedThisMonth: budget.usedThisMonth + 1 });
   } catch {
-    return respond({ ...fallbackWithProjection, source: "fallback" }, budget);
+    return respond({ ...genericFallback, source: "fallback" }, budget);
   }
 }
