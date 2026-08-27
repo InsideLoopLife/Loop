@@ -1354,6 +1354,13 @@ export async function addInvestmentHolding(formData: FormData) {
   const accountId = String(formData.get("investment_account_id") || "");
   if (!accountId) throw new Error("Choose an investment account first.");
 
+  const { data: holdingCapacity, error: holdingCapacityError } = await (supabase as any).rpc(
+    "app_check_investment_holding_capacity",
+    { p_account_id: accountId, p_additional: 1 }
+  );
+  if (holdingCapacityError) throw new Error("We could not verify this account's portfolio allowance.");
+  if (!holdingCapacity?.allowed) throw new Error(holdingCapacity?.reason || "This investment account has reached the holding limit for the current plan.");
+
   const priceUnit = asPriceInputUnit(formData.get("price_input_unit"));
   const ticker = nullableString(formData.get("ticker"));
   const exchange = nullableString(formData.get("exchange"));
@@ -1959,6 +1966,13 @@ export async function importInvestmentHoldingsBulk(formData: FormData) {
   let text = String(formData.get("holdings_text") || "");
   const priceUnit = asPriceInputUnit(formData.get("price_input_unit"));
   if (!accountId) throw new Error("Choose an investment account first.");
+
+  const { data: holdingCapacity, error: holdingCapacityError } = await (supabase as any).rpc(
+    "app_check_investment_holding_capacity",
+    { p_account_id: accountId, p_additional: 1 }
+  );
+  if (holdingCapacityError) throw new Error("We could not verify this account's portfolio allowance.");
+  if (!holdingCapacity?.allowed) throw new Error(holdingCapacity?.reason || "This investment account has reached the holding limit for the current plan.");
 
   if (uploaded && uploaded.size > 0) {
     if (looksLikeImage(uploaded)) {

@@ -1,27 +1,22 @@
 export const LOOP_FEATURES = {
   DATA_EXPORT: "data_export",
-
   AI_CHAT: "ai_chat",
   AI_FOOD_PARSE: "ai_food_parse",
   AI_LABEL_SCAN: "ai_label_scan",
   AI_FINANCIAL_BRIEFING: "ai_financial_briefing",
   AI_MONTHLY_SPEND_CAP: "ai_monthly_spend_cap",
-
   INBOUND_EMAIL_IMPORTS: "inbound_email_imports",
-
   NUTRITION_INSIGHTS: "nutrition_insights",
   NUTRITION_LOGGING: "nutrition_logging",
-
   HOUSEHOLD_MEMBERS: "household_members",
-
   INVESTMENT_LOOKUP: "investment_lookup",
+  INVESTMENT_HOLDINGS_PER_ACCOUNT: "investment_holdings_per_account",
   INVESTMENT_MERGED_CHARTS: "investment_merged_charts",
   MARKET_DATA_REALTIME: "market_data_realtime",
   SNAPTRADE: "snaptrade",
   SNAPTRADE_REALTIME: "snaptrade_realtime",
   STOCK_PAIRING: "stock_pairing",
   WEALTH_MANUAL: "wealth_manual",
-
   MORTGAGE_RENEWAL_WATCH: "mortgage_renewal_watch",
   MOVE_PLANNER: "move_planner",
   PROVIDER_INTEGRATIONS: "provider_integrations",
@@ -29,5 +24,4 @@ export const LOOP_FEATURES = {
   SAVINGS_SURPLUS_OPTIMISER: "savings_surplus_optimiser",
 } as const;
 
-export type LoopFeatureKey =
-  (typeof LOOP_FEATURES)[keyof typeof LOOP_FEATURES];
+export type LoopFeatureKey = (typeof LOOP_FEATURES)[keyof typeof LOOP_FEATURES];
