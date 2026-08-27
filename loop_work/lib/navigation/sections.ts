@@ -40,8 +40,8 @@ export const healthSections: LoopSection[] = [
 ];
 
 export const adminSections: LoopSection[] = [
-  { key: "overview", label: "Overview", href: "/admin", area: "admin", icon: "dashboard", exact: true, description: "Admin control centre summary." },
-  { key: "users", label: "Users", href: "/admin/users", area: "admin", icon: "users", description: "Customer, profile, tier and household checks." },
+  { key: "overview", label: "Admin home", href: "/admin", area: "admin", icon: "dashboard", exact: true, description: "Choose the admin job you want to do." },
+  { key: "users", label: "User access", href: "/admin/users", area: "admin", icon: "users", description: "Customers, plan access, overrides and household checks." },
   { key: "admin-investments", label: "Investments", href: "/admin/investments", area: "admin", icon: "investments", description: "Investment coverage, broker imports, raw price points, chart storage and cadence." },
   { key: "admin-houses", label: "House", href: "/admin/houses", area: "admin", icon: "mortgage", description: "Homes, mortgage catalogue, moving-home enrichment and valuation automation." },
   { key: "admin-financial-flow", label: "Financial Flow", href: "/admin/financial-flow", area: "admin", icon: "accounts", description: "Income, savings transfers, spending planner and cashflow checks." },
@@ -49,7 +49,8 @@ export const adminSections: LoopSection[] = [
   { key: "admin-loopwatch", label: "LoopWatch", href: "/admin/loopwatch", area: "admin", icon: "documents", description: "Document intelligence rules, provider increases and renewal opportunities." },
   { key: "admin-health", label: "Health", href: "/admin/health", area: "admin", icon: "products", description: "Nutrition, product data, ingredient quality and health logic." },
   { key: "admin-lifestyle", label: "Lifestyle", href: "/admin/lifestyle", area: "admin", icon: "sparkles", description: "Lifestyle, routines and future family planning modules." },
-  { key: "tiers", label: "Tiers", href: "/admin/tiers", area: "admin", icon: "tiers", description: "Plan limits, AI routing and tier API keys." },
+  { key: "features", label: "Features", href: "/admin/features", area: "admin", icon: "sparkles", description: "Plain-English feature catalogue and plan coverage." },
+  { key: "tiers", label: "Plans & pricing", href: "/admin/tiers", area: "admin", icon: "tiers", description: "Plan prices, allowances, upgrade rules and AI routing." },
   { key: "notifications", label: "Ops", href: "/admin/notifications", area: "admin", icon: "notifications", description: "Notifications, runtime issues and security checks." },
   { key: "beta", label: "Beta", href: "/admin/beta", area: "admin", icon: "sparkles", description: "Private beta access codes, release flags and upgrade approval rules." },
   { key: "products", label: "Health products", href: "/admin/products/quality", area: "admin", icon: "products", hidden: true, description: "Product, ingredient and nutrition quality database." },
