@@ -1,4 +1,5 @@
 import { AdminTabs } from "@/components/admin/AdminTabs";
+import { PlainEnglishTierFeatureCell } from "@/components/admin/PlainEnglishTierFeatureCell";
 import { ProviderModelFields, TierAiRouteForm } from "@/components/admin/TierAiConfigurator";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdminAccess } from "@/lib/admin/access";
@@ -57,8 +58,8 @@ function money(pence?: number | null) {
 }
 
 function featureText(cell: any) {
-  if (!cell?.enabled) return "—";
-  if (cell.limit_value === null || cell.limit_value === undefined) return "✓";
+  if (!cell?.enabled) return "â€”";
+  if (cell.limit_value === null || cell.limit_value === undefined) return "âœ“";
   if (Number(cell.limit_value) >= 9999) return "Unlimited";
   if (cell.limit_period && cell.limit_period !== "none") return `${cell.limit_value} / ${cell.limit_period}`;
   return String(cell.limit_value);
@@ -81,7 +82,7 @@ function valueForInput(value: any) {
 function PlanSettings({ plan }: { plan: any }) {
   return (
     <details className="relative inline-block">
-      <summary className="list-none rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white shadow-sm [&::-webkit-details-marker]:hidden" title="Edit tier column">⚙</summary>
+      <summary className="list-none rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white shadow-sm [&::-webkit-details-marker]:hidden" title="Edit tier column">âš™</summary>
       <div className="absolute right-0 z-30 mt-2 w-[min(92vw,760px)] rounded-[2rem] border border-slate-200 bg-white p-5 text-slate-950 shadow-2xl">
         <h3 className="text-xl font-black">Edit {plan.name}</h3>
         <p className="mt-1 text-sm font-bold text-slate-500">This updates the same tier column users see on the plan comparison page.</p>
@@ -272,7 +273,7 @@ export default async function AdminTiersPage() {
                   <p className="font-black">{request.display_name || request.email || request.masked_email || request.user_id}</p>
                   <p className="text-xs font-bold text-slate-500">{request.email || request.masked_email || request.user_id}</p>
                 </div>
-                <p className="text-sm font-black">{request.current_plan_slug || "free"} → {request.requested_plan_slug}</p>
+                <p className="text-sm font-black">{request.current_plan_slug || "free"} â†’ {request.requested_plan_slug}</p>
                 <input name="note" defaultValue={request.note || ""} placeholder="Decision note" className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" />
                 <button name="decision" value="approve" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white">Approve</button>
                 <button name="decision" value="reject" className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-black text-white">Reject</button>
@@ -282,14 +283,14 @@ export default async function AdminTiersPage() {
         </section>
       ) : (
         <section className="rounded-[2rem] border border-slate-200 bg-white p-5 text-sm font-bold text-slate-500 shadow-sm">
-          No pending upgrade requests at the moment. When a user clicks “Request upgrade”, it will appear here.
+          No pending upgrade requests at the moment. When a user clicks â€œRequest upgradeâ€, it will appear here.
         </section>
       )}
 
       <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 p-5">
           <h2 className="text-2xl font-black">User-facing comparison chart</h2>
-          <p className="mt-1 text-sm font-bold text-slate-500">This mirrors the user upgrade page. Use the cog in a column header for tier settings; use “Edit row” for feature text; click a pill to edit that plan’s feature cell.</p>
+          <p className="mt-1 text-sm font-bold text-slate-500">This mirrors the user upgrade page. Use the cog in a column header for tier settings; use â€œEdit rowâ€ for feature text; click a pill to edit that planâ€™s feature cell.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
@@ -324,7 +325,7 @@ export default async function AdminTiersPage() {
                     const cell = row.plans?.[plan.slug];
                     return (
                       <td key={`${row.feature_key}-${plan.slug}`} className="px-5 py-4 align-top">
-                        <PlanFeatureCell plan={plan} row={row} cell={cell} />
+                        <PlainEnglishTierFeatureCell planSlug={plan.slug} featureKey={row.feature_key} featureName={row.name} cell={cell} />
                       </td>
                     );
                   })}
@@ -358,7 +359,7 @@ export default async function AdminTiersPage() {
               {users.map((user: any) => (
                 <tr key={user.user_id} className="border-b border-slate-100">
                   <td className="py-3 font-black">{user.display_name || user.anon_user_ref || "User"}</td>
-                  <td>{user.email || user.masked_email || "—"}</td>
+                  <td>{user.email || user.masked_email || "â€”"}</td>
                   <td>{user.plan_slug || "free"}</td>
                   <td>{user.manual_override ? "admin override" : user.source || "default"}</td>
                   <td>
