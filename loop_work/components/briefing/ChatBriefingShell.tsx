@@ -41,7 +41,7 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
         if (!stored.length) return;
         const restored: ChatMessageData[] = stored
           .filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
-          .map((m: any) => ({ id: id(), role: m.role, content: m.content, card: isBriefingCardKey(m.card) ? m.card : null, typed: false }));
+          .map((m: any) => ({ id: id(), role: m.role, content: m.content, card: isBriefingCardKey(m.card) ? m.card : null, chart: m.chart ?? null, typed: false }));
         // Keep the live opener bubble, then continue with today's real history —
         // this is what lets a link the assistant gave earlier stay usable: the
         // conversation is still here after navigating back.
@@ -70,7 +70,7 @@ export function ChatBriefingShell({ initial }: { initial: FinancialBriefing }) {
         return;
       }
       const card: BriefingCardKey | null = data.card ?? null;
-      setMessages((prev) => [...prev, { id: id(), role: "assistant", content: data.reply, card, typed: true }]);
+      setMessages((prev) => [...prev, { id: id(), role: "assistant", content: data.reply, card, chart: data.chart ?? null, typed: true }]);
       if (data.note) setBudgetNote(data.note);
       // The AI usage indicator lives in the top nav (under Account) now —
       // push the fresh count there via a DOM event rather than duplicating

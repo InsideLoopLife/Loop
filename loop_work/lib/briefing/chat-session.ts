@@ -1,8 +1,10 @@
+import type { BriefingLineChart } from "./projections";
+
 // Persists the /briefing chat's message history for the current UTC day so
 // a conversation survives navigation and page reloads. Deliberately
 // day-scoped, not permanent history — matches the "today's briefing" shape
 // of the rest of this feature, and keeps the stored payload small.
-export type StoredChatMessage = { role: "user" | "assistant"; content: string; card?: string | null };
+export type StoredChatMessage = { role: "user" | "assistant"; content: string; card?: string | null; chart?: BriefingLineChart | null };
 
 const MAX_STORED_MESSAGES = 60;
 

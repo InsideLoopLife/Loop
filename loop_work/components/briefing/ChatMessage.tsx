@@ -3,7 +3,9 @@
 import { Sparkles } from "lucide-react";
 import type { FinancialBriefing, BriefingPeriod } from "@/lib/briefing/build-financial-briefing";
 import type { BriefingCardKey } from "@/lib/briefing/chat-cards";
+import type { BriefingLineChart } from "@/lib/briefing/projections";
 import { ChatCardRenderer } from "./ChatCardRenderer";
+import { LineChartCard } from "./LineChartCard";
 import { TypedText } from "./TypedText";
 
 export type ChatMessageData = {
@@ -11,6 +13,7 @@ export type ChatMessageData = {
   role: "user" | "assistant";
   content: string;
   card?: BriefingCardKey | null;
+  chart?: BriefingLineChart | null;
   typed?: boolean;
 };
 
@@ -34,11 +37,15 @@ export function ChatMessage({ message, briefing, period }: { message: ChatMessag
             {message.typed ? <TypedText text={message.content} active speedMs={10} /> : message.content}
           </div>
         </div>
-        {message.card && (
+        {message.chart ? (
+          <div className="ml-9">
+            <LineChartCard chart={message.chart} />
+          </div>
+        ) : message.card ? (
           <div className="ml-9">
             <ChatCardRenderer card={message.card} briefing={briefing} period={period} />
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
