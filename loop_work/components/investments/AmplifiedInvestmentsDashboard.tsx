@@ -484,7 +484,7 @@ function PortfolioChart({ points, costValue, positive, dark }: { points: Array<{
         
         {/* Main Chart SVG */}
         <path d={`${d} L100,90 L0,90 Z`} fill="url(#loopInvestmentArea)" />
-        <path d={d} fill="none" stroke="currentColor" className={positive ? "text-emerald-400" : "text-rose-500"} strokeWidth="0.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={d} fill="none" stroke="currentColor" className={positive ? "text-emerald-400" : "text-rose-500"} strokeWidth="0.45" strokeLinecap="round" strokeLinejoin="round" />
         
         {/* Solid Bottom Axis */}
         <line x1="0" x2="100" y1="90" y2="90" stroke="currentColor" className={dark ? "text-white/20" : "text-slate-300"} strokeWidth="0.5" />
@@ -539,6 +539,7 @@ function AssetMiniChart({ points, positive, dark }: { points: Array<{ date: stri
     return dateStr;
   }
   const startTime = formatTime(points[0].date, true);
+  const midTime = formatTime(points[Math.floor((points.length - 1) / 2)]?.date || points[0].date, false);
   const endTime = formatTime(points[points.length - 1].date, false);
   
   return (
@@ -553,14 +554,14 @@ function AssetMiniChart({ points, positive, dark }: { points: Array<{ date: stri
            </defs>
            {[15, 50, 85].map((y) => <line key={y} x1="0" x2="100" y1={y} y2={y} stroke="currentColor" strokeDasharray="1 3" className={dark ? "text-white/[0.05]" : "text-slate-200"} strokeWidth="0.5" />)}
            <path d={`${pathD} L100,85 L0,85 Z`} fill="url(#miniChartGrad)" />
-           <path d={pathD} fill="none" stroke="currentColor" className={positive ? "text-emerald-400" : "text-rose-500"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+           <path d={pathD} fill="none" stroke="currentColor" className={positive ? "text-emerald-400" : "text-rose-500"} strokeWidth="0.8" strokeLinecap="round" strokeLinejoin="round" />
            {miniCoords.map((coord, index) =>
              index % miniDotStep === 0 || index === miniCoords.length - 1 ? (
                <circle
                  key={`${coord.point.date}-${index}`}
                  cx={coord.x}
                  cy={coord.y}
-                 r="1.35"
+                 r="0.8"
                  fill="currentColor"
                  className={positive ? "text-emerald-300" : "text-rose-400"}
                >
@@ -578,7 +579,7 @@ function AssetMiniChart({ points, positive, dark }: { points: Array<{ date: stri
        {/* X-Axis Timestamps */}
        <div className={`h-4 shrink-0 flex items-center justify-between border-t text-[10px] font-semibold mt-1 px-1 ${dark ? "border-white/10 text-white/40" : "border-slate-200 text-slate-400"}`}>
           <span>{startTime}</span>
-          <span>12:00</span>
+          <span>{midTime}</span>
           <span>{endTime}</span>
        </div>
     </div>
@@ -911,13 +912,22 @@ export function AmplifiedInvestmentsDashboard({
   }, [period, accountIdsKey, filteredHoldings.length]);
 
   const observedHoldingIdsKey = useMemo(() => {
-    return filteredHoldings
+    const rankedIds = filteredHoldings
       .filter((holding) => holding.id && !String(holding.id).startsWith("bundle:"))
       .sort((a, b) => holdingValue(b) - holdingValue(a))
       .slice(0, 16)
-      .map((holding) => holding.id)
-      .join(",");
-  }, [filteredHoldings]);
+      .map((holding) => holding.id);
+
+    if (
+      selectedTickerItem &&
+      filteredHoldings.some((holding) => holding.id === selectedTickerItem) &&
+      !rankedIds.includes(selectedTickerItem)
+    ) {
+      rankedIds.unshift(selectedTickerItem);
+    }
+
+    return Array.from(new Set(rankedIds)).slice(0, 17).join(",");
+  }, [filteredHoldings, selectedTickerItem]);
 
   useEffect(() => {
     let cancelled = false;
@@ -998,7 +1008,29 @@ export function AmplifiedInvestmentsDashboard({
   // badge) when the server says it's reliable.
   const remoteChangeReliable = Boolean(remotePortfolioHistory?.change?.reliable);
   const remotePoints = Array.isArray(remotePortfolioHistory?.points) ? remotePortfolioHistory!.points!.filter((point) => Number.isFinite(Number(point.value)) && Number(point.value) > 0).map((point) => ({ date: point.at, value: Number(point.value) })) : [];
-  const portfolioPoints = remotePoints.length >= 2 ? remotePoints : localPortfolioPoints.length >= 2 ? localPortfolioPoints : activeTotalValue > 0 ? [{ date: "Start", value: activeTotalValue }, { date: "Now", value: activeTotalValue }] : [];
+  const portfolioPointsBase = remotePoints.length >= 2
+    ? remotePoints
+    : localPortfolioPoints.length >= 2
+      ? localPortfolioPoints
+      : activeTotalValue > 0
+        ? [{ date: "Start", value: activeTotalValue }, { date: "Now", value: activeTotalValue }]
+        : [];
+
+  const portfolioPoints = (() => {
+    if (portfolioPointsBase.length < 2 || activeTotalValue <= 0) return portfolioPointsBase;
+
+    const lastAt = Date.parse(portfolioPointsBase[portfolioPointsBase.length - 1]?.date || "");
+    const staleByMs = Number.isFinite(lastAt) ? Date.now() - lastAt : 0;
+
+    if (staleByMs > 24 * 60 * 60 * 1000) {
+      return [
+        ...portfolioPointsBase,
+        { date: new Date().toISOString(), value: activeTotalValue },
+      ];
+    }
+
+    return portfolioPointsBase;
+  })();
   const chartPeriodMoveRaw = movementFromPoints(portfolioPoints);
   const chartPeriodMove = remotePoints.length >= 2 && !remoteChangeReliable ? { ...chartPeriodMoveRaw, has: false } : chartPeriodMoveRaw;
   const representedValue = bundledHoldings.reduce((sum, holding) => sum + holdingValue(holding), 0);

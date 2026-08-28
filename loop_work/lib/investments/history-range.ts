@@ -4,7 +4,7 @@ export function bucketIntervalForRange(range: string) {
   if (range === "1d") return "1m";
   if (range === "5d") return "30m";
   if (range === "1m") return "60m";
-  if (range === "6m" || range === "ytd") return "1d";
+  if (range === "6m" || range === "ytd") return "1h";
   if (range === "1y") return "1wk";
   return "1mo";
 }
