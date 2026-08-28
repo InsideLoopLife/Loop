@@ -219,19 +219,6 @@ export function AddInvestmentHoldingWizard({ accounts, defaultAccountId }: { acc
     setQuoteNote("Manual mode selected. This will not be treated as a tracked market ticker unless you add a supported ticker/exchange later.");
   }
 
-  useEffect(() => {
-    const trimmed = searchQuery.trim();
-    if (trimmed.length < 3) {
-      setMatches([]);
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void searchHolding("auto");
-    }, 550);
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, exchange]);
-
   return (
     <form action={addInvestmentHolding} className="space-y-5">
       <label className="block">
