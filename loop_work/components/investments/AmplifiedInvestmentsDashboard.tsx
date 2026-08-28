@@ -231,12 +231,12 @@ function aggregateSnapshots(snapshots: InvestmentSnapshot[], holdingIds: Set<str
 }
 
 // BUGFIX (chart/headline day-move mismatch): this used to only look at
-// day_open_price_gbp / day_change_gbp / day_change_percent â€” a completely
+// day_open_price_gbp / day_change_gbp / day_change_percent — a completely
 // different set of fields from previousCloseMovement() below, which the
 // headline "Day move" stat uses and checks previous_close_price_gbp
 // first. Recently-fixed holdings (e.g. the Moneybox market-data worker
 // fix) can have previous_close_price_gbp populated correctly while the
-// day_open_*/day_change_* fields are still empty â€” the headline number
+// day_open_*/day_change_* fields are still empty — the headline number
 // was right, but the chart fell through every check to 0 and rendered
 // flat. Checking the same field first, with the same sanity-bound guard
 // previousCloseMovement() already trusts, fixes that without needing any
@@ -333,9 +333,9 @@ function linePath(points: Array<{ date: string; value: number }>, min: number, s
 }
 
 function formatCompactMoney(value: number) {
-  if (!Number.isFinite(value)) return "Â£0";
-  if (Math.abs(value) >= 1_000_000) return `Â£${(value / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(value) >= 1_000) return `Â£${(value / 1_000).toFixed(1)}K`;
+  if (!Number.isFinite(value)) return "£0";
+  if (Math.abs(value) >= 1_000_000) return `£${(value / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1_000) return `£${(value / 1_000).toFixed(1)}K`;
   return formatMoney(value);
 }
 
@@ -345,7 +345,7 @@ function formatTickerPointPrice(point?: PopularMarketTick) {
   const currency = String(point.native_currency || "").toUpperCase();
   if (currency === "GBX" && native > 0) return `${native.toFixed(2)}p`;
   if (currency === "USD" && native > 0) return `$${native >= 100 ? native.toFixed(2) : native.toFixed(4)}`;
-  if (currency === "EUR" && native > 0) return `â‚¬${native >= 100 ? native.toFixed(2) : native.toFixed(4)}`;
+  if (currency === "EUR" && native > 0) return `€${native >= 100 ? native.toFixed(2) : native.toFixed(4)}`;
   if (gbp > 0) return formatCompactMoney(gbp); if (native > 0) return native.toFixed(4);
   return "price pending";
 }
@@ -362,7 +362,7 @@ export function primaryHoldingLabel(holding: InvestmentHolding) {
   if (ticker && !looksLikeIsin(ticker) && ticker.length <= 8) return ticker.toUpperCase();
   const name = String(holding.asset_name || "").trim();
   if (!name) return assetInitials(holding);
-  const firstChunk = name.split(/[-â€“|]/)[0]?.trim() || name;
+  const firstChunk = name.split(/[-–|]/)[0]?.trim() || name;
   const providerish = firstChunk.split(/\s+/).slice(0, 2).join(" ").trim();
   const fundMix = firstChunk.match(/\b(?:Global\s+)?\d{1,3}%\s+Equity\b/i)?.[0];
   if (fundMix && providerish) return `${providerish} ${fundMix}`;
@@ -381,8 +381,8 @@ export function formatNativeUnitPrice(value: number, currency?: string | null, p
   const unit = String(priceUnit || "").toLowerCase(); const code = String(currency || "").toUpperCase();
   if (unit === "gbx" || code === "GBX") return `${value.toFixed(2)}p`;
   if (code === "USD") return `$${value >= 100 ? value.toFixed(2) : value.toFixed(4)}`;
-  if (code === "EUR") return `â‚¬${value >= 100 ? value.toFixed(2) : value.toFixed(4)}`;
-  if (code === "GBP") return `Â£${value >= 100 ? value.toFixed(2) : value.toFixed(4)}`;
+  if (code === "EUR") return `€${value >= 100 ? value.toFixed(2) : value.toFixed(4)}`;
+  if (code === "GBP") return `£${value >= 100 ? value.toFixed(2) : value.toFixed(4)}`;
   return `${value.toFixed(value >= 100 ? 2 : 4)}${code ? ` ${code}` : ""}`;
 }
 
@@ -396,9 +396,9 @@ export function nativeCostInputMeta(holding: InvestmentHolding) {
   const unit = String(holding.price_quote_unit || "").toLowerCase(); const currency = String(holding.native_currency || holding.currency || "GBP").toUpperCase();
   if (unit === "gbx" || currency === "GBX") return { prefix: "p", currency: "GBX", quoteUnit: "gbx" };
   if (currency === "USD") return { prefix: "$", currency: "USD", quoteUnit: "native" };
-  if (currency === "EUR") return { prefix: "â‚¬", currency: "EUR", quoteUnit: "native" };
+  if (currency === "EUR") return { prefix: "€", currency: "EUR", quoteUnit: "native" };
   if (currency === "CAD") return { prefix: "C$", currency: "CAD", quoteUnit: "native" };
-  return { prefix: "Â£", currency: currency || "GBP", quoteUnit: unit || "gbp" };
+  return { prefix: "£", currency: currency || "GBP", quoteUnit: unit || "gbp" };
 }
 
 export function nativeCostSuggestion(holding: InvestmentHolding) {
@@ -564,7 +564,7 @@ function AssetMiniChart({ points, positive, dark }: { points: Array<{ date: stri
                  fill="currentColor"
                  className={positive ? "text-emerald-300" : "text-rose-400"}
                >
-                 <title>{`${new Date(coord.point.date).toLocaleString("en-GB")} Â· ${formatMoney(coord.point.value)}`}</title>
+                 <title>{`${new Date(coord.point.date).toLocaleString("en-GB")} · ${formatMoney(coord.point.value)}`}</title>
                </circle>
              ) : null,
            )}
@@ -626,7 +626,7 @@ function DiversificationBars({ holdings, snapshots, totalValue, period, dark, on
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className={`text-[10px] font-bold uppercase tracking-widest ${dark ? "text-white/40" : "text-slate-500"}`}>Diversification</p>
-          <div className="mt-0.5 flex items-center gap-1.5"><h3 className={`text-base font-bold ${dark ? "text-white" : "text-slate-900"}`}><span className="md:hidden">Allocation &amp; movement</span><span className="hidden md:inline">Weight Ã— movement bars</span></h3></div>
+          <div className="mt-0.5 flex items-center gap-1.5"><h3 className={`text-base font-bold ${dark ? "text-white" : "text-slate-900"}`}><span className="md:hidden">Allocation &amp; movement</span><span className="hidden md:inline">Weight × movement bars</span></h3></div>
         </div>
         <div className="flex items-center gap-2">
           <div className={`flex max-w-full items-center gap-1 overflow-x-auto rounded-full p-1 ${dark ? "bg-white/[0.05]" : "bg-slate-100"}`}>
@@ -658,7 +658,7 @@ function DiversificationBars({ holdings, snapshots, totalValue, period, dark, on
                   <p className={`text-[10px] font-semibold ${dark ? "text-white/45" : "text-slate-500"}`}>of selected portfolio</p>
                 </div>
                 <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-black ${!item.move.has ? (dark ? "bg-white/10 text-white/40" : "bg-white/70 text-slate-400") : positive ? (dark ? "bg-emerald-400/15 text-emerald-300" : "bg-white/80 text-emerald-700") : (dark ? "bg-rose-400/15 text-rose-300" : "bg-white/80 text-rose-600")}`}>
-                  {item.move.has ? `${positive ? "â–² " : "â–¼ "}${Math.abs(item.move.pct).toFixed(2)}%` : "â€”"}
+                  {item.move.has ? `${positive ? "▲ " : "▼ "}${Math.abs(item.move.pct).toFixed(2)}%` : "—"}
                 </span>
               </div>
             </button>
@@ -678,7 +678,7 @@ function DiversificationBars({ holdings, snapshots, totalValue, period, dark, on
                 <div className="relative flex h-[150px] w-full items-center justify-center">
                   <div className={`absolute inset-x-px rounded-sm transition-all ${positive ? "bg-gradient-to-t from-emerald-500 to-emerald-400" : "bg-gradient-to-b from-rose-400 to-rose-600"} ${!item.move.has ? "grayscale opacity-20" : ""}`} style={positive ? { bottom: "50%", height: `${barHeight}px`, borderTopLeftRadius: "4px", borderTopRightRadius: "4px" } : { top: "50%", height: `${barHeight}px`, borderBottomLeftRadius: "4px", borderBottomRightRadius: "4px" }} />
                   <span className={`absolute whitespace-nowrap text-[10px] font-bold ${!item.move.has ? (dark ? "text-white/40" : "text-slate-400") : positive ? "text-emerald-400" : "text-rose-500"}`} style={positive ? { bottom: `calc(50% + ${barHeight + 4}px)` } : { top: `calc(50% + ${barHeight + 4}px)` }}>
-                    {item.move.has ? `${positive ? "+" : ""}${item.move.pct.toFixed(2)}%` : "â€”"}
+                    {item.move.has ? `${positive ? "+" : ""}${item.move.pct.toFixed(2)}%` : "—"}
                   </span>
                 </div>
                 <div className="mt-1 min-w-0 px-0.5">
@@ -998,7 +998,7 @@ export function AmplifiedInvestmentsDashboard({
   // badge) when the server says it's reliable.
   const remoteChangeReliable = Boolean(remotePortfolioHistory?.change?.reliable);
   const remotePoints = Array.isArray(remotePortfolioHistory?.points) ? remotePortfolioHistory!.points!.filter((point) => Number.isFinite(Number(point.value)) && Number(point.value) > 0).map((point) => ({ date: point.at, value: Number(point.value) })) : [];
-  const portfolioPoints = remotePoints.length >= 2 ? remotePoints : localPortfolioPoints;
+  const portfolioPoints = remotePoints.length >= 2 ? remotePoints : localPortfolioPoints.length >= 2 ? localPortfolioPoints : activeTotalValue > 0 ? [{ date: "Start", value: activeTotalValue }, { date: "Now", value: activeTotalValue }] : [];
   const chartPeriodMoveRaw = movementFromPoints(portfolioPoints);
   const chartPeriodMove = remotePoints.length >= 2 && !remoteChangeReliable ? { ...chartPeriodMoveRaw, has: false } : chartPeriodMoveRaw;
   const representedValue = bundledHoldings.reduce((sum, holding) => sum + holdingValue(holding), 0);
@@ -1029,6 +1029,12 @@ export function AmplifiedInvestmentsDashboard({
       let points = observedPoints.length >= 2
         ? observedPoints
         : holdingPeriodPoints(holding, snapshots, period);
+      if (points.length === 1) {
+        points = [
+          { date: "Start", value: points[0].value },
+          { date: "Now", value: points[0].value },
+        ];
+      }
       // Chart geometry now prefers shared market observations. Day move remains
       // a separate previous-close metric and is never used to manufacture points.
       return { holding, value, move, points, allocation: representedValue > 0 ? (value / representedValue) * 100 : 0 };
@@ -1076,7 +1082,7 @@ export function AmplifiedInvestmentsDashboard({
               <div>
                 <h1 className="text-2xl font-bold tracking-tight">{profileMode} Portfolio</h1>
                 <p className={`mt-0.5 text-xs ${dark ? "text-white/40" : "text-slate-500"}`}>
-                  {filterLabel} Â· {bundledHoldings.length} asset(s) Â· {filteredHoldings.length} position(s) Â· {tierLabel}
+                  {filterLabel} · {bundledHoldings.length} asset(s) · {filteredHoldings.length} position(s) · {tierLabel}
                 </p>
               </div>
             </div>
@@ -1108,7 +1114,7 @@ export function AmplifiedInvestmentsDashboard({
                     <p className={`mt-0.5 text-[10px] ${dark ? "text-white/40" : "text-slate-500"}`}>{item.valueLabel} / unit</p>
                   </div>
                   <span className={`ml-2 text-xs font-bold ${!item.hasMove ? (dark ? "text-white/30" : "text-slate-400") : isUp ? "text-emerald-500" : "text-rose-500"}`}>
-                    {item.hasMove ? `${isUp ? "â–²" : "â–¼"} ${Math.abs(item.pct).toFixed(2)}%` : "â€”"}
+                    {item.hasMove ? `${isUp ? "▲" : "▼"} ${Math.abs(item.pct).toFixed(2)}%` : "—"}
                   </span>
                 </div>
               );
@@ -1134,7 +1140,7 @@ export function AmplifiedInvestmentsDashboard({
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-xs font-bold">
                       <span className={positive ? "text-emerald-500" : "text-rose-500"}>
-                        {positive ? "â–²" : "â–¼"} {periodMove.has ? `${periodMove.change >= 0 ? "+" : ""}${formatMoney(periodMove.change)} (${periodMove.pct.toFixed(2)}%)` : "â€”"}
+                        {positive ? "▲" : "▼"} {periodMove.has ? `${periodMove.change >= 0 ? "+" : ""}${formatMoney(periodMove.change)} (${periodMove.pct.toFixed(2)}%)` : "—"}
                       </span>
                       <span className={dark ? "text-white/40" : "text-slate-400"}>{period}</span>
                     </div>
@@ -1143,7 +1149,7 @@ export function AmplifiedInvestmentsDashboard({
                   {missingCostBasis.length > 0 ? (
                     <button type="button" onClick={() => { setSidePanel("cost-basis"); setShowCostBasisDrawer(true); }} className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-600 dark:text-amber-500 transition hover:bg-amber-500/20">
                       <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                      <span>{missingCostBasis.length} holdings missing cost basis â€” add now</span>
+                      <span>{missingCostBasis.length} holdings missing cost basis — add now</span>
                       <ArrowRight className="h-3.5 w-3.5" />
                     </button>
                   ) : null}
@@ -1155,12 +1161,12 @@ export function AmplifiedInvestmentsDashboard({
                     </div>
                     <div className="flex items-center justify-between">
                       <span className={`font-medium ${dark ? "text-white/40" : "text-slate-500"}`}>-- Buy line (cost basis)</span>
-                      <span className={`font-bold ${dark ? "text-white" : "text-slate-900"}`}>{activeCostValue > 0 ? formatMoney(activeCostValue) : "â€”"}</span>
+                      <span className={`font-bold ${dark ? "text-white" : "text-slate-900"}`}>{activeCostValue > 0 ? formatMoney(activeCostValue) : "—"}</span>
                     </div>
                     <div className="flex items-center justify-between pt-1">
                       <span className={`font-medium ${dark ? "text-white/40" : "text-slate-500"}`}>Gain / loss</span>
                       <span className={`font-bold ${activeCostValue > 0 && activeTotalValue >= activeCostValue ? "text-emerald-500" : "text-rose-500"}`}>
-                        {activeCostValue > 0 ? `${activeTotalValue >= activeCostValue ? "+" : ""}${formatMoney(activeTotalValue - activeCostValue)} (${((activeTotalValue - activeCostValue) / activeCostValue * 100).toFixed(2)}%)` : "â€”"}
+                        {activeCostValue > 0 ? `${activeTotalValue >= activeCostValue ? "+" : ""}${formatMoney(activeTotalValue - activeCostValue)} (${((activeTotalValue - activeCostValue) / activeCostValue * 100).toFixed(2)}%)` : "—"}
                       </span>
                     </div>
                   </div>
@@ -1254,7 +1260,7 @@ export function AmplifiedInvestmentsDashboard({
                 </div>
 
                 {/* Mobile: clean stacked cards, matching Trading212's own
-                    style â€” no horizontal scrolling, no squeezed columns.
+                    style — no horizontal scrolling, no squeezed columns.
                     Desktop keeps the table below, which works fine at
                     that width. */}
                 <div className="space-y-2 lg:hidden">
@@ -1279,7 +1285,7 @@ export function AmplifiedInvestmentsDashboard({
                           <div className="shrink-0 text-right">
                             <p className={`font-bold ${dark ? "text-white" : "text-slate-900"}`}>{formatMoney(item.value)}</p>
                             <p className={`text-xs font-bold ${!item.move.has ? (dark ? "text-white/30" : "text-slate-400") : isUp ? "text-emerald-500" : "text-rose-500"}`}>
-                              {item.move.has ? `${isUp ? "â–²" : "â–¼"} ${Math.abs(item.move.pct).toFixed(2)}%` : "â€”"}
+                              {item.move.has ? `${isUp ? "▲" : "▼"} ${Math.abs(item.move.pct).toFixed(2)}%` : "—"}
                             </p>
                           </div>
                         </div>
@@ -1287,7 +1293,7 @@ export function AmplifiedInvestmentsDashboard({
                           <span>Price {unitPriceLabel(item.holding)}</span>
                           <span>Cost {holdingCost(item.holding) > 0 ? formatMoney(averageHoldingPrice(item.holding)) : <span className="font-bold text-amber-500">Missing</span>}</span>
                         </div>
-                        {/* Tap-to-expand chart, right in the card â€” mobile
+                        {/* Tap-to-expand chart, right in the card — mobile
                             never had this before at all (the chart panel
                             was desktop-only), same data the desktop sticky
                             panel already uses, no extra fetch needed. */}
@@ -1345,7 +1351,7 @@ export function AmplifiedInvestmentsDashboard({
                             </td>
                             <td className={`py-3 text-right font-semibold ${dark ? "text-white" : "text-slate-900"}`}>{unitPriceLabel(item.holding)}</td>
                             <td className={`py-3 text-right font-bold ${!item.move.has ? (dark ? "text-white/30" : "text-slate-400") : isUp ? "text-emerald-500" : "text-rose-500"}`}>
-                              {item.move.has ? `${isUp ? "â–²" : "â–¼"} ${Math.abs(item.move.pct).toFixed(2)}%` : "â€”"}
+                              {item.move.has ? `${isUp ? "▲" : "▼"} ${Math.abs(item.move.pct).toFixed(2)}%` : "—"}
                             </td>
                             <td className={`py-3 text-right font-semibold ${dark ? "text-white/70" : "text-slate-600"}`}>
                               {holdingCost(item.holding) > 0 ? formatMoney(averageHoldingPrice(item.holding)) : <span className="text-amber-500 font-bold">Missing</span>}
@@ -1431,7 +1437,7 @@ export function AmplifiedInvestmentsDashboard({
                       <div className={`rounded-2xl border p-4 ${dark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
                         <div className="mb-1 flex items-center justify-between text-xs">
                           <span className={dark ? "text-white/40" : "text-slate-500"}>Selected Period Move</span>
-                          <span className={`font-bold ${positive ? "text-emerald-500" : "text-rose-500"}`}>{periodMove.has ? `${periodMove.change >= 0 ? "+" : ""}${formatMoney(periodMove.change)} (${periodMove.pct.toFixed(2)}%)` : "â€”"}</span>
+                          <span className={`font-bold ${positive ? "text-emerald-500" : "text-rose-500"}`}>{periodMove.has ? `${periodMove.change >= 0 ? "+" : ""}${formatMoney(periodMove.change)} (${periodMove.pct.toFixed(2)}%)` : "—"}</span>
                         </div>
                         <div className="flex items-center justify-between text-xs">
                           <span className={dark ? "text-white/40" : "text-slate-500"}>Total Cost Basis</span>
@@ -1457,10 +1463,10 @@ export function AmplifiedInvestmentsDashboard({
 
       {/* KNOWN GAP (not silently fixed): CostBasisDrawer/OtherHoldingsDrawer
           were referenced here but never actually built anywhere in this
-          file â€” only the Rail (side-panel) versions above exist and work.
+          file — only the Rail (side-panel) versions above exist and work.
           The "expand to full drawer" buttons (onOpenFull/onExpand) still
           set showCostBasisDrawer/showOtherHoldingsDrawer to true, but
-          nothing currently renders when they do â€” clicking "expand" is
+          nothing currently renders when they do — clicking "expand" is
           currently a no-op rather than a crash. Building the actual full
           drawer components is real, separate work if this feature is
           wanted. */}
