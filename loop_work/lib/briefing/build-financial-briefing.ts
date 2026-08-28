@@ -9,6 +9,7 @@ export type BriefingHoldingRow = { name: string; group: string; value: number; d
 export type BriefingPensionFundRow = { name: string; group: string; value: number; feePercent: number | null; annualised5y: number | null; annualised10y: number | null; asOf: string | null };
 export type FinancialBriefing = {
   firstName: string;
+  ageYears: number | null;
   currentNetWorth: number;
   dailyChange: number;
   weeklyChange: number;
@@ -44,8 +45,9 @@ async function one(query: PromiseLike<any>) {
 
 export async function buildFinancialBriefing(supabase: any, user: { id: string; email?: string | null }, visibleFilter?: string): Promise<FinancialBriefing> {
   const scope = (query: any) => visibleFilter ? query.or(visibleFilter) : query.eq("user_id", user.id);
-  const [profile, assets, liabilities, homes, mortgages, pensionAccounts, pensionFunds, investmentAccounts, holdings, financialAccounts, movements, payEvents, plannedItems, snapshots] = await Promise.all([
+  const [profile, selfPerson, assets, liabilities, homes, mortgages, pensionAccounts, pensionFunds, investmentAccounts, holdings, financialAccounts, movements, payEvents, plannedItems, snapshots] = await Promise.all([
     one(supabase.from("app_user_profiles").select("display_name,full_name").eq("user_id", user.id).maybeSingle()),
+    one(supabase.from("people").select("birth_date").eq("user_id", user.id).eq("relationship", "self").maybeSingle()),
     rows(scope(supabase.from("assets").select("value,type,created_at"))),
     rows(scope(supabase.from("liabilities").select("balance,type,created_at"))),
     rows(scope(supabase.from("homes").select("id,label,property_value,estimated_value_mid,updated_at"))),
@@ -62,6 +64,17 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
   ]);
 
   const firstName = String(profile?.display_name || profile?.full_name || user.email?.split("@")[0] || "there").trim().split(/\s+/)[0];
+  const ageYears: number | null = (() => {
+    const raw = (selfPerson as any)?.birth_date;
+    if (!raw) return null;
+    const birth = new Date(raw);
+    if (Number.isNaN(birth.getTime())) return null;
+    const now = new Date();
+    let age = now.getUTCFullYear() - birth.getUTCFullYear();
+    const hasHadBirthdayThisYear = now.getUTCMonth() > birth.getUTCMonth() || (now.getUTCMonth() === birth.getUTCMonth() && now.getUTCDate() >= birth.getUTCDate());
+    if (!hasHadBirthdayThisYear) age -= 1;
+    return age;
+  })();
   const manualAssets = sum(assets, (r:any) => n(r.value));
   const manualLiabilities = sum(liabilities, (r:any) => n(r.balance));
   const propertyValue = sum(homes, (r:any) => n(r.estimated_value_mid) || n(r.property_value));
@@ -189,7 +202,7 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
     .slice(0, 25);
 
   return {
-    firstName,currentNetWorth,dailyChange,weeklyChange,monthlyChange,assets:assetsTotal,liabilities:liabilitiesTotal,contributors,narrative,actions,
+    firstName,ageYears,currentNetWorth,dailyChange,weeklyChange,monthlyChange,assets:assetsTotal,liabilities:liabilitiesTotal,contributors,narrative,actions,
     flow:{income,spending,savings:plannedSavings,pensions,unassigned},
     investments:{value:investmentValue,weeklyChange:investmentWeeklyChange,topExposure:top?.[0]||null,topExposurePercent,evidence:holdings.length?`${holdings.length} priced holding${holdings.length===1?"":"s"}`:"No priced holdings"},
     savings:{balance:savingsBalance,monthlyDeposits:deposits,monthlyWithdrawals:withdrawals,confirmedInterest,accruedInterest,blendedRate},

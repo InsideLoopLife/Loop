@@ -1,6 +1,6 @@
 import type { FinancialBriefing } from "./build-financial-briefing";
 import type { BriefingCardKey } from "./chat-cards";
-import { computePensionProjection, detectPensionProjectionYears, type BriefingLineChart } from "./projections";
+import { computePensionProjection, detectPensionProjectionRequest, type BriefingLineChart } from "./projections";
 
 export type LogicSkillResult = { reply: string; card: BriefingCardKey | null; chart?: BriefingLineChart | null };
 
@@ -10,7 +10,7 @@ export type LogicSkill = {
   // UI, purely so a developer scanning this file (or the gap log below)
   // can see at a glance what's already handled before adding a new skill.
   description: string;
-  match: (message: string) => boolean;
+  match: (message: string, briefing: FinancialBriefing) => boolean;
   respond: (message: string, briefing: FinancialBriefing) => LogicSkillResult | null;
 };
 
@@ -31,12 +31,12 @@ function money(v: number) {
 export const LOGIC_LIBRARY: LogicSkill[] = [
   {
     id: "pension_projection",
-    description: "Projected pension pot value N years from now — real compound-interest math on real fund data.",
-    match: (message) => detectPensionProjectionYears(message) != null,
+    description: "Projected pension pot value N years (or to a target age) from now, at custom intervals — real compound-interest math on real fund data.",
+    match: (message, briefing) => detectPensionProjectionRequest(message, briefing.ageYears) != null,
     respond: (message, briefing) => {
-      const years = detectPensionProjectionYears(message);
-      if (!years) return null;
-      const chart = computePensionProjection(briefing, years);
+      const request = detectPensionProjectionRequest(message, briefing.ageYears);
+      if (!request) return null;
+      const chart = computePensionProjection(briefing, request.years, request.intervalYears, request.targetAge);
       if (!chart) return null;
       return { reply: `${chart.subtitle}. ${chart.note}`, card: null, chart };
     },
@@ -137,7 +137,7 @@ export const LOGIC_LIBRARY: LogicSkill[] = [
  */
 export function runLogicLibrary(message: string, briefing: FinancialBriefing): LogicSkillResult | null {
   for (const skill of LOGIC_LIBRARY) {
-    if (skill.match(message)) {
+    if (skill.match(message, briefing)) {
       const result = skill.respond(message, briefing);
       if (result) return result;
     }
