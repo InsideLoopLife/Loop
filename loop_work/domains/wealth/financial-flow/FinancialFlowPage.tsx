@@ -322,6 +322,32 @@ function isActiveInMonth(start: string | null | undefined, end: string | null | 
   return starts <= rangeEnd && ends >= rangeStart;
 }
 
+function payEventMonthFraction(event: PayEvent, monthKey: string) {
+  if (isMaternityPay(event)) return 1;
+
+  const parsed = parseMonth(monthKey);
+  const monthStartDate = iso(parsed.start);
+  const monthEndDate = iso(parsed.end);
+  const effectiveStart =
+    event.effective_from && event.effective_from > monthStartDate
+      ? event.effective_from
+      : monthStartDate;
+  const effectiveEnd =
+    event.effective_until && event.effective_until < monthEndDate
+      ? event.effective_until
+      : monthEndDate;
+
+  if (effectiveStart > effectiveEnd) return 0;
+
+  const startDate = new Date(`${effectiveStart}T12:00:00Z`);
+  const endDate = new Date(`${effectiveEnd}T12:00:00Z`);
+  const daysActive =
+    Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
+  const daysInMonth = parsed.end.getDate();
+
+  return Math.max(0, Math.min(1, daysActive / daysInMonth));
+}
+
 // planned_items.recurrence is "monthly" | "four_weekly" | "custom_interval" | "one_off". A plain
 // start/end date-range overlap (isActiveInMonth) is only correct for monthly/four_weekly/custom_interval
 // items that are genuinely still "live". A one-off item has no ongoing recurrence at all, so it must
@@ -412,17 +438,23 @@ function monthlyPay(event: PayEvent, monthKey: string) {
     });
     if (estimate.estimatedNetAmount > 0) return estimate.estimatedNetAmount;
   }
+  const fraction = payEventMonthFraction(event, monthKey);
+
   if (event.monthly_take_home_override !== null && event.monthly_take_home_override !== undefined) {
-    return n(event.monthly_take_home_override);
+    return n(event.monthly_take_home_override) * fraction;
   }
+
   const gross = n(event.gross_annual_salary);
   if (!gross) return 0;
-  return estimateAnnualTakeHome({
-    grossAnnual: gross,
-    pensionPercent: n(event.pension_percent),
-    pensionMethod: event.pension_method || "net_pay",
-    studentLoanPlan: event.student_loan_plan || "none",
-  }).monthlyTakeHome;
+
+  return (
+    estimateAnnualTakeHome({
+      grossAnnual: gross,
+      pensionPercent: n(event.pension_percent),
+      pensionMethod: event.pension_method || "net_pay",
+      studentLoanPlan: event.student_loan_plan || "none",
+    }).monthlyTakeHome * fraction
+  );
 }
 
 function profileLabel(person: Person | null | undefined, index = 0) {
@@ -966,9 +998,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     const activeScope = overrideScopeIds ?? (scoped ? scopeIds : []);
 
     const activePay = (payResult.data || []).filter((event) => personOwned(event, activeScope) && isActiveInMonth(event.effective_from, event.effective_until, rangeStart, rangeEnd));
-    const maternityPeople = new Set(activePay.filter(isMaternityPay).map((event) => event.person_id || "household"));
     const payLines = activePay
-      .filter((event) => !(maternityPeople.has(event.person_id || "household") && !isMaternityPay(event)))
       .map((event) => ({ key: `pay-${event.id}`, label: isMaternityPay(event) ? "Maternity pay" : event.label || "Salary", amount: monthlyPay(event, monthKey), icon: Banknote, tone: "green" as Tone, personId: event.person_id }));
     const loggedIncomeLines = (incomeResult.data || [])
       .filter((entry) => personOwned(entry, activeScope) && isEntryInMonth(entry.entry_date, monthKey))

@@ -167,6 +167,30 @@ function isActiveInMonth(start: string, end: string | null, month: string) {
   return start <= monthEnd(month) && (!end || end >= monthStart(month));
 }
 
+function payEventMonthFraction(event: PayEvent, month: string) {
+  if (event.pay_kind === "maternity") return 1;
+
+  const start = monthStart(month);
+  const end = monthEnd(month);
+  const effectiveStart = event.effective_from > start ? event.effective_from : start;
+  const effectiveEnd =
+    event.effective_until && event.effective_until < end
+      ? event.effective_until
+      : end;
+
+  if (effectiveStart > effectiveEnd) return 0;
+
+  const startDate = new Date(`${effectiveStart}T12:00:00Z`);
+  const endDate = new Date(`${effectiveEnd}T12:00:00Z`);
+  const daysActive =
+    Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
+
+  const [year, monthNumber] = month.split("-").map(Number);
+  const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+
+  return Math.max(0, Math.min(1, daysActive / daysInMonth));
+}
+
 function monthlyEquivalent(
   entry: IncomeEntry,
   amountKey: "gross_amount" | "net_amount",
@@ -276,20 +300,28 @@ function getPayEventBreakdown(event: PayEvent, month: string) {
     };
   }
 
-  const monthlyGross = Number(event.gross_annual_salary || 0) / 12;
-  const monthlyNet =
+  const fraction = payEventMonthFraction(event, month);
+  const fullMonthlyGross = Number(event.gross_annual_salary || 0) / 12;
+  const fullMonthlyNet =
     event.monthly_take_home_override !== null &&
     event.monthly_take_home_override !== undefined
       ? Number(event.monthly_take_home_override)
       : annualBreakdown.monthlyTakeHome;
 
+  const monthlyGross = fullMonthlyGross * fraction;
+  const monthlyNet = fullMonthlyNet * fraction;
+  const monthlyPension = (annualBreakdown.pension / 12) * fraction;
+  const monthlyTax = (annualBreakdown.incomeTax / 12) * fraction;
+  const monthlyNi = (annualBreakdown.nationalInsurance / 12) * fraction;
+  const monthlyStudentLoan = (annualBreakdown.studentLoan / 12) * fraction;
+
   return {
     monthlyGross,
     monthlyNet,
-    monthlyPension: annualBreakdown.pension / 12,
-    monthlyTax: annualBreakdown.incomeTax / 12,
-    monthlyNi: annualBreakdown.nationalInsurance / 12,
-    monthlyStudentLoan: annualBreakdown.studentLoan / 12,
+    monthlyPension,
+    monthlyTax,
+    monthlyNi,
+    monthlyStudentLoan,
     keptPercent: monthlyGross > 0 ? (monthlyNet / monthlyGross) * 100 : 0,
   };
 }
