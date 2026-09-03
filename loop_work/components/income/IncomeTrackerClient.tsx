@@ -870,8 +870,9 @@ export function IncomeTrackerClient({
     const date = new Date(year, monthNumber - 1 + index, 1);
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
     const activePay = payEvents.filter((event) => { if (effectivePersonFilter !== "all" && event.person_id !== effectivePersonFilter) return false; return isActiveInMonth(event.effective_from, event.effective_until, monthKey); });
-    const maternityPeople = new Set(activePay.filter((event) => event.pay_kind === "maternity").map((event) => event.person_id || "household"));
-    const recurring = activePay.filter((event) => !(maternityPeople.has(event.person_id || "household") && event.pay_kind !== "maternity"));
+    // All pay events that overlap this month contribute to expected income.
+    // Transition months can legitimately contain both maternity pay and salary.
+    const recurring = activePay;
     const rows = recurring.map((event) => { const breakdown = getPayEventBreakdown(event, monthKey); return { id: event.id, label: event.pay_kind === "maternity" ? "Maternity pay" : event.label, amount: breakdown.monthlyNet }; });
     return { key: monthKey, label: new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric" }).format(date), amount: rows.reduce((sum, row) => sum + row.amount, 0), rows };
   });
