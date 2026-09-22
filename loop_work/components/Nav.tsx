@@ -35,6 +35,8 @@ import {
   X,
 } from "lucide-react";
 import { signOut } from "@/app/actions";
+import { CalendarQuickAccessButton } from "@/components/calendar/CalendarQuickAccessButton";
+import { warmQuickCalendarSummary } from "@/lib/calendar/useQuickCalendarSummary";
 
 type NavigationLayout = "top" | "side";
 type MobileNavigationLayout = "cards" | "bar";
@@ -716,6 +718,10 @@ function NavInner() {
           if (!cancelled && href !== pathname) prefetchRoute(href);
         }, index * 180);
       });
+      // Same idle-time budget, same "cheap, unlikely to change" rationale
+      // as route warming — gets the popover's data ready before anyone
+      // has actually clicked the calendar icon.
+      warmQuickCalendarSummary();
     };
     const idleWindow = window as typeof window & {
       requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
@@ -822,6 +828,7 @@ function NavInner() {
             <Brand />
             <div className="flex items-center gap-2">
               <Link href={domain === "wealth" ? "/nutrition" : wealthHome} className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">{domain === "wealth" ? "Health" : "Wealth"}</Link>
+              <CalendarQuickAccessButton />
               <button type="button" onClick={() => setAccountOpen(true)} className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-slate-700" aria-label="Account and settings">{avatarUrl ? <img src={avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" /> : <UserRound className="h-5 w-5" />}{unreadCount > 0 ? <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-violet-600 ring-2 ring-white" /> : null}</button>
               {mobileLayout === "cards" ? <button type="button" onClick={() => setMobileOpen(true)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-950 text-white" aria-label="Open navigation cards"><Menu className="h-5 w-5" /></button> : null}
             </div>
@@ -869,13 +876,16 @@ function NavInner() {
         >
           <div className="mb-4 flex items-center justify-between">
             <Brand dark />
-            <button
-              className="rounded-xl p-2 text-slate-300 hover:bg-white/10 lg:hidden"
-              onClick={() => setMobileOpen(false)}
-              aria-label="Close navigation"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            <div className="flex items-center gap-1">
+              <CalendarQuickAccessButton dark />
+              <button
+                className="rounded-xl p-2 text-slate-300 hover:bg-white/10 lg:hidden"
+                onClick={() => setMobileOpen(false)}
+                aria-label="Close navigation"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
 
           <div className="mb-5 grid grid-cols-2 rounded-2xl border border-white/10 bg-white/5 p-1 text-xs font-black">
@@ -985,6 +995,7 @@ function NavInner() {
                   Health
                 </Link>
               </div>
+              <CalendarQuickAccessButton />
               <button
                 type="button"
                 onClick={() => setAccountOpen(true)}

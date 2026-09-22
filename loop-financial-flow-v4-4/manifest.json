@@ -1,0 +1,152 @@
+{
+  "replace_files": [
+    "loop_work/components/charts/StableSavingsCharts.tsx",
+    "loop_work/app/financial-flow/loading.tsx",
+    "loop_work/app/spending/loading.tsx"
+  ],
+  "create_files": [
+    "loop_work/components/financial-flow/FinancialFlowRetainedStore.tsx",
+    "loop_work/components/financial-flow/FinancialFlowRetainedOverviewBridge.tsx",
+    "loop_work/components/financial-flow/FinancialFlowRetainedLoading.tsx",
+    "loop_work/components/financial-flow/SmartFinancialFlowAdd.tsx"
+  ],
+  "patches": [
+    {
+      "path": "loop_work/components/shell/PersistentLoopShell.tsx",
+      "ops": [
+        {
+          "old": "import { PersistentNavProvider } from \"@/components/shell/PersistentNavContext\";\n",
+          "new": "import { PersistentNavProvider } from \"@/components/shell/PersistentNavContext\";\nimport { FinancialFlowRetainedProvider } from \"@/components/financial-flow/FinancialFlowRetainedStore\";\n",
+          "label": "retained provider import"
+        },
+        {
+          "old": "      <Nav persistent />\n      <PersistentNavProvider>{children}</PersistentNavProvider>\n",
+          "new": "      <Nav persistent />\n      <FinancialFlowRetainedProvider>\n        <PersistentNavProvider>{children}</PersistentNavProvider>\n      </FinancialFlowRetainedProvider>\n",
+          "label": "retained provider mount"
+        }
+      ]
+    },
+    {
+      "path": "loop_work/components/financial-flow/FinancialFlowWorkspaceNav.tsx",
+      "ops": [
+        {
+          "old": "import { useEffect, useState } from \"react\";\n",
+          "new": "import { useEffect, useState } from \"react\";\nimport { SmartFinancialFlowAdd } from \"@/components/financial-flow/SmartFinancialFlowAdd\";\nimport { useFinancialFlowRetained } from \"@/components/financial-flow/FinancialFlowRetainedStore\";\n",
+          "label": "smart add and retained imports"
+        },
+        {
+          "old": "  const [addOpen, setAddOpen] = useState(false);\n  const router = useRouter();\n",
+          "new": "  const [addOpen, setAddOpen] = useState(false);\n  const router = useRouter();\n  const { beginTransition } = useFinancialFlowRetained();\n",
+          "label": "retained transition hook"
+        },
+        {
+          "old": "                  href={hrefFor(item.key, month)}\n                  prefetch\n                  className={active ? \"is-active\" : \"\"}\n",
+          "new": "                  href={hrefFor(item.key, month)}\n                  prefetch\n                  onClick={() => beginTransition(item.key, month)}\n                  className={active ? \"is-active\" : \"\"}\n",
+          "label": "intent before route transition"
+        },
+        {
+          "start": "      {addOpen ? (\n        <div className=\"fixed inset-0 z-[180]",
+          "end": "      ) : null}\n",
+          "new": "      {addOpen ? <SmartFinancialFlowAdd month={month} onClose={() => setAddOpen(false)} /> : null}\n",
+          "label": "smart add modal replacement",
+          "kind": "segment"
+        }
+      ]
+    },
+    {
+      "path": "loop_work/components/financial-flow/SavingsFlowDetail.tsx",
+      "ops": [
+        {
+          "old": "import { SavingsMarketHealthDeferred } from \"@/components/financial-flow/SavingsMarketHealthDeferred\";\n",
+          "new": "import { SavingsMarketHealthDeferred } from \"@/components/financial-flow/SavingsMarketHealthDeferred\";\nimport { useEffect } from \"react\";\nimport { useFinancialFlowRetained } from \"@/components/financial-flow/FinancialFlowRetainedStore\";\n",
+          "label": "savings retention imports"
+        },
+        {
+          "old": "  const [calendarOpen, setCalendarOpen] = useState(false);\n  const [contextOpen, setContextOpen] = useState(false);\n",
+          "new": "  const [calendarOpen, setCalendarOpen] = useState(false);\n  const [contextOpen, setContextOpen] = useState(false);\n  const { rememberSavings } = useFinancialFlowRetained();\n",
+          "label": "savings retention hook"
+        },
+        {
+          "old": "  const totalInterest = providerConfirmedInterest + accruedThroughYesterday + estimatedInterest;\n\n  return (\n",
+          "new": "  const totalInterest = providerConfirmedInterest + accruedThroughYesterday + estimatedInterest;\n\n  useEffect(() => {\n    rememberSavings({\n      monthKey,\n      scopeSavingsPercent,\n      scopeSavingsLabel,\n      blendedRate,\n      providerConfirmedInterest,\n      accruedThroughYesterday,\n      estimatedInterest,\n      unassignedEquity,\n      totalSavings,\n      earmarkedToPots,\n      accounts,\n      pots,\n      trend,\n      yearMonths,\n      healthScore,\n      marketStatus,\n      annualOpportunity,\n      scopePersonIds,\n    });\n  }, [\n    rememberSavings,\n    monthKey,\n    scopeSavingsPercent,\n    scopeSavingsLabel,\n    blendedRate,\n    providerConfirmedInterest,\n    accruedThroughYesterday,\n    estimatedInterest,\n    unassignedEquity,\n    totalSavings,\n    earmarkedToPots,\n    accounts,\n    pots,\n    trend,\n    yearMonths,\n    healthScore,\n    marketStatus,\n    annualOpportunity,\n    scopePersonIds,\n  ]);\n\n  return (\n",
+          "label": "remember exact savings view props"
+        },
+        {
+          "old": "<p className=\"mt-1 text-[11px] font-black text-blue-700\">Paid {formatMoney(providerConfirmedInterest)} \u00b7 accrued through yesterday {formatMoney(accruedThroughYesterday)} \u00b7 today est. {formatMoney(estimatedInterest)}</p>",
+          "new": "<div className=\"mt-2 flex flex-wrap gap-1.5 text-[10px] font-black\"><span className=\"rounded-full bg-emerald-50 px-2 py-1 text-emerald-700\">Recorded paid {formatMoney(providerConfirmedInterest)}</span><span className=\"rounded-full bg-sky-50 px-2 py-1 text-sky-700\">Accrued estimate {formatMoney(accruedThroughYesterday)}</span><span className=\"rounded-full border border-dashed border-sky-300 bg-white px-2 py-1 text-sky-700\">Today estimate {formatMoney(estimatedInterest)}</span></div>",
+          "label": "interest provenance chips"
+        },
+        {
+          "old": "title={`${formatMoney(row.savedIn)} saved \u00b7 ${formatMoney(row.withdrawn)} withdrawn \u00b7 ${formatMoney(interest)} interest`}",
+          "new": "title={`${formatMoney(row.savedIn)} saved (recorded) \u00b7 ${formatMoney(row.withdrawn)} withdrawn (recorded) \u00b7 ${formatMoney(row.interestConfirmed)} interest recorded/accrued \u00b7 ${formatMoney(row.interestEstimated)} interest estimated`}",
+          "label": "calendar provenance title"
+        }
+      ]
+    },
+    {
+      "path": "loop_work/components/spending/SpendingPlannerDeferredClient.tsx",
+      "ops": [
+        {
+          "old": "import { useEffect, useState, type ComponentProps } from \"react\";\n",
+          "new": "import { useEffect, useState, type ComponentProps } from \"react\";\nimport { useFinancialFlowRetained } from \"@/components/financial-flow/FinancialFlowRetainedStore\";\n",
+          "label": "spending retained import"
+        },
+        {
+          "old": "export function SpendingPlannerDeferredClient(props: PlannerProps) {\n  const [deferred, setDeferred] = useState<DeferredPayload>({});\n",
+          "new": "export function SpendingPlannerDeferredClient(props: PlannerProps) {\n  const [deferred, setDeferred] = useState<DeferredPayload>({});\n  const { rememberSpending } = useFinancialFlowRetained();\n\n  useEffect(() => {\n    rememberSpending(props as unknown as Record<string, unknown>);\n  }, [rememberSpending, props]);\n",
+          "label": "remember spending props"
+        }
+      ]
+    },
+    {
+      "path": "loop_work/domains/wealth/financial-flow/FinancialFlowPage.tsx",
+      "ops": [
+        {
+          "old": "import { RouteBootSnapshotPublisher } from \"@/components/performance/RouteBootSnapshotPublisher\";\n",
+          "new": "import { RouteBootSnapshotPublisher } from \"@/components/performance/RouteBootSnapshotPublisher\";\nimport { FinancialFlowRetainedOverviewBridge } from \"@/components/financial-flow/FinancialFlowRetainedOverviewBridge\";\n",
+          "label": "overview retained import"
+        },
+        {
+          "old": "      <FinancialFlowWorkspaceNav section={activeTab} month={month.key} />\n      <RouteBootSnapshotPublisher\n",
+          "new": "      <FinancialFlowWorkspaceNav section={activeTab} month={month.key} />\n      <FinancialFlowRetainedOverviewBridge\n        summary={{\n          month: month.key,\n          income: model.totalIncome,\n          spending: model.committedSpending,\n          savings: model.savingsTotal,\n          available: model.leftoverCash,\n          savingsRate,\n          scopeLabel,\n        }}\n      />\n      <RouteBootSnapshotPublisher\n",
+          "label": "remember overview summary"
+        }
+      ]
+    },
+    {
+      "path": "loop_work/app/spending/page.tsx",
+      "ops": [
+        {
+          "old": "export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string; add?: string }> }) {",
+          "new": "export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string; add?: string; prefill_label?: string; prefill_amount?: string }> }) {",
+          "label": "smart add search params"
+        },
+        {
+          "old": "          initialAddMode={resolvedSearchParams.add === \"monthly\" || resolvedSearchParams.add === \"one_off\" || resolvedSearchParams.add === \"child_cost\" || resolvedSearchParams.add === \"category\" || resolvedSearchParams.add === \"bank_import\" ? resolvedSearchParams.add : undefined}\n          flowSettings={{\n",
+          "new": "          initialAddMode={resolvedSearchParams.add === \"monthly\" || resolvedSearchParams.add === \"one_off\" || resolvedSearchParams.add === \"child_cost\" || resolvedSearchParams.add === \"category\" || resolvedSearchParams.add === \"bank_import\" ? resolvedSearchParams.add : undefined}\n          initialAddTemplate={(resolvedSearchParams.prefill_label || resolvedSearchParams.prefill_amount) ? {\n            label: resolvedSearchParams.prefill_label || undefined,\n            amount: resolvedSearchParams.prefill_amount ? Number(resolvedSearchParams.prefill_amount) : undefined,\n            direction: \"outgoing\",\n            recurrence: resolvedSearchParams.add === \"monthly\" ? \"monthly\" : \"one_off\",\n            itemType: resolvedSearchParams.add === \"monthly\" ? \"bill\" : \"one_off\",\n          } : undefined}\n          flowSettings={{\n",
+          "label": "smart add prefill props"
+        }
+      ]
+    },
+    {
+      "path": "loop_work/components/spending/SpendingPlannerClient.tsx",
+      "ops": [
+        {
+          "old": "  initialAddMode?: AddMode;\n};",
+          "new": "  initialAddMode?: AddMode;\n  initialAddTemplate?: SimpleFlowTemplate;\n};",
+          "label": "initial add template prop"
+        },
+        {
+          "old": "export function SpendingPlannerClient({ people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = \"all\", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], initialAddMode }: Props) {",
+          "new": "export function SpendingPlannerClient({ people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = \"all\", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], initialAddMode, initialAddTemplate }: Props) {",
+          "label": "initial add template destructure"
+        },
+        {
+          "old": "  const [modal, setModal] = useState<ModalState>(initialAddMode ? { type: \"add\", mode: initialAddMode } : null);",
+          "new": "  const [modal, setModal] = useState<ModalState>(initialAddMode ? { type: \"add\", mode: initialAddMode, template: initialAddTemplate } : null);",
+          "label": "prefill initial modal template"
+        }
+      ]
+    }
+  ]
+}

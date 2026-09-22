@@ -1,0 +1,171 @@
+{
+  "payload_create": [
+    "loop_work/components/loading/DashboardCachedRouteFallback.tsx",
+    "loop_work/components/loading/NetWorthCachedRouteFallback.tsx",
+    "loop_work/components/loading/RetirementCachedRouteFallback.tsx",
+    "loop_work/components/loading/IncomeCachedRouteFallback.tsx",
+    "loop_work/components/loading/InvestmentsCachedRouteFallback.tsx",
+    "loop_work/components/loading/NutritionCachedRouteFallback.tsx"
+  ],
+  "payload_replace": [
+    "loop_work/app/dashboard/loading.tsx",
+    "loop_work/app/net-worth/loading.tsx",
+    "loop_work/app/retirement/loading.tsx",
+    "loop_work/app/income/loading.tsx",
+    "loop_work/app/investments/loading.tsx",
+    "loop_work/app/nutrition/loading.tsx"
+  ],
+  "changes": {
+    "loop_work/components/dashboard/DashboardGrid.tsx": [
+      {
+        "old": "import { getSizeTier } from \"@/lib/dashboard/size-tiers\";\n",
+        "new": "import { getSizeTier } from \"@/lib/dashboard/size-tiers\";\nimport { writeRouteSnapshot } from \"@/lib/client/route-snapshot-cache\";\n",
+        "label": "dashboard cache import"
+      },
+      {
+        "old": "interface DashboardGridProps {\n",
+        "new": "export interface DashboardGridProps {\n",
+        "label": "dashboard props export"
+      },
+      {
+        "old": "  const [actionTarget, setActionTarget] = useState<HTMLElement | null>(null);\n",
+        "new": "  const [actionTarget, setActionTarget] = useState<HTMLElement | null>(null);\n\n  useEffect(() => {\n    writeRouteSnapshot<DashboardGridProps>(\"dashboard\", {\n      householdId,\n      initialWidgets: widgets,\n      dashboardContext,\n    });\n  }, [householdId, widgets, dashboardContext]);\n",
+        "label": "dashboard snapshot"
+      }
+    ],
+    "loop_work/components/net-worth/NetWorthClient.tsx": [
+      {
+        "old": "import { useMemo, useState } from \"react\";\n",
+        "new": "import { useEffect, useMemo, useState } from \"react\";\n",
+        "label": "net worth effect import"
+      },
+      {
+        "old": "import { formatMoney } from \"@/lib/format/money\";\n",
+        "new": "import { formatMoney } from \"@/lib/format/money\";\nimport { writeRouteSnapshot } from \"@/lib/client/route-snapshot-cache\";\n",
+        "label": "net worth cache import"
+      },
+      {
+        "old": "type Props = {\n",
+        "new": "export type NetWorthClientProps = {\n",
+        "label": "net worth props"
+      },
+      {
+        "old": "export function NetWorthClient({ currentUserId, householdName, people, assets, liabilities }: Props) {\n",
+        "new": "export function NetWorthClient({ currentUserId, householdName, people, assets, liabilities }: NetWorthClientProps) {\n  useEffect(() => {\n    writeRouteSnapshot<NetWorthClientProps>(\"net-worth\", { currentUserId, householdName, people, assets, liabilities });\n  }, [currentUserId, householdName, people, assets, liabilities]);\n",
+        "label": "net worth snapshot"
+      }
+    ],
+    "loop_work/app/retirement/RetirementPageClient.tsx": [
+      {
+        "old": "import { useRouter } from \"next/navigation\";\n",
+        "new": "import { useEffect } from \"react\";\nimport { useRouter } from \"next/navigation\";\n",
+        "label": "retirement effect"
+      },
+      {
+        "old": "import type { RetirementAutomaticAssumptions } from \"@/lib/retirement/automatic-assumptions\";\n",
+        "new": "import type { RetirementAutomaticAssumptions } from \"@/lib/retirement/automatic-assumptions\";\nimport { writeRouteSnapshot } from \"@/lib/client/route-snapshot-cache\";\n",
+        "label": "retirement cache"
+      },
+      {
+        "old": "type Props = {\n",
+        "new": "export type RetirementPageClientProps = {\n",
+        "label": "retirement props"
+      },
+      {
+        "old": "export function RetirementPageClient({ personId, assets, contributions, initialPlan, currentAge, automaticAssumptions }: Props) {\n  const router = useRouter();\n",
+        "new": "export function RetirementPageClient({ personId, assets, contributions, initialPlan, currentAge, automaticAssumptions }: RetirementPageClientProps) {\n  const router = useRouter();\n  useEffect(() => {\n    writeRouteSnapshot<RetirementPageClientProps>(\"retirement\", { personId, assets, contributions, initialPlan, currentAge, automaticAssumptions });\n  }, [personId, assets, contributions, initialPlan, currentAge, automaticAssumptions]);\n",
+        "label": "retirement snapshot"
+      }
+    ],
+    "loop_work/components/income/IncomeTrackerClient.tsx": [
+      {
+        "old": "import { useMemo, useState } from \"react\";\n",
+        "new": "import { useEffect, useMemo, useState } from \"react\";\n",
+        "label": "income effect"
+      },
+      {
+        "old": "import { formatMoney } from \"@/lib/format/money\";\n",
+        "new": "import { formatMoney } from \"@/lib/format/money\";\nimport { writeRouteSnapshot } from \"@/lib/client/route-snapshot-cache\";\n",
+        "label": "income cache"
+      },
+      {
+        "old": "type Props = {\n",
+        "new": "export type IncomeTrackerClientProps = {\n",
+        "label": "income props"
+      },
+      {
+        "old": "  canViewHouseholdIncome = true,\n  schemaWarning = null,\n}: Props) {\n  const [modal, setModal] = useState<IncomeModalState>(null);\n",
+        "new": "  canViewHouseholdIncome = true,\n  schemaWarning = null,\n}: IncomeTrackerClientProps) {\n  useEffect(() => {\n    writeRouteSnapshot<IncomeTrackerClientProps>(\"income\", {\n      entries, people, payEvents, studentLoanAccounts, studentLoanBalanceEvents,\n      incomeDeductions, hasHousehold, signedInPersonId, canViewHouseholdIncome, schemaWarning,\n    });\n  }, [entries, people, payEvents, studentLoanAccounts, studentLoanBalanceEvents, incomeDeductions, hasHousehold, signedInPersonId, canViewHouseholdIncome, schemaWarning]);\n  const [modal, setModal] = useState<IncomeModalState>(null);\n",
+        "label": "income snapshot"
+      }
+    ],
+    "loop_work/components/nutrition/NutritionClient.tsx": [
+      {
+        "old": "import { cleanProductOrMealLabel, displayProductCandidateLabel, extractTimeHHMM, extractVolumeMl, inferFoodEntityType, isProductLikeKind, nutritionUpdateStatus, productUpdateStatusLabel } from \"@/lib/nutrition/intelligence\";\n",
+        "new": "import { cleanProductOrMealLabel, displayProductCandidateLabel, extractTimeHHMM, extractVolumeMl, inferFoodEntityType, isProductLikeKind, nutritionUpdateStatus, productUpdateStatusLabel } from \"@/lib/nutrition/intelligence\";\nimport { writeRouteSnapshot } from \"@/lib/client/route-snapshot-cache\";\n",
+        "label": "nutrition cache"
+      },
+      {
+        "old": "type Props = { people: NutritionPerson[]; meals: NutritionMeal[]; logs: FoodLog[]; supermarkets: Supermarket[]; selectedDate: string; settings: NutritionSettings; initialOpen?: \"recipe\" | \"log\" | \"edit-recipe\" | null; initialMealId?: string | null; initialTab?: \"overview\" | \"recipes\" | \"food-log\" | \"meal-cards\" };\n",
+        "new": "export type NutritionClientProps = { people: NutritionPerson[]; meals: NutritionMeal[]; logs: FoodLog[]; supermarkets: Supermarket[]; selectedDate: string; settings: NutritionSettings; initialOpen?: \"recipe\" | \"log\" | \"edit-recipe\" | null; initialMealId?: string | null; initialTab?: \"overview\" | \"recipes\" | \"food-log\" | \"meal-cards\" };\n",
+        "label": "nutrition props"
+      },
+      {
+        "old": "export function NutritionClient({ people, meals, logs, supermarkets, selectedDate, settings, initialOpen = null, initialMealId = null }: Props) {\n  const [modal, setModal] = useState<Modal>(null);\n",
+        "new": "export function NutritionClient({ people, meals, logs, supermarkets, selectedDate, settings, initialOpen = null, initialMealId = null, initialTab }: NutritionClientProps) {\n  useEffect(() => {\n    writeRouteSnapshot<NutritionClientProps>(\"nutrition\", { people, meals, logs, supermarkets, selectedDate, settings, initialOpen, initialMealId, initialTab });\n  }, [people, meals, logs, supermarkets, selectedDate, settings, initialOpen, initialMealId, initialTab]);\n  const [modal, setModal] = useState<Modal>(null);\n",
+        "label": "nutrition snapshot"
+      }
+    ],
+    "loop_work/components/investments/PensionsInvestmentsClient.tsx": [
+      {
+        "old": "import { useRouter } from \"next/navigation\";\n",
+        "new": "import dynamic from \"next/dynamic\";\nimport { useRouter } from \"next/navigation\";\n",
+        "label": "investments dynamic"
+      },
+      {
+        "old": "import { InvestmentHistoryChart } from \"@/components/investments/InvestmentHistoryChart\";\n",
+        "new": "",
+        "label": "history static"
+      },
+      {
+        "old": "import { AmplifiedInvestmentsDashboard } from \"@/components/investments/AmplifiedInvestmentsDashboard\";\n",
+        "new": "",
+        "label": "dashboard static"
+      },
+      {
+        "old": "import { calculatePensionSalarySacrifice } from \"@/lib/investments/pension-contribution-math\";\n",
+        "new": "import { calculatePensionSalarySacrifice } from \"@/lib/investments/pension-contribution-math\";\nimport { writeRouteSnapshot } from \"@/lib/client/route-snapshot-cache\";\n\nconst InvestmentHistoryChart = dynamic(\n  () => import(\"@/components/investments/InvestmentHistoryChart\").then((m) => m.InvestmentHistoryChart),\n  { loading: () => <div className=\"h-48 animate-pulse rounded-3xl bg-slate-100\" /> },\n);\nconst AmplifiedInvestmentsDashboard = dynamic(\n  () => import(\"@/components/investments/AmplifiedInvestmentsDashboard\").then((m) => m.AmplifiedInvestmentsDashboard),\n  { loading: () => <div className=\"h-72 animate-pulse rounded-3xl bg-slate-100\" /> },\n);\n",
+        "label": "investments lazy"
+      },
+      {
+        "old": "type Props = {\n",
+        "new": "export type PensionsInvestmentsClientProps = {\n",
+        "label": "investment props"
+      },
+      {
+        "old": "  investmentDataTier,\n  snapTradeConnection,\n}: Props) {\n  const [area, setArea] = useState<\"pensions\" | \"db\" | \"investments\">(\n",
+        "new": "  investmentDataTier,\n  snapTradeConnection,\n}: PensionsInvestmentsClientProps) {\n  useEffect(() => {\n    writeRouteSnapshot<PensionsInvestmentsClientProps>(\"investments-core\", {\n      people, pensionAccounts, pensionFunds, investmentAccounts, investmentAccountOwners,\n      investmentPieSettings, investmentHoldings, dbPensionSchemes, dbPensionEvents, payEvents,\n      pensionContributionEvents, initialInvestmentViewMode, initialPensionViewMode,\n      investmentDataTier, snapTradeConnection,\n    });\n  }, [people, pensionAccounts, pensionFunds, investmentAccounts, investmentAccountOwners, investmentPieSettings, investmentHoldings, dbPensionSchemes, dbPensionEvents, payEvents, pensionContributionEvents, initialInvestmentViewMode, initialPensionViewMode, investmentDataTier, snapTradeConnection]);\n  const [area, setArea] = useState<\"pensions\" | \"db\" | \"investments\">(\n",
+        "label": "investment snapshot"
+      }
+    ],
+    "loop_work/domains/wealth/financial-flow/FinancialFlowPage.tsx": [
+      {
+        "old": "    supabase.from(\"savings_account_movements\").select(\"id, financial_account_id, movement_type, amount, previous_balance, balance_delta, resulting_balance, effective_at, created_at, note, source_type\").or(visibleFilter).order(\"effective_at\", { ascending: false }).limit(1500).returns<SavingsMovement[]>(),\n",
+        "new": "    activeTab === \"savings\" ? supabase.from(\"savings_account_movements\").select(\"id, financial_account_id, movement_type, amount, previous_balance, balance_delta, resulting_balance, effective_at, created_at, note, source_type\").or(visibleFilter).order(\"effective_at\", { ascending: false }).limit(1500).returns<SavingsMovement[]>() : Promise.resolve({ data: [] as SavingsMovement[] }),\n",
+        "label": "flow savings movements"
+      }
+    ],
+    "loop_work/app/accounts/page.tsx": [
+      {
+        "old": "    supabase\n      .from(\"pension_fund_performance_assumptions\")\n      .select(\"pension_fund_id,pension_account_id,fund_name,current_value,annualised_5y_percent,annualised_10y_percent,as_of_date,source_url,source_name,verified_at\")\n      .in(\"user_id\", memberUserIds)\n      .order(\"as_of_date\", { ascending: false })\n      .returns<PensionPerformanceAssumption[]>(),\n",
+        "new": "    activeTab === \"projection\"\n      ? supabase\n          .from(\"pension_fund_performance_assumptions\")\n          .select(\"pension_fund_id,pension_account_id,fund_name,current_value,annualised_5y_percent,annualised_10y_percent,as_of_date,source_url,source_name,verified_at\")\n          .in(\"user_id\", memberUserIds)\n          .order(\"as_of_date\", { ascending: false })\n          .returns<PensionPerformanceAssumption[]>()\n      : Promise.resolve({ data: [] as PensionPerformanceAssumption[] }),\n",
+        "label": "accounts projection assumptions"
+      },
+      {
+        "old": "    supabase\n      .from(\"savings_pot_movements\")\n      .select(\"id,savings_pot_id,amount,movement_type,effective_at,note\")\n      .or(householdAllocationFilter)\n      .order(\"effective_at\", { ascending: false })\n      .returns<SavingsPotMovementRow[]>(),\n",
+        "new": "    activeTab === \"overview\" || activeTab === \"pots\"\n      ? supabase\n          .from(\"savings_pot_movements\")\n          .select(\"id,savings_pot_id,amount,movement_type,effective_at,note\")\n          .or(householdAllocationFilter)\n          .order(\"effective_at\", { ascending: false })\n          .returns<SavingsPotMovementRow[]>()\n      : Promise.resolve({ data: [] as SavingsPotMovementRow[] }),\n",
+        "label": "accounts pot movements"
+      }
+    ]
+  }
+}

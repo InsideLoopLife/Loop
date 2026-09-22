@@ -1,0 +1,253 @@
+{
+  "replace_files": [
+    "loop_work/components/financial-flow/FinancialFlowWorkspaceNav.tsx"
+  ],
+  "create_files": [
+    "loop_work/components/financial-flow/SavingsMarketHealthDeferred.tsx",
+    "loop_work/app/api/financial-flow/savings-market-health/route.ts",
+    "loop_work/components/spending/SpendingPlannerDeferredClient.tsx",
+    "loop_work/app/api/spending/deferred-context/route.ts"
+  ],
+  "patches": [
+    {
+      "path": "loop_work/components/financial-flow/SavingsFlowDetail.tsx",
+      "checks": [
+        "import { SavingsGoalVisual } from \"@/components/savings/SavingsGoalVisual\";",
+        "marketStatus: \"healthy\" | \"partial\" | \"unavailable\";",
+        "return (\n    <div className=\"space-y-6\">"
+      ],
+      "operations": [
+        {
+          "kind": "replace",
+          "old": "function scoreClass(score: number) {\n  if (score >= 80) return \"bg-emerald-100 text-emerald-800\";\n  if (score >= 55) return \"bg-amber-100 text-amber-800\";\n  return \"bg-red-100 text-red-700\";\n}",
+          "new": "function scoreClass(score: number) {\n  if (score < 0) return \"bg-slate-100 text-slate-500\";\n  if (score >= 80) return \"bg-emerald-100 text-emerald-800\";\n  if (score >= 55) return \"bg-amber-100 text-amber-800\";\n  return \"bg-red-100 text-red-700\";\n}"
+        },
+        {
+          "kind": "replace",
+          "old": "import { SavingsGoalVisual } from \"@/components/savings/SavingsGoalVisual\";",
+          "new": "import { SavingsGoalVisual } from \"@/components/savings/SavingsGoalVisual\";\nimport { SavingsMarketHealthDeferred } from \"@/components/financial-flow/SavingsMarketHealthDeferred\";"
+        },
+        {
+          "kind": "replace",
+          "old": "  annualOpportunity: number;\n};",
+          "new": "  annualOpportunity: number;\n  scopePersonIds?: string[];\n};"
+        },
+        {
+          "kind": "replace",
+          "old": "  annualOpportunity,\n}: Props) {",
+          "new": "  annualOpportunity,\n  scopePersonIds = [],\n}: Props) {"
+        },
+        {
+          "kind": "replace_segment",
+          "start": "      <section className={`flex flex-wrap items-center justify-between gap-5 rounded-[2rem] border p-5 shadow-sm ${marketStatus === \"healthy\" ? \"border-emerald-200 bg-gradient-to-r from-emerald-50 to-white\" : \"border-amber-200 bg-gradient-to-r from-amber-50 to-white\"}`}>",
+          "end": "      </section>\n      <section className=\"grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.2fr_1fr_1.25fr_auto]\">",
+          "new": "      <SavingsMarketHealthDeferred scopePersonIds={scopePersonIds} />\n      <section className=\"grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.2fr_1fr_1.25fr_auto]\">"
+        },
+        {
+          "kind": "replace_all",
+          "old": ">{account.maximisedScore}</span>",
+          "new": ">{account.maximisedScore < 0 ? \"Checking\" : account.maximisedScore}</span>",
+          "expected": 2
+        }
+      ]
+    },
+    {
+      "path": "loop_work/domains/wealth/financial-flow/FinancialFlowPage.tsx",
+      "checks": [
+        "const yearMonths = Array.from({ length: 12 }",
+        "activeTab === \"savings\" ? ratesSupabase.from(\"savings_rate_deals\")",
+        "<SavingsFlowDetail"
+      ],
+      "operations": [
+        {
+          "kind": "replace",
+          "old": "  const yearMonths = Array.from({ length: 12 }, (_, index) => `${month.key.slice(0, 4)}-${String(index + 1).padStart(2, \"0\")}`).map((key) => buildModel(key, false));",
+          "new": "  const yearMonths = activeTab === \"flow\" ? Array.from({ length: 12 }, (_, index) => `${month.key.slice(0, 4)}-${String(index + 1).padStart(2, \"0\")}`).map((key) => buildModel(key, false)) : [];"
+        },
+        {
+          "kind": "replace_line_contains",
+          "needle": "activeTab === \"savings\" ? ratesSupabase.from(\"savings_rate_deals\")",
+          "new": "    Promise.resolve({ data: [] as SavingsRateDeal[] }),"
+        },
+        {
+          "kind": "replace",
+          "old": "            annualOpportunity={flowAccountRows.reduce((sum, account) => sum + account.annualOpportunity, 0)}\n          />",
+          "new": "            annualOpportunity={flowAccountRows.reduce((sum, account) => sum + account.annualOpportunity, 0)}\n            scopePersonIds={scopeIds}\n          />"
+        },
+        {
+          "kind": "replace",
+          "old": "      maximisedScore: score,",
+          "new": "      maximisedScore: compatibleDeals.length ? score : -1,"
+        },
+        {
+          "kind": "replace",
+          "old": "import { createWorkerDatabaseClient } from \"@/platform/database/worker-client\";\n",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "old": "  // savings_rate_deals now lives in the separate rates-catalogue\n  // Supabase project.\n  const ratesSupabase = createWorkerDatabaseClient(\"rates\");\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "path": "loop_work/domains/wealth/financial-flow/FinancialFlowPage.tsx",
+      "checks": [
+        "function MainFlowDiagram({ model, people }"
+      ],
+      "operations": [
+        {
+          "kind": "replace_segment",
+          "start": "function MainFlowDiagram({ model, people }: { model: MonthModel; people: Person[] }) {",
+          "end": "\nfunction stackedSegments(",
+          "new": "function MainFlowDiagram({ model, people }: { model: MonthModel; people: Person[] }) {\n  const detailRows: FlowLine[] = [\n    ...model.spendRows.slice(0, 8),\n    ...model.savingsRows,\n    { key: \"leftover\", label: \"Available cash\", amount: model.leftoverCash, icon: WalletCards, tone: \"blue\" as Tone },\n  ].filter((row) => row.amount > 0);\n\n  return (\n    <>\n      <FlowSankeyDiagram model={model} people={people} />\n      <details className=\"rounded-[1.35rem] border border-slate-200 bg-white shadow-sm\">\n        <summary className=\"flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4\">\n          <div>\n            <p className=\"text-xs font-black uppercase tracking-[0.16em] text-slate-400\">Flow detail</p>\n            <p className=\"mt-1 text-sm font-black text-slate-950\">See the lines behind this picture</p>\n          </div>\n          <span className=\"rounded-full bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-600\">\n            {detailRows.length} groups\n          </span>\n        </summary>\n        <div className=\"grid gap-2 border-t border-slate-100 p-4 lg:grid-cols-2\">\n          {detailRows.map((row) => (\n            <details key={row.key} className=\"rounded-xl bg-slate-50 p-3\">\n              <summary className=\"flex cursor-pointer list-none items-center justify-between gap-3\">\n                <span className=\"font-black text-slate-900\">{row.label}</span>\n                <span className=\"text-sm font-black text-slate-950\">{formatMoney(row.amount)}</span>\n              </summary>\n              <div className=\"mt-2 space-y-2 border-t border-slate-200 pt-2\">\n                {(row.evidence?.length ? row.evidence : [{ key: row.key, label: row.label, amount: row.amount, href: row.href }]).map((item) => (\n                  <div key={item.key} className=\"flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2\">\n                    <span className=\"text-xs font-bold text-slate-600\">{item.label}</span>\n                    <span className=\"flex items-center gap-2\">\n                      <strong className=\"text-xs text-slate-950\">{formatMoney(item.amount)}</strong>\n                      <Link href={item.href || `/spending?month=${model.key}`} className=\"text-[10px] font-black text-emerald-700\">Edit</Link>\n                    </span>\n                  </div>\n                ))}\n              </div>\n            </details>\n          ))}\n        </div>\n      </details>\n    </>\n  );\n}\n\nfunction stackedSegments("
+        },
+        {
+          "kind": "replace",
+          "old": "      maximisedScore: score,",
+          "new": "      maximisedScore: compatibleDeals.length ? score : -1,"
+        },
+        {
+          "kind": "replace",
+          "old": "import { createWorkerDatabaseClient } from \"@/platform/database/worker-client\";\n",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "old": "  // savings_rate_deals now lives in the separate rates-catalogue\n  // Supabase project.\n  const ratesSupabase = createWorkerDatabaseClient(\"rates\");\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "path": "loop_work/app/spending/page.tsx",
+      "checks": [
+        "SpendingPlannerClient",
+        "bank_regular_payment_candidates",
+        "household_pets",
+        "spending_category_groups"
+      ],
+      "operations": [
+        {
+          "kind": "replace",
+          "old": "import { SpendingPlannerClient, type BankImport, type RegularPaymentCandidate, type ChildCost, type PayEvent, type Person, type PlannedItem, type SpendingCategory, type SpendingEntry, type StudentLoanAccount } from \"@/components/spending/SpendingPlannerClient\";",
+          "new": "import { type BankImport, type RegularPaymentCandidate, type ChildCost, type PayEvent, type Person, type PlannedItem, type SpendingCategory, type SpendingEntry, type StudentLoanAccount } from \"@/components/spending/SpendingPlannerClient\";\nimport { SpendingPlannerDeferredClient } from \"@/components/spending/SpendingPlannerDeferredClient\";"
+        },
+        {
+          "kind": "replace",
+          "old": "export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string }> }) {",
+          "new": "export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string; add?: string }> }) {"
+        },
+        {
+          "kind": "replace_query_block",
+          "start_contains": "supabase\n      .from(\"bank_imports\")",
+          "end_contains": ".returns<BankImport[]>(),",
+          "new": "    Promise.resolve({ data: [] as BankImport[] }),"
+        },
+        {
+          "kind": "replace_query_block",
+          "start_contains": "supabase\n      .from(\"bank_regular_payment_candidates\")",
+          "end_contains": ".returns<RegularPaymentCandidate[]>(),",
+          "new": "    Promise.resolve({ data: [] as RegularPaymentCandidate[] }),"
+        },
+        {
+          "kind": "replace_query_block",
+          "start_contains": "supabase\n      .from(\"student_loan_accounts\")",
+          "end_contains": ".returns<StudentLoanAccount[]>(),",
+          "new": "    Promise.resolve({ data: [] as StudentLoanAccount[] }),"
+        },
+        {
+          "kind": "replace_query_block",
+          "start_contains": "supabase\n      .from(\"financial_accounts\")",
+          "end_contains": ".order(\"provider\"),",
+          "new": "    Promise.resolve({ data: [] as any[] }),"
+        },
+        {
+          "kind": "replace_query_block",
+          "start_contains": "supabase\n      .from(\"household_pets\")",
+          "end_contains": ".order(\"name\"),",
+          "new": "    Promise.resolve({ data: [] as any[] }),"
+        },
+        {
+          "kind": "replace_query_block",
+          "start_contains": "householdContext.householdId\n      ? supabase.from(\"household_living_profiles\")",
+          "end_contains": ": Promise.resolve({ data: null }),",
+          "new": "    Promise.resolve({ data: null }),"
+        },
+        {
+          "kind": "replace_query_block",
+          "start_contains": "supabase\n      .from(\"spending_category_groups\")",
+          "end_contains": ".order(\"name\"),",
+          "new": "    Promise.resolve({ data: [] as any[] }),"
+        },
+        {
+          "kind": "replace",
+          "old": "<SpendingPlannerClient",
+          "new": "<SpendingPlannerDeferredClient"
+        },
+        {
+          "kind": "replace",
+          "old": "          compactPage\n          flowSettings={{",
+          "new": "          compactPage\n          initialAddMode={resolvedSearchParams.add === \"monthly\" || resolvedSearchParams.add === \"one_off\" || resolvedSearchParams.add === \"child_cost\" || resolvedSearchParams.add === \"category\" || resolvedSearchParams.add === \"bank_import\" ? resolvedSearchParams.add : undefined}\n          flowSettings={{"
+        }
+      ]
+    },
+    {
+      "path": "loop_work/components/spending/SpendingPlannerClient.tsx",
+      "checks": [
+        "type AddMode = \"monthly\" | \"one_off\" | \"child_cost\" | \"category\" | \"bank_import\";",
+        "const [modal, setModal] = useState<ModalState>(null);",
+        "<section className=\"grid gap-3 md:grid-cols-5\">"
+      ],
+      "operations": [
+        {
+          "kind": "replace",
+          "old": "  categoryGroups?: { id: string; name: string; icon?: string | null }[];\n};",
+          "new": "  categoryGroups?: { id: string; name: string; icon?: string | null }[];\n  initialAddMode?: AddMode;\n};"
+        },
+        {
+          "kind": "replace",
+          "old": "export function SpendingPlannerClient({ people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = \"all\", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [] }: Props) {",
+          "new": "export function SpendingPlannerClient({ people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = \"all\", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], initialAddMode }: Props) {"
+        },
+        {
+          "kind": "replace",
+          "old": "  const [modal, setModal] = useState<ModalState>(null);",
+          "new": "  const [modal, setModal] = useState<ModalState>(initialAddMode ? { type: \"add\", mode: initialAddMode } : null);"
+        },
+        {
+          "kind": "replace_segment",
+          "start": "      <section className=\"grid gap-3 md:grid-cols-5\">",
+          "end": "\n\n\n      <SectionCard title=\"Filter by person\"",
+          "new": "      <section className=\"flex flex-wrap items-center justify-between gap-3 rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm\">\n        <div>\n          <p className=\"text-xs font-black uppercase tracking-[0.14em] text-slate-400\">Add or manage</p>\n          <p className=\"mt-1 text-sm font-bold text-slate-600\">\n            {plannedItems.filter((item) => item.recurrence === \"monthly\").length} regular \u00b7 {selectedSummary.entriesForMonth.length} one-off \u00b7 {childCosts.length} child cost\n          </p>\n        </div>\n        <div className=\"flex flex-wrap gap-2\">\n          <details className=\"relative\">\n            <summary className=\"cursor-pointer list-none rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white\">+ Add</summary>\n            <div className=\"absolute right-0 z-40 mt-2 grid min-w-56 gap-1 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl\">\n              <button type=\"button\" onClick={() => openAdd(\"monthly\")} className=\"rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50\">Regular payment</button>\n              <button type=\"button\" onClick={() => openAdd(\"one_off\")} className=\"rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50\">One-off spend</button>\n              {shouldShowChildCosts ? <button type=\"button\" onClick={() => openAdd(\"child_cost\")} className=\"rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50\">Child cost</button> : null}\n              <button type=\"button\" onClick={() => openAdd(\"bank_import\")} className=\"rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50\">Import bank CSV</button>\n            </div>\n          </details>\n          <a href=\"/spending/categories\" className=\"rounded-full bg-slate-100 px-4 py-2 text-xs font-black text-slate-700\">Categories</a>\n        </div>\n      </section>\n\n\n      <SectionCard title=\"Filter by person\""
+        }
+      ]
+    },
+    {
+      "path": "loop_work/components/financial-flow/FinancialFlowHouseShell.tsx",
+      "checks": [
+        "@media (prefers-reduced-motion: reduce)"
+      ],
+      "operations": [
+        {
+          "kind": "insert_before",
+          "needle": "        @media (prefers-reduced-motion: reduce) {",
+          "text": "\n        /* ==========================================================\n           V4 \u2014 House-style retained workspace hierarchy\n           ========================================================== */\n        .loop-financial-workspace-nav {\n          width: 95vw;\n          max-width: 2000px;\n          margin: 0.85rem auto 0;\n          padding-inline: clamp(0.9rem, 2vw, 2rem);\n        }\n\n        .loop-flow-nav-card {\n          border: 1px solid var(--loop-flow-border);\n          border-radius: 1.25rem;\n          background: rgba(255,255,255,.96);\n          padding: .75rem;\n          box-shadow: var(--loop-flow-shadow);\n        }\n\n        .loop-flow-nav-heading {\n          display: none;\n        }\n\n        .loop-flow-nav-card nav {\n          display: grid;\n          grid-template-columns: repeat(4,minmax(0,1fr));\n          gap: .35rem;\n        }\n\n        .loop-flow-nav-card nav a {\n          display: flex;\n          align-items: center;\n          gap: .65rem;\n          border-radius: .9rem;\n          padding: .7rem .8rem;\n          color: #64748b;\n        }\n\n        .loop-flow-nav-card nav a.is-active {\n          background: #f1f5f9;\n          color: #0f172a;\n        }\n\n        .loop-flow-nav-icon {\n          display: grid;\n          height: 2rem;\n          width: 2rem;\n          flex: 0 0 auto;\n          place-items: center;\n          border-radius: .7rem;\n          background: #fff;\n          border: 1px solid #e2e8f0;\n        }\n\n        .loop-flow-nav-card nav strong,\n        .loop-flow-nav-card nav small {\n          display: block;\n        }\n\n        .loop-flow-nav-card nav strong { font-size: .82rem; }\n        .loop-flow-nav-card nav small { margin-top: .1rem; font-size: .65rem; opacity: .7; }\n\n        .loop-flow-nav-actions {\n          display: flex;\n          gap: .45rem;\n          margin-top: .55rem;\n          padding-top: .55rem;\n          border-top: 1px solid #eef2f7;\n        }\n\n        .loop-flow-nav-actions button,\n        .loop-flow-nav-actions a {\n          display: inline-flex;\n          align-items: center;\n          gap: .4rem;\n          border-radius: .8rem;\n          padding: .6rem .8rem;\n          font-size: .72rem;\n          font-weight: 900;\n        }\n\n        .loop-flow-nav-actions button {\n          background: #0f172a;\n          color: white;\n        }\n\n        .loop-flow-nav-actions a {\n          background: #f8fafc;\n          color: #475569;\n        }\n\n        @media (min-width: 1180px) {\n          .loop-financial-house-shell {\n            --loop-flow-side: 220px;\n          }\n\n          .loop-financial-workspace-nav {\n            position: fixed;\n            left: max(1.5rem, calc((100vw - min(96vw, 2000px)) / 2));\n            top: 4.25rem;\n            z-index: 32;\n            width: var(--loop-flow-side);\n            margin: 0;\n            padding: 0;\n          }\n\n          .loop-flow-nav-card {\n            border-radius: 1rem;\n            padding: .75rem;\n          }\n\n          .loop-flow-nav-heading {\n            display: block;\n            padding: .35rem .45rem .7rem;\n            border-bottom: 1px solid #eef2f7;\n            margin-bottom: .45rem;\n          }\n\n          .loop-flow-nav-heading p {\n            color: #15803d;\n            font-size: .68rem;\n            font-weight: 900;\n            letter-spacing: .12em;\n            text-transform: uppercase;\n          }\n\n          .loop-flow-nav-heading span {\n            display: block;\n            margin-top: .2rem;\n            color: #94a3b8;\n            font-size: .68rem;\n            font-weight: 700;\n          }\n\n          .loop-flow-nav-card nav {\n            display: grid;\n            grid-template-columns: 1fr;\n            gap: .2rem;\n          }\n\n          .loop-flow-nav-card nav a {\n            min-height: 3.15rem;\n            padding: .55rem .6rem;\n          }\n\n          .loop-flow-nav-card nav a.is-active {\n            background: #f5f3ff;\n            color: #6d28d9;\n          }\n\n          .loop-flow-nav-actions {\n            display: grid;\n            grid-template-columns: 1fr;\n          }\n\n          .loop-financial-house-shell main,\n          .loop-financial-house-shell > .loop-financial-workspace-nav ~ main {\n            width: min(calc(96vw - var(--loop-flow-side) - 1.5rem), 1760px) !important;\n            margin-left: calc(max(1.5rem, (100vw - min(96vw, 2000px)) / 2) + var(--loop-flow-side) + 1.5rem) !important;\n            margin-right: auto !important;\n            padding-inline: 0 !important;\n          }\n\n          .loop-financial-house-shell[data-flow-section=\"flow\"] main > section:first-child {\n            padding: .9rem 1rem !important;\n          }\n        }\n\n        /* Keep the primary page calm: charts and timelines carry the visual weight. */\n        .loop-financial-house-shell main > * + * {\n          margin-top: .9rem !important;\n        }\n\n        .loop-financial-house-shell main section[class*=\"grid\"] {\n          gap: .65rem !important;\n        }\n\n"
+        }
+      ]
+    },
+    {
+      "path": "loop_work/app/spending/loading.tsx",
+      "checks": [
+        "InstantRouteLoading"
+      ],
+      "operations": [
+        {
+          "kind": "replace_file_content",
+          "new": "import { WealthRouteSkeleton } from \"@/components/loading/WealthRouteSkeleton\";\n\nexport default function SpendingLoading() {\n  return <WealthRouteSkeleton label=\"spending\" />;\n}\n"
+        }
+      ]
+    }
+  ]
+}

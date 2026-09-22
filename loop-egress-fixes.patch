@@ -1,0 +1,200 @@
+diff --git a/loop_work/components/Nav.tsx b/loop_work/components/Nav.tsx
+index fba83e7..e4df315 100644
+--- a/loop_work/components/Nav.tsx
++++ b/loop_work/components/Nav.tsx
+@@ -687,14 +687,42 @@ function NavInner() {
+         .then((response) => response.json())
+         .then((payload) => mounted && setUnreadCount(Number(payload.count || 0)))
+         .catch(() => undefined);
+-    const timer = window.setInterval(
+-      refreshUnreadCount,
+-      15000,
+-    );
++
++    // This was polling every 15s on every page, for every logged-in user,
++    // even when the tab was sitting hidden in the background — pure wasted
++    // Supabase egress that scales directly with concurrent users, unlike a
++    // fixed background job. Only poll while the tab is actually visible,
++    // and catch up immediately when it becomes visible/focused again
++    // instead of waiting up to 15s. Same pattern RouteFreshnessManager
++    // already uses elsewhere.
++    let timer: number | null = null;
++    const startPolling = () => {
++      if (timer) return;
++      timer = window.setInterval(refreshUnreadCount, 15000) as unknown as number;
++    };
++    const stopPolling = () => {
++      if (!timer) return;
++      window.clearInterval(timer);
++      timer = null;
++    };
++    const handleVisibilityChange = () => {
++      if (document.visibilityState === "visible") {
++        refreshUnreadCount();
++        startPolling();
++      } else {
++        stopPolling();
++      }
++    };
++
++    if (document.visibilityState === "visible") startPolling();
++    document.addEventListener("visibilitychange", handleVisibilityChange);
++    window.addEventListener("focus", refreshUnreadCount);
+ 
+     return () => {
+       mounted = false;
+-      window.clearInterval(timer);
++      stopPolling();
++      document.removeEventListener("visibilitychange", handleVisibilityChange);
++      window.removeEventListener("focus", refreshUnreadCount);
+     };
+   }, []);
+ 
+diff --git a/loop_work/components/notifications/NotificationAutoRefresh.tsx b/loop_work/components/notifications/NotificationAutoRefresh.tsx
+index 1c85b64..db6af44 100644
+--- a/loop_work/components/notifications/NotificationAutoRefresh.tsx
++++ b/loop_work/components/notifications/NotificationAutoRefresh.tsx
+@@ -11,11 +11,40 @@ export function NotificationAutoRefresh({ intervalMs = 10000 }: { intervalMs?: n
+       setLastRefresh(new Date());
+       router.refresh();
+     };
++
++    // This was calling router.refresh() (a full server re-render, not a
++    // light fetch) every 10s regardless of whether the tab was visible.
++    // Only poll while visible, and catch up immediately on focus/visibility
++    // regain instead of waiting out the interval.
++    let timer: number | null = null;
++    const startPolling = () => {
++      if (timer) return;
++      timer = window.setInterval(refresh, intervalMs) as unknown as number;
++    };
++    const stopPolling = () => {
++      if (!timer) return;
++      window.clearInterval(timer);
++      timer = null;
++    };
++    const handleVisibilityChange = () => {
++      if (document.visibilityState === "visible") {
++        refresh();
++        startPolling();
++      } else {
++        stopPolling();
++      }
++    };
++
+     window.addEventListener("loop:notifications-updated", refresh);
+-    const timer = window.setInterval(refresh, intervalMs);
++    if (document.visibilityState === "visible") startPolling();
++    document.addEventListener("visibilitychange", handleVisibilityChange);
++    window.addEventListener("focus", refresh);
++
+     return () => {
+       window.removeEventListener("loop:notifications-updated", refresh);
+-      window.clearInterval(timer);
++      stopPolling();
++      document.removeEventListener("visibilitychange", handleVisibilityChange);
++      window.removeEventListener("focus", refresh);
+     };
+   }, [router, intervalMs]);
+ 
+diff --git a/loop_work/lib/investments/price-snapshot-runner.ts b/loop_work/lib/investments/price-snapshot-runner.ts
+index 4444716..364438f 100644
+--- a/loop_work/lib/investments/price-snapshot-runner.ts
++++ b/loop_work/lib/investments/price-snapshot-runner.ts
+@@ -74,6 +74,69 @@ type RunnerResult = {
+   failures: Array<{ ticker: string; exchange: string | null; reason: string }>;
+ };
+ 
++// The continuous price loop (see scripts/market-data-direct-worker.ts) can
++// tick as often as once a minute. wealth_watch_settings and app_user_profiles
++// barely ever change tick-to-tick, so re-fetching them on every single run
++// was pure wasted egress — this was one of three near-identical requests
++// firing every 60s regardless of whether any holding actually needed a
++// price check. Cache both for a few minutes and only pay for a fresh read
++// periodically, or when a holding references a user we haven't seen before.
++const SETTINGS_CACHE_TTL_MS = Math.max(
++  1,
++  Number(process.env.MARKET_DATA_WORKER_SETTINGS_CACHE_MINUTES) || 10,
++) * 60 * 1000;
++const PROFILE_CACHE_TTL_MS = Math.max(
++  1,
++  Number(process.env.MARKET_DATA_WORKER_PROFILE_CACHE_MINUTES) || 10,
++) * 60 * 1000;
++
++let settingsCache: { value: Awaited<ReturnType<typeof loadInvestmentSnapshotSettings>>; loadedAt: number } | null = null;
++
++async function getCachedSnapshotSettings(supabase: SupabaseAdmin) {
++  const now = Date.now();
++  if (settingsCache && now - settingsCache.loadedAt < SETTINGS_CACHE_TTL_MS) {
++    return settingsCache.value;
++  }
++  const value = await loadInvestmentSnapshotSettings(supabase);
++  settingsCache = { value, loadedAt: now };
++  return value;
++}
++
++const profileCache = new Map<string, { value: UserProfileRow; loadedAt: number }>();
++
++async function getCachedUserProfiles(supabase: SupabaseAdmin, userIds: string[]) {
++  const now = Date.now();
++  const stale = userIds.filter((id) => {
++    const cached = profileCache.get(id);
++    return !cached || now - cached.loadedAt >= PROFILE_CACHE_TTL_MS;
++  });
++
++  if (stale.length) {
++    const { data, error } = await supabase
++      .from("app_user_profiles")
++      .select(
++        "user_id, payment_tier, payment_tier_status, payment_tier_override, market_data_tier, market_data_tier_override, market_data_provider_status, market_data_realtime_enabled",
++      )
++      .in("user_id", stale);
++    if (!error) {
++      for (const profile of (data || []) as UserProfileRow[]) {
++        profileCache.set(profile.user_id, { value: profile, loadedAt: now });
++      }
++      // A user_id with no profile row (deleted account, edge case) would
++      // otherwise be re-queried every single tick forever — cache a null
++      // marker for it too so it stops costing a request each cycle.
++      const found = new Set(((data || []) as UserProfileRow[]).map((p) => p.user_id));
++      for (const id of stale) {
++        if (!found.has(id)) profileCache.set(id, { value: { user_id: id } as UserProfileRow, loadedAt: now });
++      }
++    }
++  }
++
++  return userIds
++    .map((id) => profileCache.get(id)?.value)
++    .filter((v): v is UserProfileRow => Boolean(v));
++}
++
+ // Reuses the same in-app notification surface the money-deals-daily cron
+ // already writes to (loop_money_notifications) — this is what actually
+ // produces the "pop up" the person sees, rather than a new one-off
+@@ -851,7 +914,7 @@ export async function runInvestmentPriceSnapshotJob(
+   const startedAt = now.toISOString();
+   const snapshotBatchId = randomUUID();
+   const pointMinute = floorMinuteIso(now);
+-  const settings = await loadInvestmentSnapshotSettings(supabase);
++  const settings = await getCachedSnapshotSettings(supabase);
+   const snapshotDate = now.toISOString().slice(0, 10);
+ 
+   const result: RunnerResult = {
+@@ -909,14 +972,9 @@ export async function runInvestmentPriceSnapshotJob(
+     const userIds = Array.from(
+       new Set(activeHoldings.map((holding) => holding.user_id).filter(Boolean)),
+     );
+-    const { data: profiles } = userIds.length
+-      ? await supabase
+-          .from("app_user_profiles")
+-          .select(
+-            "user_id, payment_tier, payment_tier_status, payment_tier_override, market_data_tier, market_data_tier_override, market_data_provider_status, market_data_realtime_enabled",
+-          )
+-          .in("user_id", userIds)
+-      : { data: [] as UserProfileRow[] };
++    const profiles = userIds.length
++      ? await getCachedUserProfiles(supabase, userIds)
++      : ([] as UserProfileRow[]);
+     const profileByUser = new Map<string, UserProfileRow>(
+       (profiles || []).map((profile: any) => [
+         profile.user_id,

@@ -1,0 +1,76 @@
+{
+  "patches": [
+    {
+      "path": "loop_work/app/api/investments/history/route.ts",
+      "ops": [
+        {
+          "kind": "replace",
+          "old": "import { investmentDataEntitlementForProfile } from \"@/lib/wealth/user-tiers\";\n",
+          "new": "import { investmentDataEntitlementForProfile } from \"@/lib/wealth/user-tiers\";\nimport { loadInvestmentSnapshotSettings } from \"@/lib/investments/snapshot-settings\";\n",
+          "label": "snapshot settings import"
+        },
+        {
+          "kind": "replace",
+          "old": "  const movements = request.nextUrl.searchParams.get(\"movements\") === \"1\";\n",
+          "new": "  const movements = request.nextUrl.searchParams.get(\"movements\") === \"1\";\n  const observedSeries = request.nextUrl.searchParams.get(\"series\") === \"1\";\n",
+          "label": "observed series mode"
+        },
+        {
+          "kind": "replace",
+          "old": "  const entitlement = investmentDataEntitlementForProfile(profile);\n",
+          "new": "  const entitlement = investmentDataEntitlementForProfile(profile);\n  const snapshotSettings = await loadInvestmentSnapshotSettings(supabase as any);\n",
+          "label": "load cadence settings"
+        },
+        {
+          "kind": "insert_after",
+          "needle": "  if (holdingsError)\n    return NextResponse.json({ error: holdingsError.message }, { status: 500 });\n",
+          "text": "\n\n  if (observedSeries) {\n    const tier = String(\n      (profile as any)?.market_data_tier_override ||\n        (profile as any)?.market_data_tier ||\n        (profile as any)?.payment_tier_override ||\n        (profile as any)?.payment_tier ||\n        \"free\",\n    ).toLowerCase();\n    const cadenceMinutes = entitlement.canUseRealtimePrices\n      ? Math.max(1, Number(snapshotSettings.realtimeMinutes || 1))\n      : [\"plus\", \"pro\", \"premium\", \"go\"].includes(tier)\n        ? Math.max(1, Number(snapshotSettings.plusProMinutes || 10))\n        : Math.max(1, Number(snapshotSettings.freeMinutes || 30));\n\n    const bucketMs = cadenceMinutes * 60 * 1000;\n    const seriesByHolding: Record<string, Array<{\n      at: string;\n      label: string;\n      price: number;\n      value: number;\n      source: string;\n    }>> = {};\n\n    await Promise.all(\n      currentHoldings.slice(0, 16).map(async (holding) => {\n        const listingId = String(holding.listing_id || \"\");\n        const units = Number(holding.units || 0);\n        if (!listingId || !(units > 0)) {\n          seriesByHolding[holding.id] = [];\n          return;\n        }\n\n        const result = await supabase\n          .from(\"investment_instrument_price_points\")\n          .select(\"listing_id, point_at, observed_at, price_gbp, gbp_price, source, quality\")\n          .eq(\"listing_id\", listingId)\n          .gte(\"point_at\", since)\n          .order(\"point_at\", { ascending: true })\n          .limit(Math.min(2500, Math.max(600, maxPointsForRange(range) * 3)));\n\n        if (result.error) {\n          seriesByHolding[holding.id] = [];\n          return;\n        }\n\n        const bucketed = new Map<number, any>();\n        for (const row of result.data || []) {\n          const at = String((row as any).point_at || (row as any).observed_at || \"\");\n          const stamp = Date.parse(at);\n          const price = Number((row as any).gbp_price ?? (row as any).price_gbp ?? 0);\n          if (!Number.isFinite(stamp) || !(price > 0)) continue;\n          const bucket = Math.floor(stamp / bucketMs) * bucketMs;\n          bucketed.set(bucket, { ...row, at, price });\n        }\n\n        const observed = Array.from(bucketed.entries())\n          .sort(([a], [b]) => a - b)\n          .map(([, row]) => ({\n            at: row.at,\n            label: labelFor(row.at, range),\n            price: row.price,\n            value: row.price * units,\n            source: String(row.source || \"stored market observation\"),\n          }));\n\n        seriesByHolding[holding.id] = downsample(\n          observed,\n          maxPointsForRange(range),\n        );\n      }),\n    );\n\n    return NextResponse.json(\n      {\n        ok: true,\n        range,\n        mode: \"holding-series\",\n        observed: true,\n        cadenceMinutes,\n        seriesByHolding,\n        entitlement,\n      },\n      {\n        headers: {\n          \"Cache-Control\": \"private, max-age=20, stale-while-revalidate=60\",\n        },\n      },\n    );\n  }\n"
+        }
+      ]
+    },
+    {
+      "path": "loop_work/components/investments/AmplifiedInvestmentsDashboard.tsx",
+      "ops": [
+        {
+          "kind": "replace",
+          "old": "type RemoteHistoryPayload = { ok?: boolean; points?: RemoteHistoryPoint[]; currentValue?: number; sourceMode?: string; estimateOnly?: boolean; quality?: { reliable?: boolean; coverage?: number; reason?: string; latestCoverage?: number } | null; historyStages?: RemoteHistoryStage[]; historyCoveragePercent?: number | null; change?: { absolute?: number; percent?: number; firstValue?: number; latestValue?: number; pointCount?: number; basis?: string; startValue?: number; reliable?: boolean }; };\n",
+          "new": "type RemoteHistoryPayload = { ok?: boolean; points?: RemoteHistoryPoint[]; currentValue?: number; sourceMode?: string; estimateOnly?: boolean; quality?: { reliable?: boolean; coverage?: number; reason?: string; latestCoverage?: number } | null; historyStages?: RemoteHistoryStage[]; historyCoveragePercent?: number | null; change?: { absolute?: number; percent?: number; firstValue?: number; latestValue?: number; pointCount?: number; basis?: string; startValue?: number; reliable?: boolean }; observed?: boolean; cadenceMinutes?: number; seriesByHolding?: Record<string, RemoteHistoryPoint[]>; };\n",
+          "label": "observed series payload type"
+        },
+        {
+          "kind": "replace",
+          "old": "  const [remoteAssetMoves, setRemoteAssetMoves] = useState<Record<string, RemoteMovement>>({});\n",
+          "new": "  const [remoteAssetMoves, setRemoteAssetMoves] = useState<Record<string, RemoteMovement>>({});\n  const [remoteHoldingSeries, setRemoteHoldingSeries] = useState<Record<string, RemoteHistoryPoint[]>>({});\n  const [observedCadenceMinutes, setObservedCadenceMinutes] = useState<number | null>(null);\n",
+          "label": "observed history state"
+        },
+        {
+          "kind": "insert_before",
+          "needle": "  const localPortfolioPoints = useMemo(() => {\n",
+          "text": "  const observedHoldingIdsKey = useMemo(() => {\n    return filteredHoldings\n      .filter((holding) => holding.id && !String(holding.id).startsWith(\"bundle:\"))\n      .sort((a, b) => holdingValue(b) - holdingValue(a))\n      .slice(0, 16)\n      .map((holding) => holding.id)\n      .join(\",\");\n  }, [filteredHoldings]);\n\n  useEffect(() => {\n    let cancelled = false;\n    if (!observedHoldingIdsKey) {\n      setRemoteHoldingSeries({});\n      setObservedCadenceMinutes(null);\n      return;\n    }\n    const params = new URLSearchParams({\n      series: \"1\",\n      holdingIds: observedHoldingIdsKey,\n      range: PERIOD_RANGE[period],\n    });\n    loadHistoryPayload(`/api/investments/history?${params.toString()}`)\n      .then((payload) => {\n        if (cancelled) return;\n        setRemoteHoldingSeries(payload.seriesByHolding || {});\n        setObservedCadenceMinutes(\n          Number.isFinite(Number(payload.cadenceMinutes))\n            ? Number(payload.cadenceMinutes)\n            : null,\n        );\n      })\n      .catch(() => {\n        if (!cancelled) {\n          setRemoteHoldingSeries({});\n          setObservedCadenceMinutes(null);\n        }\n      });\n    return () => {\n      cancelled = true;\n    };\n  }, [observedHoldingIdsKey, period]);\n\n  function observedPointsForHolding(holding: InvestmentHolding) {\n    const ids = holding.child_holding_ids?.length\n      ? holding.child_holding_ids\n      : [holding.id];\n    const byTime = new Map<string, number>();\n    for (const id of ids) {\n      for (const point of remoteHoldingSeries[id] || []) {\n        const at = String(point.at || \"\");\n        const value = Number(point.value || 0);\n        if (!at || !(value > 0)) continue;\n        byTime.set(at, (byTime.get(at) || 0) + value);\n      }\n    }\n    return Array.from(byTime.entries())\n      .sort(([a], [b]) => a.localeCompare(b))\n      .map(([date, value]) => ({ date, value }));\n  }\n\n"
+        },
+        {
+          "kind": "replace",
+          "old": "    if (period === \"1D\") { const dayPoints = syntheticOneDayPortfolioPoints(bundledHoldings, activeTotalValue); if (dayPoints.length >= 2) return dayPoints; }\n",
+          "new": "    if (period === \"1D\") return fromSnapshots;\n",
+          "label": "remove synthetic portfolio 1D line"
+        },
+        {
+          "kind": "replace",
+          "old": "      let points = holdingPeriodPoints(holding, snapshots, period);\n      // Chart points are real stored snapshots only. The day-move figure remains a separate headline metric.\n      return { holding, value, move, points, allocation: representedValue > 0 ? (value / representedValue) * 100 : 0 };\n",
+          "new": "      const observedPoints = observedPointsForHolding(holding);\n      let points = observedPoints.length >= 2\n        ? observedPoints\n        : holdingPeriodPoints(holding, snapshots, period);\n      // Chart geometry now prefers shared market observations. Day move remains\n      // a separate previous-close metric and is never used to manufacture points.\n      return { holding, value, move, points, allocation: representedValue > 0 ? (value / representedValue) * 100 : 0 };\n",
+          "label": "use observed shared points in holding cards"
+        },
+        {
+          "kind": "insert_after",
+          "needle": "  const spread = Math.max(1, rawMax - rawMin);\n  \n  // Bounding flat lines to the center\n",
+          "text": "  const miniCoords = points.map((point, index) => ({\n    x: (index / Math.max(1, points.length - 1)) * 100,\n    y: 85 - ((point.value - rawMin) / Math.max(1, rawMax - rawMin)) * 70,\n    point,\n    index,\n  }));\n  const miniDotStep = Math.max(1, Math.ceil(miniCoords.length / 12));\n\n"
+        },
+        {
+          "kind": "insert_after",
+          "needle": "           <path d={pathD} fill=\"none\" stroke=\"currentColor\" className={positive ? \"text-emerald-400\" : \"text-rose-500\"} strokeWidth=\"1.5\" strokeLinecap=\"round\" strokeLinejoin=\"round\" />\n",
+          "text": "           {miniCoords.map((coord, index) =>\n             index % miniDotStep === 0 || index === miniCoords.length - 1 ? (\n               <circle\n                 key={`${coord.point.date}-${index}`}\n                 cx={coord.x}\n                 cy={coord.y}\n                 r=\"1.35\"\n                 fill=\"currentColor\"\n                 className={positive ? \"text-emerald-300\" : \"text-rose-400\"}\n               >\n                 <title>{`${new Date(coord.point.date).toLocaleString(\"en-GB\")} \u00b7 ${formatMoney(coord.point.value)}`}</title>\n               </circle>\n             ) : null,\n           )}\n"
+        }
+      ]
+    }
+  ]
+}

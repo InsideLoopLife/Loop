@@ -1,0 +1,147 @@
+{
+  "create_only": [
+    "loop_work/lib/performance/route-boot.ts",
+    "loop_work/app/api/route-boot-snapshot/route.ts",
+    "loop_work/components/performance/RouteBootSnapshotPublisher.tsx",
+    "loop_work/components/performance/RouteBootAutoPublisher.tsx",
+    "loop_work/components/performance/InstantBootSnapshot.tsx",
+    "loop_work/components/loading/InstantRouteLoading.tsx",
+    "loop_work/components/financial-flow/FinancialFlowWorkspaceNav.tsx",
+    "loop_work/app/accounts/layout.tsx",
+    "loop_work/supabase/migrations/202608240001_route_boot_snapshots.sql"
+  ],
+  "replace_or_create": [
+    "loop_work/app/briefing/loading.tsx",
+    "loop_work/app/dashboard/loading.tsx",
+    "loop_work/app/financial-flow/loading.tsx",
+    "loop_work/app/income/loading.tsx",
+    "loop_work/app/spending/loading.tsx",
+    "loop_work/app/accounts/loading.tsx",
+    "loop_work/app/investments/loading.tsx",
+    "loop_work/app/mortgage/loading.tsx",
+    "loop_work/app/net-worth/loading.tsx",
+    "loop_work/app/retirement/loading.tsx",
+    "loop_work/app/nutrition/loading.tsx",
+    "loop_work/app/lifestyle/loading.tsx"
+  ],
+  "changes": {
+    "loop_work/app/layout.tsx": [
+      {
+        "old": "import { RouteFreshnessManager } from \"@/components/cache/RouteFreshnessManager\";\n",
+        "new": "import { RouteFreshnessManager } from \"@/components/cache/RouteFreshnessManager\";\nimport { RouteBootAutoPublisher } from \"@/components/performance/RouteBootAutoPublisher\";\n",
+        "label": "root auto publisher import"
+      },
+      {
+        "old": "      <body>{children}<PageTour /><RouteFreshnessManager /></body>\n",
+        "new": "      <body>{children}<PageTour /><RouteFreshnessManager /><RouteBootAutoPublisher /></body>\n",
+        "label": "root auto publisher mount"
+      }
+    ],
+    "loop_work/lib/client/route-snapshot-cache.ts": [
+      {
+        "old": "  try {\n    window.sessionStorage.setItem(storageKey(key), JSON.stringify(envelope));\n  } catch {\n    // Optional enhancement only: storage failures must never break a route.\n  }\n}\n",
+        "new": "  try {\n    window.sessionStorage.setItem(storageKey(key), JSON.stringify(envelope));\n  } catch {\n    // Optional enhancement only: storage failures must never break a route.\n  }\n\n  window.dispatchEvent(\n    new CustomEvent(\"loop:route-snapshot-written\", { detail: { key } }),\n  );\n}\n",
+        "label": "route snapshot write event"
+      }
+    ],
+    "loop_work/components/financial-flow/FinancialFlowHouseShell.tsx": [
+      {
+        "old": "  section: \"flow\" | \"income\" | \"spending\";\n",
+        "new": "  section: \"flow\" | \"income\" | \"spending\" | \"savings\";\n",
+        "label": "financial shell savings section"
+      },
+      {
+        "old": "        .loop-financial-house-shell[data-flow-section=\"income\"] main,\n        .loop-financial-house-shell[data-flow-section=\"spending\"] main {\n          background: transparent !important;\n        }\n\n        .loop-financial-house-shell[data-flow-section=\"income\"] main section,\n        .loop-financial-house-shell[data-flow-section=\"spending\"] main section {\n          scroll-margin-top: 5.5rem;\n        }\n",
+        "new": "        .loop-financial-house-shell[data-flow-section=\"income\"] main,\n        .loop-financial-house-shell[data-flow-section=\"spending\"] main,\n        .loop-financial-house-shell[data-flow-section=\"savings\"] main {\n          background: transparent !important;\n        }\n\n        .loop-financial-house-shell[data-flow-section=\"income\"] main section,\n        .loop-financial-house-shell[data-flow-section=\"spending\"] main section,\n        .loop-financial-house-shell[data-flow-section=\"savings\"] main section {\n          scroll-margin-top: 5.5rem;\n        }\n\n        .loop-financial-house-shell[data-flow-section=\"savings\"] main > header {\n          border: 1px solid var(--loop-flow-border) !important;\n          border-radius: 1.35rem !important;\n          background: rgba(255, 255, 255, 0.94) !important;\n          padding: 1.15rem 1.25rem !important;\n          box-shadow: var(--loop-flow-shadow) !important;\n        }\n\n        .loop-financial-house-shell[data-flow-section=\"savings\"] main nav[aria-label=\"Savings workspace sections\"] {\n          display: flex !important;\n          flex-wrap: nowrap !important;\n          gap: 0.5rem !important;\n          overflow-x: auto !important;\n          overscroll-behavior-x: contain;\n          scrollbar-width: thin;\n        }\n\n        .loop-financial-house-shell[data-flow-section=\"savings\"] main nav[aria-label=\"Savings workspace sections\"] a {\n          flex: 0 0 auto;\n          scroll-snap-align: start;\n        }\n",
+        "label": "financial shell savings styling"
+      }
+    ],
+    "loop_work/domains/wealth/financial-flow/FinancialFlowPage.tsx": [
+      {
+        "old": "import { WealthRouteSkeleton } from \"@/components/loading/WealthRouteSkeleton\";\n",
+        "new": "import { WealthRouteSkeleton } from \"@/components/loading/WealthRouteSkeleton\";\nimport { FinancialFlowWorkspaceNav } from \"@/components/financial-flow/FinancialFlowWorkspaceNav\";\nimport { RouteBootSnapshotPublisher } from \"@/components/performance/RouteBootSnapshotPublisher\";\n",
+        "label": "financial flow shared imports"
+      },
+      {
+        "old": "        <nav className=\"grid overflow-hidden rounded-full border border-slate-200 bg-white/90 p-1 shadow-sm backdrop-blur md:grid-cols-4\" aria-label=\"Financial Flow sections\">\n          {tabs.map((tab) => {\n            const Icon = tab.icon;\n            const active = activeTab === tab.key;\n            return <Link key={tab.key} href={queryHref(tab.key, month.key, scopeIds)} className={`flex items-center justify-center gap-3 rounded-full px-5 py-4 text-sm font-black transition ${active ? \"bg-white text-slate-950 shadow-md ring-1 ring-slate-100\" : \"text-slate-500 hover:bg-slate-50 hover:text-slate-950\"}`}><Icon className=\"h-5 w-5\" /> {tab.label}{active ? <span className=\"ml-2 h-1.5 w-12 rounded-full bg-gradient-to-r from-cyan-400 via-emerald-400 to-orange-400\" /> : null}</Link>;\n          })}\n        </nav>\n\n",
+        "new": "",
+        "label": "remove duplicate financial flow rail"
+      },
+      {
+        "old": "  return (\n    <>\n      <main className=\"mx-auto w-[95vw] max-w-none space-y-6 px-4 py-6 md:px-8\">\n",
+        "new": "  return (\n    <>\n      <FinancialFlowWorkspaceNav section={activeTab} month={month.key} />\n      <RouteBootSnapshotPublisher\n        routeKey=\"financial-flow\"\n        payload={{\n          version: 1,\n          eyebrow: \"Financial Flow\",\n          title: `${monthLabel(month.key)} household flow`,\n          headline: formatMoney(model.leftoverCash),\n          description: \"Available after tracked spending and savings. Fresh month detail is loading now.\",\n          tone: model.leftoverCash >= 0 ? \"green\" : \"orange\",\n          metrics: [\n            { label: \"Income\", value: formatMoney(model.totalIncome) },\n            { label: \"Spending\", value: formatMoney(model.committedSpending) },\n            { label: \"Savings\", value: formatMoney(model.savingsTotal) },\n            { label: \"Savings rate\", value: `${Math.round(savingsRate)}%` },\n          ],\n        }}\n      />\n      <main className=\"mx-auto w-[95vw] max-w-none space-y-6 px-4 py-6 md:px-8\">\n",
+        "label": "financial flow nav and boot publisher"
+      }
+    ],
+    "loop_work/app/income/page.tsx": [
+      {
+        "old": "import { Nav } from \"@/components/Nav\";\n",
+        "new": "import { Nav } from \"@/components/Nav\";\nimport { FinancialFlowWorkspaceNav } from \"@/components/financial-flow/FinancialFlowWorkspaceNav\";\n",
+        "label": "income flow nav import"
+      },
+      {
+        "old": "    <>\n      <Nav />\n      {canonicalEntries.length +\n",
+        "new": "    <>\n      <Nav />\n      <FinancialFlowWorkspaceNav section=\"income\" />\n      {canonicalEntries.length +\n",
+        "label": "income flow nav"
+      }
+    ],
+    "loop_work/app/spending/page.tsx": [
+      {
+        "old": "import { Nav } from \"@/components/Nav\";\n",
+        "new": "import { Nav } from \"@/components/Nav\";\nimport { FinancialFlowWorkspaceNav } from \"@/components/financial-flow/FinancialFlowWorkspaceNav\";\nimport { RouteBootSnapshotPublisher } from \"@/components/performance/RouteBootSnapshotPublisher\";\n",
+        "label": "spending shared imports"
+      },
+      {
+        "old": "    <>\n      <Nav />\n      <main className=\"mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8\">\n",
+        "new": "    <>\n      <Nav />\n      <FinancialFlowWorkspaceNav section=\"spending\" month={resolvedSearchParams.month} />\n      <RouteBootSnapshotPublisher\n        routeKey=\"spending\"\n        payload={{\n          version: 1,\n          eyebrow: \"Financial Flow \u00b7 Spending\",\n          title: \"Your spending workspace\",\n          headline: `${(plannedItems ?? []).length} planned item${(plannedItems ?? []).length === 1 ? \"\" : \"s\"}`,\n          description: \"Bills, logged spending and category context are refreshing from the latest household data.\",\n          tone: \"orange\",\n          metrics: [\n            { label: \"Logged entries\", value: String((entries ?? []).length) },\n            { label: \"Categories\", value: String((categories ?? []).length) },\n            { label: \"Child costs\", value: String((childCosts ?? []).length) },\n            { label: \"New suggestions\", value: String((regularCandidates ?? []).length) },\n          ],\n        }}\n      />\n      <main className=\"mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8\">\n",
+        "label": "spending nav and boot publisher"
+      }
+    ],
+    "loop_work/app/accounts/page.tsx": [
+      {
+        "old": "import { Nav } from \"@/components/Nav\";\n",
+        "new": "import { Nav } from \"@/components/Nav\";\nimport { FinancialFlowWorkspaceNav } from \"@/components/financial-flow/FinancialFlowWorkspaceNav\";\nimport { RouteBootSnapshotPublisher } from \"@/components/performance/RouteBootSnapshotPublisher\";\n",
+        "label": "accounts shared imports"
+      },
+      {
+        "old": "      href={`/accounts?tab=${tab}`}\n      className={`rounded-full px-4 py-2 text-sm font-black transition ${activeTab === tab ? \"bg-slate-950 text-white shadow-sm\" : \"bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50\"}`}\n",
+        "new": "      href={`/accounts?tab=${tab}`}\n      className={`shrink-0 snap-start rounded-full px-4 py-2 text-sm font-black transition ${activeTab === tab ? \"bg-slate-950 text-white shadow-sm\" : \"bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50\"}`}\n",
+        "label": "accounts tab non stacking"
+      },
+      {
+        "old": "    <>\n      <Nav />\n      <main className=\"mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8\">\n",
+        "new": "    <>\n      <Nav />\n      <FinancialFlowWorkspaceNav section=\"savings\" />\n      <RouteBootSnapshotPublisher\n        routeKey=\"accounts\"\n        payload={{\n          version: 1,\n          eyebrow: \"Financial Flow \u00b7 Savings\",\n          title: \"Savings, pots and cash optimisation\",\n          headline: formatMoney(totalSavings),\n          description: \"Your latest savings position is visible while balances, rates and goals refresh.\",\n          tone: \"green\",\n          metrics: [\n            { label: \"Monthly top-up\", value: formatMoney(monthlyTopUps) },\n            { label: \"Savings health\", value: `${intelligence.score}/100` },\n            { label: \"12m projection\", value: formatMoney(twelveMonthSavings) },\n            { label: \"Tracked accounts\", value: String(accountRows.length) },\n          ],\n        }}\n      />\n      <main className=\"mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8\">\n",
+        "label": "accounts nav and boot publisher"
+      },
+      {
+        "old": "        <nav className=\"sticky top-3 z-20 flex flex-wrap gap-2 rounded-[2rem] border border-white/70 bg-white/80 p-3 shadow-sm backdrop-blur-xl\">\n",
+        "new": "        <nav aria-label=\"Savings workspace sections\" className=\"sticky top-3 z-20 -mx-1 flex snap-x snap-mandatory flex-nowrap gap-2 overflow-x-auto rounded-[1.35rem] border border-white/70 bg-white/90 p-3 shadow-sm backdrop-blur-xl [overscroll-behavior-x:contain] [scrollbar-width:thin]\">\n",
+        "label": "accounts internal tab rail"
+      }
+    ],
+    "loop_work/domains/health/lifestyle/LifestylePage.tsx": [
+      {
+        "old": "import { LifestyleClient } from \"@/components/lifestyle/LifestyleClient\";\n",
+        "new": "import { LifestyleClient } from \"@/components/lifestyle/LifestyleClient\";\nimport { RouteBootSnapshotPublisher } from \"@/components/performance/RouteBootSnapshotPublisher\";\n",
+        "label": "lifestyle publisher import"
+      },
+      {
+        "old": "    <>\n      <Nav />\n      {((billsResult.data ?? []).length + (mealsResult.data ?? []).length + (foodLogsResult.data ?? []).length) === 0 ? (\n",
+        "new": "    <>\n      <Nav />\n      <RouteBootSnapshotPublisher\n        routeKey=\"lifestyle\"\n        payload={{\n          version: 1,\n          eyebrow: \"Lifestyle\",\n          title: \"Your household lifestyle view\",\n          headline: `${(billsResult.data ?? []).length} tracked bill${(billsResult.data ?? []).length === 1 ? \"\" : \"s\"}`,\n          description: \"Bills, food and household lifestyle context are refreshing now.\",\n          tone: \"blue\",\n          metrics: [\n            {\n              label: \"Monthly bills\",\n              value: new Intl.NumberFormat(\"en-GB\", { style: \"currency\", currency: \"GBP\", maximumFractionDigits: 0 }).format(\n                (billsResult.data ?? []).reduce((sum, bill) => sum + Number(bill.monthly_cost || 0), 0),\n              ),\n            },\n            { label: \"Meals\", value: String((mealsResult.data ?? []).length) },\n            { label: \"31d food logs\", value: String((foodLogsResult.data ?? []).length) },\n            { label: \"People\", value: String((peopleResult.data ?? []).length) },\n          ],\n        }}\n      />\n      {((billsResult.data ?? []).length + (mealsResult.data ?? []).length + (foodLogsResult.data ?? []).length) === 0 ? (\n",
+        "label": "lifestyle boot publisher"
+      }
+    ],
+    "loop_work/components/briefing/BriefingStory.tsx": [
+      {
+        "label": "briefing story publisher import",
+        "old": "import { EvidenceBeat } from \"./EvidenceBeat\";\n",
+        "new": "import { EvidenceBeat } from \"./EvidenceBeat\";\nimport { RouteBootSnapshotPublisher } from \"@/components/performance/RouteBootSnapshotPublisher\";\n"
+      },
+      {
+        "label": "briefing story boot publisher",
+        "old": "  return (\n    <div className=\"space-y-6\">\n      <StoryBeat open={isOpen(0)}>\n",
+        "new": "  return (\n    <div className=\"space-y-6\">\n      <RouteBootSnapshotPublisher\n        routeKey=\"briefing\"\n        payload={{\n          version: 1,\n          eyebrow: \"Your LOOP\",\n          title: `Welcome back, ${briefing.firstName}`,\n          headline: new Intl.NumberFormat(\"en-GB\", {\n            style: \"currency\",\n            currency: \"GBP\",\n            maximumFractionDigits: 0,\n          }).format(briefing.currentNetWorth),\n          description: \"Your last complete briefing is ready while LOOP checks what changed.\",\n          tone: \"violet\",\n          metrics: [\n            {\n              label: \"Assets\",\n              value: new Intl.NumberFormat(\"en-GB\", {\n                style: \"currency\",\n                currency: \"GBP\",\n                maximumFractionDigits: 0,\n              }).format(briefing.assets),\n            },\n            {\n              label: \"Liabilities\",\n              value: new Intl.NumberFormat(\"en-GB\", {\n                style: \"currency\",\n                currency: \"GBP\",\n                maximumFractionDigits: 0,\n              }).format(briefing.liabilities),\n            },\n            {\n              label: \"Available\",\n              value: new Intl.NumberFormat(\"en-GB\", {\n                style: \"currency\",\n                currency: \"GBP\",\n                maximumFractionDigits: 0,\n              }).format(briefing.flow.unassigned),\n            },\n            {\n              label: \"Savings\",\n              value: new Intl.NumberFormat(\"en-GB\", {\n                style: \"currency\",\n                currency: \"GBP\",\n                maximumFractionDigits: 0,\n              }).format(briefing.savings.balance),\n            },\n          ],\n        }}\n      />\n      <StoryBeat open={isOpen(0)}>\n"
+      }
+    ]
+  }
+}

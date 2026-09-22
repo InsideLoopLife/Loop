@@ -1,0 +1,26 @@
+{
+  "patches": [
+    {
+      "path": "loop_work/domains/wealth/financial-flow/FinancialFlowPage.tsx",
+      "ops": [
+        {
+          "kind": "segment",
+          "start": "        {activeTab === \"flow\" ? <section className=\"relative overflow-hidden rounded-[2.5rem]",
+          "end": "        )}\n\n        {!hasFlowData",
+          "new": "        <section className=\"flex flex-wrap items-end justify-between gap-4 rounded-[1.25rem] border border-slate-200 bg-white px-5 py-4 shadow-sm\">\n          <div>\n            <p className=\"text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700\">Financial Flow</p>\n            <h1 className=\"mt-1 text-2xl font-black tracking-tight text-slate-950\">\n              {monthLabel(month.key)} {activeTab === \"flow\" ? \"overview\" : activeTab === \"savings\" ? \"savings & pots\" : activeTab}\n            </h1>\n            <p className=\"mt-1 max-w-2xl text-sm font-semibold text-slate-500\">\n              {activeTab === \"flow\"\n                ? \"Your month at a glance. Open a section only when you need to change the underlying lines.\"\n                : \"The left workspace rail is your primary navigation; this area stays focused on the selected section.\"}\n            </p>\n          </div>\n          <MonthControls activeTab={activeTab} month={month.key} scopeIds={scopeIds} />\n        </section>\n\n        {!hasFlowData",
+          "label": "single calm Financial Flow page header"
+        }
+      ]
+    },
+    {
+      "path": "loop_work/components/financial-flow/FinancialFlowHouseShell.tsx",
+      "ops": [
+        {
+          "kind": "insert_before",
+          "needle": "        @media (prefers-reduced-motion: reduce) {",
+          "text": "\n        /* V4.5 \u2014 one primary navigation system.\n           The fixed House-style workspace rail is authoritative on desktop.\n           Any older primary Financial Flow switcher is suppressed; detail\n           navigation inside Accounts/Pots remains untouched. */\n        .loop-financial-house-shell main nav[aria-label=\"Financial Flow sections\"] {\n          display: none !important;\n        }\n\n        @media (max-width: 1179px) {\n          .loop-financial-workspace-nav {\n            position: sticky;\n            top: 0.4rem;\n            z-index: 38;\n            margin-top: 0.5rem;\n          }\n\n          .loop-flow-nav-card {\n            padding: 0.45rem;\n            border-radius: 1rem;\n          }\n\n          .loop-flow-nav-heading {\n            display: none !important;\n          }\n\n          .loop-flow-nav-card nav {\n            display: flex;\n            gap: 0.25rem;\n            overflow-x: auto;\n            scroll-snap-type: x mandatory;\n            scrollbar-width: none;\n          }\n\n          .loop-flow-nav-card nav::-webkit-scrollbar {\n            display: none;\n          }\n\n          .loop-flow-nav-card nav a {\n            min-width: max-content;\n            flex: 0 0 auto;\n            scroll-snap-align: start;\n            padding: 0.55rem 0.7rem;\n          }\n\n          .loop-flow-nav-card nav a small {\n            display: none;\n          }\n\n          .loop-flow-nav-card nav a strong {\n            font-size: 0.75rem;\n          }\n\n          .loop-flow-nav-actions {\n            margin-top: 0.35rem;\n            padding-top: 0.35rem;\n          }\n        }\n\n        @media (min-width: 1180px) {\n          /* Content title starts where House content starts; the rail already\n             communicates the selected section, so no second tab treatment. */\n          .loop-financial-house-shell main > section:first-child {\n            margin-top: 0 !important;\n          }\n        }\n\n"
+        }
+      ]
+    }
+  ]
+}
