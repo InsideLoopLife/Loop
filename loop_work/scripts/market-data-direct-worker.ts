@@ -56,6 +56,10 @@ const DEFAULT_PRICE_INTERVAL_MINUTES = 1;
 // run every minute; provider holdings/cash are reconciled every 30 minutes.
 const DEFAULT_SNAPTRADE_INTERVAL_MINUTES = 30;
 const DEFAULT_MAINTENANCE_INTERVAL_MINUTES = 1440;
+// v29.05: when a cycle has nothing to price (every market shut, funds
+// already priced today) the next few minutes won't either. Back off instead
+// of re-reading holdings every minute overnight and at weekends.
+const DEFAULT_IDLE_BACKOFF_MINUTES = 5;
 
 type WorkerState = {
   pricesRunning: boolean;
@@ -107,6 +111,12 @@ const snapTradeRealtimeOnly = asBool(
   process.env.MARKET_DATA_WORKER_SNAPTRADE_REALTIME_ONLY || process.env.SNAPTRADE_POSITION_WORKER_REALTIME_ONLY,
   false,
 );
+const idleBackoffMinutes = asPositiveInt(
+  process.env.MARKET_DATA_WORKER_IDLE_BACKOFF_MINUTES,
+  DEFAULT_IDLE_BACKOFF_MINUTES,
+  1,
+  60,
+);
 const runOnStart = asBool(process.env.MARKET_DATA_WORKER_RUN_ON_START, true);
 const priceForce = asBool(
   process.env.MARKET_DATA_WORKER_FORCE_PRICE || process.env.INVESTMENT_PRICE_WORKER_FORCE,
@@ -157,14 +167,15 @@ function requiredEnvReport() {
   };
 }
 
-async function runPrices(reason = "schedule") {
+// Returns true when the cycle had real work, false when it was idle.
+async function runPrices(reason = "schedule"): Promise<boolean> {
   if (!pricesEnabled) {
     console.log(`[market-data-direct-worker] prices disabled; reason=${reason}`);
-    return;
+    return false;
   }
   if (state.pricesRunning) {
     console.log(`[market-data-direct-worker] prices skipped; previous run still active reason=${reason}`);
-    return;
+    return true;
   }
   state.pricesRunning = true;
   const startedAt = new Date().toISOString();
@@ -177,8 +188,10 @@ async function runPrices(reason = "schedule") {
     });
     state.lastPriceRunAt = new Date().toISOString();
     console.log(`[market-data-direct-worker] success investment prices`, result);
+    return Number(result.checked || 0) > 0 || Number(result.failed || 0) > 0;
   } catch (error) {
     console.error(`[market-data-direct-worker] investment prices failed`, error);
+    return true;
   } finally {
     state.pricesRunning = false;
   }
@@ -249,21 +262,29 @@ async function runMaintenance(reason = "schedule") {
   }
 }
 
-async function scheduleContinuous(name: string, intervalMinutes: number, fn: (reason: string) => Promise<void>) {
+async function scheduleContinuous(name: string, intervalMinutes: number, fn: (reason: string) => Promise<boolean>) {
   const ms = intervalMinutes * 60 * 1000;
   if (state.priceLoopRunning) return;
   state.priceLoopRunning = true;
   console.log(`[market-data-direct-worker] scheduling ${name} as continuous loop targeting every ${intervalMinutes} minute(s)`);
   while (!state.shuttingDown) {
     const started = Date.now();
-    await fn("continuous-loop");
+    const hadWork = await fn("continuous-loop");
     const elapsed = Date.now() - started;
-    const wait = Math.max(250, ms - elapsed);
+    const targetMs = hadWork ? ms : Math.max(ms, idleBackoffMinutes * 60 * 1000);
+    const wait = Math.max(250, targetMs - elapsed);
+    if (!hadWork && targetMs > ms) {
+      console.log(`[market-data-direct-worker] ${name} idle (nothing due); next check in ${Math.round(targetMs / 60000)} minute(s).`);
+    }
     if (elapsed > ms) {
       console.warn(`[market-data-direct-worker] ${name} cycle took ${Math.round(elapsed / 1000)}s, longer than target ${Math.round(ms / 1000)}s; restarting immediately after a short breather.`);
     }
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, wait);
+      const timer = setTimeout(() => {
+        // Drop the finished timer so the list doesn't grow every cycle.
+        state.timers = state.timers.filter((t) => t !== timer);
+        resolve();
+      }, wait);
       state.timers.push(timer);
     });
   }
@@ -291,6 +312,7 @@ function start() {
   console.log("[market-data-direct-worker] boot", {
     mode: "direct-supabase",
     priceIntervalMinutes,
+    idleBackoffMinutes,
     snapTradeIntervalMinutes,
     maintenanceIntervalMinutes,
     snapTradeMaxUsers,

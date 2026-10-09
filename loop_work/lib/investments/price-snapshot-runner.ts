@@ -318,6 +318,75 @@ function pointAt(point: GlobalPoint | null | undefined) {
   );
 }
 
+// v29.05: settings and tier profiles change rarely (an admin toggle or a
+// plan change) but were re-read every minute, day and night. Cache them in
+// the long-lived worker process; a change takes effect within the TTL.
+const WORKER_CONFIG_CACHE_MS =
+  workerPositiveInt(process.env.MARKET_DATA_WORKER_CONFIG_CACHE_MINUTES, 5, 1, 60) * 60 * 1000;
+
+let settingsCache: {
+  value: Awaited<ReturnType<typeof loadInvestmentSnapshotSettings>>;
+  at: number;
+} | null = null;
+
+async function cachedSnapshotSettings(supabase: SupabaseAdmin, force?: boolean) {
+  if (!force && settingsCache && Date.now() - settingsCache.at < WORKER_CONFIG_CACHE_MS) {
+    return settingsCache.value;
+  }
+  const value = await loadInvestmentSnapshotSettings(supabase);
+  settingsCache = { value, at: Date.now() };
+  return value;
+}
+
+let profilesCache: { key: string; rows: UserProfileRow[]; at: number } | null = null;
+
+async function cachedUserProfiles(
+  supabase: SupabaseAdmin,
+  userIds: string[],
+  force?: boolean,
+): Promise<UserProfileRow[]> {
+  if (!userIds.length) return [];
+  const key = [...userIds].sort().join(",");
+  if (
+    !force &&
+    profilesCache &&
+    profilesCache.key === key &&
+    Date.now() - profilesCache.at < WORKER_CONFIG_CACHE_MS
+  ) {
+    return profilesCache.rows;
+  }
+  const { data, error } = await supabase
+    .from("app_user_profiles")
+    .select(
+      "user_id, payment_tier, payment_tier_status, payment_tier_override, market_data_tier, market_data_tier_override, market_data_provider_status, market_data_realtime_enabled",
+    )
+    .in("user_id", userIds);
+  const rows = (data || []) as UserProfileRow[];
+  // Never cache a failed read — fall back to the last good copy if we have one.
+  if (error) return profilesCache?.key === key ? profilesCache.rows : rows;
+  profilesCache = { key, rows, at: Date.now() };
+  return rows;
+}
+
+// Per-process cache of listings already confirmed to match the symbol being
+// priced. The worker is long-lived, so this turns a database read per
+// instrument per minute into one read per instrument per deploy. A remap
+// changes the holding's listing_id, which misses this cache naturally.
+const verifiedListingSymbols = new Map<string, string>();
+
+async function findInstrumentIdByIsin(
+  supabase: SupabaseAdmin,
+  isin: string | null,
+): Promise<string | null> {
+  if (!isin) return null;
+  const { data } = await supabase
+    .from("investment_instruments")
+    .select("id")
+    .eq("isin", isin)
+    .maybeSingle();
+  return (data as any)?.id || null;
+}
+
 async function ensureCatalogueForGroup(
   supabase: SupabaseAdmin,
   args: {
@@ -344,19 +413,49 @@ async function ensureCatalogueForGroup(
   // about to price. This is especially important when a reviewed fund mapping
   // supersedes a bad provider symbol: retaining the stale listing would write
   // the new NAV under the old instrument.
-  if (instrumentId && listingId) {
-    const existing = await supabase
-      .from("investment_instrument_listings")
-      .select("symbol,data_provider_symbol")
-      .eq("id", listingId)
-      .maybeSingle();
-    const existingSymbol = normaliseSnapshotTicker(
-      existing.data?.data_provider_symbol || existing.data?.symbol,
-    );
-    if (existing.error) {
-      return { instrumentId, listingId, ticker, exchange, venueCode };
+  //
+  // v29.05: listings are checked once per worker process (cached below)
+  // rather than re-read every minute, and a holding with a listing but no
+  // instrument id is repaired instead of being rebuilt from scratch on every
+  // run (that rebuild loop hit the ISIN unique index and 409'd forever).
+  if (listingId) {
+    const cachedSymbol = verifiedListingSymbols.get(listingId);
+    let existingSymbol = cachedSymbol ?? null;
+    let existingInstrumentId: string | null = null;
+    if (cachedSymbol === undefined || !instrumentId) {
+      const existing = await supabase
+        .from("investment_instrument_listings")
+        .select("symbol,data_provider_symbol,instrument_id")
+        .eq("id", listingId)
+        .maybeSingle();
+      if (existing.error) {
+        return { instrumentId, listingId, ticker, exchange, venueCode };
+      }
+      existingSymbol = existing.data
+        ? normaliseSnapshotTicker(existing.data.data_provider_symbol || existing.data.symbol)
+        : null;
+      existingInstrumentId = (existing.data as any)?.instrument_id || null;
     }
-    if (existing.data && existingSymbol === ticker) {
+    if (existingSymbol && existingSymbol === ticker) {
+      verifiedListingSymbols.set(listingId, existingSymbol);
+      if (!instrumentId) {
+        instrumentId =
+          existingInstrumentId ||
+          (await findInstrumentIdByIsin(supabase, isin));
+        if (instrumentId) {
+          await supabase
+            .from("investment_holdings")
+            .update({ instrument_id: instrumentId, updated_at: args.nowIso } as any)
+            .eq("id", args.sample.id);
+          if (!existingInstrumentId) {
+            await supabase
+              .from("investment_instrument_listings")
+              .update({ instrument_id: instrumentId } as any)
+              .eq("id", listingId)
+              .is("instrument_id", null);
+          }
+        }
+      }
       if (verifiedIdentity && args.sample.isin !== verifiedIdentity.isin) {
         await supabase
           .from("investment_holdings")
@@ -365,8 +464,16 @@ async function ensureCatalogueForGroup(
       }
       return { instrumentId, listingId, ticker, exchange, venueCode };
     }
+    verifiedListingSymbols.delete(listingId);
     instrumentId = null;
     listingId = null;
+  }
+
+  if (!instrumentId) {
+    // An instrument may already exist for this ISIN under a different
+    // ticker (e.g. Moneybox's own code). The ISIN index is unique, so an
+    // upsert keyed on ticker would 409 — reuse the existing row instead.
+    instrumentId = await findInstrumentIdByIsin(supabase, isin);
   }
 
   if (!instrumentId) {
@@ -851,7 +958,7 @@ export async function runInvestmentPriceSnapshotJob(
   const startedAt = now.toISOString();
   const snapshotBatchId = randomUUID();
   const pointMinute = floorMinuteIso(now);
-  const settings = await loadInvestmentSnapshotSettings(supabase);
+  const settings = await cachedSnapshotSettings(supabase, options.force);
   const snapshotDate = now.toISOString().slice(0, 10);
 
   const result: RunnerResult = {
@@ -909,14 +1016,7 @@ export async function runInvestmentPriceSnapshotJob(
     const userIds = Array.from(
       new Set(activeHoldings.map((holding) => holding.user_id).filter(Boolean)),
     );
-    const { data: profiles } = userIds.length
-      ? await supabase
-          .from("app_user_profiles")
-          .select(
-            "user_id, payment_tier, payment_tier_status, payment_tier_override, market_data_tier, market_data_tier_override, market_data_provider_status, market_data_realtime_enabled",
-          )
-          .in("user_id", userIds)
-      : { data: [] as UserProfileRow[] };
+    const profiles = await cachedUserProfiles(supabase, userIds, options.force);
     const profileByUser = new Map<string, UserProfileRow>(
       (profiles || []).map((profile: any) => [
         profile.user_id,
