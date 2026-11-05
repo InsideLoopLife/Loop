@@ -15,24 +15,38 @@ function runKey(date = new Date()) {
   return `savings-rate-watch:${date.toISOString().slice(0, 10)}`;
 }
 
+// The rates project was copied over without some unique constraints, so a
+// plain upsert(onConflict) fails with "no unique or exclusion constraint
+// matching the ON CONFLICT specification". Look the row up first and then
+// update or insert, which works with or without the constraint in place.
+async function upsertByKeys(client: any, table: string, row: Record<string, any>, keys: string[], select?: string) {
+  let lookup = client.from(table).select("id");
+  for (const key of keys) {
+    lookup = row[key] === null || row[key] === undefined ? lookup.is(key, null) : lookup.eq(key, row[key]);
+  }
+  const { data: existing, error: lookupError } = await lookup.limit(1).maybeSingle();
+  if (lookupError) return { data: null, error: lookupError };
+
+  const query = existing
+    ? client.from(table).update(row).eq("id", existing.id)
+    : client.from(table).insert(row);
+  return select ? query.select(select).single() : query;
+}
+
 export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, options: SavingsWatchOptions = {}) {
   const settings = await loadWealthWatchSettings(supabase);
   const key = options.runKey || runKey();
   const limit = Math.max(1, Math.min(Number(options.limit || 500), 1000));
   const now = new Date().toISOString();
 
-  const { data: run, error: runError } = await ratesSupabase
-    .from("savings_rate_watch_runs")
-    .upsert({
-      run_key: key,
-      run_kind: options.runKind || "daily_8am",
-      status: "started",
-      started_at: now,
-      payload: { limit, triggeredBy: options.triggeredBy || null, settings },
-      error: null,
-    }, { onConflict: "run_key" })
-    .select("id")
-    .single();
+  const { data: run, error: runError } = await upsertByKeys(ratesSupabase, "savings_rate_watch_runs", {
+    run_key: key,
+    run_kind: options.runKind || "daily_8am",
+    status: "started",
+    started_at: now,
+    payload: { limit, triggeredBy: options.triggeredBy || null, settings },
+    error: null,
+  }, ["run_key"], "id");
 
   if (runError) throw new Error(runError.message);
 
@@ -124,7 +138,7 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
           shadowedDealIds.add(String(deal.id));
         }
 
-        const { error } = await ratesSupabase.from("savings_rate_recommendations").upsert({
+        const { error } = await upsertByKeys(ratesSupabase, "savings_rate_recommendations", {
           user_id: account.user_id,
           financial_account_id: account.id,
           savings_rate_deal_id: deal.id,
@@ -161,7 +175,7 @@ export async function runSavingsRateWatch(supabase: any, ratesSupabase: any, opt
             monthlyMinDeposit: deal.monthly_min_deposit,
             monthlyMaxDeposit: deal.monthly_max_deposit,
           },
-        }, { onConflict: "user_id,financial_account_id,savings_rate_deal_id" });
+        }, ["user_id", "financial_account_id", "savings_rate_deal_id"]);
 
         if (!error) {
           recommendations += 1;

@@ -90,11 +90,21 @@ export function extractPriceAndFeeFromText(html: string, exactFundName?: string,
   const priceBlockRegex = /Price\s*([0-9,]+(?:\.[0-9]+)?)\s*p[\s\S]{0,120}?As at\s*([0-9]{1,2}\s+\w+\s+[0-9]{4})/i;
   const PROXIMITY_WINDOW = 50000;
 
+  // The price block only reads as "Price 1234p ... As at DATE" once tags are
+  // removed — in raw HTML there are <span>/<div> tags between "Price" and the
+  // number, so matching decodedHtml directly never found anything and every
+  // ISIN match silently fell through to name matching (which then failed).
+  const toText = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
   function tryAnchor(pos: number): { price: string; asOf: string } | null {
-    const forwardText = decodedHtml.slice(pos, pos + PROXIMITY_WINDOW);
-    const backwardText = decodedHtml.slice(Math.max(0, pos - PROXIMITY_WINDOW), pos);
-    const nearbyPriceMatch = forwardText.match(priceBlockRegex) || backwardText.match(priceBlockRegex);
-    return nearbyPriceMatch ? { price: nearbyPriceMatch[1], asOf: nearbyPriceMatch[2] } : null;
+    const forwardText = toText(decodedHtml.slice(pos, pos + PROXIMITY_WINDOW));
+    const forward = forwardText.match(priceBlockRegex);
+    if (forward) return { price: forward[1], asOf: forward[2] };
+
+    // Nothing after the anchor: take the closest price block before it.
+    const backwardText = toText(decodedHtml.slice(Math.max(0, pos - PROXIMITY_WINDOW), pos));
+    const backward = [...backwardText.matchAll(new RegExp(priceBlockRegex.source, "gi"))].pop();
+    return backward ? { price: backward[1], asOf: backward[2] } : null;
   }
 
   // STRATEGY 1 (most reliable, tried first): match on the exact ISIN inside
