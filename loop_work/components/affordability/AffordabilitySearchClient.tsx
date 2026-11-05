@@ -234,7 +234,7 @@ export function AffordabilitySearchClient({ context, scenarios }: { context: Con
             <div className="grid gap-4 md:grid-cols-3">
               <div className="rounded-3xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-500">Target</p><p className="mt-1 text-2xl font-black text-slate-950">{formatMoney(result.draftScenario.purchase_price)}</p></div>
               <div className="rounded-3xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-500">Score</p><p className="mt-1 text-2xl font-black text-slate-950">{result.score}/100</p></div>
-              <div className="rounded-3xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-500">Data used</p><p className="mt-1 text-sm font-black text-slate-950">Income, Financial Flow, childcare, dependants and mortgage data</p></div>
+              <div className="rounded-3xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-500">Data used</p><p className="mt-1 text-sm font-black text-slate-950">Income, Money in & out, childcare, dependants and mortgage data</p></div>
             </div>
 
             {breakdown ? (

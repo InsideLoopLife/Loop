@@ -77,7 +77,7 @@ export function FinancialFlowRetainedLoading({
         <FinancialFlowWorkspaceNav section={section} month={summary.month} />
         <main className="mx-auto w-[95vw] max-w-[2000px] space-y-4 px-4 py-5">
           <section className="rounded-[1.35rem] border border-slate-200 bg-white p-5 shadow-sm" aria-busy="true">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Financial Flow · {label}</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Money in & out · {label}</p>
             <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h1 className="text-2xl font-black text-slate-950">Your retained {summary.month} picture</h1>

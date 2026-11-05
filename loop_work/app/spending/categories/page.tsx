@@ -66,7 +66,7 @@ export default async function ManageCategoriesPage() {
       <Nav />
       <main className="mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-2">
-          <p className="text-xs font-black uppercase tracking-[0.22em] text-orange-600">Financial Flow · Spending</p>
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-orange-600">Money in & out · Spending</p>
           <h1 className="text-3xl font-bold tracking-tight text-slate-950">Manage categories and groups</h1>
           <p className="max-w-3xl text-slate-600">
             Drag any bill onto a category to file it there. Drag a category onto a group to bundle it — a group like

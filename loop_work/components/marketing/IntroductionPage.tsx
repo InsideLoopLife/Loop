@@ -72,7 +72,7 @@ export function IntroductionPage() {
       <section className="bg-[#f4f7fb] text-slate-950">
         <div className="mx-auto grid w-[min(1180px,calc(100%-28px))] grid-cols-2 border-y border-slate-200/80 py-5 lg:grid-cols-4">
           {[
-            ["01", "Financial Flow", "Income, bills, spending & childcare"],
+            ["01", "Money in & out", "Income, bills, spending & childcare"],
             ["02", "Save & Build", "Savings, goals & allowances"],
             ["03", "Future Wealth", "Pensions & investments"],
             ["04", "Home", "Property & mortgage"],
@@ -217,7 +217,7 @@ export function IntroductionPage() {
 
       <footer className="mx-auto flex w-[min(1180px,calc(100%-28px))] flex-col items-center justify-between gap-4 border-t border-white/10 py-8 text-[10px] text-slate-500 sm:flex-row">
         <LoopWordmark />
-        <p>Financial Flow · Savings · Pensions · Investments · Home · Household</p>
+        <p>Money in & out · Savings · Pensions · Investments · Home · Household</p>
         <span>Private beta</span>
       </footer>
     </main>

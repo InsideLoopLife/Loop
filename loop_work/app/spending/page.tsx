@@ -121,7 +121,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
         routeKey="spending"
         payload={{
           version: 1,
-          eyebrow: "Financial Flow · Spending",
+          eyebrow: "Money in & out · Spending",
           title: "Your spending workspace",
           headline: `${(plannedItems ?? []).length} planned item${(plannedItems ?? []).length === 1 ? "" : "s"}`,
           description: "Bills, logged spending and category context are refreshing from the latest household data.",

@@ -23,7 +23,7 @@ export async function GET() {
 
   const profilePromise = supabase
     .from("app_user_profiles")
-    .select("ui_navigation_layout, ui_navigation_layout_chosen_at, ui_mobile_navigation_layout, ui_mobile_navigation_layout_chosen_at, avatar_url")
+    .select("ui_navigation_layout, ui_navigation_layout_chosen_at, ui_mobile_navigation_layout, ui_mobile_navigation_layout_chosen_at, avatar_url, onboarding_completed_at")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -75,6 +75,8 @@ export async function GET() {
       mobileNavigationLayout: profileResult.data?.ui_mobile_navigation_layout === "cards" ? "cards" : "bar",
       hasChosenMobileNavigationLayout: Boolean(profileResult.data?.ui_mobile_navigation_layout_chosen_at),
       unreadCount: unreadResult.count ?? 0,
+      // Shows a "Finish setup" link for anyone who skipped the guided setup.
+      setupIncomplete: Boolean(profileResult.data) && !profileResult.data?.onboarding_completed_at,
       features,
       isAdmin,
       aiUsage,

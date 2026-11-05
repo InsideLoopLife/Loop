@@ -130,7 +130,7 @@ export function SavingsPotJourney({
               <div className="rounded-3xl border border-rose-100 bg-white p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-wide text-rose-600">Calculated from Financial Flow</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-rose-600">Calculated from Money in &amp; out</p>
                     <p className="mt-1 text-2xl font-black text-slate-950">{formatMoney(target)}</p>
                     <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">{formatMoney(essentialMonthlyOutgoings)} of essential monthly costs × {emergencyMonths} months{essentialItemCount > 0 ? ` · ${essentialItemCount} selected cost${essentialItemCount === 1 ? "" : "s"}` : ""}.</p>
                   </div>

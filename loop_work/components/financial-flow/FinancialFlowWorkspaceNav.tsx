@@ -95,7 +95,7 @@ export function FinancialFlowWorkspaceNav({
       <aside className="loop-financial-workspace-nav" aria-label="Financial Flow workspace">
         <div className="loop-flow-nav-card">
           <div className="loop-flow-nav-heading">
-            <p>Financial Flow</p>
+            <p>Money in & out</p>
             <span>One money workspace</span>
           </div>
 

@@ -50,24 +50,25 @@ type NavLink = {
   anyFeature?: Array<keyof UserFeatureAccess>;
 };
 
+// Plain-English names. The routes are unchanged — only what people read.
 const wealthLinks: NavLink[] = [
-  {
-    href: "/briefing",
-    label: "Your LOOP",
-    icon: Sparkles,
-    feature: "aiFinancialBriefing",
-  },
-  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-  // Income, spending, accounts, savings and pots now live behind one Financial Flow entry.
-  // Their existing routes remain available from the Financial Flow tabs and account context links.
-  { href: "/financial-flow", label: "Financial Flow", icon: WalletCards },
+  { href: "/dashboard", label: "Summary", icon: LayoutDashboard },
+  // Income, spending, accounts, savings and pots live behind this one entry.
+  // Their existing routes remain available from its tabs and account context links.
+  { href: "/financial-flow", label: "Money in & out", icon: WalletCards },
   {
     href: "/investments",
-    label: "Pensions & Investments",
+    label: "Pensions & investments",
     icon: LineChart,
     anyFeature: ["investments", "pensions"],
   },
-  { href: "/mortgage", label: "House", icon: House, feature: "mortgage" },
+  { href: "/mortgage", label: "Home & mortgage", icon: House, feature: "mortgage" },
+  {
+    href: "/briefing",
+    label: "Ask LOOP",
+    icon: Sparkles,
+    feature: "aiFinancialBriefing",
+  },
 ];
 
 const healthLinks: NavLink[] = [
@@ -87,6 +88,7 @@ type NavigationBootstrap = {
   mobileNavigationLayout?: MobileNavigationLayout;
   hasChosenMobileNavigationLayout?: boolean;
   unreadCount?: number;
+  setupIncomplete?: boolean;
   isAdmin?: boolean;
   features?: Partial<UserFeatureAccess>;
   aiUsage?: NavAiUsage | null;
@@ -579,6 +581,7 @@ function NavInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [setupIncomplete, setSetupIncomplete] = useState(false);
   const [aiUsage, setAiUsage] = useState<NavAiUsage | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -671,6 +674,7 @@ function NavInner() {
         const localConfirmed = window.localStorage.getItem("loop:navigation-layout-confirmed-v28_84") === "true";
         setHasChosenLayout(Boolean(payload.hasChosenNavigationLayout) || localConfirmed);
         setUnreadCount(Number(payload.unreadCount || 0));
+        setSetupIncomplete(Boolean(payload.setupIncomplete));
         setAiUsage(payload.aiUsage ?? null);
         setAvatarUrl(payload.avatarUrl ?? null);
         setShowAdmin(Boolean(payload.isAdmin));
@@ -798,6 +802,14 @@ function NavInner() {
 
   const overlays = (
     <>
+      {setupIncomplete && !pathname.startsWith("/onboarding") ? (
+        <Link
+          href="/onboarding?again=1"
+          className="fixed bottom-24 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2.5 text-sm font-black text-white shadow-lg shadow-emerald-600/30 hover:bg-emerald-700 md:bottom-6 md:right-6"
+        >
+          <Sparkles className="h-4 w-4" /> Finish setting up
+        </Link>
+      ) : null}
       {preferenceLoaded && !hasChosenLayout && !isMobileViewport ? (
         <NavigationChoiceDialog
           layout={layout}

@@ -1282,7 +1282,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
         routeKey="financial-flow"
         payload={{
           version: 1,
-          eyebrow: "Financial Flow",
+          eyebrow: "Money in & out",
           title: `${monthLabel(month.key)} household flow`,
           headline: formatMoney(model.leftoverCash),
           description: "Available after tracked spending and savings. Fresh month detail is loading now.",
@@ -1298,7 +1298,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
       <main className="mx-auto w-[95vw] max-w-none space-y-6 px-4 py-6 md:px-8">
         <section className="flex flex-wrap items-end justify-between gap-4 rounded-[1.25rem] border border-slate-200 bg-white px-5 py-4 shadow-sm">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Financial Flow</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Money in & out</p>
             <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">
               {monthLabel(month.key)} {activeTab === "flow" ? "overview" : activeTab === "savings" ? "savings & pots" : activeTab}
             </h1>

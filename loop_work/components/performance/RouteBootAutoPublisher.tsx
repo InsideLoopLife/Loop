@@ -121,7 +121,7 @@ function buildPayload(
       routeKey: "income",
       payload: {
         version: 1,
-        eyebrow: "Financial Flow · Income",
+        eyebrow: "Money in & out · Income",
         title: "Your income records are ready",
         headline: `${payEvents.length + entries.length} tracked source${
           payEvents.length + entries.length === 1 ? "" : "s"

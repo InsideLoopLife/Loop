@@ -66,7 +66,7 @@ const configs: Record<LandingExperienceKey, LandingConfig> = {
     ],
   },
   "financial-flow": {
-    eyebrow: "Financial Flow",
+    eyebrow: "Money in & out",
     title: "Show how money moves before showing lots of tables",
     body: "Start with one income source and a few repeating payments. LOOP then turns them into an easy flow diagram across income, spending and savings.",
     icon: WalletCards,
@@ -87,7 +87,7 @@ const configs: Record<LandingExperienceKey, LandingConfig> = {
     icon: Banknote,
     accent: "emerald",
     primaryAction: { label: "Add income", href: "/income#add-income", tone: "dark" },
-    secondaryAction: { label: "Open Financial Flow", href: "/financial-flow?tab=income", tone: "soft" },
+    secondaryAction: { label: "Open Money in & out", href: "/financial-flow?tab=income", tone: "soft" },
     illustration: "flow",
     steps: [
       { label: "Net income", body: "Use take-home overrides or salary modelling.", icon: Banknote },

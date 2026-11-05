@@ -107,7 +107,7 @@ export function SavingsOptimiser({
     } : null,
     availableMonthlyCapacity > 0 ? {
       title: "Allocate unused monthly capacity",
-      body: `Financial Flow suggests up to ${formatMoney(availableMonthlyCapacity)}/mo remains after current savings top-ups. Confirm it is genuinely spare before assigning it to a pot or ISA.`,
+      body: `Money in & out suggests up to ${formatMoney(availableMonthlyCapacity)}/mo remains after current savings top-ups. Confirm it is genuinely spare before assigning it to a pot or ISA.`,
       metric: `${formatMoney(availableMonthlyCapacity)}/mo`,
     } : null,
   ].filter((row): row is { title: string; body: string; metric: string } => Boolean(row));
@@ -159,7 +159,7 @@ export function SavingsOptimiser({
             <p className="mt-2 text-[11px] font-bold text-slate-500">Remaining ISA room: {formatMoney(isaRoom)}.</p>
           </article>
           <article className="rounded-3xl border border-blue-200 bg-blue-50 p-4">
-            <div className="flex items-center gap-2"><PiggyBank className="h-5 w-5" /><p className="text-xs font-black uppercase tracking-wide">Financial Flow</p></div>
+            <div className="flex items-center gap-2"><PiggyBank className="h-5 w-5" /><p className="text-xs font-black uppercase tracking-wide">Money in &amp; out</p></div>
             <p className="mt-2 text-2xl font-black text-slate-950">{formatMoney(availableMonthlyCapacity)}/mo</p>
             <p className="mt-1 text-xs font-bold text-slate-600">Potential capacity after current savings top-ups. Flow before those top-ups is {formatMoney(monthlyFlow)}/mo; existing top-ups are {formatMoney(monthlyTopUps)}/mo.</p>
           </article>

@@ -253,7 +253,7 @@ function ExistingBillSelect({ plannedItems, value }: { plannedItems: LoopWatchPl
     <label className="block">
       <span className="text-xs font-black uppercase tracking-wide text-slate-400">Allocate to existing bill</span>
       <select name="linked_planned_item_id" defaultValue={value || ""} className="mt-1 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-950">
-        <option value="">Create or auto-match Financial Flow bill</option>
+        <option value="">Create or auto-match Money in & out bill</option>
         {billRows.map((item) => (
           <option key={item.id} value={item.id}>{item.label} · {formatMoney(Number(item.amount || 0))}/mo</option>
         ))}
@@ -556,7 +556,7 @@ export default async function LoopWatchPage() {
               </div>
               <h1 className="mt-4 max-w-4xl text-4xl font-black tracking-tight sm:text-5xl">Attach once. Turn bills, contracts and big-purchase searches into watch cards.</h1>
               <p className="mt-3 max-w-4xl text-base font-bold text-slate-300">
-                LoopWatch asks for context, extracts useful terms, lets you review/overwrite them, then links bills to Financial Flow or starts deal workflows like car lease/PCP watch.
+                LoopWatch asks for context, extracts useful terms, lets you review/overwrite them, then links bills to Money in & out or starts deal workflows like car lease/PCP watch.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-4 lg:w-[760px]">
@@ -604,7 +604,7 @@ export default async function LoopWatchPage() {
           <div className="grid gap-3 md:grid-cols-4">
             <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100"><p className="text-sm font-black text-slate-950">Policies ending</p><p className="mt-1 text-sm font-bold text-slate-500">Insurance and contracts inside 90 days get comparison/renewal prompts.</p></div>
             <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100"><p className="text-sm font-black text-slate-950">April-style rises</p><p className="mt-1 text-sm font-bold text-slate-500">Mobile/broadband cards can use provider rules or extracted terms to forecast increases.</p></div>
-            <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100"><p className="text-sm font-black text-slate-950">Household cost sync</p><p className="mt-1 text-sm font-bold text-slate-500">Confirmed monthly costs can create or update Financial Flow planned items.</p></div>
+            <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100"><p className="text-sm font-black text-slate-950">Household cost sync</p><p className="mt-1 text-sm font-bold text-slate-500">Confirmed monthly costs can create or update Money in & out planned items.</p></div>
             <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100"><p className="text-sm font-black text-slate-950">Savings / mortgage links</p><p className="mt-1 text-sm font-bold text-slate-500">Savings terms and mortgage offers can be pushed into existing rate-watch logic.</p></div>
             <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100"><p className="text-sm font-black text-slate-950">School / nursery logic</p><p className="mt-1 text-sm font-bold text-slate-500">Term dates, agendas and nursery documents can be suggested for a child and imported into Family Planning.</p></div>
           </div>

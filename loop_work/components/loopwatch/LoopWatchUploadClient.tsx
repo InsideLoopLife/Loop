@@ -332,7 +332,7 @@ export function LoopWatchUploadClient({ people, hasHousehold }: { people: LoopWa
             <div className="rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-900 ring-1 ring-emerald-100">
               <div className="flex items-start gap-2">
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
-                <p>LoopWatch keeps structured facts and review choices, not bulky source files. Bills can be linked to Financial Flow after you accept the review.</p>
+                <p>LoopWatch keeps structured facts and review choices, not bulky source files. Bills can be linked to Money in & out after you accept the review.</p>
               </div>
             </div>
           </div>

@@ -1486,7 +1486,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
         routeKey="accounts"
         payload={{
           version: 1,
-          eyebrow: "Financial Flow · Savings",
+          eyebrow: "Money in & out · Savings",
           title: "Savings, pots and cash optimisation",
           headline: formatMoney(totalSavings),
           description: "Your latest savings position is visible while balances, rates and goals refresh.",
@@ -1536,7 +1536,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
               </div>
               <SavingsMovementChart data={savingsMovementSeries} />
             </SectionCard>
-            <SectionCard title="LoopWatch" description="LoopWatch checks the whole savings portfolio for rate drag, tax exposure, stale balances and unused Financial Flow.">
+            <SectionCard title="LoopWatch" description="LoopWatch checks the whole savings portfolio for rate drag, tax exposure, stale balances and unused Money in & out.">
               <div className="mb-5 rounded-3xl border border-blue-100 bg-blue-50/70 p-4">
                 <div className="flex flex-wrap items-end justify-between gap-2">
                   <div><p className="text-xs font-black uppercase tracking-[0.16em] text-blue-700">Central ISA allowance · {activeIsaRule.taxYear}</p><p className="mt-1 text-sm font-bold text-slate-600">Known current-year subscriptions across savings and investment accounts. Existing ISA balances and ISA-to-ISA transfers do not consume this year&apos;s allowance.</p></div>
@@ -1776,7 +1776,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
             <SectionCard title="Tracked savings accounts" description="Provider images, owner, rate and balance sit on each card. Open Thread for the month-by-month ledger or Update to record a change.">
               {accountCards}
             </SectionCard>
-            <SectionCard title="Everyday accounts" description="Current/checking accounts don't earn a tracked rate, but adding them here means they show up as an option whenever you pick a 'paid into' or 'paid from' account across Financial Flow — income, spending and childcare included.">
+            <SectionCard title="Everyday accounts" description="Current/checking accounts don't earn a tracked rate, but adding them here means they show up as an option whenever you pick a 'paid into' or 'paid from' account across Money in & out — income, spending and childcare included.">
               {everydayAccountRows.length === 0 ? (
                 <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm font-semibold text-slate-500">No everyday accounts added yet. Use the &ldquo;Add account&rdquo; tab and choose &ldquo;Current / everyday account&rdquo; to add the account your bills and salary actually move through.</p>
               ) : (
@@ -1838,7 +1838,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                   <option value="mortgage">Mortgage</option>
                   <option value="loan">Loan</option>
                 </select>
-                <span className="mt-1 block text-xs font-semibold text-slate-400">Current and savings accounts show up wherever Financial Flow asks "which account?" for income and spending. Credit card, mortgage and loan accounts are tracked as liabilities in net worth instead, since you don't pay money into a debt balance.</span>
+                <span className="mt-1 block text-xs font-semibold text-slate-400">Current and savings accounts show up wherever Money in & out asks "which account?" for income and spending. Credit card, mortgage and loan accounts are tracked as liabilities in net worth instead, since you don't pay money into a debt balance.</span>
               </label>
               <label className="text-sm font-bold text-slate-700">
                 Owner

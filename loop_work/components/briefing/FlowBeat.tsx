@@ -17,7 +17,7 @@ export function FlowBeat({ flow }: { flow: FinancialBriefing["flow"] }) {
       <div className="flex items-center gap-3">
         <WalletCards className="text-indigo-600" />
         <div>
-          <p className="text-xs font-black uppercase tracking-[.18em] text-slate-400">Financial Flow</p>
+          <p className="text-xs font-black uppercase tracking-[.18em] text-slate-400">Money in & out</p>
           <h2 className="text-2xl font-black">Where this month is going</h2>
         </div>
       </div>

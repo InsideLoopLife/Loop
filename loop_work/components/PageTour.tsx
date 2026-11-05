@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 
 const copy: Record<string, { title: string; body: string }[]> = {
   "/dashboard": [
-    { title: "Overview", body: "This is your daily command centre. It pulls health, wealth and household context together once your setup data exists." },
+    { title: "Summary", body: "This is your daily summary. It pulls health, wealth and household context together once your setup data exists." },
     { title: "Start small", body: "Add a salary and one bill first. LOOP becomes more useful as you add more context." },
   ],
   "/nutrition": [
