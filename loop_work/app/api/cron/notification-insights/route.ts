@@ -1,10 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import { formatMoney } from "@/lib/format/money";
-
-function unauthorised() {
-  return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-}
+import { verifyCronRequest } from "@/lib/security/cron";
 
 function num(value: unknown) {
   const n = Number(value || 0);
@@ -16,9 +13,8 @@ function money(value: number) {
 }
 
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  const headerSecret = request.headers.get("x-cron-secret") || request.nextUrl.searchParams.get("secret");
-  if (!secret || headerSecret !== secret) return unauthorised();
+  const guard = verifyCronRequest(request);
+  if (!guard.ok) return guard.response;
 
   const supabase = createWorkerDatabaseClient("notifications");
   const { data: profiles, error } = await supabase.from("app_user_profiles").select("user_id, household_id").limit(200);
