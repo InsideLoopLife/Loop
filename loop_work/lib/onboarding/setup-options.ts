@@ -30,3 +30,11 @@ export const STUDENT_LOAN_PLAN_OPTIONS = [
   { value: "plan_4", label: "Plan 4", detail: "Studied in Scotland" },
   { value: "postgraduate", label: "Postgraduate loan", detail: "Master's or doctoral loan" },
 ] as const;
+
+export type Employer = "standard" | "nhs" | "public";
+
+export const EMPLOYER_OPTIONS: ReadonlyArray<{ value: Employer; label: string; detail: string }> = [
+  { value: "standard", label: "A private company or charity", detail: "Most jobs" },
+  { value: "nhs", label: "The NHS", detail: "NHS England or Wales" },
+  { value: "public", label: "Other public sector", detail: "Teacher, civil service, council, police, armed forces" },
+];

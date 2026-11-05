@@ -15,6 +15,7 @@ import { addPerson } from "@/app/household/actions";
 import { addRecurringPayEvent, upsertStudentLoanAccount } from "@/app/income/actions";
 import { addPlannedItem } from "@/app/spending/actions";
 import { SETUP_BILLS, SETUP_EXTRAS } from "@/lib/onboarding/setup-options";
+import { NHS_EMPLOYER_CONTRIBUTION_PERCENT_2026_27, nhsMemberContributionPercent } from "@/lib/calculations/nhs-pension";
 
 const STUDENT_LOAN_PLANS = ["plan_1", "plan_2", "plan_4", "plan_5", "postgraduate"];
 
@@ -70,7 +71,13 @@ async function savePay(supabase: any, userId: string, personId: string, formData
   const planRaw = text(formData, `${prefix}_student_loan_plan`);
   const studentLoanPlan = text(formData, `${prefix}_has_student_loan`) === "yes" && STUDENT_LOAN_PLANS.includes(planRaw) ? planRaw : "none";
   const payDay = parseNumber(formData.get(`${prefix}_pay_day`));
-  const pensionPercent = text(formData, `${prefix}_has_pension`) === "yes" ? parseNumber(formData.get(`${prefix}_pension_percent`)) ?? 5 : 0;
+  const inPension = text(formData, `${prefix}_has_pension`) === "yes";
+  const isNhs = text(formData, `${prefix}_employer`) === "nhs";
+  // NHS contributions are set by salary tier, so work the rate out here rather
+  // than trusting the browser. Uses the existing nhs_pension method, which the
+  // tax logic already treats as a before-tax (net pay) deduction.
+  const pensionMethod = inPension && isNhs ? "nhs_pension" : "net_pay";
+  const pensionPercent = !inPension ? 0 : isNhs ? (gross ? nhsMemberContributionPercent(gross) : 0) : parseNumber(formData.get(`${prefix}_pension_percent`)) ?? 5;
 
   await addRecurringPayEvent(form({
     person_id: personId,
@@ -79,6 +86,8 @@ async function savePay(supabase: any, userId: string, personId: string, formData
     gross_annual_salary: gross ?? 0,
     monthly_take_home_override: gross ? null : takeHome,
     pension_percent: pensionPercent,
+    pension_method: pensionMethod,
+    employer_pension_percent: inPension && isNhs ? NHS_EMPLOYER_CONTRIBUTION_PERCENT_2026_27 : null,
     student_loan_plan: studentLoanPlan,
     pay_timing: payDay ? "fixed_day" : "last_workday",
     pay_day_of_month: payDay ?? 28,

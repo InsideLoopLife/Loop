@@ -4,7 +4,8 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { ArrowLeft, ArrowRight, Check, Home, PiggyBank, ReceiptText, UserRound, Users, WalletCards } from "lucide-react";
 import { completeGuidedSetup } from "@/app/onboarding/setup-actions";
-import { SETUP_BILLS, SETUP_EXTRAS, STUDENT_LOAN_PLAN_OPTIONS } from "@/lib/onboarding/setup-options";
+import { EMPLOYER_OPTIONS, SETUP_BILLS, SETUP_EXTRAS, STUDENT_LOAN_PLAN_OPTIONS, type Employer } from "@/lib/onboarding/setup-options";
+import { NHS_EMPLOYER_CONTRIBUTION_PERCENT_2026_27, nhsMemberContributionPercent } from "@/lib/calculations/nhs-pension";
 
 export type GuidedSetupDefaults = {
   name: string;
@@ -29,11 +30,11 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-function MoneyInput({ name, placeholder, defaultValue }: { name: string; placeholder?: string; defaultValue?: string }) {
+function MoneyInput({ name, placeholder, defaultValue, onValue }: { name: string; placeholder?: string; defaultValue?: string; onValue?: (value: string) => void }) {
   return (
     <div className="relative">
       <span className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-base font-black text-slate-400">£</span>
-      <input name={name} inputMode="decimal" placeholder={placeholder} defaultValue={defaultValue} className={`${inputClass} pl-8`} />
+      <input name={name} inputMode="decimal" placeholder={placeholder} defaultValue={defaultValue} onChange={onValue ? (e) => onValue(e.target.value) : undefined} className={`${inputClass} pl-8`} />
     </div>
   );
 }
@@ -59,12 +60,35 @@ function Choice({ name, value, onChange, yes = "Yes", no = "No" }: { name: strin
 
 function PayFields({ prefix, who }: { prefix: "self" | "partner"; who: string }) {
   const [knowsSalary, setKnowsSalary] = useState<YesNo>("yes");
+  const [employer, setEmployer] = useState<Employer>("standard");
+  const [salary, setSalary] = useState("");
   const [hasPension, setHasPension] = useState<YesNo>("");
+  const salaryNumber = Number(salary.replace(/[£,\s]/g, "")) || 0;
+  const nhsRate = nhsMemberContributionPercent(salaryNumber);
   const [hasLoan, setHasLoan] = useState<YesNo>("");
   const [plan, setPlan] = useState("");
 
   return (
     <div className="space-y-6">
+      <div className="space-y-3">
+        <span className={labelClass}>Who {who === "your" ? "do you" : "do they"} work for?</span>
+        <input type="hidden" name={`${prefix}_employer`} value={employer} />
+        <div className="grid gap-2">
+          {EMPLOYER_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setEmployer(option.value)}
+              aria-pressed={employer === option.value}
+              className={`rounded-2xl border px-4 py-3 text-left transition ${employer === option.value ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white hover:border-slate-400"}`}
+            >
+              <span className={`block text-sm font-black ${employer === option.value ? "text-white" : "text-slate-900"}`}>{option.label}</span>
+              <span className={`block text-xs font-semibold ${employer === option.value ? "text-white/70" : "text-slate-500"}`}>{option.detail}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="space-y-3">
         <span className={labelClass}>Do you know {who} yearly salary before tax?</span>
         <Choice name={`${prefix}_knows_salary`} value={knowsSalary} onChange={setKnowsSalary} yes="Yes" no="I only know take-home" />
@@ -75,18 +99,37 @@ function PayFields({ prefix, who }: { prefix: "self" | "partner"; who: string })
         </Field>
       ) : (
         <Field label="Yearly salary before tax" hint="LOOP works out tax, National Insurance and take-home for you.">
-          <MoneyInput name={`${prefix}_gross_annual_salary`} placeholder="35,000" />
+          <MoneyInput name={`${prefix}_gross_annual_salary`} placeholder="35,000" onValue={setSalary} />
         </Field>
       )}
       <Field label="Which day of the month are you paid?" hint="Leave blank if it's the last working day.">
         <input name={`${prefix}_pay_day`} inputMode="numeric" placeholder="e.g. 25" className={inputClass} />
       </Field>
 
+      {employer === "nhs" ? (
+        <div className="space-y-3">
+          <span className={labelClass}>In the NHS Pension Scheme?</span>
+          <Choice name={`${prefix}_has_pension`} value={hasPension} onChange={setHasPension} yes="Yes" no="I've opted out" />
+          {hasPension === "yes" ? (
+            <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900">
+              <input type="hidden" name={`${prefix}_pension_method`} value="nhs_pension" />
+              {knowsSalary === "no" ? (
+                <>NHS contributions are set by your salary. Add your yearly salary instead of take-home and LOOP will apply the right rate.</>
+              ) : salaryNumber > 0 ? (
+                <><span className="font-black">You pay {nhsRate}%</span> — the NHS rate for £{salaryNumber.toLocaleString("en-GB")}. Your employer adds {NHS_EMPLOYER_CONTRIBUTION_PERCENT_2026_27}% on top. It comes out before tax.</>
+              ) : (
+                <>Enter your salary above and LOOP will use the right NHS rate (5.2% to 12.5% depending on pay).</>
+              )}
+              <span className="mt-1 block text-xs text-emerald-800/80">Based on actual pay, NHS England &amp; Wales rates from April 2026.</span>
+            </div>
+          ) : null}
+        </div>
+      ) : (
       <div className="space-y-3">
         <span className={labelClass}>Pay into a workplace pension?</span>
         <Choice name={`${prefix}_has_pension`} value={hasPension} onChange={setHasPension} />
         {hasPension === "yes" ? (
-          <Field label="How much of your salary goes in?" hint="Most workplaces use 5%. Check a payslip if you're not sure.">
+          <Field label="How much of your salary goes in?" hint={employer === "public" ? "Public sector schemes set this by salary. Check your payslip for the exact %." : "Most workplaces use 5%. Check a payslip if you're not sure."}>
             <div className="relative">
               <input name={`${prefix}_pension_percent`} inputMode="decimal" defaultValue="5" className={`${inputClass} pr-10`} />
               <span className="pointer-events-none absolute right-4 top-1/2 z-10 -translate-y-1/2 font-black text-slate-400">%</span>
@@ -94,6 +137,7 @@ function PayFields({ prefix, who }: { prefix: "self" | "partner"; who: string })
           </Field>
         ) : null}
       </div>
+      )}
 
       <div className="space-y-3">
         <span className={labelClass}>Have a student loan?</span>
