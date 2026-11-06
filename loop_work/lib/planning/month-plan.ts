@@ -10,6 +10,7 @@ import {
   type FundingMode,
 } from "@/lib/calculations/childcare";
 import { calculateMonthlyMortgagePayment } from "@/lib/calculations/mortgage";
+import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
 
 export type FinancialProfile = {
   name: string | null;
@@ -202,6 +203,7 @@ function plannedItemIntervalDays(item: PlannedItemForPlan) {
 }
 
 function plannedItemDatesForMonth(item: PlannedItemForPlan, month: string): string[] {
+  if (monthStepFor(item.recurrence)) { const d = monthSteppedDate(item as any, month); return d ? [d] : []; }
   if (item.recurrence === "one_off") return dateIsInMonth(item.start_date, month) ? [item.start_date] : [];
   if (item.recurrence === "monthly") return isActiveInMonth(item.start_date, item.end_date, month) ? [item.start_date] : [];
   const stepDays = plannedItemIntervalDays(item);
@@ -230,6 +232,7 @@ function plannedItemRecurrenceLabel(item: PlannedItemForPlan, direction: "income
 }
 
 function plannedItemAppliesToMonth(item: PlannedItemForPlan, month: string) {
+  if (monthStepFor(item.recurrence)) return Boolean(monthSteppedDate(item as any, month));
   if (item.recurrence === "one_off") return dateIsInMonth(item.start_date, month);
   if (item.recurrence === "monthly") return isActiveInMonth(item.start_date, item.end_date, month);
   return plannedItemDatesForMonth(item, month).length > 0;

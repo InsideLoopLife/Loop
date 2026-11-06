@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SectionCard } from "@/components/SectionCard";
 import { ModalFrame } from "@/components/ui/ModalFrame";
 import { PayEventWizard } from "@/components/household/PayEventWizard";
+import { IncomeQuickAdd } from "@/components/income/IncomeQuickAdd";
 import { formatMoney } from "@/lib/format/money";
 import { writeRouteSnapshot } from "@/lib/client/route-snapshot-cache";
 import {
@@ -256,6 +257,21 @@ function MiniAvatar({
       {label.slice(0, 1).toUpperCase()}
     </span>
   );
+}
+
+function shiftMonth(month: string, delta: number) {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** The selected month if this record applies then, else its nearest month that does. */
+function representativeMonth(event: { effective_from: string; effective_until?: string | null }, month: string) {
+  const from = String(event.effective_from || "").slice(0, 7);
+  const until = event.effective_until ? String(event.effective_until).slice(0, 7) : null;
+  if (from && month < from) return from;
+  if (until && month > until) return until;
+  return month;
 }
 
 function getPayEventBreakdown(event: PayEvent, month: string) {
@@ -764,6 +780,8 @@ export function IncomeTrackerClient({
     });
   }, [entries, people, payEvents, studentLoanAccounts, studentLoanBalanceEvents, incomeDeductions, hasHousehold, signedInPersonId, canViewHouseholdIncome, schemaWarning]);
   const [modal, setModal] = useState<IncomeModalState>(null);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const missingOwnProfileFilter = "__own_profile_missing__";
   const [personFilter, setPersonFilter] = useState(
     () => signedInPersonId || (hasHousehold ? missingOwnProfileFilter : "all"),
@@ -938,11 +956,10 @@ export function IncomeTrackerClient({
         <div className="absolute -right-24 -top-20 h-72 w-72 rounded-full bg-orange-500/30 blur-3xl" />
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="text-xs font-black uppercase tracking-[0.24em] text-orange-200">
-                Income Flow
-              </p>
-              <a href="/financial-flow?tab=income" className="inline-flex items-center gap-1.5 rounded-[7px] bg-white px-3 py-1.5 text-xs font-black text-slate-950 hover:bg-slate-100">← Back to Flow</a>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => setMonth(shiftMonth(month, -1))} className="grid h-8 w-8 place-items-center rounded-full bg-white/10 font-black hover:bg-white/20" aria-label="Previous month">‹</button>
+              <p className="min-w-[8.5rem] text-center text-xs font-black uppercase tracking-[0.24em] text-orange-200">{monthLabel(month)}</p>
+              <button type="button" onClick={() => setMonth(shiftMonth(month, 1))} className="grid h-8 w-8 place-items-center rounded-full bg-white/10 font-black hover:bg-white/20" aria-label="Next month">›</button>
             </div>
             <h1 className="mt-3 text-4xl font-black tracking-tight md:text-6xl">
               {formatMoney(monthlyNet)}
@@ -957,18 +974,20 @@ export function IncomeTrackerClient({
               in {monthLabel(month)}.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setModal("recurring")}
-              className="rounded-full bg-white px-5 py-3 text-sm font-black text-slate-950"
+              type="button"
+              onClick={() => setQuickAddOpen(true)}
+              className="rounded-full bg-emerald-500 px-6 py-3 text-sm font-black text-white shadow-lg shadow-emerald-500/30 hover:bg-emerald-400"
             >
-              + Add recurring income
+              + Add income
             </button>
             <button
-              onClick={() => setModal("manual")}
-              className="rounded-full bg-white/10 px-5 py-3 text-sm font-black text-white ring-1 ring-white/20"
+              type="button"
+              onClick={() => setModal("recurring")}
+              className="rounded-full px-4 py-3 text-xs font-black text-white/70 hover:text-white"
             >
-              + Add manual income
+              Detailed pay form
             </button>
           </div>
         </div>
@@ -978,15 +997,7 @@ export function IncomeTrackerClient({
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex flex-col gap-1 rounded-3xl border border-slate-200 bg-white p-4 text-left">
-            <span className="text-xs font-black uppercase tracking-wide text-slate-500">Month</span>
-            <input
-              value={month}
-              onChange={(event) => setMonth(event.target.value)}
-              type="month"
-              className="mt-1 border-none bg-transparent p-0 text-2xl font-black text-slate-950 outline-none"
-            />
-          </label>
+
           {hasHousehold && canViewHouseholdIncome ? (
             <button
               onClick={() => setPersonFilter("all")}
@@ -1006,7 +1017,7 @@ export function IncomeTrackerClient({
             <button
               key={person.id}
               onClick={() => setPersonFilter(person.id)}
-              className={`flex min-w-64 items-center gap-3 rounded-3xl border p-4 text-left transition ${personFilter === person.id ? "border-orange-300 bg-orange-50 shadow" : "border-slate-200 bg-white hover:-translate-y-0.5 hover:shadow"}`}
+              className={`flex min-w-64 items-center gap-3 rounded-3xl border p-4 text-left transition ${personFilter === person.id ? "border-emerald-500 bg-white shadow ring-2 ring-emerald-500/20" : "border-slate-200 bg-white hover:-translate-y-0.5 hover:shadow"}`}
             >
               <MiniAvatar person={person} />
               <span>
@@ -1069,7 +1080,7 @@ export function IncomeTrackerClient({
 
       <SectionCard
         title="Current income"
-        description="The selected person controls this page. Your own income is selected automatically on sign-in; household income is an explicit view rather than the default."
+        description="What lands each month, and where the rest goes."
       >
         <div className="mb-4 grid gap-3 md:grid-cols-3 lg:grid-cols-6">
           <div className="rounded-3xl bg-slate-50 p-4">
@@ -1283,21 +1294,16 @@ export function IncomeTrackerClient({
         </div>
       </SectionCard>
 
-      <section className="grid gap-6 lg:grid-cols-[1fr_.9fr]">
+      <section>
         <SectionCard
           id="deductibles"
           title="Deductibles"
-          description="Anything that comes off pay before it lands — student loans, car salary sacrifice, cycle to work, extra pension. Student loan repayments feed the tax calculation; other deduction types are tracked here as a line for reference."
+          description="Student loans and anything else taken from pay before it lands. Press + to add one."
           headerAction={
             <button type="button" onClick={() => setModal("deductionPicker")} className="grid h-10 w-10 place-items-center rounded-full bg-slate-950 text-lg font-black text-white hover:bg-slate-800">+</button>
           }
         >
-          <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
-            <StudentLoanForm
-              people={people}
-              selectedPersonId={personFilter}
-              defaultPersonId={defaultPersonId}
-            />
+          <div>
             <div className="space-y-3">
               {filteredLoans.map((account) => (
                 <div
@@ -1319,8 +1325,8 @@ export function IncomeTrackerClient({
                           ? ` · payslip ${formatMoney(account.payroll_monthly_override)}/mo`
                           : ""}
                       </p>
-                      <div className="mt-4 border-l-2 border-indigo-100 pl-4">
-                        <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-indigo-500">Balance thread</p>
+                      <details className="mt-3 border-l-2 border-indigo-100 pl-4">
+                        <summary className="cursor-pointer list-none text-[10px] font-black uppercase tracking-[0.18em] text-indigo-500">Balance history</summary>
                         <div className="space-y-2">
                           {studentLoanBalanceEvents
                             .filter((event) => event.student_loan_account_id === account.id)
@@ -1339,7 +1345,7 @@ export function IncomeTrackerClient({
                             ))}
                           {studentLoanBalanceEvents.filter((event) => event.student_loan_account_id === account.id).length === 0 ? <p className="text-xs font-semibold text-slate-400">The next saved balance will start this thread.</p> : null}
                         </div>
-                      </div>
+                      </details>
                     </div>
                     <div className="flex items-center gap-3">
                       <button
@@ -1367,11 +1373,6 @@ export function IncomeTrackerClient({
                   </div>
                 </div>
               ))}
-              {filteredLoans.length === 0 ? (
-                <p className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm font-semibold text-slate-500">
-                  No student loan balance saved for this filter yet.
-                </p>
-              ) : null}
 
               {filteredDeductions.map((deduction) => (
                 <div key={deduction.id} className="rounded-3xl border border-slate-200 bg-white p-4">
@@ -1413,78 +1414,13 @@ export function IncomeTrackerClient({
           </div>
         </SectionCard>
 
-        <SectionCard
-          title="Income changes"
-          description="Future, current and archived salary/maternity rows stay visible so you can see what changed and when."
-        >
-          <div className="space-y-3">
-            {upcomingChanges
-              .filter(
-                (event) =>
-                  personFilter === "all" ||
-                  resolveRecordPersonId(event) === personFilter,
-              )
-              .map((event) => {
-                const status = incomeStatus(event, month);
-                const resolvedPersonId = resolveRecordPersonId(event);
-                const editableEvent = { ...event, person_id: resolvedPersonId };
-                return (
-                  <div
-                    key={event.id}
-                    className="block rounded-2xl border border-slate-200 bg-white p-4 transition hover:-translate-y-0.5 hover:shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                          {personName(peopleById, resolvedPersonId)} ·{" "}
-                          {event.pay_kind?.replaceAll("_", " ") || "salary"}
-                        </p>
-                        <p className="mt-1 font-black text-slate-950">
-                          {event.label}
-                        </p>
-                        <p className="mt-1 text-sm font-semibold text-slate-500">
-                          {formatDateRange(
-                            event.effective_from,
-                            event.effective_until,
-                          )}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-black ${status === "active" ? "bg-emerald-100 text-emerald-800" : status === "future" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600"}`}
-                        >
-                          {status}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setModal({ type: "editPay", event: editableEvent })
-                          }
-                          className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700"
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            {upcomingChanges.filter(
-              (event) =>
-                personFilter === "all" ||
-                resolveRecordPersonId(event) === personFilter,
-            ).length === 0 ? (
-              <p className="text-sm text-slate-500">
-                No income changes found for this filter.
-              </p>
-            ) : null}
-          </div>
-        </SectionCard>
       </section>
 
       <SectionCard
-        title="Income archive by person"
-        description="Full salary, maternity and return-to-work history. Current income remains above; this is the audit trail."
+        collapsible
+        defaultOpen={false}
+        title="Pay history"
+        description="Every salary and maternity record, newest first. Figures are for a month when each one applied."
       >
         <div className="grid gap-3 md:grid-cols-2">
           {payEvents
@@ -1498,7 +1434,9 @@ export function IncomeTrackerClient({
             )
             .map((event) => {
               const status = incomeStatus(event, month);
-              const breakdown = getPayEventBreakdown(event, month);
+              // Show each record's figures for a month it actually applied,
+              // not the selected month (an ended salary showed as £0).
+              const breakdown = getPayEventBreakdown(event, representativeMonth(event, month));
               const resolvedPersonId = resolveRecordPersonId(event);
               const editableEvent = { ...event, person_id: resolvedPersonId };
               return (
@@ -1720,6 +1658,16 @@ export function IncomeTrackerClient({
           <p className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-900">You keep {modal.line.keptPercent.toFixed(1)}% of gross pay. This split follows the tax, pension and student-loan assumptions attached to this income record.</p>
         </Modal>
       ) : null}
+      {quickAddOpen ? (
+        <IncomeQuickAdd
+          people={people as any}
+          payEvents={payEvents as any}
+          defaultPersonId={personFilter !== "all" ? personFilter : defaultPersonId}
+          onClose={() => setQuickAddOpen(false)}
+          onSaved={(message) => { setToast(message); window.setTimeout(() => setToast(null), 3500); }}
+        />
+      ) : null}
+      {toast ? <div className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-xl" role="status">{toast}</div> : null}
     </main>
   );
 }

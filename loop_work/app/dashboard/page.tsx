@@ -42,6 +42,7 @@ import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { buildDashboardInsightEvidence } from "@/lib/dashboard/dashboard-insight-evidence";
 import type { WidgetInsightData } from "@/lib/dashboard/types";
+import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
 
 type FinancialProfile = {
   name: string;
@@ -277,6 +278,7 @@ function plannedItemIntervalDays(item: PlannedItem) {
 // resolve to at most one date; four-weekly/custom-interval items can land 0, 1 or
 // occasionally 2 times in a given calendar month depending on where the cycle sits.
 function plannedItemDatesForMonth(item: PlannedItem, month: string): string[] {
+  if (monthStepFor(item.recurrence)) { const d = monthSteppedDate(item as any, month); return d ? [d] : []; }
   if (item.recurrence === "one_off") return dateIsInMonth(item.start_date, month) ? [item.start_date] : [];
   if (item.recurrence === "monthly") return isActiveInMonth(item.start_date, plannedItemForecastEndDate(item), month) ? [dueDateForMonth(month, item.payment_timing ?? "fixed_day", item.day_of_month ?? Number(item.start_date.slice(8, 10)), item.payment_adjustment ?? "previous_workday")] : [];
   const stepDays = plannedItemIntervalDays(item);
@@ -296,6 +298,7 @@ function plannedItemDatesForMonth(item: PlannedItem, month: string): string[] {
 }
 
 function plannedItemAppliesToMonth(item: PlannedItem, month: string) {
+  if (monthStepFor(item.recurrence)) return Boolean(monthSteppedDate(item as any, month));
   if (item.recurrence === "one_off") return dateIsInMonth(item.start_date, month);
   if (item.recurrence === "monthly") return isActiveInMonth(item.start_date, plannedItemForecastEndDate(item), month);
   return plannedItemDatesForMonth(item, month).length > 0;

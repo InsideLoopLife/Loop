@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import {
   ArrowDownRight,
   ArrowLeft,
@@ -43,8 +44,9 @@ import { FinancialFlowWorkspaceNav } from "@/components/financial-flow/Financial
 import { RouteBootSnapshotPublisher } from "@/components/performance/RouteBootSnapshotPublisher";
 import { FinancialFlowRetainedOverviewBridge } from "@/components/financial-flow/FinancialFlowRetainedOverviewBridge";
 import { IncomeFlowScopeView, type IncomeFlowScope } from "@/components/financial-flow/IncomeFlowScopeView";
-import { getPayAmount as sharedGetPayAmount, mortgageDealMonthlyPayment, type PayEventOverrideForPlan } from "@/lib/planning/month-plan";
+import { getIncomeEntryMonthlyAmount as sharedIncomeEntryMonthlyAmount, getPayAmount as sharedGetPayAmount, incomeEntryAppliesToMonth as sharedIncomeEntryAppliesToMonth, mortgageDealMonthlyPayment, type PayEventOverrideForPlan } from "@/lib/planning/month-plan";
 import { withPayOverrides } from "@/lib/planning/pay-overrides";
+import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
 
 type TabKey = "flow" | "income" | "spending" | "savings";
 type Tone = "orange" | "green" | "blue" | "slate";
@@ -357,6 +359,7 @@ function payEventMonthFraction(event: PayEvent, monthKey: string) {
 // forever once its start_date has passed.
 function plannedItemAppliesToMonth(item: { recurrence?: string | null; start_date: string | null; end_date?: string | null }, rangeStart: string, rangeEnd: string) {
   if (!item.start_date) return false;
+  if (monthStepFor(item.recurrence)) return Boolean(monthSteppedDate(item, rangeStart.slice(0, 7)));
   if (item.recurrence === "one_off") return item.start_date >= rangeStart && item.start_date <= rangeEnd;
   return isActiveInMonth(item.start_date, item.end_date, rangeStart, rangeEnd);
 }
@@ -365,6 +368,7 @@ function plannedItemAppliesToMonth(item: { recurrence?: string | null; start_dat
 // month total reflects the (rare) months with two paydays instead of always assuming exactly one.
 function plannedItemOccurrencesInRange(item: { recurrence?: string | null; recurrence_interval_days?: number | null; start_date: string | null; end_date?: string | null }, rangeStart: string, rangeEnd: string) {
   if (!item.start_date) return 0;
+  if (monthStepFor(item.recurrence)) return monthSteppedDate(item, rangeStart.slice(0, 7)) ? 1 : 0;
   if (item.recurrence !== "four_weekly" && item.recurrence !== "custom_interval") return 1;
   const stepDays = item.recurrence === "custom_interval" ? Math.max(1, Number(item.recurrence_interval_days || 0) || 7) : 28;
   const cursor = new Date(`${item.start_date}T12:00:00Z`);
@@ -817,43 +821,6 @@ function MainFlowDiagram({ model, people }: { model: MonthModel; people: Person[
   return (
     <>
       <FlowSankeyDiagram model={model} people={people} />
-      <details className="rounded-[1.35rem] border border-slate-200 bg-white shadow-sm">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Flow detail</p>
-            <p className="mt-1 text-sm font-black text-slate-950">See the lines behind this picture</p>
-          </div>
-          <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-600">
-            {detailRows.length} groups
-          </span>
-        </summary>
-        <div className="grid gap-2 border-t border-slate-100 p-4 lg:grid-cols-2">
-          {detailRows.map((row) => (
-            <details key={row.key} className="rounded-xl bg-slate-50 p-3">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-                <span className="font-black text-slate-900">{row.label}</span>
-                <span className="text-sm font-black text-slate-950">{formatMoney(row.amount)}</span>
-              </summary>
-              <div className="mt-2 space-y-2 border-t border-slate-200 pt-2">
-                {(row.evidence?.length
-                  ? row.evidence
-                  : [{ key: row.key, label: row.label, amount: row.amount, href: row.href }]
-                ).map((item) => (
-                  <div key={item.key} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2">
-                    <span className="text-xs font-bold text-slate-600">{item.label}</span>
-                    <span className="flex items-center gap-2">
-                      <strong className="text-xs text-slate-950">{formatMoney(item.amount)}</strong>
-                      <Link href={item.href || `/spending?month=${model.key}`} className="text-[10px] font-black text-emerald-700">
-                        Edit
-                      </Link>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </details>
-          ))}
-        </div>
-      </details>
     </>
   );
 }
@@ -954,6 +921,10 @@ function DetailPanel({ activeTab, month, incomeLines, spendRows, savingsRows }: 
 
 async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{ tab?: string; person?: string; people?: string; month?: string }> }) {
   const params = searchParams ? await searchParams : {};
+  // Income and Spending live on their own pages; old ?tab= links go straight there.
+  if (params.tab === "income" || params.tab === "spending") {
+    redirect(`/${params.tab}${params.month ? `?month=${encodeURIComponent(params.month)}` : ""}`);
+  }
   const activeTab: TabKey = tabs.some((tab) => tab.key === params.tab) ? (params.tab as TabKey) : "flow";
   const month = parseMonth(params.month);
   const { supabase, user, householdContext } = await requireWealthPageAccess();
@@ -1011,8 +982,8 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     const payLines = activePay
       .map((event) => ({ key: `pay-${event.id}`, label: isMaternityPay(event) ? "Maternity pay" : event.label || "Salary", amount: monthlyPay(event, monthKey), icon: Banknote, tone: "green" as Tone, personId: event.person_id }));
     const loggedIncomeLines = (incomeResult.data || [])
-      .filter((entry) => personOwned(entry, activeScope) && isEntryInMonth(entry.entry_date, monthKey))
-      .map((entry) => ({ key: `income-${entry.id}`, label: entry.label || "Income", amount: monthlyise(n(entry.net_amount ?? entry.gross_amount), entry.frequency), icon: Banknote, tone: "green" as Tone, personId: entry.person_id }));
+      .filter((entry) => personOwned(entry, activeScope) && sharedIncomeEntryAppliesToMonth(entry as any, monthKey))
+      .map((entry) => ({ key: `income-${entry.id}`, label: entry.label || "Income", amount: sharedIncomeEntryMonthlyAmount(entry as any), icon: Banknote, tone: "green" as Tone, personId: entry.person_id }));
     const plannedIncomeLines = (plannedResult.data || [])
       .filter((item) => item.direction === "income" && personOwned(item, activeScope) && plannedItemAppliesToMonth(item, rangeStart, rangeEnd))
       .map((item) => ({ key: `planned-income-${item.id}`, label: item.label || "Planned income", amount: n(item.amount) * plannedItemOccurrencesInRange(item, rangeStart, rangeEnd), icon: ArrowDownRight, tone: "green" as Tone, personId: item.person_id }));
@@ -1318,9 +1289,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
               {monthLabel(month.key)} {activeTab === "flow" ? "overview" : activeTab === "savings" ? "savings & pots" : activeTab}
             </h1>
             <p className="mt-1 max-w-2xl text-sm font-semibold text-slate-500">
-              {activeTab === "flow"
-                ? "Your month at a glance. Open a section only when you need to change the underlying lines."
-                : "The left workspace rail is your primary navigation; this area stays focused on the selected section."}
+              {activeTab === "flow" ? "Your month at a glance." : "Savings and pots for this month."}
             </p>
           </div>
           <MonthControls activeTab={activeTab} month={month.key} scopeIds={scopeIds} />

@@ -256,7 +256,7 @@ export async function addPlannedItem(formData: FormData) {
   const personId = emptyToNull(formData.get("person_id"));
   const startDate = String(formData.get("start_date") || new Date().toISOString().slice(0, 10));
   const recurrenceValue = String(formData.get("recurrence") || "monthly");
-  const recurrence = ["monthly", "four_weekly", "custom_interval", "one_off"].includes(recurrenceValue) ? recurrenceValue : "monthly";
+  const recurrence = ["monthly", "four_weekly", "custom_interval", "one_off", "quarterly", "annual"].includes(recurrenceValue) ? recurrenceValue : "monthly";
   const recurrenceIntervalDays = recurrence === "custom_interval" ? Math.max(1, parseInteger(formData.get("recurrence_interval_days")) ?? 7) : null;
 
   const direction = String(formData.get("direction") || "outgoing");
@@ -283,7 +283,7 @@ export async function addPlannedItem(formData: FormData) {
     renewal_notice_days: recurrence !== "one_off" ? parseInteger(formData.get("renewal_notice_days")) ?? 30 : 30,
     early_upgrade_date: recurrence !== "one_off" ? emptyToNull(formData.get("early_upgrade_date")) : null,
     expected_refund_amount: recurrence !== "one_off" ? parseNumber(formData.get("expected_refund_amount")) ?? 0 : 0,
-    day_of_month: recurrence === "monthly" ? parseInteger(formData.get("day_of_month")) ?? Number(startDate.slice(8, 10)) : null,
+    day_of_month: ["monthly", "quarterly", "annual"].includes(recurrence) ? parseInteger(formData.get("day_of_month")) ?? Number(startDate.slice(8, 10)) : null,
     payment_timing: recurrence !== "one_off" ? String(formData.get("payment_timing") || "fixed_day") : null,
     payment_adjustment: recurrence !== "one_off" ? String(formData.get("payment_adjustment") || "previous_workday") : null,
     ...(direction === "outgoing" ? brandColumns(brand) : { brand_name: null, brand_domain: null, brand_logo_url: null, brand_logo_source: null, brand_logo_checked_at: null }),
@@ -309,7 +309,7 @@ export async function updatePlannedItem(formData: FormData) {
   const personId = emptyToNull(formData.get("person_id"));
   const startDate = String(formData.get("start_date") || new Date().toISOString().slice(0, 10));
   const recurrenceValue = String(formData.get("recurrence") || "monthly");
-  const recurrence = ["monthly", "four_weekly", "custom_interval", "one_off"].includes(recurrenceValue) ? recurrenceValue : "monthly";
+  const recurrence = ["monthly", "four_weekly", "custom_interval", "one_off", "quarterly", "annual"].includes(recurrenceValue) ? recurrenceValue : "monthly";
   const recurrenceIntervalDays = recurrence === "custom_interval" ? Math.max(1, parseInteger(formData.get("recurrence_interval_days")) ?? 7) : null;
 
   const direction = String(formData.get("direction") || "outgoing");
@@ -335,7 +335,7 @@ export async function updatePlannedItem(formData: FormData) {
     renewal_notice_days: recurrence !== "one_off" ? parseInteger(formData.get("renewal_notice_days")) ?? 30 : 30,
     early_upgrade_date: recurrence !== "one_off" ? emptyToNull(formData.get("early_upgrade_date")) : null,
     expected_refund_amount: recurrence !== "one_off" ? parseNumber(formData.get("expected_refund_amount")) ?? 0 : 0,
-    day_of_month: recurrence === "monthly" ? parseInteger(formData.get("day_of_month")) ?? Number(startDate.slice(8, 10)) : null,
+    day_of_month: ["monthly", "quarterly", "annual"].includes(recurrence) ? parseInteger(formData.get("day_of_month")) ?? Number(startDate.slice(8, 10)) : null,
     payment_timing: recurrence !== "one_off" ? String(formData.get("payment_timing") || "fixed_day") : null,
     payment_adjustment: recurrence !== "one_off" ? String(formData.get("payment_adjustment") || "previous_workday") : null,
     ...(direction === "outgoing" ? brandColumns(brand) : { brand_name: null, brand_domain: null, brand_logo_url: null, brand_logo_source: null, brand_logo_checked_at: null }),

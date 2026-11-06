@@ -148,6 +148,21 @@ export async function addRecurringPayEvent(formData: FormData) {
 
   const { error } = await supabase.from("pay_events").insert(payload as any);
   if (error) throw new Error(error.message);
+
+  // "This replaces their current pay": end the previous open salary the day
+  // before the new one starts, so history reads cleanly (old job → new job).
+  if (String(formData.get("replace_previous") || "") === "yes" && payload.pay_kind === "salary") {
+    const start = new Date(`${payload.effective_from}T12:00:00Z`);
+    start.setUTCDate(start.getUTCDate() - 1);
+    const dayBefore = start.toISOString().slice(0, 10);
+    await supabase
+      .from("pay_events")
+      .update({ effective_until: dayBefore })
+      .eq("person_id", personId)
+      .eq("pay_kind", "salary")
+      .lt("effective_from", payload.effective_from)
+      .or(`effective_until.is.null,effective_until.gte.${payload.effective_from}`);
+  }
   revalidateIncomeSurfaces(personId);
 }
 

@@ -9,6 +9,7 @@ import { estimateAnnualTakeHome, PensionMethod, StudentLoanPlan } from "@/lib/ca
 import { MaternityPayMode, calculateNhsMaternityMonthlyAmount } from "@/lib/calculations/maternity";
 import { ActivityBillingMode, BillingSchedule, DaySession, FundingMode, calculateActivityMonthlyCost, calculateNurseryMonthlyCost } from "@/lib/calculations/childcare";
 import { addChildCost, addPayEvent, addPayEventMonthlyOverride, deleteChildCost, deletePayEvent, updateChildCost, updatePayEvent } from "@/app/household/actions";
+import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
 
 type Person = {
   id: string;
@@ -165,6 +166,7 @@ function incomeEntryAppliesToMonth(entry: IncomeEntry, month: string) {
 }
 
 function plannedItemAppliesToMonth(item: PlannedItem, month: string) {
+  if (monthStepFor(item.recurrence)) return Boolean(monthSteppedDate(item as any, month));
   if (item.recurrence === "one_off") return item.start_date >= monthStart(month) && item.start_date <= monthEnd(month);
   return item.start_date <= monthEnd(month) && (!item.end_date || item.end_date >= monthStart(month));
 }

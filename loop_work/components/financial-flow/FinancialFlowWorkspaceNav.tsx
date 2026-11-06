@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { SmartFinancialFlowAdd } from "@/components/financial-flow/SmartFinancialFlowAdd";
 import { useFinancialFlowRetained } from "@/components/financial-flow/FinancialFlowRetainedStore";
@@ -44,28 +44,8 @@ function hrefFor(section: FinancialFlowWorkspaceSection, month?: string | null) 
   return `/financial-flow?${query.toString()}`;
 }
 
-function summaryHrefFor(section: FinancialFlowWorkspaceSection, month?: string | null) {
-  const query = new URLSearchParams();
-  if (section !== "flow") query.set("tab", section);
-  if (month) query.set("month", month);
-  const value = query.toString();
-  return value ? `/financial-flow?${value}` : "/financial-flow";
-}
 
-function detailHrefFor(section: FinancialFlowWorkspaceSection, month?: string | null) {
-  const suffix = month ? `?month=${encodeURIComponent(month)}` : "";
-  if (section === "income") return `/income${suffix}`;
-  if (section === "spending") return `/spending${suffix}`;
-  if (section === "savings") return "/accounts?tab=accounts";
-  return summaryHrefFor(section, month);
-}
 
-function isDetailPath(section: FinancialFlowWorkspaceSection, pathname: string) {
-  if (section === "income") return pathname === "/income";
-  if (section === "spending") return pathname === "/spending";
-  if (section === "savings") return pathname === "/accounts";
-  return false;
-}
 
 export function FinancialFlowWorkspaceNav({
   section,
@@ -76,14 +56,12 @@ export function FinancialFlowWorkspaceNav({
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const router = useRouter();
-  const pathname = usePathname();
   const { beginTransition } = useFinancialFlowRetained();
 
   useEffect(() => {
     const id = window.setTimeout(() => {
       for (const item of ITEMS) {
-        router.prefetch(summaryHrefFor(item.key, month));
-        router.prefetch(detailHrefFor(item.key, month));
+        router.prefetch(hrefFor(item.key, month));
       }
     }, 40);
     return () => window.clearTimeout(id);
@@ -103,7 +81,9 @@ export function FinancialFlowWorkspaceNav({
             {ITEMS.map((item) => {
               const Icon = item.icon;
               const active = item.key === section;
-              const href = active ? (isDetailPath(item.key, pathname) ? summaryHrefFor(item.key, month) : detailHrefFor(item.key, month)) : summaryHrefFor(item.key, month);
+              // One click, one place: each item opens its own page directly
+              // (the in-between summary tabs for Income and Spending are gone).
+              const href = hrefFor(item.key, month);
               return (
                 <Link
                   key={item.key}

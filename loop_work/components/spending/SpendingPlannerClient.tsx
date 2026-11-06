@@ -38,6 +38,10 @@ import {
   updateFinancialFlowLineCategories,
 } from "@/app/spending/actions";
 import { addChildCost, deleteChildCost, updateChildCost } from "@/app/household/actions";
+import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
+import { SpendingQuickAdd } from "@/components/spending/SpendingQuickAdd";
+
+const SUMMARY_COLOURS = ["#0f766e", "#f97316", "#6366f1", "#0ea5e9", "#eab308", "#ec4899", "#84cc16", "#64748b", "#a855f7", "#14b8a6"];
 
 export type Person = {
   id: string;
@@ -628,6 +632,7 @@ function plannedItemDueDate(item: PlannedItem, month: string) {
 }
 
 function plannedItemDatesForMonth(item: PlannedItem, month: string) {
+  if (monthStepFor(item.recurrence)) { const d = monthSteppedDate(item as any, month); return d ? [d] : []; }
   if (item.recurrence === "one_off") return dateIsInMonth(item.start_date, month) ? [item.start_date] : [];
   if (item.recurrence === "monthly") return isActiveInMonth(item.start_date, plannedItemForecastEndDate(item), month) ? [dueDateForMonth(month, item.payment_timing ?? "fixed_day", item.day_of_month ?? Number(item.start_date.slice(8, 10)), item.payment_adjustment ?? "previous_workday")] : [];
   const stepDays = plannedItemIntervalDays(item);
@@ -652,6 +657,7 @@ function plannedItemForecastEndDate(item: PlannedItem) {
 }
 
 function plannedItemAppliesToMonth(item: PlannedItem, month: string) {
+  if (monthStepFor(item.recurrence)) return Boolean(monthSteppedDate(item as any, month));
   return plannedItemDatesForMonth(item, month).length > 0;
 }
 
@@ -1389,6 +1395,9 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
   const [quickModeOverride, setQuickModeOverride] = useState<AddMode | null>(null);
   const [modal, setModal] = useState<ModalState>(initialAddMode ? { type: "add", mode: initialAddMode, template: initialAddTemplate } : null);
   const [editingEnabled, setEditingEnabled] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [selectedLineIds, setSelectedLineIds] = useState<string[]>([]);
   const personDisplayMode = flowSettings?.personDisplayMode ?? "both";
   const flowDateFormat = flowSettings?.dateFormat ?? "day_month_ordinal";
@@ -1435,11 +1444,19 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
   });
 
   const selectedSummary = monthSummaries.find((summary) => summary.month === selectedMonth) ?? monthSummaries[0];
+  function shiftSelectedMonth(delta: number) {
+    const [y, m] = selectedMonth.split("-").map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+    const next = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    setYear(d.getUTCFullYear());
+    setSelectedMonth(next);
+    setCategoryFilter(null);
+  }
   const selectedPerson = selectedPersonId && selectedPersonId !== "__household" ? peopleById.get(selectedPersonId) : null;
   const currentPersonLabel = selectedPersonId === "__household" ? "Household / shared" : selectedPerson ? (selectedPerson.relationship === "child" ? "Child profile" : "Adult profile") : "Spending";
   const maxAmount = Math.max(1, ...monthSummaries.map((summary) => Math.max(summary.income, summary.outgoings)));
 
-  const timelineItems = [
+  const allMonthItems = [
     ...selectedSummary.payForMonth.map((event) => ({
       id: `pay-${event.id}`,
       date: dueDateForMonth(selectedSummary.month, event.pay_timing ?? "last_workday", event.pay_day_of_month, event.pay_adjustment ?? "previous_workday"),
@@ -1529,7 +1546,22 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
         childCost: cost,
       };
     }),
-  ].filter((item) => directionFilter === "all" || item.direction === directionFilter).sort((a, b) => a.date.localeCompare(b.date));
+  ].sort((a, b) => a.date.localeCompare(b.date));
+  // Outgoings by category for the summary bar (before the in/out and category filters).
+  const categoryBreakdown = (() => {
+    const totals = new Map<string, { label: string; icon: string | null; amount: number }>();
+    for (const item of allMonthItems) {
+      if (item.direction !== "outgoing") continue;
+      const label = item.categoryLabel || "Other";
+      const row = totals.get(label) || { label, icon: (item as any).categoryIcon ?? null, amount: 0 };
+      row.amount += Number(item.amount || 0);
+      totals.set(label, row);
+    }
+    return Array.from(totals.values()).filter((row) => row.amount > 0).sort((a, b) => b.amount - a.amount);
+  })();
+  const timelineItems = allMonthItems
+    .filter((item) => directionFilter === "all" || item.direction === directionFilter)
+    .filter((item) => !categoryFilter || (item.categoryLabel || "Other") === categoryFilter);
 
   const duplicateCandidates: Array<{
     key: string;
@@ -1683,197 +1715,117 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
 
   return (
     <>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-950">Spending Flow</h1>
-          <p className="max-w-3xl text-slate-600">Filter by person, plan recurring costs, log spending and see income/outgoings in a cleaner calendar flow.</p>
-        </div>
-        <a href="/financial-flow?tab=spending" className="inline-flex shrink-0 items-center gap-1.5 rounded-[7px] bg-slate-950 px-4 py-2 text-sm font-black text-white hover:bg-slate-800">← Back to Flow</a>
-      </div>
-
-      <section className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Quick add</p>
-            <h2 className="mt-1 text-lg font-black text-slate-950">Add spending in one line</h2>
-            <p className="mt-1 text-xs font-semibold text-slate-500">
-              Try “Netflix £18”, “Tesco £95” or “Nursery £336”. LOOP pre-fills the existing form; nothing saves until you confirm it.
-            </p>
+      {/* Month summary: the main thing on this page. Filters live inside it;
+          "+" opens the step-by-step quick add. */}
+      <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => shiftSelectedMonth(-1)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-lg font-black text-slate-700 hover:bg-slate-200" aria-label="Previous month">‹</button>
+            <h1 className="min-w-[10rem] text-center text-2xl font-black tracking-tight text-slate-950">{formatMonthLabel(selectedSummary.month)}</h1>
+            <button type="button" onClick={() => shiftSelectedMonth(1)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-lg font-black text-slate-700 hover:bg-slate-200" aria-label="Next month">›</button>
           </div>
-          <a href="#spending-groups" className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-200">
-            Groups & categories
-          </a>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-          <input
-            value={quickCapture}
-            onChange={(event) => {
-              setQuickCapture(event.target.value);
-              setQuickModeOverride(null);
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" || !quickCapture.trim()) return;
-              event.preventDefault();
-              openAdd(effectiveQuickMode, {
-                label: quickPreview.label,
-                amount: quickPreview.amount ?? undefined,
-                direction: "outgoing",
-                itemType: quickPreview.itemType,
-                recurrence: effectiveQuickMode === "monthly" ? "monthly" : "one_off",
-                categoryKey: quickPreview.categoryKey || undefined,
-              });
-            }}
-            placeholder='e.g. "Netflix £18"'
-            className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-emerald-300 focus:bg-white"
-          />
-          <button
-            type="button"
-            disabled={!quickCapture.trim()}
-            onClick={() => openAdd(effectiveQuickMode, {
-              label: quickPreview.label,
-              amount: quickPreview.amount ?? undefined,
-              direction: "outgoing",
-              itemType: quickPreview.itemType,
-              recurrence: effectiveQuickMode === "monthly" ? "monthly" : "one_off",
-              categoryKey: quickPreview.categoryKey || undefined,
-            })}
-            className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:bg-slate-300"
-          >
-            Add
-          </button>
-        </div>
-
-        {quickCapture.trim() ? (
-          <div className="mt-3">
-            <div className="flex flex-wrap gap-2">
-              {quickPreview.amount != null ? (
-                <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-700">
-                  £{quickPreview.amount.toLocaleString("en-GB", { maximumFractionDigits: 2 })}
-                </span>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setQuickModeOverride(effectiveQuickMode === "monthly" ? "one_off" : "monthly")}
-                className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-800"
-                title="Click to switch between regular and one-off"
-              >
-                {effectiveQuickMode === "monthly" ? "Monthly" : effectiveQuickMode === "child_cost" ? "Child cost" : "One-off"}
-              </button>
-              <a href="#spending-groups" className="rounded-full bg-violet-50 px-3 py-1.5 text-xs font-black text-violet-800">
-                {quickPreview.categoryLabel}
-              </a>
-              <a href="#spending-groups" className="rounded-full bg-sky-50 px-3 py-1.5 text-xs font-black text-sky-800">
-                {quickPreview.groupLabel}
-              </a>
-            </div>
-            <p className="mt-2 text-xs font-semibold text-slate-500">
-              <span className="font-black text-slate-700">Why?</span> {quickPreview.reason} Category suggestion: {quickPreview.categoryLabel}{quickPreview.groupLabel !== "No group yet" ? ` in ${quickPreview.groupLabel}` : ""}.
-            </p>
+          <div className="flex items-center gap-2">
+            <details className="relative">
+              <summary className="cursor-pointer list-none rounded-full bg-slate-100 px-4 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-200">More</summary>
+              <div className="absolute right-0 z-40 mt-2 grid min-w-56 gap-1 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                {shouldShowChildCosts ? <button type="button" onClick={() => openAdd("child_cost")} className="rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50">Add a child cost</button> : null}
+                <button type="button" onClick={() => openAdd("bank_import")} className="rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50">Import bank statement</button>
+                <button type="button" onClick={() => openAdd("monthly")} className="rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50">Detailed bill form</button>
+                <a href="/spending/categories" className="rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50">Categories & groups</a>
+              </div>
+            </details>
+            <button type="button" onClick={() => setQuickAddOpen(true)} className="grid h-12 w-12 place-items-center rounded-full bg-emerald-600 text-2xl font-black text-white shadow-lg shadow-emerald-600/25 hover:bg-emerald-700" aria-label="Add spending">+</button>
           </div>
-        ) : null}
-
-        {quickGroupCounts.length ? (
-          <div className="mt-4 border-t border-slate-100 pt-3">
-            <p className="mb-2 text-[10px] font-black uppercase tracking-wide text-slate-400">Jump to a group</p>
-            <div className="flex flex-wrap gap-2">
-              {quickGroupCounts.map((group) => (
-                <a
-                  key={group.id}
-                  href={`#spending-group-${group.id}`}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-600 hover:border-slate-300"
-                >
-                  {group.icon ? `${group.icon} ` : ""}{group.name} · {group.count}
-                </a>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-4">
-        <StatCard title={`${formatMonthLabel(selectedSummary.month)} income`} value={money(selectedSummary.income)} helper={currentPersonLabel} />
-        <StatCard title={`${formatMonthLabel(selectedSummary.month)} outgoings`} value={money(selectedSummary.outgoings)} helper={currentPersonLabel} />
-        <StatCard title="Expected net" value={money(selectedSummary.net)} helper="Income minus outgoings" />
-        <StatCard title="Timeline lines" value={String(timelineItems.length)} helper="Visible for selected month" />
-      </section>
-
-      <section className="flex flex-wrap items-center justify-between gap-3 rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">Add or manage</p>
-          <p className="mt-1 text-sm font-bold text-slate-600">
-            {plannedItems.filter((item) => item.recurrence === "monthly").length} regular · {selectedSummary.entriesForMonth.length} one-off · {childCosts.length} child cost
-          </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <details className="relative">
-            <summary className="cursor-pointer list-none rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white">+ Add</summary>
-            <div className="absolute right-0 z-40 mt-2 grid min-w-56 gap-1 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-              <button type="button" onClick={() => openAdd("monthly")} className="rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50">Regular payment</button>
-              <button type="button" onClick={() => openAdd("one_off")} className="rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50">One-off spend</button>
-              {shouldShowChildCosts ? <button type="button" onClick={() => openAdd("child_cost")} className="rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50">Child cost</button> : null}
-              <button type="button" onClick={() => openAdd("bank_import")} className="rounded-xl px-3 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-50">Import bank CSV</button>
-            </div>
-          </details>
-          <a href="/spending/categories" className="rounded-full bg-slate-100 px-4 py-2 text-xs font-black text-slate-700">Categories</a>
-        </div>
-      </section>
 
-
-      <SectionCard title="Filter by person" description="Use this to see only one child/adult's income and costs. Shared household items stay under Household.">
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setSelectedPersonId("")}
-            className={`rounded-full px-4 py-2 text-sm font-bold ${!selectedPersonId ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
-          >
-            Money in & out
-          </button>
-          {hasHousehold ? (
-            <button
-              type="button"
-              onClick={() => setSelectedPersonId("__household")}
-              className={`rounded-full px-4 py-2 text-sm font-bold ${selectedPersonId === "__household" ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
-            >
-              Household / shared
-            </button>
-          ) : null}
-          {people.map((person) => (
-            <button
-              key={person.id}
-              type="button"
-              onClick={() => setSelectedPersonId(person.id)}
-              className={`rounded-full px-4 py-2 text-sm font-bold ${selectedPersonId === person.id ? "bg-slate-950 text-white" : person.relationship === "child" ? "bg-sky-100/60 text-sky-900 hover:bg-sky-100" : "bg-orange-100 text-orange-900 hover:bg-orange-200"}`}
-            >
-              {person.name}
-            </button>
-          ))}
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
-          <span className="text-xs font-black uppercase tracking-wide text-slate-500">Show</span>
+        <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100">
           {[
-            { value: "all" as const, label: "All lines" },
-            { value: "income" as const, label: "Income only" },
-            { value: "outgoing" as const, label: "Outgoings only" },
-          ].map((option) => (
+            { key: "income" as const, label: "Money in", value: selectedSummary.income, tone: "text-emerald-700" },
+            { key: "outgoing" as const, label: "Money out", value: selectedSummary.outgoings, tone: "text-slate-950" },
+            { key: "all" as const, label: "Left over", value: selectedSummary.net, tone: selectedSummary.net >= 0 ? "text-sky-700" : "text-rose-700" },
+          ].map((stat) => (
             <button
-              key={option.value}
+              key={stat.label}
               type="button"
-              onClick={() => setDirectionFilter(option.value)}
-              className={`rounded-full px-4 py-2 text-sm font-bold ${directionFilter === option.value ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+              onClick={() => { setDirectionFilter(directionFilter === stat.key ? "all" : stat.key); setCategoryFilter(null); }}
+              className={`px-5 py-4 text-left transition hover:bg-slate-50 ${directionFilter === stat.key && stat.key !== "all" ? "bg-slate-50" : ""}`}
+              aria-pressed={directionFilter === stat.key}
             >
-              {option.label}
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">{stat.label}</p>
+              <p className={`mt-1 text-2xl font-black md:text-3xl ${stat.tone}`}>{money(stat.value)}</p>
             </button>
           ))}
         </div>
-      </SectionCard>
+
+        <div className="px-5 py-4">
+          {categoryBreakdown.length ? (
+            <>
+              <div className="flex h-5 w-full overflow-hidden rounded-full bg-slate-100">
+                {categoryBreakdown.map((row, i) => (
+                  <button
+                    key={row.label}
+                    type="button"
+                    title={`${row.label}: ${money(row.amount)}`}
+                    onClick={() => { setCategoryFilter(categoryFilter === row.label ? null : row.label); setDirectionFilter("all"); }}
+                    style={{ width: `${(row.amount / Math.max(1, selectedSummary.outgoings)) * 100}%`, backgroundColor: SUMMARY_COLOURS[i % SUMMARY_COLOURS.length], opacity: categoryFilter && categoryFilter !== row.label ? 0.25 : 1 }}
+                    className="h-full transition"
+                    aria-label={`Show ${row.label}`}
+                  />
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {categoryBreakdown.map((row, i) => (
+                  <button
+                    key={row.label}
+                    type="button"
+                    onClick={() => { setCategoryFilter(categoryFilter === row.label ? null : row.label); setDirectionFilter("all"); }}
+                    aria-pressed={categoryFilter === row.label}
+                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black transition ${categoryFilter === row.label ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                  >
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SUMMARY_COLOURS[i % SUMMARY_COLOURS.length] }} />
+                    {row.label} · {money(row.amount)}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm font-semibold text-slate-500">Nothing going out this month yet. Press + to add your first bill or spend.</p>
+          )}
+
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+            {[{ id: "", name: "Everyone" }, ...(hasHousehold ? [{ id: "__household", name: "Shared" }] : []), ...people.map((p) => ({ id: p.id, name: p.name }))].map((option) => (
+              <button
+                key={option.id || "all"}
+                type="button"
+                onClick={() => setSelectedPersonId(option.id)}
+                className={`rounded-full px-3 py-1.5 text-xs font-black ${selectedPersonId === option.id ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+              >
+                {option.name}
+              </button>
+            ))}
+            {(categoryFilter || directionFilter !== "all") ? (
+              <button type="button" onClick={() => { setCategoryFilter(null); setDirectionFilter("all"); }} className="ml-auto rounded-full px-3 py-1.5 text-xs font-black text-emerald-700 hover:bg-emerald-50">Clear filters</button>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      {toast ? (
+        <div className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-xl" role="status">{toast}</div>
+      ) : null}
+      {quickAddOpen ? (
+        <SpendingQuickAdd
+          people={people}
+          onClose={() => setQuickAddOpen(false)}
+          onSaved={(message) => { setToast(message); window.setTimeout(() => setToast(null), 3500); }}
+        />
+      ) : null}
 
       <div id="month-lines" className="scroll-mt-28" />
-      <SectionCard title={!selectedPersonId ? `${formatMonthLabel(selectedSummary.month)}: money in & out` : `${formatMonthLabel(selectedSummary.month)} lines for ${currentPersonLabel}`} description="Incoming and outgoing lines are shown together by date. Edit/delete controls are locked until you switch editing on.">
+      <SectionCard title={!selectedPersonId ? `${formatMonthLabel(selectedSummary.month)}: money in & out` : `${formatMonthLabel(selectedSummary.month)} lines for ${currentPersonLabel}`} description={categoryFilter ? `Showing ${categoryFilter} only.` : directionFilter !== "all" ? `Showing money ${directionFilter === "income" ? "in" : "out"} only.` : "Everything in and out this month, by date."}>
         <div className="mb-4 flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white/70 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-black text-slate-950">{editingEnabled ? "Editing is on" : "Viewing mode"}</p>
-            <p className="mt-1 text-xs font-bold text-slate-500">Amounts stay visible in green/red. Use Account settings to change person labels, bill logos and date format.</p>
+            <p className="text-sm font-black text-slate-950">{editingEnabled ? "Editing is on" : `${timelineItems.length} line${timelineItems.length === 1 ? "" : "s"}`}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {billLogoMode !== "off" ? (
@@ -2008,7 +1960,7 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
               </div>
             );
           })}
-          {timelineItems.length === 0 ? <p className="text-sm text-slate-500">Nothing planned or logged for this month/filter yet. Use one of the add cards above to add something.</p> : null}
+          {timelineItems.length === 0 ? <p className="text-sm text-slate-500">Nothing here for this month or filter. Press + to add something.</p> : null}
         </div>
       </SectionCard>
 
