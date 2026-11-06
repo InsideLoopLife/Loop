@@ -187,6 +187,7 @@ function getPayMonthlyNet(event: PayEvent, month = currentBillingMonth()) {
     grossAnnual: Number(event.gross_annual_salary),
     pensionPercent: Number(event.pension_percent),
     pensionMethod: event.pension_method ?? "net_pay",
+    taxRegion: (event as any).tax_region,
     studentLoanPlan: event.student_loan_plan,
   }).monthlyTakeHome;
 }
@@ -203,7 +204,7 @@ function headerClasses(relationship: Person["relationship"]) {
 }
 
 function payEventSelectFields() {
-  return "id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, pay_timing, pay_day_of_month, pay_adjustment, maternity_scheme, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate";
+  return "id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, pay_timing, pay_day_of_month, pay_adjustment, maternity_scheme, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, tax_region";
 }
 
 export default async function PersonPage({ params }: { params: Promise<{ personId: string }> }) {

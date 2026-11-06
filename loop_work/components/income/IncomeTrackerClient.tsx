@@ -263,6 +263,7 @@ function getPayEventBreakdown(event: PayEvent, month: string) {
     grossAnnual: Number(event.gross_annual_salary),
     pensionPercent: Number(event.pension_percent),
     pensionMethod: event.pension_method ?? "net_pay",
+    taxRegion: (event as any).tax_region,
     studentLoanPlan: event.student_loan_plan,
   });
 

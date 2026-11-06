@@ -738,7 +738,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       .returns<ChildEssentialCost[]>(),
     supabase
       .from("pay_events")
-      .select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, employer_pension_percent, employer_pension_monthly_amount, employer_ni_topup_enabled, employer_ni_rate_percent, employer_ni_topup_share_percent, effective_from, effective_until")
+      .select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, employer_pension_percent, employer_pension_monthly_amount, employer_ni_topup_enabled, employer_ni_rate_percent, employer_ni_topup_share_percent, effective_from, effective_until, tax_region")
       .or(householdMemberFilter)
       .returns<PayEvent[]>(),
     supabase
@@ -796,7 +796,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   if (!payEvents.length) {
     const { data: fallbackPayEvents } = await supabase
       .from("pay_events")
-      .select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, effective_from, effective_until")
+      .select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, effective_from, effective_until, tax_region")
       .or(householdMemberFilter)
       .returns<PayEvent[]>();
     payEvents = fallbackPayEvents ?? [];

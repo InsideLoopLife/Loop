@@ -66,7 +66,7 @@ async function existingBillLabels(supabase: any, userId: string) {
   return new Set<string>((data || []).map((row: any) => String(row.label || "").trim().toLowerCase()));
 }
 
-async function savePay(supabase: any, userId: string, personId: string, formData: FormData, prefix: string, label: string) {
+async function savePay(supabase: any, userId: string, personId: string, formData: FormData, prefix: string, label: string, taxRegion: "rUK" | "scotland" = "rUK") {
   const gross = parseNumber(formData.get(`${prefix}_gross_annual_salary`));
   const takeHome = parseNumber(formData.get(`${prefix}_monthly_take_home`));
   if (!gross && !takeHome) return;
@@ -93,6 +93,7 @@ async function savePay(supabase: any, userId: string, personId: string, formData
     pension_method: pensionMethod,
     employer_pension_percent: inPension && isNhs ? NHS_EMPLOYER_CONTRIBUTION_PERCENT_2026_27 : null,
     student_loan_plan: studentLoanPlan,
+    tax_region: taxRegion,
     pay_timing: payDay ? "fixed_day" : "last_workday",
     pay_day_of_month: payDay ?? 28,
     effective_from: new Date().toISOString().slice(0, 10),
@@ -275,10 +276,18 @@ export async function completeGuidedSetup(formData: FormData) {
     }
   }
 
-  // 3–4. Pay, pension and student loan.
-  if (selfId) await attempt("your pay", () => savePay(supabase, user.id, selfId, formData, "self", "Salary"));
+  // 3–4. Pay, pension and student loan. A Scottish home postcode means
+  // Scottish income tax bands (the household's pay is taxed where they live).
+  let taxRegion: "rUK" | "scotland" = "rUK";
+  const homeCountry = text(formData, "council_tax_country");
+  if (homeCountry) taxRegion = homeCountry === "SCT" ? "scotland" : "rUK";
+  else if (text(formData, "home_postcode")) {
+    const place = await lookupPostcode(text(formData, "home_postcode")).catch(() => null);
+    if (String(place?.country || "").toLowerCase() === "scotland") taxRegion = "scotland";
+  }
+  if (selfId) await attempt("your pay", () => savePay(supabase, user.id, selfId, formData, "self", "Salary", taxRegion));
   else if (parseNumber(formData.get("self_gross_annual_salary")) || parseNumber(formData.get("self_monthly_take_home"))) problems.push("your pay");
-  if (partnerId) await attempt("your partner's pay", () => savePay(supabase, user.id, partnerId as string, formData, "partner", `${partnerName} salary`));
+  if (partnerId) await attempt("your partner's pay", () => savePay(supabase, user.id, partnerId as string, formData, "partner", `${partnerName} salary`, taxRegion));
 
   // 5. Your home (rent / council tax / home and mortgage records).
   const labels = await existingBillLabels(supabase, user.id);

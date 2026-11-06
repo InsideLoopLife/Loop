@@ -456,7 +456,8 @@ function monthlyPay(event: PayEvent & { overrides?: PayEventOverrideForPlan[] },
       grossAnnual: gross,
       pensionPercent: n(event.pension_percent),
       pensionMethod: event.pension_method || "net_pay",
-      studentLoanPlan: event.student_loan_plan || "none",
+      taxRegion: (event as any).tax_region,
+    studentLoanPlan: event.student_loan_plan || "none",
     }).monthlyTakeHome * fraction
   );
 }
@@ -967,7 +968,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
   const [profileResult, peopleResult, payResult, incomeResult, plannedResult, spendingEntriesResult, categoriesResult, categoryGroupsResult, accountsResult, pensionsResult, movementsResult, potsResult, potAllocationsResult, dealsResult, childCostsResult] = await Promise.all([
     supabase.from("app_user_profiles").select("*").eq("user_id", user.id).maybeSingle(),
     supabase.from("people").select("id, name, relationship, user_id, linked_user_id, email, invite_email, birth_date, account_status, active_until, avatar_url").or(householdPeopleOrFilter(householdContext)).order("relationship").order("name").returns<Person[]>(),
-    supabase.from("pay_events").select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate").or(memberFilter).returns<PayEvent[]>(),
+    supabase.from("pay_events").select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, tax_region").or(memberFilter).returns<PayEvent[]>(),
     supabase.from("income_entries").select("id, person_id, label, gross_amount, net_amount, frequency, entry_date").or(memberFilter).returns<IncomeEntry[]>(),
     supabase.from("planned_items").select("id, person_id, category_id, direction, label, amount, recurrence, recurrence_interval_days, start_date, end_date, item_type, notes").or(visibleFilter).returns<PlannedItem[]>(),
     supabase.from("spending_entries").select("id, person_id, category_id, label, amount, spent_at, notes").or(visibleFilter).returns<SpendingEntry[]>(),

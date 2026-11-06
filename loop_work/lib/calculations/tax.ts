@@ -27,6 +27,45 @@ export function calculateIncomeTaxEnglandWalesNorthernIreland(grossAnnual: numbe
   return basic + higher + additional;
 }
 
+export type TaxRegion = "rUK" | "scotland";
+
+// Scottish income tax 2026-27 (Scottish Rate Resolution; gov.scot "Scottish
+// Income Tax rates and bands 2026 to 2027"). Bands are amounts of taxable
+// income above the personal allowance: starter to £16,537, basic to £29,526,
+// intermediate to £43,662, higher to £75,000, advanced to £125,140, then top.
+const SCOTTISH_BANDS_2026_27: Array<{ upTo: number; rate: number }> = [
+  { upTo: 16537 - 12570, rate: 0.19 },
+  { upTo: 29526 - 12570, rate: 0.2 },
+  { upTo: 43662 - 12570, rate: 0.21 },
+  { upTo: 75000 - 12570, rate: 0.42 },
+  { upTo: 125140 - 12570, rate: 0.45 },
+  { upTo: Number.POSITIVE_INFINITY, rate: 0.48 },
+];
+
+export function calculateIncomeTaxScotland(grossAnnual: number) {
+  const gross = Math.max(0, grossAnnual);
+  const personalAllowance = gross > 100000 ? Math.max(0, 12570 - (gross - 100000) / 2) : 12570;
+  const taxable = Math.max(0, gross - personalAllowance);
+  // Band limits are fixed amounts of taxable income; when the allowance tapers
+  // away the top band still starts at £125,140 of total income.
+  let tax = 0;
+  let lower = 0;
+  for (const band of SCOTTISH_BANDS_2026_27) {
+    const upper = band.upTo === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : band.upTo;
+    const topStart = 125140 - personalAllowance;
+    const effectiveUpper = band.rate === 0.45 ? topStart : upper;
+    const slice = Math.max(0, Math.min(taxable, effectiveUpper) - lower);
+    tax += slice * band.rate;
+    lower = Math.max(lower, effectiveUpper);
+    if (taxable <= lower) break;
+  }
+  return tax;
+}
+
+export function calculateIncomeTax(grossAnnual: number, region: TaxRegion | string | null | undefined = "rUK") {
+  return region === "scotland" ? calculateIncomeTaxScotland(grossAnnual) : calculateIncomeTaxEnglandWalesNorthernIreland(grossAnnual);
+}
+
 export function calculateEmployeeNI(grossAnnual: number) {
   const gross = Math.max(0, grossAnnual);
   const primaryThreshold = 12570;
@@ -49,11 +88,13 @@ export function estimateAnnualTakeHome({
   pensionPercent = 0,
   studentLoanPlan = "none",
   pensionMethod = "net_pay",
+  taxRegion = "rUK",
 }: {
   grossAnnual: number;
   pensionPercent?: number;
   studentLoanPlan?: StudentLoanPlan;
   pensionMethod?: PensionMethod;
+  taxRegion?: TaxRegion | string | null;
 }) {
   const gross = Math.max(0, grossAnnual);
   const method = normalisePensionMethod(pensionMethod);
@@ -65,7 +106,7 @@ export function estimateAnnualTakeHome({
   const studentLoanPay = method === "salary_sacrifice" ? Math.max(0, gross - grossPension) : gross;
   const pensionNetDeduction = method === "relief_at_source" ? grossPension * 0.8 : grossPension;
 
-  const incomeTax = calculateIncomeTaxEnglandWalesNorthernIreland(taxablePay);
+  const incomeTax = calculateIncomeTax(taxablePay, taxRegion);
   const nationalInsurance = calculateEmployeeNI(niPay);
   const studentLoan = calculateStudentLoan(studentLoanPay, studentLoanPlan);
   const annualTakeHome = gross - pensionNetDeduction - incomeTax - nationalInsurance - studentLoan;

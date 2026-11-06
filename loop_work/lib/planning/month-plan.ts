@@ -56,6 +56,7 @@ export type PayEventForPlan = {
   maternity_smp_only_weeks: number | null;
   maternity_unpaid_weeks: number | null;
   maternity_smp_weekly_rate: number | null;
+  tax_region?: string | null;
   /** Exact pay for particular months (pay_event_monthly_overrides), e.g. maternity or a bonus month. */
   overrides?: PayEventOverrideForPlan[];
 };
@@ -285,6 +286,7 @@ export function getPayAmount(event: PayEventForPlan, month: string) {
     grossAnnual: Number(event.gross_annual_salary),
     pensionPercent: Number(event.pension_percent),
     pensionMethod: event.pension_method ?? "net_pay",
+    taxRegion: (event as any).tax_region,
     studentLoanPlan: event.student_loan_plan,
   }).monthlyTakeHome;
 }

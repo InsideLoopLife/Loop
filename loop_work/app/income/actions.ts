@@ -56,6 +56,7 @@ function payEventPayload(formData: FormData, personId: string) {
     employer_ni_rate_percent: parseNumber(formData.get("employer_ni_rate_percent")) ?? 15,
     employer_ni_topup_share_percent: parseNumber(formData.get("employer_ni_topup_share_percent")) ?? 100,
     student_loan_plan: String(formData.get("student_loan_plan") || "none"),
+    tax_region: String(formData.get("tax_region") || "") === "scotland" ? "scotland" : "rUK",
     effective_from: String(formData.get("effective_from") || "") || new Date().toISOString().slice(0, 10),
     effective_until: String(formData.get("effective_until") || "") || null,
     pay_timing: String(formData.get("pay_timing") || "last_workday"),

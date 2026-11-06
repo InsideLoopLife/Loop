@@ -11,6 +11,7 @@ type PayKind = "salary" | "maternity" | "return_to_work" | "other";
 
 export type PayEventFormInitialValues = {
   id?: string;
+  tax_region?: string | null;
   person_id?: string | null;
   label?: string | null;
   pay_kind?: string | null;
@@ -118,6 +119,7 @@ export function PayEventWizard({
   const [employerNiRatePercent, setEmployerNiRatePercent] = useState(valueToString(initialValues?.employer_ni_rate_percent, "15"));
   const [employerNiTopupSharePercent, setEmployerNiTopupSharePercent] = useState(valueToString(initialValues?.employer_ni_topup_share_percent, "100"));
   const [studentLoanPlan, setStudentLoanPlan] = useState<StudentLoanPlan>(asStudentLoanPlan(initialValues?.student_loan_plan, defaultStudentLoanPlan));
+  const [taxRegion, setTaxRegion] = useState(initialValues?.tax_region === "scotland" ? "scotland" : "rUK");
   const [effectiveFrom, setEffectiveFrom] = useState(startingEffectiveFrom);
   const [effectiveUntil, setEffectiveUntil] = useState(startingEffectiveUntil);
   const [maternityLeaveStart, setMaternityLeaveStart] = useState(startingMaternityStart);
@@ -131,7 +133,7 @@ export function PayEventWizard({
   const [stepIndex, setStepIndex] = useState(0);
 
   const grossAnnual = toNumber(grossAnnualSalary);
-  const normalEstimate = useMemo(() => estimateAnnualTakeHome({ grossAnnual, pensionPercent: toNumber(pensionPercent), pensionMethod, studentLoanPlan }), [grossAnnual, pensionPercent, pensionMethod, studentLoanPlan]);
+  const normalEstimate = useMemo(() => estimateAnnualTakeHome({ grossAnnual, pensionPercent: toNumber(pensionPercent), pensionMethod, studentLoanPlan, taxRegion }), [grossAnnual, pensionPercent, pensionMethod, studentLoanPlan, taxRegion]);
 
   const maternityInput = useMemo(
     () => ({
@@ -269,6 +271,13 @@ export function PayEventWizard({
             <option value="plan_4">Plan 4</option>
             <option value="plan_5">Plan 5</option>
             <option value="postgraduate">Postgraduate</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-slate-700">Where do they pay income tax?</span>
+          <select name="tax_region" value={taxRegion} onChange={(event) => setTaxRegion(event.target.value === "scotland" ? "scotland" : "rUK")} className={inputClass}>
+            <option value="rUK">England, Wales or Northern Ireland</option>
+            <option value="scotland">Scotland (Scottish rates)</option>
           </select>
         </label>
       </div>
