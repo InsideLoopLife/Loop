@@ -8,4 +8,4 @@ Feature switches now have three enforcement layers:
 
 Turning a feature off hides its navigation and prevents its personalised background matching, but does not delete historical records. Turning it back on restores the module and existing data.
 
-Use `render.cron-only.yaml` when creating the scheduled Render services. Render cron schedules are UTC; the savings job runs at both 07:00 and 08:00 UTC and the application permits only the invocation corresponding to 08:00 Europe/London.
+See `docs/SCHEDULED_JOBS.md` for what actually runs (render.cron-only.yaml was removed). Render cron schedules are UTC; the savings job runs at both 07:00 and 08:00 UTC and the application permits only the invocation corresponding to 08:00 Europe/London.

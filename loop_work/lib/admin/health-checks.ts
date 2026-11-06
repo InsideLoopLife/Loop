@@ -23,18 +23,30 @@ async function latest(db: SupabaseClient, table: string, column: string) {
 export function buildHealthChecks(db: SupabaseClient, ratesDb: SupabaseClient | null): Check[] {
   return [
     {
-      key: "boe_benchmarks_stale", area: "rates", title: "Bank of England mortgage benchmarks not updating", actionUrl: "/admin/databases-infrastructure",
+      key: "boe_benchmarks_stale", area: "rates", title: "Bank Rate not updating", actionUrl: "/admin/boe-benchmarks",
       run: async () => {
-        // Monthly series: allow ~6 weeks between new rows before alerting.
-        const clients = [ratesDb, db].filter(Boolean) as SupabaseClient[];
-        let newest: string | null | undefined = null;
-        for (const client of clients) {
-          try { newest = (await latest(client, "mortgage_market_rate_benchmarks", "fetched_at")) || newest; } catch { /* table may live in either project */ }
-        }
-        const age = hoursSince(newest);
-        return age < 24 * 45
-          ? { ok: true, summary: `Last update ${newest}` }
-          : { ok: false, severity: "high", summary: newest ? `No new benchmark rows since ${newest.slice(0, 10)}.` : "No benchmark rows have ever been saved. Mortgage comparisons fall back to lender sources only." };
+        // Bank Rate is read every morning by the rates worker.
+        if (!ratesDb) return { ok: true, summary: "Rates database not configured here." };
+        const { data } = await ratesDb.from("mortgage_market_rate_benchmarks").select("fetched_at").eq("term_type", "bank_rate").order("fetched_at", { ascending: false }).limit(1).maybeSingle();
+        const newest = (data as any)?.fetched_at as string | undefined;
+        return hoursSince(newest) < 72
+          ? { ok: true, summary: `Last checked ${newest}` }
+          : { ok: false, severity: "high", summary: `Bank Rate last read ${newest ? newest.slice(0, 10) : "never"}. Check the boeBenchmarks phase in the rates worker logs.` };
+      },
+    },
+    {
+      key: "boe_mortgage_averages_due", area: "rates", title: "Upload this month's Bank of England mortgage averages", actionUrl: "/admin/boe-benchmarks",
+      run: async () => {
+        // Published on the 5th working day for the month before, so by the 12th
+        // last month's figures should be in. Uploaded by an admin (see page).
+        if (!ratesDb) return { ok: true, summary: "Rates database not configured here." };
+        const { data } = await ratesDb.from("mortgage_market_rate_benchmarks").select("effective_month").neq("term_type", "bank_rate").order("effective_month", { ascending: false }).limit(1).maybeSingle();
+        const newest = (data as any)?.effective_month as string | undefined;
+        const now = new Date();
+        const expected = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (now.getUTCDate() >= 12 ? 1 : 2), 1)).toISOString().slice(0, 10);
+        return newest && newest >= expected
+          ? { ok: true, summary: `Latest month ${newest.slice(0, 7)}` }
+          : { ok: false, severity: "medium", summary: `Latest averages are for ${newest ? newest.slice(0, 7) : "no month yet"}. Download and upload the CSV at /admin/boe-benchmarks (about 2 minutes).` };
       },
     },
     {
