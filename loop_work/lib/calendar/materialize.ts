@@ -1,252 +1,246 @@
 // lib/calendar/materialize.ts
 //
-// Turns real Loop data into calendar_events rows: planned_items (bills/
-// income) and food_logs (calorie progress), for every member of a
-// household. Run once daily per household from the Render worker.
+// Turns real Loop data into calendar_events rows for a household:
+//   - planned_items  -> payment_due / income_expected on each due date
+//   - pay_events     -> income_expected on each pay day, with take-home pay
+//   - food_logs      -> calorie_progress per person per day
+// Runs daily from /api/cron/calendar-sync (called by the rates worker's
+// maintenance list) and right after guided setup.
 //
-// Verified against the live repo directly:
-//   - planned_items: id, user_id, household_id, visibility_scope,
-//     person_id, category_id, direction ('incoming'|'outgoing'),
-//     item_type, label, amount, recurrence, recurrence_interval_days,
-//     start_date, end_date, day_of_month, payment_timing,
-//     payment_adjustment, end_behavior
-//   - food_logs: id, user_id, person_id, meal_id, eaten_on, eaten_at,
-//     calories, ...
-//   - people: id, user_id, household_id, name, relationship,
-//     daily_calorie_target (new column, added in the migration)
-//
-// One thing NOT verified: `payment_adjustment` ('fixed_day' |
-// 'previous_workday' seen in app/spending/actions.ts) implies some
-// planned items shift off weekends/bank holidays. This materializer
-// does NOT apply that adjustment — it uses the raw day_of_month. If
-// that matters for your "noticeable payment point" markers being
-// exactly right, that logic needs porting in from wherever
-// payment_adjustment is actually consumed (I didn't find the resolver
-// — only the field being set — search app/spending and lib/affordability
-// for where `payment_adjustment` is read, not just written).
+// Amounts and pay-date rules come from existing logic: take-home pay uses
+// getPayAmount (same tax/NI/pension/student-loan/maternity maths as the
+// month plan). Weekend pay days move to the previous working day; bank
+// holidays are not yet applied.
 
-import type { SupabaseClient } from '@supabase/supabase-js';
-import type { ActiveHouseholdContext } from '@/domains/identity/household';
-import type { CalorieProgressMetadata } from './types';
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ActiveHouseholdContext } from "@/domains/identity/household";
+import { getPayAmount, selectActivePayEventsForMonth, type PayEventForPlan } from "@/lib/planning/month-plan";
+import type { CalorieProgressMetadata } from "./types";
 
-const MATERIALIZE_WINDOW_DAYS = 45;
+const WINDOW_DAYS = 45;
 const DEFAULT_CALORIE_TARGET = 2200; // matches DAILY_TARGETS.calories in NutritionClient.tsx
+const DAY_MS = 86_400_000;
 
-type Recurrence =
-  | 'weekly'
-  | 'fortnightly'
-  | 'four_weekly'
-  | 'monthly'
-  | 'quarterly'
-  | 'annual'
-  | 'annually'
-  | 'yearly'
-  | 'custom_interval'
-  | 'one_off';
-
-interface PlannedItem {
+type PlannedItem = {
   id: string;
   user_id: string;
   person_id: string | null;
-  direction: 'incoming' | 'outgoing';
+  direction: string;
   label: string;
   amount: number;
-  recurrence: Recurrence;
+  recurrence: string;
   recurrence_interval_days: number | null;
   start_date: string;
   end_date: string | null;
   day_of_month: number | null;
+  payment_adjustment: string | null;
+};
+
+type MaterializeOptions = { db: SupabaseClient; household: ActiveHouseholdContext; today?: Date };
+
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+const utc = (dateString: string) => new Date(`${dateString}T00:00:00Z`);
+const daysInMonth = (y: number, m: number) => new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+
+/** A day-of-month in a given month, clamped (31st in February -> 28th/29th). */
+function dayInMonth(y: number, m: number, day: number) {
+  return new Date(Date.UTC(y, m, Math.min(Math.max(1, day), daysInMonth(y, m))));
 }
 
-interface MaterializeOptions {
-  db: SupabaseClient;
-  household: ActiveHouseholdContext;
-  today?: Date;
+/** Saturday/Sunday -> the Friday before (UK payroll/direct debit norm). */
+function previousWorkday(d: Date) {
+  const out = new Date(d);
+  while (out.getUTCDay() === 0 || out.getUTCDay() === 6) out.setUTCDate(out.getUTCDate() - 1);
+  return out;
 }
 
-/** Every occurrence date of a planned_item within [today, windowEnd]. */
-function occurrencesInWindow(item: PlannedItem, today: Date, windowEnd: Date): string[] {
-  const start = new Date(item.start_date + 'T00:00:00Z');
-  const end = item.end_date ? new Date(item.end_date + 'T00:00:00Z') : null;
+function lastWorkdayOfMonth(y: number, m: number) {
+  return previousWorkday(new Date(Date.UTC(y, m, daysInMonth(y, m))));
+}
+
+/** Months (y, m) overlapping [from, to]. */
+function monthsBetween(from: Date, to: Date) {
+  const out: Array<[number, number]> = [];
+  let y = from.getUTCFullYear();
+  let m = from.getUTCMonth();
+  while (y < to.getUTCFullYear() || (y === to.getUTCFullYear() && m <= to.getUTCMonth())) {
+    out.push([y, m]);
+    m += 1;
+    if (m > 11) { m = 0; y += 1; }
+  }
+  return out;
+}
+
+export function plannedItemDates(item: PlannedItem, from: Date, to: Date): string[] {
+  if (!item.start_date) return [];
+  const start = utc(item.start_date);
+  const end = item.end_date ? utc(item.end_date) : null;
+  const within = (d: Date) => d >= from && d <= to && d >= start && (!end || d <= end);
+  const recurrence = String(item.recurrence || "monthly");
+
+  if (recurrence === "one_off") return within(start) ? [item.start_date] : [];
+
+  if (recurrence === "monthly" || recurrence === "quarterly" || ["annual", "annually", "yearly"].includes(recurrence)) {
+    const step = recurrence === "monthly" ? 1 : recurrence === "quarterly" ? 3 : 12;
+    const day = item.day_of_month || start.getUTCDate();
+    return monthsBetween(from, to)
+      .filter(([y, m]) => ((y - start.getUTCFullYear()) * 12 + (m - start.getUTCMonth())) % step === 0)
+      .map(([y, m]) => {
+        const due = dayInMonth(y, m, day);
+        return item.payment_adjustment === "previous_workday" ? previousWorkday(due) : due;
+      })
+      .filter(within)
+      .map(iso);
+  }
+
+  const interval =
+    recurrence === "weekly" ? 7 :
+    recurrence === "fortnightly" ? 14 :
+    recurrence === "four_weekly" ? 28 :
+    recurrence === "custom_interval" ? Number(item.recurrence_interval_days || 0) : 0;
+  if (!interval) return [];
+
+  // Step along the item's own grid from its start date.
+  const firstIndex = Math.max(0, Math.ceil((from.getTime() - start.getTime()) / (interval * DAY_MS)));
   const dates: string[] = [];
-
-  if (item.recurrence === 'one_off') {
-    if (start >= today && start <= windowEnd) dates.push(item.start_date);
-    return dates;
+  for (let i = firstIndex; ; i++) {
+    const d = new Date(start.getTime() + i * interval * DAY_MS);
+    if (d > to || (end && d > end)) break;
+    if (within(d)) dates.push(iso(d));
   }
-
-  if (item.recurrence === 'monthly' && item.day_of_month) {
-    const cursor = new Date(today);
-    for (let i = 0; i < 3; i++) {
-      // check this month, next month, month after — enough to cover a 45-day window
-      const candidate = new Date(cursor.getFullYear(), cursor.getMonth() + i, item.day_of_month);
-      if (candidate >= start && (!end || candidate <= end) && candidate >= today && candidate <= windowEnd) {
-        dates.push(candidate.toISOString().slice(0, 10));
-      }
-    }
-    return dates;
-  }
-
-  const intervalDays: number | null =
-    item.recurrence === 'weekly'
-      ? 7
-      : item.recurrence === 'fortnightly'
-        ? 14
-        : item.recurrence === 'four_weekly'
-          ? 28
-          : item.recurrence === 'custom_interval'
-            ? item.recurrence_interval_days
-            : null;
-
-  if (intervalDays) {
-    let cursor = new Date(Math.max(start.getTime(), today.getTime()));
-    // align to the recurrence grid from start_date rather than "today"
-    const daysSinceStart = Math.floor((cursor.getTime() - start.getTime()) / 86_400_000);
-    const remainder = daysSinceStart % intervalDays;
-    if (remainder !== 0) cursor = new Date(cursor.getTime() + (intervalDays - remainder) * 86_400_000);
-
-    while (cursor <= windowEnd && (!end || cursor <= end)) {
-      dates.push(cursor.toISOString().slice(0, 10));
-      cursor = new Date(cursor.getTime() + intervalDays * 86_400_000);
-    }
-    return dates;
-  }
-
-  if (['quarterly', 'annual', 'annually', 'yearly'].includes(item.recurrence)) {
-    const monthsStep = item.recurrence === 'quarterly' ? 3 : 12;
-    const cursor = new Date(start);
-    while (cursor <= windowEnd) {
-      if (cursor >= today && (!end || cursor <= end)) dates.push(cursor.toISOString().slice(0, 10));
-      cursor.setMonth(cursor.getMonth() + monthsStep);
-    }
-    return dates;
-  }
-
   return dates;
 }
 
+function payDate(event: any, y: number, m: number) {
+  const timing = String(event.pay_timing || event.payment_timing || "last_workday");
+  if (timing === "fixed_day") {
+    const due = dayInMonth(y, m, Number(event.pay_day_of_month || event.payment_day_of_month || 28));
+    return String(event.pay_adjustment || "previous_workday") === "previous_workday" ? previousWorkday(due) : due;
+  }
+  return lastWorkdayOfMonth(y, m);
+}
+
 export async function materializePaymentsAndIncome({ db, household, today = new Date() }: MaterializeOptions) {
-  const windowEnd = new Date(today);
-  windowEnd.setDate(windowEnd.getDate() + MATERIALIZE_WINDOW_DAYS);
-
+  const from = utc(iso(today));
+  const to = new Date(from.getTime() + WINDOW_DAYS * DAY_MS);
   const memberIds = household.memberUserIds;
-  const { data: items, error } = await db
-    .from('planned_items')
-    .select('id, user_id, person_id, direction, label, amount, recurrence, recurrence_interval_days, start_date, end_date, day_of_month')
-    .in('user_id', memberIds);
 
-  if (error) {
-    console.error(`[materialize] planned_items fetch failed for household ${household.householdId}:`, error.message);
-    return;
+  const [{ data: items, error: itemsError }, { data: payEvents, error: payError }] = await Promise.all([
+    db.from("planned_items")
+      .select("id, user_id, person_id, direction, label, amount, recurrence, recurrence_interval_days, start_date, end_date, day_of_month, payment_adjustment")
+      .in("user_id", memberIds),
+    db.from("pay_events").select("*").in("user_id", memberIds),
+  ]);
+  if (itemsError) throw new Error(`planned_items: ${itemsError.message}`);
+  if (payError) throw new Error(`pay_events: ${payError.message}`);
+
+  const rows: any[] = [];
+  const base = { household_id: household.householdId, visibility_scope: "household" as const, metadata: {} };
+
+  for (const item of (items || []) as PlannedItem[]) {
+    const incoming = item.direction === "income" || item.direction === "incoming";
+    for (const date of plannedItemDates(item, from, to)) {
+      rows.push({
+        ...base,
+        user_id: item.user_id,
+        person_id: item.person_id,
+        source: incoming ? "loop_income" : "loop_payment",
+        event_type: incoming ? "income_expected" : "payment_due",
+        external_id: `planned_item:${item.id}:${date}`,
+        title: item.label,
+        event_date: date,
+        amount: item.amount,
+      });
+    }
   }
-  if (!items?.length) return;
 
-  const rows = (items as PlannedItem[]).flatMap((item) => {
-    const dates = occurrencesInWindow(item, today, windowEnd);
-    return dates.map((date) => ({
-      user_id: item.user_id,
-      household_id: household.householdId,
-      visibility_scope: 'household' as const,
-      person_id: item.person_id,
-      source: item.direction === 'incoming' ? ('loop_income' as const) : ('loop_payment' as const),
-      external_id: `planned_item:${item.id}:${date}`,
-      event_type: item.direction === 'incoming' ? ('income_expected' as const) : ('payment_due' as const),
-      title: item.label,
-      event_date: date,
-      amount: item.amount,
-      metadata: {},
-    }));
-  });
-
-  if (!rows.length) return;
-
-  const { error: upsertError } = await db
-    .from('calendar_events')
-    .upsert(rows, { onConflict: 'user_id,source,event_type,event_date,external_id' });
-
-  if (upsertError) {
-    console.error(`[materialize] payment/income upsert failed for household ${household.householdId}:`, upsertError.message);
+  // Pay: one entry per person per month (latest active pay event, as the month plan does).
+  for (const [y, m] of monthsBetween(from, to)) {
+    const month = `${y}-${String(m + 1).padStart(2, "0")}`;
+    for (const event of selectActivePayEventsForMonth((payEvents || []) as PayEventForPlan[], month) as any[]) {
+      const date = payDate(event, y, m);
+      if (date < from || date > to) continue;
+      const amount = Math.round(getPayAmount(event, month) * 100) / 100;
+      if (!(amount > 0)) continue;
+      rows.push({
+        ...base,
+        user_id: event.user_id,
+        person_id: event.person_id,
+        source: "loop_income",
+        event_type: "income_expected",
+        external_id: `pay_event:${event.id}:${iso(date)}`,
+        title: event.label || "Pay day",
+        event_date: iso(date),
+        amount,
+      });
+    }
   }
+
+  // Rebuild the forward window so deleted or edited items don't leave ghosts.
+  const { error: clearError } = await db
+    .from("calendar_events")
+    .delete()
+    .in("user_id", memberIds)
+    .in("source", ["loop_payment", "loop_income"])
+    .gte("event_date", iso(from));
+  if (clearError) throw new Error(`clear: ${clearError.message}`);
+
+  if (!rows.length) return 0;
+  const { error } = await db.from("calendar_events").upsert(rows, { onConflict: "user_id,source,event_type,event_date,external_id" });
+  if (error) throw new Error(`upsert: ${error.message}`);
+  return rows.length;
 }
 
 export async function materializeCalorieProgress({ db, household, today = new Date() }: MaterializeOptions) {
-  const windowStart = new Date(today);
-  windowStart.setDate(windowStart.getDate() - 7);
-
+  const windowStart = new Date(today.getTime() - 7 * DAY_MS);
   const memberIds = household.memberUserIds;
 
-  const { data: people, error: peopleError } = await db
-    .from('people')
-    .select('id, user_id, daily_calorie_target')
-    .in('user_id', memberIds);
-
-  if (peopleError) {
-    console.error(`[materialize] people fetch failed for household ${household.householdId}:`, peopleError.message);
-    return;
-  }
-
-  const targetByPersonId = new Map<string, number>();
-  for (const person of people ?? []) {
-    targetByPersonId.set(person.id, person.daily_calorie_target ?? DEFAULT_CALORIE_TARGET);
-  }
+  const { data: people, error: peopleError } = await db.from("people").select("id, user_id, daily_calorie_target").in("user_id", memberIds);
+  if (peopleError) throw new Error(`people: ${peopleError.message}`);
+  const targetByPersonId = new Map<string, number | null>((people || []).map((p: any) => [p.id, p.daily_calorie_target]));
 
   const { data: logs, error: logsError } = await db
-    .from('food_logs')
-    .select('user_id, person_id, eaten_on, calories')
-    .in('user_id', memberIds)
-    .gte('eaten_on', windowStart.toISOString().slice(0, 10));
+    .from("food_logs")
+    .select("user_id, person_id, eaten_on, calories")
+    .in("user_id", memberIds)
+    .gte("eaten_on", iso(windowStart));
+  if (logsError) throw new Error(`food_logs: ${logsError.message}`);
+  if (!logs?.length) return 0;
 
-  if (logsError) {
-    console.error(`[materialize] food_logs fetch failed for household ${household.householdId}:`, logsError.message);
-    return;
-  }
-  if (!logs?.length) return;
-
-  // aggregate calories by (person_id ?? user_id, day) — food_logs.person_id
-  // can be null for entries logged before a person profile existed
   const byKey = new Map<string, { userId: string; personId: string | null; day: string; consumed: number }>();
-  for (const log of logs) {
-    const scopeId = log.person_id ?? log.user_id;
-    const key = `${scopeId}:${log.eaten_on}`;
+  for (const log of logs as any[]) {
+    const key = `${log.person_id ?? log.user_id}:${log.eaten_on}`;
     const existing = byKey.get(key);
-    if (existing) existing.consumed += log.calories ?? 0;
-    else byKey.set(key, { userId: log.user_id, personId: log.person_id, day: log.eaten_on, consumed: log.calories ?? 0 });
+    if (existing) existing.consumed += Number(log.calories || 0);
+    else byKey.set(key, { userId: log.user_id, personId: log.person_id, day: log.eaten_on, consumed: Number(log.calories || 0) });
   }
 
   const rows = Array.from(byKey.values()).map(({ userId, personId, day, consumed }) => {
-    const target = personId ? (targetByPersonId.get(personId) ?? DEFAULT_CALORIE_TARGET) : DEFAULT_CALORIE_TARGET;
-    const pct = Math.round((consumed / target) * 100);
-    const metadata: CalorieProgressMetadata = {
-      consumed,
-      target,
-      pct,
-      isDefaultTarget: !personId || !targetByPersonId.has(personId) || targetByPersonId.get(personId) === undefined,
-    };
+    const ownTarget = personId ? targetByPersonId.get(personId) : null;
+    const target = ownTarget || DEFAULT_CALORIE_TARGET;
+    const metadata: CalorieProgressMetadata = { consumed: Math.round(consumed), target, pct: Math.round((consumed / target) * 100), isDefaultTarget: !ownTarget };
     return {
       user_id: userId,
       household_id: household.householdId,
-      visibility_scope: 'household' as const,
+      visibility_scope: "household" as const,
       person_id: personId,
-      source: 'loop_calorie' as const,
+      source: "loop_calorie" as const,
       external_id: `calorie:${personId ?? userId}:${day}`,
-      event_type: 'calorie_progress' as const,
-      title: `${consumed} / ${target} kcal`,
+      event_type: "calorie_progress" as const,
+      title: `${Math.round(consumed)} / ${target} kcal`,
       event_date: day,
       amount: null,
       metadata,
     };
   });
 
-  const { error: upsertError } = await db
-    .from('calendar_events')
-    .upsert(rows, { onConflict: 'user_id,source,event_type,event_date,external_id' });
-
-  if (upsertError) {
-    console.error(`[materialize] calorie upsert failed for household ${household.householdId}:`, upsertError.message);
-  }
+  const { error } = await db.from("calendar_events").upsert(rows, { onConflict: "user_id,source,event_type,event_date,external_id" });
+  if (error) throw new Error(`calorie upsert: ${error.message}`);
+  return rows.length;
 }
 
 export async function materializeAllForHousehold(opts: MaterializeOptions) {
-  await materializePaymentsAndIncome(opts);
-  await materializeCalorieProgress(opts);
+  const payments = await materializePaymentsAndIncome(opts);
+  const calories = await materializeCalorieProgress(opts);
+  return { payments, calories };
 }

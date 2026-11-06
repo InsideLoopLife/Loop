@@ -1,5 +1,6 @@
 "use client";
 
+import { getChildCostMonthlyAmount as sharedChildCostMonthlyAmount } from "@/lib/planning/month-plan";
 import { useEffect, useMemo, useState, useTransition, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import Link from "next/link";
 import { NurseryCostForm } from "@/components/household/NurseryCostForm";
@@ -736,49 +737,8 @@ const careTypeLabelsForEditNotice: Partial<Record<CareType, string>> = {
 };
 
 function getChildCostMonthlyAmount(cost: ChildCost, month: string) {
-  if (cost.care_type && NEW_CARE_TYPES.includes(cost.care_type as CareType)) {
-    return calculateNewCareTypeMonthlyCost(cost.care_type as CareType, cost.care_details ?? {}, month).estimatedMonthlyCost;
-  }
-
-  if (cost.cost_kind === "activity") {
-    return calculateActivityMonthlyCost({
-      billingMonth: month,
-      weeklyCost: Number(cost.activity_weekly_cost ?? cost.monthly_cost ?? 0),
-      activityWeekday: Number(cost.activity_weekday ?? 6),
-      activityBillingMode: cost.activity_billing_mode ?? "calendar",
-      activityTermWeeksPerYear: Number(cost.activity_term_weeks_per_year ?? 38),
-      bankHolidaysAreFree: Boolean(cost.bank_holidays_are_free),
-    }).estimatedMonthlyCost;
-  }
-
-  if (cost.cost_kind !== "nursery") return Number(cost.monthly_cost ?? 0);
-
-  return calculateNurseryMonthlyCost({
-    billingMonth: month,
-    dailyRate: Number(cost.daily_rate ?? 0),
-    extraDailyCost: Number(cost.extra_daily_cost ?? 0),
-    fundedHoursPerWeek: Number(cost.funded_hours_per_week ?? 0),
-    fundingMode: cost.funding_mode ?? "none",
-    hourlyFundingCredit: Number(cost.hourly_funding_credit ?? 0),
-    termWeeksPerYear: Number(cost.term_weeks_per_year ?? 38),
-    billingSchedule: cost.billing_schedule ?? "all_year",
-    bankHolidaysAreFree: Boolean(cost.bank_holidays_are_free),
-    taxFreeChildcareEnabled: Boolean(cost.tax_free_childcare_enabled),
-    taxFreeChildcareCapPerQuarter: Number(cost.tax_free_childcare_cap_per_quarter ?? 500),
-    partDayMultiplier: Number(cost.part_day_multiplier ?? 0.5),
-    fullDayHours: Number(cost.full_day_hours ?? 10),
-    partDayHours: Number(cost.part_day_hours ?? 5),
-    mondaySession: cost.monday_session ?? "off",
-    tuesdaySession: cost.tuesday_session ?? "off",
-    wednesdaySession: cost.wednesday_session ?? "off",
-    thursdaySession: cost.thursday_session ?? "off",
-    fridaySession: cost.friday_session ?? "off",
-    mondayHours: Number(cost.monday_hours ?? 0),
-    tuesdayHours: Number(cost.tuesday_hours ?? 0),
-    wednesdayHours: Number(cost.wednesday_hours ?? 0),
-    thursdayHours: Number(cost.thursday_hours ?? 0),
-    fridayHours: Number(cost.friday_hours ?? 0),
-  }).estimatedMonthlyCost;
+  // Delegates to the shared calculator so every page shows the same figure.
+  return sharedChildCostMonthlyAmount(cost as any, month);
 }
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {

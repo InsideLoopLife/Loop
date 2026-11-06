@@ -1,9 +1,15 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
+import { verifyCronRequest } from "@/lib/security/cron";
 import { checkUrl } from "@/lib/admin/uptime";
 
-export async function GET() {
-  const supabase = await createClient();
+export const dynamic = "force-dynamic";
+
+// Runs as the server (no user session in a cron call), behind the cron secret.
+export async function GET(request: NextRequest) {
+  const guard = verifyCronRequest(request);
+  if (!guard.ok) return guard.response;
+  const supabase = createWorkerDatabaseClient("platform") as any;
 
   const { data: targets, error } = await supabase
     .from("loop_uptime_targets")

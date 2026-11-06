@@ -15,6 +15,7 @@ import { addPerson } from "@/app/household/actions";
 import { addRecurringPayEvent, upsertStudentLoanAccount } from "@/app/income/actions";
 import { addPlannedItem } from "@/app/spending/actions";
 import { SETUP_BILLS, SETUP_EXTRAS } from "@/lib/onboarding/setup-options";
+import { syncCalendarForUser } from "@/lib/calendar/sync-all";
 import { NHS_EMPLOYER_CONTRIBUTION_PERCENT_2026_27, nhsMemberContributionPercent } from "@/lib/calculations/nhs-pension";
 
 const STUDENT_LOAN_PLANS = ["plan_1", "plan_2", "plan_4", "plan_5", "postgraduate"];
@@ -185,6 +186,9 @@ export async function completeGuidedSetup(formData: FormData) {
     onboarding_completed_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }, { onConflict: "user_id" });
+
+  // Fill the calendar now rather than waiting for tomorrow's daily run.
+  await attempt("your calendar", () => syncCalendarForUser(supabase as any, user.id));
 
   const extras = SETUP_EXTRAS.filter((extra) => text(formData, `extra_${extra.key}`) === "yes").map((extra) => extra.key);
   revalidatePath("/", "layout");

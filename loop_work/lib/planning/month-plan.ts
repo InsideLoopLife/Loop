@@ -1,3 +1,4 @@
+import { calculateNewCareTypeMonthlyCost, type CareType } from "@/lib/calculations/childcareRegistry";
 import { estimateAnnualTakeHome, type PensionMethod, type StudentLoanPlan } from "@/lib/calculations/tax";
 import { calculateNhsMaternityMonthlyAmount, type MaternityPayMode } from "@/lib/calculations/maternity";
 import {
@@ -59,6 +60,8 @@ export type PayEventForPlan = {
 
 export type ChildCostForPlan = {
   id: string;
+  care_type?: string | null;
+  care_details?: Record<string, any> | null;
   child_id: string | null;
   label: string;
   cost_kind: "fixed" | "nursery" | "activity" | "nanny" | null;
@@ -234,7 +237,7 @@ function getPersonName(peopleById: Map<string, PersonForPlan>, id: string | null
   return peopleById.get(id)?.name ?? "Unassigned";
 }
 
-function getPayAmount(event: PayEventForPlan, month: string) {
+export function getPayAmount(event: PayEventForPlan, month: string) {
   if (event.pay_kind === "maternity") {
     const estimate = calculateNhsMaternityMonthlyAmount({
       month,
@@ -267,7 +270,7 @@ function getPayAmount(event: PayEventForPlan, month: string) {
   }).monthlyTakeHome;
 }
 
-function selectActivePayEventsForMonth(payEvents: PayEventForPlan[], month: string) {
+export function selectActivePayEventsForMonth(payEvents: PayEventForPlan[], month: string) {
   const latestByPerson = new Map<string, PayEventForPlan>();
 
   payEvents
@@ -280,7 +283,16 @@ function selectActivePayEventsForMonth(payEvents: PayEventForPlan[], month: stri
   return Array.from(latestByPerson.values());
 }
 
+// Care types costed by the childcare registry (childminder, clubs, holiday
+// camps, nanny). Single source of truth: Summary, household, spending,
+// retirement, affordability and the calendar all go through this function.
+const REGISTRY_CARE_TYPES: CareType[] = ["childminder", "breakfast_club", "after_school_club", "holiday_camp", "nanny"];
+
 export function getChildCostMonthlyAmount(cost: ChildCostForPlan, month: string) {
+  if (cost.care_type && REGISTRY_CARE_TYPES.includes(cost.care_type as CareType)) {
+    return calculateNewCareTypeMonthlyCost(cost.care_type as CareType, cost.care_details ?? {}, month).estimatedMonthlyCost;
+  }
+
   if (cost.cost_kind === "activity") {
     return calculateActivityMonthlyCost({
       billingMonth: month,
