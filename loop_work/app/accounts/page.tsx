@@ -1505,15 +1505,14 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       <main className="mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-700">Savings</p>
-            <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">Savings, pots and cash optimisation</h1>
-            <p className="mt-2 max-w-3xl text-sm font-bold text-slate-500">Track balances, withdrawals, rates, ISA room and savings goals without turning the page into a command centre.</p>
+            <h1 className="text-3xl font-semibold tracking-tight text-slate-950">Savings</h1>
+            <p className="mt-1 max-w-2xl text-[15px] text-slate-500">Balances, interest, pots for your goals and better rates.</p>
           </div>
-          <Link href="/account?tab=wealth" className="rounded-full bg-white px-4 py-2 text-sm font-black text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50">Bank relationships live in Account → Wealth</Link>
         </header>
 
         {accountRows.length === 0 ? <PageLandingExperience kind="savings" /> : null}
 
+        {accountRows.length > 0 || activeTab !== "overview" ? (<>
         <section className="grid gap-4 md:grid-cols-5">
           <Link href="/accounts?tab=accounts"><StatCard title="Tracked savings" value={formatMoney(totalSavings)} helper={`${personalSavings.length} personal · ${sharedSavings.length} shared`} /></Link>
           <Link href="/accounts?tab=accounts"><StatCard title="Monthly top-up" value={formatMoney(monthlyTopUps)} helper="Across active ladders" /></Link>
@@ -1525,8 +1524,9 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
         <nav aria-label="Savings workspace sections" className="sticky top-3 z-20 -mx-1 flex snap-x snap-mandatory flex-nowrap gap-2 overflow-x-auto rounded-[1.35rem] border border-white/70 bg-white/90 p-3 shadow-sm backdrop-blur-xl [overscroll-behavior-x:contain] [scrollbar-width:thin]">
           {tabs.filter((tab) => !("hidden" in tab && tab.hidden)).map((tab) => <TabLink key={tab.key} tab={tab.key} activeTab={activeTab} />)}
         </nav>
+        </>) : null}
 
-        {activeTab === "overview" ? (
+        {activeTab === "overview" && accountRows.length > 0 ? (
           <div className="grid gap-7 xl:grid-cols-[1.15fr_0.85fr]">
             <SectionCard title="Savings activity" description="A clean monthly view of what you saved, withdrew and earned in interest. Hover for exact values.">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -1821,7 +1821,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
           </div>
         ) : null}
 
-        {activeTab === "overview" ? (
+        {activeTab === "overview" && accountRows.length > 0 ? (
           <SectionCard title="Tracked savings accounts" description="A quick account preview. Open Tracked accounts for balance logs and edits.">
             {accountCards}
           </SectionCard>

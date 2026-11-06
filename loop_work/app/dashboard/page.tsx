@@ -936,6 +936,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
     <>
       <main className="loop-overview-page mx-auto w-full max-w-[2000px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
         {/* The month in one figure: what's left once bills and saving are covered. */}
+        {hasDashboardData ? (
         <section className="rounded-[18px] border border-[var(--line)] bg-white">
           <div className="flex flex-wrap items-end justify-between gap-6 px-6 pb-5 pt-6 md:px-8 md:pt-8">
             <div className="min-w-0">
@@ -964,6 +965,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
             ))}
           </dl>
         </section>
+        ) : null}
         {standoutPoints.length > 0 ? (
           <section className="grid gap-3 md:grid-cols-3">
             {standoutPoints.map((point, index) => (
@@ -977,7 +979,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
 
 {!hasDashboardData ? <PageLandingExperience kind="overview" /> : null}
 
-        <DashboardGrid
+        {hasDashboardData ? <DashboardGrid
           householdId={householdContext.householdId ?? dataOwnerUserId}
           initialWidgets={dashboardWidgets ?? []}
           dashboardContext={{
@@ -1028,7 +1030,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
             },
             insights,
           }}
-        />
+        /> : null}
         {recommendedDealChecks.length > 0 ? (
           <SectionCard title="Recommended deal checks" description="Bills and contracts from Lifestyle that are due soon or have no renewal date set.">
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">

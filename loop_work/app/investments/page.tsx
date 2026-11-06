@@ -228,7 +228,7 @@ type InvestmentCoveragePlaceholder = {
   updated_at?: string | null;
 };
 
-async function InvestmentsContent() {
+async function InvestmentsContent({ searchParams }: { searchParams?: Promise<{ add?: string }> } = {}) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
@@ -281,6 +281,24 @@ async function InvestmentsContent() {
     }
   }
 
+  const addParam = (searchParams ? await searchParams : {})?.add;
+  const isEmpty = (investmentAccountsResult.data ?? []).length + (pensionAccountsResult.data ?? []).length + (dbPensionSchemesResult.data ?? []).length === 0;
+  if (isEmpty && !addParam) {
+    // Nothing yet: one plain choice instead of a dashboard of £0s.
+    return (
+      <main className="mx-auto max-w-3xl px-4 py-10">
+        <section className="rounded-[18px] border border-[var(--line)] bg-white p-8">
+          <h1 className="text-[26px] font-semibold tracking-tight text-[var(--ink)]">Pensions and investments</h1>
+          <p className="mt-2 text-[15px] text-[var(--muted)]">Add a pension or an ISA to see what it&apos;s worth, what goes in each month and how it&apos;s doing. Prices update every day.</p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <a href="/investments?add=pension" className="rounded-full bg-[var(--pine)] px-5 py-2.5 text-sm font-medium text-white hover:bg-[var(--pine-strong)]">Add a pension</a>
+            <a href="/investments?add=investment" className="rounded-full border border-[var(--line)] bg-white px-5 py-2.5 text-sm font-medium text-[var(--ink)] hover:bg-[var(--paper)]">Add an ISA or investment</a>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <>
       <PensionsInvestmentsClient
@@ -313,12 +331,12 @@ async function InvestmentsContent() {
   );
 }
 
-export default function InvestmentsPage() {
+export default function InvestmentsPage(props: { searchParams?: Promise<{ add?: string }> }) {
   return (
     <>
       <Nav />
       <Suspense fallback={<WealthRouteSkeleton label="pensions and investments" />}>
-        <InvestmentsContent />
+        <InvestmentsContent searchParams={props.searchParams} />
       </Suspense>
     </>
   );

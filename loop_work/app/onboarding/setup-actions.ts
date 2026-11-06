@@ -309,8 +309,22 @@ export async function completeGuidedSetup(formData: FormData) {
   }
 
   // 7. Done — mark setup complete and show what to add next.
+  // Switch on the sections their answers say they need, so a homeowner sees
+  // Home & mortgage straight away rather than a settings page of toggles.
+  const extrasPicked = new Set(SETUP_EXTRAS.filter((extra) => text(formData, `extra_${extra.key}`) === "yes").map((extra) => extra.key as string));
+  const homeStatus = text(formData, "home_status");
+  const featureFlags: Record<string, boolean> = {};
+  if (homeStatus === "mortgage" || homeStatus === "outright" || extrasPicked.has("home")) featureFlags.wealth_has_mortgage = true;
+  if (extrasPicked.has("pension") || text(formData, "self_has_pension") === "yes" || text(formData, "partner_has_pension") === "yes") featureFlags.wealth_has_pension = true;
+  if (extrasPicked.has("savings")) featureFlags.wealth_has_savings = true;
+  if (extrasPicked.has("investments")) featureFlags.wealth_has_investments = true;
+  if (text(formData, "self_has_student_loan") === "yes" || text(formData, "partner_has_student_loan") === "yes") featureFlags.financial_flow_student_loan_enabled = true;
+  if (parseNumber(formData.get("bill_car"))) featureFlags.wealth_has_car_finance = true;
+  if (parseNumber(formData.get("bill_childcare")) || text(formData, "has_children") === "yes") featureFlags.wealth_has_childcare_costs = true;
+
   await supabase.from("app_user_profiles").upsert({
     user_id: user.id,
+    ...featureFlags,
     onboarding_completed_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }, { onConflict: "user_id" });

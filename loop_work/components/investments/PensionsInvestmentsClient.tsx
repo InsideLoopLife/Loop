@@ -7319,6 +7319,13 @@ export function PensionsInvestmentsClient({
   );
   const [modal, setModal] = useState<Modal>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // ?add=pension / ?add=investment opens the right add form straight away
+  // (used by the empty-state buttons).
+  useEffect(() => {
+    const add = new URLSearchParams(window.location.search).get("add");
+    if (add === "pension") setModal({ type: "pension-account" });
+    else if (add === "investment") setModal({ type: "investment-account" });
+  }, []);
   const [expandedInvestmentChartId, setExpandedInvestmentChartId] = useState<
     string | null
   >(null);

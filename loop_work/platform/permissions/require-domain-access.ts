@@ -48,10 +48,9 @@ export async function requireDomainAccess(
     : true;
 
   if (!allowedBySingleFeature || !allowedByAnyFeature) {
-    redirect(
-      request.deniedRedirect ||
-        `/account?tab=wealth&feature=${request.feature || request.anyFeature?.[0] || "settings"}`,
-    );
+    // A one-question page that switches the section on and returns,
+    // instead of dropping people into a settings screen of toggles.
+    redirect(`/enable/${request.feature || request.anyFeature?.[0] || "settings"}`);
   }
 
   return {

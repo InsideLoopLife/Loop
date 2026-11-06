@@ -267,54 +267,43 @@ function Illustration({ kind, accent }: { kind: LandingConfig["illustration"]; a
   );
 }
 
+// Short, plain first-step prompts. One sentence and one button: the page
+// itself shows the rest once there's something in it.
+const SHORT: Partial<Record<LandingExperienceKey, { title: string; body: string; action: LandingAction }>> = {
+  overview: { title: "Let's set up your LOOP", body: "Pay, bills and your home take about three minutes. Everything else builds from there.", action: { label: "Start setup", href: "/onboarding" } },
+  "financial-flow": { title: "Nothing coming in or going out yet", body: "Add your pay and a few regular bills to see your month.", action: { label: "Add income", href: "/income" } },
+  savings: { title: "No savings accounts yet", body: "Add one to track its balance, interest and better rates.", action: { label: "Add a savings account", href: "/accounts?tab=add" } },
+  mortgage: { title: "No home added yet", body: "Add your home to track its value, your mortgage and when your deal ends.", action: { label: "Add your home", href: "/mortgage#add-home" } },
+  investments: { title: "No pensions or investments yet", body: "Add a pension or an ISA to see what it's worth and how it's doing.", action: { label: "Add a pension or investment", href: "/investments?add=pension" } },
+  "net-worth": { title: "Nothing to add up yet", body: "Net worth fills in as you add savings, your home, pensions and investments.", action: { label: "Add savings", href: "/accounts?tab=add" } },
+  loopwatch: { title: "Nothing being watched yet", body: "Add a bill, contract or product and LOOP will check it for you.", action: { label: "Add something to watch", href: "/loopwatch#attach" } },
+  nutrition: { title: "No meals logged yet", body: "Log a meal or a drink to start.", action: { label: "Log food or drink", href: "/nutrition?open=log" } },
+  lifestyle: { title: "Nothing here yet", body: "Add routines and recurring costs that affect your week.", action: { label: "Add an item", href: "/lifestyle#add" } },
+};
+
 export function PageLandingExperience({
   kind,
-  compact = false,
   className = "",
 }: {
   kind: LandingExperienceKey;
   compact?: boolean;
   className?: string;
 }) {
-  const config = configs[kind];
-  const tones = toneClasses(config.accent);
-  const HeaderIcon = config.icon;
+  const short = SHORT[kind];
+  // Income and Spending carry their own + button and empty-state text.
+  if (!short) return null;
   return (
-    <section className={`relative overflow-hidden rounded-[2.5rem] border border-white/80 bg-gradient-to-br ${tones.soft} p-6 shadow-[0_28px_90px_-58px_rgba(15,23,42,.75)] ${className}`}>
-      <div className={`absolute -right-20 -top-24 h-72 w-72 rounded-full ${tones.glow} blur-3xl`} />
-      <div className="absolute -bottom-24 left-1/3 h-56 w-56 rounded-full bg-orange-200/25 blur-3xl" />
-      <div className={`relative grid gap-7 ${compact ? "lg:grid-cols-[1fr_280px]" : "lg:grid-cols-[1fr_380px]"} lg:items-center`}>
-        <div>
-          <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-black uppercase tracking-[0.18em] ${tones.pill}`}><HeaderIcon className="h-3.5 w-3.5" />{config.eyebrow}</span>
-          <h1 className={`${compact ? "mt-3 text-3xl" : "mt-4 text-4xl md:text-5xl"} font-black tracking-tight text-slate-950`}>{config.title}</h1>
-          <p className="mt-3 max-w-3xl text-sm font-bold leading-6 text-slate-600">{config.body}</p>
-          <div className="mt-5 flex flex-wrap gap-3">
-            <Link href={config.primaryAction.href} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-xl shadow-slate-950/15 transition hover:bg-orange-500">
-              {config.primaryAction.label}<ArrowRight className="h-4 w-4" />
-            </Link>
-            {config.secondaryAction ? (
-              <Link href={config.secondaryAction.href} className="inline-flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50">
-                {config.secondaryAction.label}
-              </Link>
-            ) : null}
-          </div>
-          {!compact ? (
-            <div className="mt-6 grid gap-3 md:grid-cols-3">
-              {config.steps.map((step) => {
-                const StepIcon = step.icon;
-                return (
-                  <article key={step.label} className="rounded-3xl border border-white/80 bg-white/72 p-4 shadow-sm">
-                    <span className={`grid h-10 w-10 place-items-center rounded-2xl ${tones.pill}`}><StepIcon className="h-5 w-5" /></span>
-                    <h3 className="mt-3 text-sm font-black text-slate-950">{step.label}</h3>
-                    <p className="mt-1 text-xs font-bold leading-5 text-slate-500">{step.body}</p>
-                  </article>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
-        <Illustration kind={config.illustration} accent={config.accent} />
+    <section className={`flex flex-wrap items-center justify-between gap-4 rounded-[18px] border border-[var(--line)] bg-white px-6 py-5 ${className}`}>
+      <div className="min-w-0">
+        <h2 className="text-[19px] font-semibold tracking-tight text-[var(--ink)]">{short.title}</h2>
+        <p className="mt-1 text-[15px] text-[var(--muted)]">{short.body}</p>
       </div>
+      <Link href={short.action.href} className="inline-flex shrink-0 items-center gap-2 rounded-full bg-[var(--pine)] px-5 py-2.5 text-sm font-medium text-white hover:bg-[var(--pine-strong)]">
+        {short.action.label} <ArrowRight className="h-4 w-4" />
+      </Link>
     </section>
   );
 }
+
+// Kept for reference; the long-form landing panel is no longer rendered.
+export const LANDING_CONFIGS = configs;

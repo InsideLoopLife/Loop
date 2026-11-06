@@ -11,7 +11,7 @@ const APP_ROUTE_PREFIXES = [
   "/accounts", "/savings", "/pots", "/investments", "/pensions",
   "/mortgage", "/house", "/affordability", "/net-worth", "/retirement",
   "/nutrition", "/lifestyle", "/account", "/notifications", "/help",
-  "/admin", "/loopwatch",
+  "/admin", "/loopwatch", "/enable",
 ] as const;
 
 function usesPersistentShell(pathname: string) {

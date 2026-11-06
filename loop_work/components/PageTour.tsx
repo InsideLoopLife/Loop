@@ -23,9 +23,12 @@ export function PageTour() {
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
 
+  // Tours no longer pop up on their own: each page now explains itself with a
+  // short empty state. Kept so a tour can be opened deliberately later.
   useEffect(() => {
     if (!steps.length) return;
     if (window.localStorage.getItem(key)) return;
+    if (!window.location.search.includes("tour=1")) return;
     setOpen(true);
   }, [key, steps.length]);
 
