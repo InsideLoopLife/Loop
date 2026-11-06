@@ -225,17 +225,10 @@ function contributionBreakdown(account: PensionAccountRow, pay: PayEventRow | nu
   const grossAnnual = n(pay?.gross_annual_salary, 0);
   const fixedMonthly = n(account.fixed_monthly_contribution);
 
-  // BUGFIX: this used to only reinvest the employer's NI saving when
-  // employer_ni_topup_mode was explicitly "saved_ni" — a separate control
-  // from the "Employer NI saving is topped into pension" checkbox, which
-  // could (and did) disagree with it, silently producing £0 NI-reinvestment
-  // contribution events despite the checkbox being on. The checkbox is now
-  // the sole authority for NI-saving reinvestment; any fixed-percent top-up
-  // is treated as an independent, additive extra rather than a competing
-  // mode. This affects real contribution events created by this job, not
-  // just a UI display figure.
-  const grossMonthlyForPercent = grossAnnual / 12;
-  const fixedPercentTopUpMonthly = grossMonthlyForPercent * (n(account.employer_ni_topup_percent) / 100);
+  // Same rule as the pension page (projectedAccountContributionBreakdown):
+  // employer_ni_topup_percent is a % of salary ONLY in fixed_percent mode.
+  // Older rows hold 100 there meaning "pass back all NI saved"; adding it as
+  // 100% of salary made every projection ~5x too big (6 Nov 2026).
   const monthly = calculatePensionSalarySacrifice({
     grossSalaryAnnual: grossAnnual,
     employeeContributionPercent: account.employee_contribution_percent,
@@ -244,7 +237,9 @@ function contributionBreakdown(account: PensionAccountRow, pay: PayEventRow | nu
     employerNiEnabled: account.employer_ni_topup_enabled,
     employerNiRatePercent: account.employer_ni_rate_percent ?? 15,
     employerNiPassbackPercent: account.employer_ni_passback_percent ?? 100,
-    fixedMonthlyContribution: fixedMonthly + fixedPercentTopUpMonthly,
+    fixedMonthlyContribution: fixedMonthly,
+    fixedEmployerTopUpPercent: account.employer_ni_topup_percent,
+    employerNiTopUpMode: (account as any).employer_ni_topup_mode,
     contributionMethod: account.contribution_method,
   });
   const periodScale = 12 / periods;
@@ -446,6 +441,24 @@ export async function runPensionContributionProjection(
     if (txId) existingEventByTx.set(txId, event as any);
   }
 
+  // Months the provider has already confirmed (statements, imports, manual
+  // reconciliation). A projection for the same account and month would be a
+  // duplicate, so it is skipped and any stale projection row is removed.
+  const confirmedRead = accountIds.length
+    ? await supabase
+        .from("pension_contribution_events")
+        .select("pension_account_id,contribution_date,source,event_status,external_transaction_id")
+        .in("pension_account_id", accountIds)
+        .gte("contribution_date", isoDate(fromDate))
+    : { data: [] as any[], error: null as any };
+  const confirmedMonths = new Set<string>();
+  for (const event of confirmedRead.data || []) {
+    // Provider-confirmed rows can share the pension:auto: id, so judge by source.
+    const isProjection = String(event.source || "").startsWith("salary_contribution_projection");
+    if (isProjection || event.event_status === "removed") continue;
+    confirmedMonths.add(`${event.pension_account_id}:${String(event.contribution_date || "").slice(0, 7)}`);
+  }
+
   // Refresh every fund's live price unconditionally, independent of whether a contribution gets
   // created below. Previously this only ever happened as a side effect of a successful
   // contribution match, so a pension whose contributions were silently stuck (e.g. no matching pay
@@ -508,6 +521,14 @@ export async function runPensionContributionProjection(
 
     let matchedAnyPay = false;
     for (const contributionDate of dates) {
+      if (confirmedMonths.has(`${account.id}:${monthKey(contributionDate)}`)) {
+        await supabase.from("pension_contribution_events").delete()
+          .eq("pension_account_id", account.id)
+          .like("source", "salary_contribution_projection%")
+          .neq("event_status", "invested")
+          .eq("contribution_month", monthKey(contributionDate));
+        continue;
+      }
       const pay = activePayFor(account, payEvents || [], contributionDate);
       if (pay) matchedAnyPay = true;
       const breakdown = contributionBreakdown(account, pay);
