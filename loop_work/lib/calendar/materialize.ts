@@ -16,6 +16,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActiveHouseholdContext } from "@/domains/identity/household";
 import { getPayAmount, mortgageDealMonthlyPayment, selectActivePayEventsForMonth, type HomeMortgageDealForPlan, type PayEventForPlan } from "@/lib/planning/month-plan";
+import { withPayOverrides } from "@/lib/planning/pay-overrides";
 import type { CalorieProgressMetadata } from "./types";
 
 const WINDOW_DAYS = 45;
@@ -136,6 +137,7 @@ export async function materializePaymentsAndIncome({ db, household, today = new 
   if (itemsError) throw new Error(`planned_items: ${itemsError.message}`);
   if (payError) throw new Error(`pay_events: ${payError.message}`);
   if (dealsError) throw new Error(`home_mortgage_deals: ${dealsError.message}`);
+  const payWithOverrides = await withPayOverrides(db, payEvents || []);
 
   const rows: any[] = [];
   const base = { household_id: household.householdId, visibility_scope: "household" as const, metadata: {} };
@@ -160,7 +162,7 @@ export async function materializePaymentsAndIncome({ db, household, today = new 
   // Pay: one entry per person per month (latest active pay event, as the month plan does).
   for (const [y, m] of monthsBetween(from, to)) {
     const month = `${y}-${String(m + 1).padStart(2, "0")}`;
-    for (const event of selectActivePayEventsForMonth((payEvents || []) as PayEventForPlan[], month) as any[]) {
+    for (const event of selectActivePayEventsForMonth(payWithOverrides as PayEventForPlan[], month) as any[]) {
       const date = payDate(event, y, m);
       if (date < from || date > to) continue;
       const amount = Math.round(getPayAmount(event, month) * 100) / 100;

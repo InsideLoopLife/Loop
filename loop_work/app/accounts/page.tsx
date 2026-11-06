@@ -87,6 +87,7 @@ import {
   updateFinancialAccount,
   saveSavingsDealEligibility,
 } from "./actions";
+import { getChildCostMonthlyAmount as sharedChildCostMonthlyAmount } from "@/lib/planning/month-plan";
 
 type FinancialAccount = {
   id: string;
@@ -732,7 +733,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       .returns<PlannedItem[]>(),
     supabase
       .from("child_costs")
-      .select("label, monthly_cost, spending_categories(standard_category_key, emergency_fund_essential, spending_category_groups(emergency_fund_essential))")
+      .select("*, spending_categories(standard_category_key, emergency_fund_essential, spending_category_groups(emergency_fund_essential))")
       .or(householdMemberFilter)
       .returns<ChildEssentialCost[]>(),
     supabase
@@ -901,12 +902,14 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     };
   });
   const subjectIsaPosition = isaPositions.find((position) => position.person.id === (defaultOwnerPerson?.id || adultPersonIds[0]));
+  const todayIso = new Date().toISOString().slice(0, 10);
   const emergencyItems: PlannedItem[] = [
     ...(plannedItems ?? []),
-    ...(childEssentialCosts ?? []).map((cost) => ({
+    // Real monthly childcare cost (funded hours, sessions, clubs, holidays), not the raw stored figure.
+    ...(childEssentialCosts ?? []).filter((cost: any) => (!cost.starts_on || cost.starts_on <= todayIso) && (!cost.ends_on || cost.ends_on >= todayIso)).map((cost) => ({
       label: cost.label,
       direction: "outgoing",
-      amount: Number(cost.monthly_cost || 0),
+      amount: Number(sharedChildCostMonthlyAmount(cost as any, todayIso.slice(0, 7)) || 0),
       recurrence: "monthly",
       start_date: null,
       end_date: null,

@@ -39,6 +39,7 @@ import {
 } from "@/lib/planning/month-plan";
 import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 import { HouseUnifiedWorkspace } from "@/components/mortgage/HouseUnifiedWorkspace";
+import { withPayOverrides } from "@/lib/planning/pay-overrides";
 
 async function MortgageContent() {
   const { supabase, user, householdContext } = await requireWealthPageAccess({
@@ -149,7 +150,7 @@ async function MortgageContent() {
     supabase
       .from("child_costs")
       .select(
-        "id, child_id, label, cost_kind, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on",
+        "id, child_id, label, cost_kind, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on, care_type, care_details",
       )
       .or(householdVisibleFilter)
       .returns<ChildCostForPlan[]>(),
@@ -309,7 +310,7 @@ async function MortgageContent() {
     profile: (profile as FinancialProfile | null) ?? null,
     categories: (categories ?? []) as SpendingCategoryForPlan[],
     childCosts: (childCosts ?? []) as ChildCostForPlan[],
-    payEvents: (payEvents ?? []) as PayEventForPlan[],
+    payEvents: (await withPayOverrides(supabase, payEvents)) as PayEventForPlan[],
     mortgageDeals: ((deals ?? []) as HomeMortgageDeal[]).map((deal) => ({
       id: deal.id,
       lender: deal.lender,

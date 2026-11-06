@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { dedupeHouseholdPeople, getActiveHouseholdContext, householdMemberDataOrFilter, householdPeopleOrFilter } from "@/lib/auth/household-context";
 import { type BankImport, type RegularPaymentCandidate, type ChildCost, type PayEvent, type Person, type PlannedItem, type SpendingCategory, type SpendingEntry, type StudentLoanAccount } from "@/components/spending/SpendingPlannerClient";
 import { SpendingPlannerDeferredClient } from "@/components/spending/SpendingPlannerDeferredClient";
+import { withPayOverrides } from "@/lib/planning/pay-overrides";
 
 export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string; add?: string; prefill_label?: string; prefill_amount?: string }> }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
@@ -96,6 +97,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       .eq("user_id", dataOwnerUserId)
       .eq("status", "active"),
   ]);
+  const payEventsWithOverrides = await withPayOverrides(supabase, payEvents);
 
   const basePeople = dedupeHouseholdPeople((people ?? []) as any[], householdContext.dataOwnerUserId) as Person[];
   const linkedUserIds = Array.from(new Set(basePeople.map((person) => person.linked_user_id).filter(Boolean))) as string[];
@@ -141,7 +143,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
           categories={categories ?? []}
           entries={entries ?? []}
           plannedItems={plannedItems ?? []}
-          payEvents={payEvents ?? []}
+          payEvents={payEventsWithOverrides as any}
           childCosts={childCosts ?? []}
           bankImports={bankImports ?? []}
           regularCandidates={regularCandidates ?? []}

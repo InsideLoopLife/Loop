@@ -43,6 +43,8 @@ import { FinancialFlowWorkspaceNav } from "@/components/financial-flow/Financial
 import { RouteBootSnapshotPublisher } from "@/components/performance/RouteBootSnapshotPublisher";
 import { FinancialFlowRetainedOverviewBridge } from "@/components/financial-flow/FinancialFlowRetainedOverviewBridge";
 import { IncomeFlowScopeView, type IncomeFlowScope } from "@/components/financial-flow/IncomeFlowScopeView";
+import { getPayAmount as sharedGetPayAmount, mortgageDealMonthlyPayment, type PayEventOverrideForPlan } from "@/lib/planning/month-plan";
+import { withPayOverrides } from "@/lib/planning/pay-overrides";
 
 type TabKey = "flow" | "income" | "spending" | "savings";
 type Tone = "orange" | "green" | "blue" | "slate";
@@ -419,7 +421,9 @@ function isMaternityPay(event: PayEvent) {
   return text.includes("maternity");
 }
 
-function monthlyPay(event: PayEvent, monthKey: string) {
+function monthlyPay(event: PayEvent & { overrides?: PayEventOverrideForPlan[] }, monthKey: string) {
+  const override = event.overrides?.find((item) => item.month === monthKey);
+  if (override) return sharedGetPayAmount({ overrides: [override] } as any, monthKey);
   if (isMaternityPay(event)) {
     const estimate = calculateNhsMaternityMonthlyAmount({
       month: monthKey,
@@ -975,7 +979,12 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     activeTab === "savings" ? supabase.from("savings_pots").select("id, person_id, name, target_amount, target_date, monthly_target, current_allocated_amount, priority, status, goal_type, reference_image_url").or(visibleFilter).in("status", ["active", "paused", "completed"]).order("priority", { ascending: true }).returns<SavingsPot[]>() : Promise.resolve({ data: [] as SavingsPot[] }),
     activeTab === "savings" ? supabase.from("savings_pot_allocations").select("id, savings_pot_id, financial_account_id, amount, allocation_percent").or(allocationFilter).returns<SavingsPotAllocation[]>() : Promise.resolve({ data: [] as SavingsPotAllocation[] }),
     Promise.resolve({ data: cachedSavingsRateDeals as SavingsRateDeal[] }),
-    supabase.from("child_costs").select("id, child_id, label, cost_kind, category_id, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on").or(memberFilter).returns<ChildCostForPlan[]>(),
+    supabase.from("child_costs").select("id, child_id, label, cost_kind, category_id, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on, care_type, care_details").or(memberFilter).returns<ChildCostForPlan[]>(),
+  ]);
+  // Mortgage payments and exact monthly pay come from the same shared logic as Summary and the calendar.
+  const [{ data: mortgageDealRows }, payRows] = await Promise.all([
+    supabase.from("home_mortgage_deals").select("id, lender, balance, interest_rate, term_years, monthly_payment_override, start_date, end_date").or(visibleFilter),
+    withPayOverrides(supabase, payResult.data || []),
   ]);
 
   const people = dedupeHouseholdPeople(peopleResult.data || [], user.id) as Person[];
@@ -997,7 +1006,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     const rangeEnd = iso(parsed.end);
     const activeScope = overrideScopeIds ?? (scoped ? scopeIds : []);
 
-    const activePay = (payResult.data || []).filter((event) => personOwned(event, activeScope) && isActiveInMonth(event.effective_from, event.effective_until, rangeStart, rangeEnd));
+    const activePay = payRows.filter((event) => personOwned(event, activeScope) && isActiveInMonth(event.effective_from, event.effective_until, rangeStart, rangeEnd));
     const payLines = activePay
       .map((event) => ({ key: `pay-${event.id}`, label: isMaternityPay(event) ? "Maternity pay" : event.label || "Salary", amount: monthlyPay(event, monthKey), icon: Banknote, tone: "green" as Tone, personId: event.person_id }));
     const loggedIncomeLines = (incomeResult.data || [])
@@ -1027,6 +1036,11 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
       const category = classifyCategory(item.label, item.category_id ? categoryById.get(item.category_id) || null : null);
       const occurrenceAmount = n(item.amount) * plannedItemOccurrencesInRange(item, rangeStart, rangeEnd);
       addSpendLine({ key: `planned-${item.id}`, categoryKey: category.key, label: category.label, amount: occurrenceAmount, icon: category.icon, tone: category.tone, personId: item.person_id, href: `/spending?month=${monthKey}&direction=outgoing`, evidence: [{ key: `planned-${item.id}`, label: item.label || category.label, amount: occurrenceAmount, tone: category.tone, href: `/spending?month=${monthKey}&direction=outgoing` }] });
+    }
+
+    for (const deal of (mortgageDealRows || []).filter((row: any) => isActiveInMonth(row.start_date, row.end_date, rangeStart, rangeEnd))) {
+      const amount = mortgageDealMonthlyPayment(deal as any);
+      if (amount > 0) addSpendLine({ key: `mortgage-${deal.id}`, categoryKey: "house", label: "House", amount, icon: Home, tone: "orange", personId: null, href: "/mortgage", evidence: [{ key: `mortgage-${deal.id}`, label: deal.lender ? `Mortgage · ${deal.lender}` : "Mortgage", amount, tone: "orange", href: "/mortgage" }] });
     }
 
     for (const cost of (childCostsResult.data || []).filter((row) => (!activeScope.length || activeScope.includes(row.child_id || "")) && isActiveInMonth(row.starts_on, row.ends_on, rangeStart, rangeEnd))) {

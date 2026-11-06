@@ -15,6 +15,7 @@ import {
   type PlannedItemForPlan,
   type SpendingCategoryForPlan,
 } from "@/lib/planning/month-plan";
+import { withPayOverrides } from "@/lib/planning/pay-overrides";
 
 // The lab reads the same planning tables as Financial Flow so affordability checks
 // are based on actual household costs, not stale manual fields.
@@ -81,6 +82,7 @@ export default async function AffordabilityLabPage() {
     supabase.from("homes").select("property_value, estimated_value_mid, target_purchase_price").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1),
     supabase.from("student_loan_accounts").select("current_balance, payroll_monthly_override").eq("user_id", user.id).returns<StudentLoanAccount[]>(),
   ]);
+  const payEventsWithOverrides = await withPayOverrides(supabase, payEvents);
 
   const peopleRows = people ?? [];
   const peopleById = new Map(peopleRows.map((person) => [person.id, person]));
@@ -93,7 +95,7 @@ export default async function AffordabilityLabPage() {
     profile: profileRow,
     categories: categoryRows,
     childCosts: childCosts ?? [],
-    payEvents: payEvents ?? [],
+    payEvents: payEventsWithOverrides,
     mortgageDeals: mortgageRows,
     plannedItems: plannedRows,
     peopleById,

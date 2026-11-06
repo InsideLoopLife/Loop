@@ -1,4 +1,11 @@
-import { getChildCostMonthlyAmount as sharedChildCostMonthlyAmount } from "@/lib/planning/month-plan";
+import {
+  getChildCostMonthlyAmount as sharedChildCostMonthlyAmount,
+  getIncomeEntryMonthlyAmount as sharedIncomeEntryMonthlyAmount,
+  getPayAmount as sharedGetPayAmount,
+  incomeEntryAppliesToMonth as sharedIncomeEntryAppliesToMonth,
+  mortgageDealMonthlyPayment as sharedMortgageDealMonthlyPayment,
+  selectActivePayEventsForMonth as sharedSelectActivePayEvents,
+} from "@/lib/planning/month-plan";
 import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
@@ -200,6 +207,8 @@ type HomeMortgageDeal = {
   interest_rate: number;
   term_years: number;
   monthly_payment_override: number | null;
+  payment_day_of_month?: number | null;
+  initial_period_end?: string | null;
   start_date: string;
   end_date: string | null;
 };
@@ -409,87 +418,30 @@ function labelise(value: string | null | undefined) {
   return String(value || "General").replaceAll("_", " ").replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
+// Pay, income and mortgage amounts come from the shared month plan so the
+// Summary page can't drift from the other pages and the calendar.
 function getIncomeEntryMonthlyAmount(entry: IncomeEntry) {
-  const amount = Number(entry.net_amount ?? entry.gross_amount ?? 0);
-  if (entry.frequency === "annual") return amount / 12;
-  if (entry.frequency === "weekly") return amount * 52 / 12;
-  return amount;
+  return sharedIncomeEntryMonthlyAmount(entry as any);
 }
 
 function incomeEntryAppliesToMonth(entry: IncomeEntry, month: string) {
-  // Manual income entries are treated as ongoing from entry_date unless entered as one-off elsewhere later.
-  return entry.entry_date <= toDateString(monthEnd(month));
+  return sharedIncomeEntryAppliesToMonth(entry as any, month);
 }
 
 function getPayAmount(event: PayEvent, month: string) {
-  const override = event.overrides?.find((item) => item.month === month);
-  if (override) {
-    if (override.net_pay_override !== null && override.net_pay_override !== undefined) return Number(override.net_pay_override);
-    if (override.gross_pay !== null && override.gross_pay !== undefined) return Number(override.gross_pay);
-    return Number(override.statutory_pay ?? 0) + Number(override.occupational_pay ?? 0);
-  }
-
-  if (event.pay_kind === "maternity") {
-    const estimate = calculateNhsMaternityMonthlyAmount({
-      month,
-      grossAnnualSalary: Number(event.gross_annual_salary),
-      leaveStart: event.maternity_leave_start ?? event.effective_from,
-      leaveEnd: event.maternity_leave_end ?? event.effective_until ?? event.effective_from,
-      fullPayWeeks: Number(event.maternity_full_pay_weeks ?? 8),
-      halfPayWeeks: Number(event.maternity_half_pay_weeks ?? 18),
-      smpOnlyWeeks: Number(event.maternity_smp_only_weeks ?? 13),
-      unpaidWeeks: Number(event.maternity_unpaid_weeks ?? 13),
-      smpWeeklyRate: Number(event.maternity_smp_weekly_rate ?? 194.32),
-      payMode: event.maternity_pay_mode ?? "nhs_spread_occupational_actual_smp",
-      pensionPercent: Number(event.pension_percent),
-      pensionMethod: event.pension_method ?? "net_pay",
-      studentLoanPlan: event.student_loan_plan,
-    });
-
-    return estimate.estimatedNetAmount;
-  }
-
-  if (event.monthly_take_home_override !== null && event.monthly_take_home_override !== undefined) {
-    return Number(event.monthly_take_home_override);
-  }
-
-  return estimateAnnualTakeHome({
-    grossAnnual: Number(event.gross_annual_salary),
-    pensionPercent: Number(event.pension_percent),
-    pensionMethod: event.pension_method ?? "net_pay",
-    studentLoanPlan: event.student_loan_plan,
-  }).monthlyTakeHome;
+  return sharedGetPayAmount(event as any, month);
 }
 
 function selectActivePayEventsForMonth(payEvents: PayEvent[], month: string) {
-  const latestByPerson = new Map<string, PayEvent>();
-
-  payEvents
-    .filter((event) => isActiveInMonth(event.effective_from, event.effective_until, month))
-    .sort((a, b) => a.effective_from.localeCompare(b.effective_from))
-    .forEach((event) => {
-      latestByPerson.set(event.person_id ?? event.id, event);
-    });
-
-  return Array.from(latestByPerson.values());
+  return sharedSelectActivePayEvents(payEvents as any, month) as unknown as PayEvent[];
 }
 
 function getChildCostMonthlyAmount(cost: ChildCost, month: string) {
-  // Delegates to the shared calculator so every page shows the same figure.
   return sharedChildCostMonthlyAmount(cost as any, month);
 }
 
-
 function mortgageDealMonthlyPayment(deal: HomeMortgageDeal) {
-  if (deal.monthly_payment_override !== null && deal.monthly_payment_override !== undefined) {
-    return Number(deal.monthly_payment_override);
-  }
-
-  return calculateMonthlyMortgagePayment({
-    balance: Number(deal.balance ?? 0),
-    annualInterestRate: Number(deal.interest_rate ?? 0),
-    termYears: Number(deal.term_years ?? 25),
-  });
+  return sharedMortgageDealMonthlyPayment(deal as any);
 }
 
 function buildMonthPlan({
@@ -561,7 +513,7 @@ function buildMonthPlan({
       helper: `${activeMortgageDeals.length} active mortgage deal(s)`,
       categoryLabel: "Mortgage",
       categoryIcon: "🏠",
-      dueDate: dueDateForMonth(month, "fixed_day", 1, "previous_workday"),
+      dueDate: dueDateForMonth(month, "fixed_day", activeMortgageDeals[0]?.payment_day_of_month || 1, "previous_workday"),
     }] : []),
     ...categories.map((category) => ({
       label: category.name,
@@ -677,7 +629,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
       .returns<PayEvent[]>(),
     dataClient
       .from("home_mortgage_deals")
-      .select("id, lender, balance, interest_rate, term_years, monthly_payment_override, start_date, end_date")
+      .select("id, lender, balance, interest_rate, term_years, monthly_payment_override, payment_day_of_month, initial_period_end, start_date, end_date")
       .or(householdVisibleFilter)
       .returns<HomeMortgageDeal[]>(),
     dataClient
@@ -919,8 +871,12 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
   const mortgageDebt = Number(wealthSummary?.mortgageDebt || 0);
   const homeEquity = propertyValue - mortgageDebt;
   const ltv = propertyValue > 0 ? mortgageDebt / propertyValue * 100 : 0;
-  const currentMortgage = mortgageDealRows.filter((deal) => !deal.end_date || deal.end_date >= new Date().toISOString().slice(0, 10)).sort((a, b) => String(a.end_date || "9999").localeCompare(String(b.end_date || "9999")))[0] || null;
-  const mortgageDays = currentMortgage?.end_date ? daysUntil(currentMortgage.end_date) : null;
+  // The date that matters is when the deal rate ends (initial_period_end); end_date is only set for closed deals.
+  const dealEnd = (deal: HomeMortgageDeal) => deal.initial_period_end || deal.end_date || null;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const currentMortgage = mortgageDealRows.filter((deal) => !deal.end_date || deal.end_date >= todayIso).sort((a, b) => String(dealEnd(a) || "9999").localeCompare(String(dealEnd(b) || "9999")))[0] || null;
+  const currentMortgageEnd = currentMortgage ? dealEnd(currentMortgage) : null;
+  const mortgageDays = currentMortgageEnd ? daysUntil(currentMortgageEnd) : null;
   const allocationTotal = insightEvidence.allocationRows.reduce((sum, [, value]) => sum + Number(value || 0), 0);
   const retirementPlan = insightEvidence.retirementPlan;
   const retirementTarget = Number(retirementPlan?.target_annual_income || 0);
@@ -953,7 +909,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
     interest_earned: { value: compactMoney(insightEvidence.confirmedInterest), delta: insightEvidence.savingsBalance > 0 ? `${insightEvidence.blendedSavingsRate.toFixed(2)}% blended tracked rate` : "No savings balance tracked", empty: insightEvidence.savingsBalance <= 0, emptyMessage: "Add an interest rate to a savings account to track this.", rows: [{ label: "Deposited", value: compactMoney(insightEvidence.deposits) }, { label: "Withdrawn", value: compactMoney(insightEvidence.withdrawals) }, { label: "Confirmed interest", value: compactMoney(insightEvidence.confirmedInterest) }], trend: insightEvidence.movements.map((movement) => ({ label: String(movement.effective_at || movement.created_at), value: Number(movement.amount || 0) })), source: "savings_account_movements", href: "/accounts?tab=savings" },
     isa_allowance: { value: insightEvidence.isaRemaining > 0 ? `${compactMoney(insightEvidence.isaRemaining)} left` : "Allowance not synced", delta: insightEvidence.isaSubscribed > 0 ? `${compactMoney(insightEvidence.isaSubscribed)} provider-confirmed subscription` : "Connect or update an ISA account", empty: insightEvidence.isaRemaining <= 0 && insightEvidence.isaSubscribed <= 0, emptyMessage: "LOOP will only show allowance where a provider or account record supplies it.", progress: insightEvidence.isaRemaining + insightEvidence.isaSubscribed > 0 ? insightEvidence.isaSubscribed / (insightEvidence.isaRemaining + insightEvidence.isaSubscribed) * 100 : 0, source: "investment_accounts · provider ISA fields", href: "/investments" },
     home_equity: { value: compactMoney(homeEquity), delta: propertyValue > 0 ? `${(100 - ltv).toFixed(1)}% estimated equity` : "No tracked property", empty: propertyValue <= 0, emptyMessage: "Add a home valuation to calculate equity.", segments: [{ label: "Equity", value: Math.max(0, homeEquity) }, { label: "Mortgage", value: Math.max(0, mortgageDebt) }], rows: [{ label: "Property value", value: compactMoney(propertyValue) }, { label: "Mortgage", value: compactMoney(mortgageDebt) }], source: "homes + valuations + mortgages", href: "/mortgage" },
-    mortgage_countdown: { value: mortgageDays !== null ? `${Math.max(0, Math.ceil(mortgageDays / 30.44))} months` : "End date needed", delta: currentMortgage?.end_date ? `Current deal ends ${shortDate(currentMortgage.end_date)}` : "Add the fixed-deal end date", empty: !currentMortgage?.end_date, emptyMessage: "Set the current mortgage deal end date to start the countdown.", progress: mortgageDays !== null ? Math.min(100, Math.max(0, 100 - mortgageDays / 3.65)) : 0, rows: currentMortgage ? [{ label: "Lender", value: currentMortgage.lender || "Not set" }, { label: "Rate", value: `${Number(currentMortgage.interest_rate || 0).toFixed(2)}%` }, { label: "Balance", value: compactMoney(currentMortgage.balance) }] : [], source: "home_mortgage_deals", href: "/mortgage" },
+    mortgage_countdown: { value: mortgageDays !== null ? `${Math.max(0, Math.ceil(mortgageDays / 30.44))} months` : "End date needed", delta: currentMortgageEnd ? `Current deal ends ${shortDate(currentMortgageEnd)}` : "Add the fixed-deal end date", empty: !currentMortgageEnd, emptyMessage: "Set the current mortgage deal end date to start the countdown.", progress: mortgageDays !== null ? Math.min(100, Math.max(0, 100 - mortgageDays / 3.65)) : 0, rows: currentMortgage ? [{ label: "Lender", value: currentMortgage.lender || "Not set" }, { label: "Rate", value: `${Number(currentMortgage.interest_rate || 0).toFixed(2)}%` }, { label: "Balance", value: compactMoney(currentMortgage.balance) }] : [], source: "home_mortgage_deals", href: "/mortgage" },
     affordability_snapshot: { value: "Open the lab", delta: "Uses income, commitments and deposit", empty: true, emptyMessage: "Run the Affordability Lab once to save a traceable scenario here.", source: "Affordability Lab scenario", href: "/affordability-lab" },
     portfolio_allocation: { value: compactMoney(insightEvidence.investmentValue), delta: `${insightEvidence.allocationRows.length} priced grouping${insightEvidence.allocationRows.length === 1 ? "" : "s"}`, empty: allocationTotal <= 0, emptyMessage: "Add or refresh priced holdings to see allocation.", segments: insightEvidence.allocationRows.slice(0, 4).map(([label, value]) => ({ label, value })), rows: insightEvidence.allocationRows.slice(0, 5).map(([label, value]) => ({ label, value: allocationTotal > 0 ? `${Math.round(value / allocationTotal * 100)}%` : "—" })), source: "investment_holdings · priced values", href: "/investments" },
     portfolio_movement: { value: compactMoney(insightEvidence.investmentMovement), delta: "Latest weighted priced movement", status: insightEvidence.investmentMovement >= 0 ? "positive" : "negative", empty: insightEvidence.holdings.length === 0, emptyMessage: "Refresh investment prices to calculate movement.", trend: ((positionSnapshots ?? []) as FinancialPositionSnapshot[]).map((row) => ({ label: row.snapshot_date, value: Number(row.investment_value || 0) })), rows: insightEvidence.holdings.slice().sort((a, b) => Math.abs(Number(b.day_change_gbp || 0)) - Math.abs(Number(a.day_change_gbp || 0))).slice(0, 4).map((holding) => ({ label: String(holding.asset_name || holding.group_label || "Holding"), value: compactMoney(Number(holding.day_change_gbp || 0)) })), source: "investment price points + holdings", href: "/investments" },

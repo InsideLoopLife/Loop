@@ -1,5 +1,7 @@
 import { calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
 import { getActiveHouseholdContext } from "@/lib/auth/household-context";
+import { getChildCostMonthlyAmount, getPayAmount, selectActivePayEventsForMonth } from "@/lib/planning/month-plan";
+import { withPayOverrides } from "@/lib/planning/pay-overrides";
 
 function n(value: unknown) { const num = Number(value || 0); return Number.isFinite(num) ? num : 0; }
 function monthStart(month: string) { return `${month}-01`; }
@@ -36,8 +38,8 @@ export async function buildWealthSummary(supabase: any, userId: string, month = 
     supabase.from("investment_holdings").select("investment_account_id,units,latest_price,imported_current_value").in("user_id", userIds),
     supabase.from("planned_items").select("direction,amount,monthly_cost,recurrence,start_date,end_date,end_behavior").in("user_id", userIds),
     supabase.from("income_entries").select("gross_amount,net_amount,frequency,entry_date").in("user_id", userIds),
-    supabase.from("pay_events").select("monthly_take_home_override,effective_from,effective_until").in("user_id", userIds),
-    supabase.from("child_costs").select("monthly_cost,starts_on,ends_on").in("user_id", userIds),
+    supabase.from("pay_events").select("*").in("user_id", userIds),
+    supabase.from("child_costs").select("*").in("user_id", userIds),
     supabase.from("spending_entries").select("amount,spent_at").in("user_id", userIds).gte("spent_at", monthStart(month)).lte("spent_at", monthEnd(month)),
   ]);
 
@@ -57,10 +59,14 @@ export async function buildWealthSummary(supabase: any, userId: string, month = 
     const amount = n(item.net_amount ?? item.gross_amount);
     if (item.frequency === "annual") return sum + amount / 12;
     if (item.frequency === "weekly") return sum + amount * 52 / 12;
+    if (item.frequency === "quarterly") return sum + amount / 3;
+    if (item.frequency === "one_off") return sum + (String(item.entry_date || "").startsWith(month) ? amount : 0);
     return sum + amount;
   }, 0);
-  const salaryIncome = (payEvents.data || []).filter((event: any) => activeInMonth(event.effective_from, event.effective_until, month)).reduce((sum: number, event: any) => sum + n(event.monthly_take_home_override), 0);
-  const childcare = (childCosts.data || []).filter((cost: any) => activeInMonth(cost.starts_on, cost.ends_on, month)).reduce((sum: number, cost: any) => sum + n(cost.monthly_cost), 0);
+  // Same take-home and childcare maths as the month plan (tax, NI, pension, student loan, overrides, care registry).
+  const pay = await withPayOverrides(supabase, payEvents.data || []);
+  const salaryIncome = selectActivePayEventsForMonth(pay as any, month).reduce((sum: number, event: any) => sum + n(getPayAmount(event, month)), 0);
+  const childcare = (childCosts.data || []).filter((cost: any) => activeInMonth(cost.starts_on, cost.ends_on, month)).reduce((sum: number, cost: any) => sum + n(getChildCostMonthlyAmount(cost, month)), 0);
   const actualSpending = (spendingEntries.data || []).reduce((sum: number, entry: any) => sum + Math.abs(n(entry.amount)), 0);
 
   const income = plannedIncome + entryIncome + salaryIncome;

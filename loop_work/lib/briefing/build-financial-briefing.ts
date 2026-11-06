@@ -51,7 +51,7 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
     rows(scope(supabase.from("assets").select("value,type,created_at"))),
     rows(scope(supabase.from("liabilities").select("balance,type,created_at"))),
     rows(scope(supabase.from("homes").select("id,label,property_value,estimated_value_mid,updated_at"))),
-    rows(scope(supabase.from("home_mortgage_deals").select("id,home_id,balance,balance_as_of_date,interest_rate,term_years,monthly_payment_override,repayment_type,start_date,end_date"))),
+    rows(scope(supabase.from("home_mortgage_deals").select("id,home_id,balance,balance_as_of_date,interest_rate,term_years,monthly_payment_override,repayment_type,start_date,end_date,initial_period_end"))),
     rows(scope(supabase.from("pension_accounts").select("id,current_value,value_as_of_date,updated_at"))),
     rows(scope(supabase.from("pension_funds").select("pension_account_id,fund_name,group_label,current_value,units,unit_price,annual_fund_fee_percent,performance_annualised_5y_percent,performance_annualised_10y_percent,performance_planning_rate_percent,performance_as_of_date"))),
     rows(scope(supabase.from("investment_accounts").select("id,label,provider"))),
@@ -206,7 +206,7 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
     flow:{income,spending,savings:plannedSavings,pensions,unassigned},
     investments:{value:investmentValue,weeklyChange:investmentWeeklyChange,topExposure:top?.[0]||null,topExposurePercent,evidence:holdings.length?`${holdings.length} priced holding${holdings.length===1?"":"s"}`:"No priced holdings"},
     savings:{balance:savingsBalance,monthlyDeposits:deposits,monthlyWithdrawals:withdrawals,confirmedInterest,accruedInterest,blendedRate},
-    home: homes.length ? {value:propertyValue,mortgage:mortgageValue,equity:propertyValue-mortgageValue,ltv:propertyValue?mortgageValue/propertyValue*100:0,fixedEnd:mortgages.map((m:any)=>m.end_date).filter(Boolean).sort()[0]||null}:null,
+    home: homes.length ? {value:propertyValue,mortgage:mortgageValue,equity:propertyValue-mortgageValue,ltv:propertyValue?mortgageValue/propertyValue*100:0,fixedEnd:mortgages.map((m:any)=>m.initial_period_end||m.end_date).filter(Boolean).sort()[0]||null}:null,
     dataQuality,series,deltas,holdings:holdingsTable,pensionFunds:pensionFundsTable,generatedAt:new Date().toISOString(),
   };
 }

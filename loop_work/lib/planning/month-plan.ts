@@ -56,6 +56,17 @@ export type PayEventForPlan = {
   maternity_smp_only_weeks: number | null;
   maternity_unpaid_weeks: number | null;
   maternity_smp_weekly_rate: number | null;
+  /** Exact pay for particular months (pay_event_monthly_overrides), e.g. maternity or a bonus month. */
+  overrides?: PayEventOverrideForPlan[];
+};
+
+export type PayEventOverrideForPlan = {
+  pay_event_id: string | null;
+  month: string;
+  statutory_pay: number | null;
+  occupational_pay: number | null;
+  gross_pay: number | null;
+  net_pay_override: number | null;
 };
 
 export type ChildCostForPlan = {
@@ -124,12 +135,12 @@ export type IncomeEntryForPlan = {
   entry_date: string;
 };
 
-function incomeEntryAppliesToMonth(entry: IncomeEntryForPlan, month: string) {
+export function incomeEntryAppliesToMonth(entry: IncomeEntryForPlan, month: string) {
   if (entry.frequency === "one_off") return dateIsInMonth(entry.entry_date, month);
   return entry.entry_date <= toDateString(monthEnd(month));
 }
 
-function getIncomeEntryMonthlyAmount(entry: IncomeEntryForPlan) {
+export function getIncomeEntryMonthlyAmount(entry: IncomeEntryForPlan) {
   const amount = Number(entry.net_amount ?? entry.gross_amount ?? 0);
   if (entry.frequency === "weekly") return amount * 52 / 12;
   if (entry.frequency === "annual") return amount / 12;
@@ -238,6 +249,14 @@ function getPersonName(peopleById: Map<string, PersonForPlan>, id: string | null
 }
 
 export function getPayAmount(event: PayEventForPlan, month: string) {
+  // An exact figure entered for this month wins over any estimate.
+  const override = event.overrides?.find((item) => item.month === month);
+  if (override) {
+    if (override.net_pay_override !== null && override.net_pay_override !== undefined) return Number(override.net_pay_override);
+    if (override.gross_pay !== null && override.gross_pay !== undefined) return Number(override.gross_pay);
+    return Number(override.statutory_pay ?? 0) + Number(override.occupational_pay ?? 0);
+  }
+
   if (event.pay_kind === "maternity") {
     const estimate = calculateNhsMaternityMonthlyAmount({
       month,
