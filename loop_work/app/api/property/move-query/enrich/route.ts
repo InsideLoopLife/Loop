@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { quoteCouncilTax } from "@/lib/property/council-tax-rates";
 import { buildMoveAssumptions, estimateCouncilTaxAnnual, fetchSourceText, parseMoveListingFromSource } from "@/lib/wealth/source-ingestion";
 
 function compactPostcode(value: string) {
@@ -28,6 +29,8 @@ async function lookupPostcodeContext(postcode: string | null) {
     return {
       postcode: result.postcode || postcode,
       authority: result.admin_district || result.parish || result.admin_county || null,
+      authorityCode: result.codes?.admin_district || null,
+      countryCode: result.country === "Wales" ? "WLS" : result.country === "Scotland" ? "SCT" : "ENG",
       region: result.region || null,
       latitude: lat,
       longitude: lon,
@@ -52,7 +55,12 @@ export async function POST(request: NextRequest) {
     const source = await fetchSourceText(url);
     const parsed = parseMoveListingFromSource({ sourceUrl: source.url, text: source.text, rawText: source.rawText, fallbackPrice: Number(body?.asking_price || 0) || null });
     const postcodeContext = await lookupPostcodeContext(parsed.postcode);
-    const councilEstimate = estimateCouncilTaxAnnual({ band: parsed.councilTaxBand, authority: postcodeContext?.authority });
+    const legacyEstimate = estimateCouncilTaxAnnual({ band: parsed.councilTaxBand, authority: postcodeContext?.authority });
+    const quote = await quoteCouncilTax(supabase as any, { band: parsed.councilTaxBand, authorityCode: postcodeContext?.authorityCode, authorityName: postcodeContext?.authority, countryCode: postcodeContext?.countryCode });
+    // Council table first (all English councils); old estimator only if no quote.
+    const councilEstimate = quote
+      ? { annual: Math.round(quote.annualPence / 100), confidence: quote.confidence, sourceUrl: quote.sourceUrl, authority: quote.authorityName || postcodeContext?.authority || null }
+      : legacyEstimate;
     const additionalProperty = ["second_home", "buy_to_let"].includes(String(body?.purchase_context || ""));
     const assumptions = buildMoveAssumptions({
       askingPrice: parsed.askingPrice,

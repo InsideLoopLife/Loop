@@ -1,3 +1,4 @@
+import { quoteCouncilTax } from "@/lib/property/council-tax-rates";
 import { createClient } from "@/lib/supabase/server";
 
 export function poundsToPence(value: number | string | null | undefined) {
@@ -162,11 +163,22 @@ export async function estimatePropertyAffordability(input: {
   const explicit = input.estimatedValuePence || (input.estimatedValue ? poundsToPence(input.estimatedValue) : null);
   const value = fallbackValue({ valuePence: explicit, medianPence: sold.medianPricePence, bedrooms: input.bedrooms, propertyType: input.propertyType });
   const band = estimateBand({ currentValuePence: value.valuePence, countryCode, region: postcodeData?.region, comparableCount: sold.count });
+  const authorityCode = postcodeData?.codes?.admin_district || null;
+  const [lowQuote, highQuote] = await Promise.all([
+    quoteCouncilTax(supabase as any, { band: band.bandLow, countryCode, authorityCode, authorityName: postcodeData?.admin_district }),
+    quoteCouncilTax(supabase as any, { band: band.bandHigh, countryCode, authorityCode, authorityName: postcodeData?.admin_district }),
+  ]);
+  if (lowQuote && highQuote) {
+    band.annualLowPence = lowQuote.annualPence;
+    band.annualHighPence = highQuote.annualPence;
+    band.annualMidPence = Math.round((lowQuote.annualPence + highQuote.annualPence) / 2);
+  }
+  const councilChargeSource = lowQuote?.source === "council_table" ? `${lowQuote.authorityName || "council"} ${lowQuote.chargeYear} rates` : lowQuote ? "national average Band D" : "rough default";
 
   const warnings = [
     "This is an affordability estimate, not an official council tax band.",
     "Verify the exact address against the official valuation list before purchase/rent decisions.",
-    "Default council-tax charges are rough until local council rates are configured.",
+    lowQuote?.source === "council_table" ? `Charges use ${councilChargeSource}.` : "Charges use the national average until this council's rates are loaded.",
   ];
   if (!postcodeData) warnings.push("Postcode could not be validated.");
   if (!sold.count) warnings.push("No nearby sold-price comparables were found by the automated check.");
@@ -198,7 +210,7 @@ export async function estimatePropertyAffordability(input: {
     source_status: {
       postcodes_io: { status: postcodeData ? "found" : "not_found", result: postcodeData },
       land_registry: { status: sold.status, count: sold.count, median_price_pence: sold.medianPricePence, error: sold.error },
-      council_tax: { status: "estimated", note: "Estimated for affordability planning only." },
+      council_tax: { status: "estimated", note: `Band estimated from value; charge from ${councilChargeSource}.`, source_url: lowQuote?.sourceUrl || null },
       epc: { status: "not_configured", note: "Connect EPC API or enter manually." },
       schools: { status: "not_configured", note: "Connect schools/performance sources later." },
     },

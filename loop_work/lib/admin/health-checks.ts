@@ -79,6 +79,17 @@ export function buildHealthChecks(db: SupabaseClient, ratesDb: SupabaseClient | 
       },
     },
     {
+      key: "council_tax_rates_missing", area: "property", title: "Council tax rates not loaded for this year", actionUrl: "/admin/property-sources",
+      run: async () => {
+        const { ENGLAND_TABLE } = await import("@/lib/property/council-tax-rates");
+        const { count } = await db.from("loop_council_tax_rate_estimates").select("id", { count: "exact", head: true })
+          .eq("country_code", "ENG").eq("band", "D").eq("charge_year", ENGLAND_TABLE.chargeYear);
+        return (count || 0) >= 250
+          ? { ok: true, summary: `${count} councils loaded for ${ENGLAND_TABLE.chargeYear}.` }
+          : { ok: false, severity: "medium", summary: `Only ${count || 0} councils loaded for ${ENGLAND_TABLE.chargeYear}. Check /api/cron/council-tax-refresh, and update ENGLAND_TABLE in lib/property/council-tax-rates.ts each April.` };
+      },
+    },
+    {
       key: "retirement_refresh_failing", area: "retirement", title: "Retirement assumptions refresh failing", actionUrl: "/admin",
       run: async () => {
         const { data } = await db.from("retirement_assumption_refresh_runs").select("*").order("started_at", { ascending: false }).limit(1).maybeSingle();

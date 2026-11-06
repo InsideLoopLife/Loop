@@ -1,5 +1,6 @@
 "use server";
 
+import { quoteCouncilTax } from "@/lib/property/council-tax-rates";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -556,8 +557,13 @@ export async function addPropertyMoveQuery(formData: FormData) {
         "",
     ),
   });
+  const councilQuote = await quoteCouncilTax(supabase as any, {
+    band: councilTaxBand,
+    authorityName: String(formData.get("council_tax_authority") || assumptions.councilTaxAuthority || "") || null,
+  });
   const councilTaxAnnual =
     parseNumber(formData.get("council_tax_estimate_annual")) ??
+    (councilQuote ? Math.round(councilQuote.annualPence / 100) : null) ??
     assumptions.councilTaxAnnual ??
     councilTaxEstimate.annual;
   const serviceChargeMonthly = parseNumber(
