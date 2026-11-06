@@ -10,6 +10,7 @@ import { MaternityPayMode, calculateNhsMaternityMonthlyAmount } from "@/lib/calc
 import { ActivityBillingMode, BillingSchedule, DaySession, FundingMode, calculateActivityMonthlyCost, calculateNurseryMonthlyCost } from "@/lib/calculations/childcare";
 import { addChildCost, addPayEvent, addPayEventMonthlyOverride, deleteChildCost, deletePayEvent, updateChildCost, updatePayEvent } from "@/app/household/actions";
 import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
+import { deductionsForMonth } from "@/lib/planning/month-plan";
 
 type Person = {
   id: string;
@@ -214,6 +215,7 @@ function getPayMonthlyNet(event: PayEvent, month: string) {
     pensionPercent: Number(event.pension_percent),
     pensionMethod: event.pension_method ?? "net_pay",
     taxRegion: (event as any).tax_region,
+    deductions: deductionsForMonth(event as any, month),
     studentLoanPlan: event.student_loan_plan,
   }).monthlyTakeHome;
 }

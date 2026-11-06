@@ -283,6 +283,7 @@ export async function addIncomeDeduction(formData: FormData) {
     notes: String(formData.get("notes") || ""),
     effective_from: String(formData.get("effective_from") || new Date().toISOString().slice(0, 10)),
     effective_until: String(formData.get("effective_until") || "") || null,
+    taken_before_tax: formData.has("taken_before_tax") ? String(formData.get("taken_before_tax")) === "yes" : null,
   };
 
   const { error } = await supabase.from("income_deductions").insert(payload as any);
@@ -296,4 +297,33 @@ export async function deleteIncomeDeduction(formData: FormData) {
   const { error } = await applyMutableRecordFilter(supabase.from("income_deductions").delete(), id, householdContext);
   if (error) throw new Error(error.message);
   revalidateIncomeSurfaces();
+}
+
+
+const PENSION_METHODS = ["none", "net_pay", "salary_sacrifice", "relief_at_source", "nhs_pension"];
+const LOAN_PLANS = ["none", "plan_1", "plan_2", "plan_4", "plan_5", "postgraduate"];
+
+/** Payslip panel: change one pay record's deductions without reopening the full form. */
+export async function updatePaySettings(formData: FormData) {
+  const { supabase, householdContext } = await requireIncomeUser();
+  const id = String(formData.get("id") || "").trim();
+  if (!id) throw new Error("Missing pay record");
+  const patch: Record<string, unknown> = {};
+  if (formData.has("pension_method")) {
+    const method = String(formData.get("pension_method"));
+    if (PENSION_METHODS.includes(method)) patch.pension_method = method;
+  }
+  if (formData.has("pension_percent")) {
+    const pct = parseNumber(formData.get("pension_percent"));
+    if (pct !== null && pct !== undefined && pct >= 0 && pct <= 100) patch.pension_percent = pct;
+  }
+  if (formData.has("student_loan_plan")) {
+    const plan = String(formData.get("student_loan_plan"));
+    if (LOAN_PLANS.includes(plan)) patch.student_loan_plan = plan;
+  }
+  if (formData.has("tax_region")) patch.tax_region = String(formData.get("tax_region")) === "scotland" ? "scotland" : "rUK";
+  if (!Object.keys(patch).length) return;
+  const { error } = await applyMutableRecordFilter(supabase.from("pay_events").update(patch as any), id, householdContext);
+  if (error) throw new Error(error.message);
+  revalidateIncomeSurfaces(String(formData.get("person_id") || "") || null);
 }

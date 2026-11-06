@@ -160,6 +160,7 @@ export default async function IncomePage() {
     { data: studentLoanAccounts },
     { data: studentLoanBalanceEvents },
     { data: incomeDeductions },
+    { data: pensionAccounts },
   ] = await Promise.all([
     supabase
       .from("income_entries")
@@ -202,10 +203,14 @@ export default async function IncomePage() {
       .returns<StudentLoanBalanceEvent[]>(),
     supabase
       .from("income_deductions")
-      .select("id, person_id, deduction_type, label, monthly_amount, notes, effective_from, effective_until")
+      .select("id, person_id, deduction_type, label, monthly_amount, notes, effective_from, effective_until, taken_before_tax")
       .or(householdVisibleFilter)
       .order("created_at", { ascending: false })
       .returns<IncomeDeduction[]>(),
+    supabase
+      .from("pension_accounts")
+      .select("id, person_id, label, provider, contribution_method, employee_contribution_percent")
+      .or(householdVisibleFilter),
   ]);
 
   let payEvents = (payEventsResult.data || []) as PayEvent[];
@@ -284,6 +289,7 @@ export default async function IncomePage() {
         signedInPersonId={signedInPerson?.id || null}
         canViewHouseholdIncome={householdContext.canViewHouseholdIncome}
         schemaWarning={payEventsSchemaWarning}
+        pensionAccounts={((pensionAccounts ?? []) as any[]).map((account) => ({ ...account, person_id: canonicalisePersonId(account.person_id) }))}
       />
     </>
   );

@@ -40,6 +40,7 @@ import {
 import { addChildCost, deleteChildCost, updateChildCost } from "@/app/household/actions";
 import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
 import { SpendingQuickAdd } from "@/components/spending/SpendingQuickAdd";
+import { deductionsForMonth } from "@/lib/planning/month-plan";
 
 const SUMMARY_COLOURS = ["#1f6a50", "#c08a3e", "#5b6fa8", "#7fa886", "#b46a55", "#8a7fb0", "#3e8a99", "#a59a5c", "#6b7570", "#c9a7a0"];
 
@@ -729,6 +730,7 @@ function getPayAmount(event: PayEvent, month: string) {
     pensionPercent: Number(event.pension_percent),
     pensionMethod: event.pension_method ?? "net_pay",
     taxRegion: (event as any).tax_region,
+    deductions: deductionsForMonth(event as any, month),
     studentLoanPlan: event.student_loan_plan,
   }).monthlyTakeHome;
 }

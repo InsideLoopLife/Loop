@@ -16,6 +16,8 @@ import { estimateAnnualTakeHome, PensionMethod, StudentLoanPlan } from "@/lib/ca
 import { MaternityPayMode, calculateNhsMaternityMonthlyAmount } from "@/lib/calculations/maternity";
 import { requestProfileDataHandover, updatePersonProfile } from "../actions";
 import { ActivityBillingMode, BillingSchedule, DaySession, FundingMode, calculateActivityMonthlyCost, calculateNurseryMonthlyCost } from "@/lib/calculations/childcare";
+import { deductionsForMonth } from "@/lib/planning/month-plan";
+import { withPayOverrides } from "@/lib/planning/pay-overrides";
 
 type Person = {
   id: string;
@@ -188,6 +190,7 @@ function getPayMonthlyNet(event: PayEvent, month = currentBillingMonth()) {
     pensionPercent: Number(event.pension_percent),
     pensionMethod: event.pension_method ?? "net_pay",
     taxRegion: (event as any).tax_region,
+    deductions: deductionsForMonth(event as any, month),
     studentLoanPlan: event.student_loan_plan,
   }).monthlyTakeHome;
 }
@@ -282,7 +285,8 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
     current.push(override);
     overridesByEvent.set(override.pay_event_id, current);
   }
-  const payRows = (payEvents ?? []).map((event) => ({ ...event, overrides: overridesByEvent.get(event.id) || [] }));
+  const payWithDeductions = await withPayOverrides(supabase, payEvents ?? []);
+  const payRows = payWithDeductions.map((event) => ({ ...event, overrides: overridesByEvent.get(event.id) || [] }));
   const childCostRows = childCosts ?? [];
   const incomeEntryRows = incomeEntries ?? [];
   const plannedItemRows = plannedItems ?? [];

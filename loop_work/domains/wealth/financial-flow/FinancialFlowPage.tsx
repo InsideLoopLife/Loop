@@ -47,6 +47,7 @@ import { IncomeFlowScopeView, type IncomeFlowScope } from "@/components/financia
 import { getIncomeEntryMonthlyAmount as sharedIncomeEntryMonthlyAmount, getPayAmount as sharedGetPayAmount, incomeEntryAppliesToMonth as sharedIncomeEntryAppliesToMonth, mortgageDealMonthlyPayment, type PayEventOverrideForPlan } from "@/lib/planning/month-plan";
 import { withPayOverrides } from "@/lib/planning/pay-overrides";
 import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
+import { deductionsForMonth } from "@/lib/planning/month-plan";
 
 type TabKey = "flow" | "income" | "spending" | "savings";
 type Tone = "orange" | "green" | "blue" | "slate";
@@ -461,6 +462,7 @@ function monthlyPay(event: PayEvent & { overrides?: PayEventOverrideForPlan[] },
       pensionPercent: n(event.pension_percent),
       pensionMethod: event.pension_method || "net_pay",
       taxRegion: (event as any).tax_region,
+    deductions: deductionsForMonth(event as any, monthKey),
     studentLoanPlan: event.student_loan_plan || "none",
     }).monthlyTakeHome * fraction
   );

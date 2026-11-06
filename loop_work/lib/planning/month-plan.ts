@@ -1,5 +1,5 @@
 import { calculateNewCareTypeMonthlyCost, type CareType } from "@/lib/calculations/childcareRegistry";
-import { estimateAnnualTakeHome, type PensionMethod, type StudentLoanPlan } from "@/lib/calculations/tax";
+import { deductionIsBeforeTax, estimateAnnualTakeHome, type PensionMethod, type StudentLoanPlan } from "@/lib/calculations/tax";
 import { calculateNhsMaternityMonthlyAmount, type MaternityPayMode } from "@/lib/calculations/maternity";
 import {
   calculateActivityMonthlyCost,
@@ -60,7 +60,29 @@ export type PayEventForPlan = {
   tax_region?: string | null;
   /** Exact pay for particular months (pay_event_monthly_overrides), e.g. maternity or a bonus month. */
   overrides?: PayEventOverrideForPlan[];
+  /** That person's income_deductions, attached by withPayOverrides. */
+  deductions?: PayDeductionRow[];
 };
+
+export type PayDeductionRow = {
+  id?: string;
+  person_id?: string | null;
+  deduction_type?: string | null;
+  label?: string | null;
+  monthly_amount: number | null;
+  taken_before_tax?: boolean | null;
+  effective_from?: string | null;
+  effective_until?: string | null;
+};
+
+/** The deductions that apply to this pay in a given month, ready for estimateAnnualTakeHome. */
+export function deductionsForMonth(event: { deductions?: PayDeductionRow[] | null }, month: string) {
+  const start = `${month}-01`;
+  const end = `${month}-31`;
+  return (event.deductions || [])
+    .filter((d) => (!d.effective_from || d.effective_from <= end) && (!d.effective_until || d.effective_until >= start))
+    .map((d) => ({ label: d.label || "Deduction", type: d.deduction_type || "other", monthlyAmount: Number(d.monthly_amount || 0), beforeTax: deductionIsBeforeTax(d.deduction_type, d.taken_before_tax) }));
+}
 
 export type PayEventOverrideForPlan = {
   pay_event_id: string | null;
@@ -291,6 +313,7 @@ export function getPayAmount(event: PayEventForPlan, month: string) {
     pensionMethod: event.pension_method ?? "net_pay",
     taxRegion: (event as any).tax_region,
     studentLoanPlan: event.student_loan_plan,
+    deductions: deductionsForMonth(event, month),
   }).monthlyTakeHome;
 }
 

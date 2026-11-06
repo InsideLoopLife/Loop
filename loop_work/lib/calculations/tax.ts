@@ -31,6 +31,14 @@ export function calculateIncomeTaxEnglandWalesNorthernIreland(grossAnnual: numbe
 
 export type TaxRegion = "rUK" | "scotland";
 
+export type PayDeduction = { label?: string; type?: string; monthlyAmount: number; beforeTax: boolean };
+
+/** Default for each deduction type: salary sacrifice schemes come off before tax. */
+export function deductionIsBeforeTax(type?: string | null, explicit?: boolean | null) {
+  if (explicit === true || explicit === false) return explicit;
+  return type === "car_salary_sacrifice" || type === "cycle_to_work" || type === "additional_pension";
+}
+
 // Scottish income tax 2026-27 (Scottish Rate Resolution; gov.scot "Scottish
 // Income Tax rates and bands 2026 to 2027"). Bands are amounts of taxable
 // income above the personal allowance: starter to £16,537, basic to £29,526,
@@ -92,6 +100,7 @@ export function estimateAnnualTakeHome({
   pensionMethod = "net_pay",
   taxRegion = "rUK",
   nhsTierFromPay = true,
+  deductions = [],
 }: {
   grossAnnual: number;
   pensionPercent?: number;
@@ -100,22 +109,28 @@ export function estimateAnnualTakeHome({
   taxRegion?: TaxRegion | string | null;
   /** NHS member rates are set by pay tier, so a pay rise can move someone up a tier. */
   nhsTierFromPay?: boolean;
+  /** Other pay deductions (cycle to work, car scheme, extra pension, union fees...). Monthly amounts. */
+  deductions?: PayDeduction[];
 }) {
   const gross = Math.max(0, grossAnnual);
   const method = normalisePensionMethod(pensionMethod);
   const effectivePercent = method === "nhs_pension" && nhsTierFromPay && gross > 0 ? nhsMemberContributionPercent(gross) : pensionPercent;
   const grossPension = method === "none" ? 0 : Math.max(0, gross * (effectivePercent / 100));
-  const taxablePay = method === "net_pay" || method === "nhs_pension" || method === "salary_sacrifice"
-    ? Math.max(0, gross - grossPension)
-    : gross;
-  const niPay = method === "salary_sacrifice" ? Math.max(0, gross - grossPension) : gross;
-  const studentLoanPay = method === "salary_sacrifice" ? Math.max(0, gross - grossPension) : gross;
+  // Before-tax deductions (salary sacrifice schemes) reduce pay for tax, NI and
+  // student loan; after-tax ones just come off what lands.
+  const beforeTaxAnnual = deductions.filter((d) => d.beforeTax).reduce((sum, d) => sum + Math.max(0, d.monthlyAmount) * 12, 0);
+  const afterTaxAnnual = deductions.filter((d) => !d.beforeTax).reduce((sum, d) => sum + Math.max(0, d.monthlyAmount) * 12, 0);
+  const taxablePay = Math.max(0, (method === "net_pay" || method === "nhs_pension" || method === "salary_sacrifice"
+    ? gross - grossPension
+    : gross) - beforeTaxAnnual);
+  const niPay = Math.max(0, (method === "salary_sacrifice" ? gross - grossPension : gross) - beforeTaxAnnual);
+  const studentLoanPay = Math.max(0, (method === "salary_sacrifice" ? gross - grossPension : gross) - beforeTaxAnnual);
   const pensionNetDeduction = method === "relief_at_source" ? grossPension * 0.8 : grossPension;
 
   const incomeTax = calculateIncomeTax(taxablePay, taxRegion);
   const nationalInsurance = calculateEmployeeNI(niPay);
   const studentLoan = calculateStudentLoan(studentLoanPay, studentLoanPlan);
-  const annualTakeHome = gross - pensionNetDeduction - incomeTax - nationalInsurance - studentLoan;
+  const annualTakeHome = gross - pensionNetDeduction - beforeTaxAnnual - incomeTax - nationalInsurance - studentLoan - afterTaxAnnual;
 
   return {
     pensionPercent: effectivePercent,
@@ -127,6 +142,8 @@ export function estimateAnnualTakeHome({
     incomeTax,
     nationalInsurance,
     studentLoan,
+    otherDeductionsBeforeTax: beforeTaxAnnual,
+    otherDeductionsAfterTax: afterTaxAnnual,
     annualTakeHome,
     monthlyTakeHome: annualTakeHome / 12,
   };

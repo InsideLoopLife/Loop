@@ -6,6 +6,7 @@ import { SectionCard } from "@/components/SectionCard";
 import { ModalFrame } from "@/components/ui/ModalFrame";
 import { PayEventWizard } from "@/components/household/PayEventWizard";
 import { IncomeQuickAdd } from "@/components/income/IncomeQuickAdd";
+import { PayslipPanel, type PensionAccountLike } from "@/components/income/PayslipPanel";
 import { formatMoney } from "@/lib/format/money";
 import { writeRouteSnapshot } from "@/lib/client/route-snapshot-cache";
 import {
@@ -29,6 +30,7 @@ import {
   updateRecurringPayEvent,
   upsertStudentLoanAccount,
 } from "@/app/income/actions";
+import { deductionsForMonth } from "@/lib/planning/month-plan";
 
 type Person = {
   id: string;
@@ -115,6 +117,7 @@ type IncomeDeduction = {
 };
 
 export type IncomeTrackerClientProps = {
+  pensionAccounts?: PensionAccountLike[];
   entries: IncomeEntry[];
   people: Person[];
   payEvents: PayEvent[];
@@ -280,6 +283,7 @@ function getPayEventBreakdown(event: PayEvent, month: string) {
     pensionPercent: Number(event.pension_percent),
     pensionMethod: event.pension_method ?? "net_pay",
     taxRegion: (event as any).tax_region,
+    deductions: deductionsForMonth(event as any, month),
     studentLoanPlan: event.student_loan_plan,
   });
 
@@ -725,6 +729,14 @@ function AddDeductionForm({
         <input name="effective_from" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className={inputClass} />
       </Field>
       <div className="sm:col-span-2">
+        <Field label="When does it come off?">
+          <select name="taken_before_tax" defaultValue={deductionType === "other" ? "no" : "yes"} className={selectClass}>
+            <option value="yes">Before tax and NI (salary sacrifice, cycle to work, car scheme)</option>
+            <option value="no">After tax (union fees, payroll giving to a club, loan repayments)</option>
+          </select>
+        </Field>
+      </div>
+      <div className="sm:col-span-2">
         <Field label="Notes (optional)">
           <input name="notes" className={inputClass} placeholder="Scheme name, provider, anything useful" />
         </Field>
@@ -764,7 +776,7 @@ const DEDUCTION_TYPE_OPTIONS: { type: IncomeDeduction["deduction_type"]; label: 
 export function IncomeTrackerClient({
   entries,
   people,
-  payEvents,
+  payEvents: rawPayEvents,
   studentLoanAccounts = [],
   studentLoanBalanceEvents = [],
   incomeDeductions = [],
@@ -772,13 +784,19 @@ export function IncomeTrackerClient({
   signedInPersonId = null,
   canViewHouseholdIncome = true,
   schemaWarning = null,
+  pensionAccounts = [],
 }: IncomeTrackerClientProps) {
+  // Each pay record carries that person's deductions so take-home matches the payslip.
+  const payEvents = useMemo(
+    () => rawPayEvents.map((event) => ({ ...event, deductions: (incomeDeductions as any[]).filter((d) => d.person_id === event.person_id) })),
+    [rawPayEvents, incomeDeductions],
+  );
   useEffect(() => {
     writeRouteSnapshot<IncomeTrackerClientProps>("income", {
-      entries, people, payEvents, studentLoanAccounts, studentLoanBalanceEvents,
+      entries, people, payEvents: rawPayEvents, studentLoanAccounts, studentLoanBalanceEvents,
       incomeDeductions, hasHousehold, signedInPersonId, canViewHouseholdIncome, schemaWarning,
     });
-  }, [entries, people, payEvents, studentLoanAccounts, studentLoanBalanceEvents, incomeDeductions, hasHousehold, signedInPersonId, canViewHouseholdIncome, schemaWarning]);
+  }, [entries, people, rawPayEvents, studentLoanAccounts, studentLoanBalanceEvents, incomeDeductions, hasHousehold, signedInPersonId, canViewHouseholdIncome, schemaWarning]);
   const [modal, setModal] = useState<IncomeModalState>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -1143,10 +1161,7 @@ export function IncomeTrackerClient({
               key={`${line.source}-${line.id}`}
               className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
             >
-              <div
-                className={`h-1.5 ${line.kind === "maternity" ? "bg-gradient-to-r from-pink-500 to-orange-400" : line.source === "pay_event" ? "bg-gradient-to-r from-emerald-500 to-teal-400" : "bg-gradient-to-r from-slate-950 to-slate-600"}`}
-              />
-              <div className="grid gap-4 p-5 xl:grid-cols-[minmax(0,1fr)_520px_auto] xl:items-center">
+              <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-black text-slate-700">
@@ -1166,50 +1181,14 @@ export function IncomeTrackerClient({
                     {line.dateLabel}
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-[10px] font-black uppercase text-slate-400">
-                      Gross
-                    </p>
-                    <p className="font-black text-slate-950">
-                      {formatMoney(line.monthlyGross)}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-[10px] font-black uppercase text-slate-400">
-                      Net
-                    </p>
-                    <p className="font-black text-slate-950">
-                      {formatMoney(line.monthlyNet)}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-[10px] font-black uppercase text-slate-400">
-                      Pension
-                    </p>
-                    <p className="font-black text-slate-950">
-                      {formatMoney(line.monthlyPension)}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-[10px] font-black uppercase text-slate-400">
-                      Tax / NI
-                    </p>
-                    <p className="font-black text-slate-950">
-                      {formatMoney(line.monthlyTax + line.monthlyNi)}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-[10px] font-black uppercase text-slate-400">
-                      Kept
-                    </p>
-                    <p className="font-black text-slate-950">
-                      {line.keptPercent.toFixed(0)}%
-                    </p>
-                  </div>
+                <div className="flex items-baseline gap-3 text-[15px] text-[var(--muted)]">
+                  <span>{formatMoney(line.monthlyGross)} gross</span>
+                  <span aria-hidden>→</span>
+                  <span className="text-[22px] font-semibold tracking-tight text-[var(--ink)]">{formatMoney(line.monthlyNet)}</span>
+                  <span>take-home</span>
                 </div>
                 <div className="flex items-center justify-end gap-3">
-                  <button type="button" onClick={() => setModal({ type: "viewLine", line })} className="rounded-full bg-emerald-100 px-3 py-2 text-xs font-black text-emerald-800">View split</button>
+                  {line.source !== "pay_event" ? <button type="button" onClick={() => setModal({ type: "viewLine", line })} className="rounded-full bg-emerald-100 px-3 py-2 text-xs font-black text-emerald-800">View split</button> : null}
                   {line.source === "manual" && line.incomeEntry ? (
                     <button
                       type="button"
@@ -1272,6 +1251,22 @@ export function IncomeTrackerClient({
                   )}
                 </div>
               </div>
+              {line.source === "pay_event" && line.payEvent && line.payEvent.pay_kind !== "maternity" ? (
+                <details className="group/payslip border-t border-[var(--line)]">
+                  <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-sm text-[var(--ink)] hover:bg-[var(--paper)] [&::-webkit-details-marker]:hidden">
+                    <span><span className="font-medium">Payslip</span><span className="text-[var(--muted)]"> · what comes off and how</span></span>
+                    <svg viewBox="0 0 20 20" className="h-4 w-4 text-[var(--muted)] transition group-open/payslip:rotate-180" aria-hidden><path d="M5 7.5 10 12.5 15 7.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </summary>
+                  <div className="px-5 pb-5">
+                    <PayslipPanel
+                      event={line.payEvent as any}
+                      month={month}
+                      pensionAccounts={pensionAccounts}
+                      onAddDeduction={() => setModal("deductionPicker")}
+                    />
+                  </div>
+                </details>
+              ) : null}
             </div>
           ))}
           {filtered.length === 0 ? (
