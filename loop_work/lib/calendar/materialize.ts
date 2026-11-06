@@ -3,6 +3,7 @@
 // Turns real Loop data into calendar_events rows for a household:
 //   - planned_items  -> payment_due / income_expected on each due date
 //   - pay_events     -> income_expected on each pay day, with take-home pay
+//   - home_mortgage_deals -> payment_due on the mortgage payment day
 //   - food_logs      -> calorie_progress per person per day
 // Runs daily from /api/cron/calendar-sync (called by the rates worker's
 // maintenance list) and right after guided setup.
@@ -14,7 +15,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActiveHouseholdContext } from "@/domains/identity/household";
-import { getPayAmount, selectActivePayEventsForMonth, type PayEventForPlan } from "@/lib/planning/month-plan";
+import { getPayAmount, mortgageDealMonthlyPayment, selectActivePayEventsForMonth, type HomeMortgageDealForPlan, type PayEventForPlan } from "@/lib/planning/month-plan";
 import type { CalorieProgressMetadata } from "./types";
 
 const WINDOW_DAYS = 45;
@@ -125,14 +126,16 @@ export async function materializePaymentsAndIncome({ db, household, today = new 
   const to = new Date(from.getTime() + WINDOW_DAYS * DAY_MS);
   const memberIds = household.memberUserIds;
 
-  const [{ data: items, error: itemsError }, { data: payEvents, error: payError }] = await Promise.all([
+  const [{ data: items, error: itemsError }, { data: payEvents, error: payError }, { data: deals, error: dealsError }] = await Promise.all([
     db.from("planned_items")
       .select("id, user_id, person_id, direction, label, amount, recurrence, recurrence_interval_days, start_date, end_date, day_of_month, payment_adjustment")
       .in("user_id", memberIds),
     db.from("pay_events").select("*").in("user_id", memberIds),
+    db.from("home_mortgage_deals").select("*").in("user_id", memberIds),
   ]);
   if (itemsError) throw new Error(`planned_items: ${itemsError.message}`);
   if (payError) throw new Error(`pay_events: ${payError.message}`);
+  if (dealsError) throw new Error(`home_mortgage_deals: ${dealsError.message}`);
 
   const rows: any[] = [];
   const base = { household_id: household.householdId, visibility_scope: "household" as const, metadata: {} };
@@ -171,6 +174,32 @@ export async function materializePaymentsAndIncome({ db, household, today = new 
         external_id: `pay_event:${event.id}:${iso(date)}`,
         title: event.label || "Pay day",
         event_date: iso(date),
+        amount,
+      });
+    }
+  }
+
+  // Mortgage: same monthly amount the month plan uses (override, else repayment maths).
+  for (const deal of (deals || []) as Array<HomeMortgageDealForPlan & { user_id: string; payment_day_of_month: number | null }>) {
+    const amount = Math.round(mortgageDealMonthlyPayment(deal) * 100) / 100;
+    if (!(amount > 0)) continue;
+    const startDate = deal.start_date || iso(from);
+    const day = deal.payment_day_of_month || utc(startDate).getUTCDate();
+    const dates = plannedItemDates({
+      id: deal.id, user_id: deal.user_id, person_id: null, direction: "outgoing", label: "Mortgage", amount,
+      recurrence: "monthly", recurrence_interval_days: null, start_date: startDate, end_date: deal.end_date,
+      day_of_month: day, payment_adjustment: null,
+    }, from, to);
+    for (const date of dates) {
+      rows.push({
+        ...base,
+        user_id: deal.user_id,
+        person_id: null,
+        source: "loop_payment",
+        event_type: "payment_due",
+        external_id: `mortgage_deal:${deal.id}:${date}`,
+        title: deal.lender ? `Mortgage · ${deal.lender}` : "Mortgage",
+        event_date: date,
         amount,
       });
     }

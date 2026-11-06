@@ -334,7 +334,7 @@ export function getChildCostMonthlyAmount(cost: ChildCostForPlan, month: string)
   }).estimatedMonthlyCost;
 }
 
-function mortgageDealMonthlyPayment(deal: HomeMortgageDealForPlan) {
+export function mortgageDealMonthlyPayment(deal: HomeMortgageDealForPlan) {
   if (deal.monthly_payment_override !== null && deal.monthly_payment_override !== undefined) {
     return Number(deal.monthly_payment_override);
   }

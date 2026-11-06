@@ -14,6 +14,9 @@ import { saveAccountProfile } from "@/app/account/actions";
 import { addPerson } from "@/app/household/actions";
 import { addRecurringPayEvent, upsertStudentLoanAccount } from "@/app/income/actions";
 import { addPlannedItem } from "@/app/spending/actions";
+import { addHome, addHomeMortgageDeal } from "@/app/mortgage/actions";
+import { lookupPostcode, lookupSoldPrices } from "@/lib/property/estimate";
+import { quoteCouncilTax } from "@/lib/property/council-tax-rates";
 import { SETUP_BILLS, SETUP_EXTRAS } from "@/lib/onboarding/setup-options";
 import { syncCalendarForUser } from "@/lib/calendar/sync-all";
 import { NHS_EMPLOYER_CONTRIBUTION_PERCENT_2026_27, nhsMemberContributionPercent } from "@/lib/calculations/nhs-pension";
@@ -60,7 +63,7 @@ async function hasActivePayEvent(supabase: any, personId: string) {
 
 async function existingBillLabels(supabase: any, userId: string) {
   const { data } = await supabase.from("planned_items").select("label").eq("user_id", userId).limit(500);
-  return new Set((data || []).map((row: any) => String(row.label || "").trim().toLowerCase()));
+  return new Set<string>((data || []).map((row: any) => String(row.label || "").trim().toLowerCase()));
 }
 
 async function savePay(supabase: any, userId: string, personId: string, formData: FormData, prefix: string, label: string) {
@@ -99,6 +102,119 @@ async function savePay(supabase: any, userId: string, personId: string, formData
   if (studentLoanPlan !== "none" && balance) {
     await upsertStudentLoanAccount(form({ person_id: personId, plan: studentLoanPlan, current_balance: balance }));
   }
+}
+
+function dayOfMonth(formData: FormData, key: string, fallback = 1) {
+  const day = parseNumber(formData.get(key));
+  return day && day >= 1 && day <= 31 ? Math.round(day) : fallback;
+}
+
+// Your home: rent and council tax become regular bills; an owned home becomes
+// a proper home record (value estimated from Land Registry sales if not
+// given) and, with a mortgage, a mortgage deal. The mortgage is NOT added as a
+// bill — the month plan and calendar already read it from the deal.
+async function saveHome(
+  supabase: any,
+  userId: string,
+  formData: FormData,
+  labels: Set<string>,
+  ownerIds: string[],
+  attempt: (step: string, fn: () => Promise<unknown>) => Promise<void>,
+) {
+  const status = text(formData, "home_status");
+  if (!status || status === "family") return;
+  const postcode = text(formData, "home_postcode");
+
+  if (status === "rent") {
+    const rent = parseNumber(formData.get("rent_monthly"));
+    if (rent && rent > 0 && !labels.has("rent")) {
+      await attempt("your rent", () => addPlannedItem(form({
+        label: "Rent", amount: rent, direction: "outgoing", recurrence: "monthly", item_type: "monthly_cost",
+        day_of_month: dayOfMonth(formData, "rent_day"), payment_timing: "fixed_day",
+      })));
+    }
+  }
+
+  // Council tax: the amount they confirmed, else this council's charge for their band.
+  let councilMonthly = parseNumber(formData.get("council_tax_monthly"));
+  if (!councilMonthly && text(formData, "council_tax_band")) {
+    const quote = await quoteCouncilTax(supabase, {
+      band: text(formData, "council_tax_band"),
+      countryCode: text(formData, "council_tax_country") || null,
+      authorityCode: text(formData, "council_tax_authority_code") || null,
+      authorityName: text(formData, "council_tax_authority_name") || null,
+    }).catch(() => null);
+    if (quote) councilMonthly = (quote.monthlyPence / 100) * (text(formData, "council_tax_single_person") === "yes" ? 0.75 : 1);
+  }
+  if (councilMonthly && councilMonthly > 0 && !labels.has("council tax")) {
+    await attempt("council tax", () => addPlannedItem(form({
+      label: "Council tax", amount: Math.round(councilMonthly! * 100) / 100, direction: "outgoing", recurrence: "monthly",
+      item_type: "monthly_cost", day_of_month: 1, payment_timing: "fixed_day",
+    })));
+  }
+
+  if (status !== "mortgage" && status !== "outright") return;
+  const { data: existing } = await supabase.from("homes").select("id").eq("user_id", userId).eq("ownership_status", "current_home").limit(1);
+  if (existing?.length) return; // already set up — edit on the Home & mortgage page
+
+  const owners = text(formData, "home_joint") === "yes" ? ownerIds : ownerIds.slice(0, 1);
+  const place = postcode ? await lookupPostcode(postcode).catch(() => null) : null;
+  let value = parseNumber(formData.get("home_value"));
+  let valueNote = "";
+  if (!value && place?.postcode) {
+    const sold = await lookupSoldPrices(place.postcode).catch(() => null);
+    if (sold?.medianPricePence) {
+      value = Math.round(sold.medianPricePence / 100);
+      valueNote = `Starting value is the median of ${sold.count} recent sales on ${place.postcode} (HM Land Registry). Update it any time.`;
+    }
+  }
+
+  let homeId: string | null = null;
+  await attempt("your home", async () => {
+    const fd = form({
+      label: "Home",
+      postcode: place?.postcode || postcode,
+      house_number: text(formData, "home_house_number"),
+      region: place?.region,
+      city: place?.admin_district,
+      country: "United Kingdom",
+      latitude: place?.latitude,
+      longitude: place?.longitude,
+      ownership_status: "current_home",
+      property_value: value ?? 0,
+      estimated_value_mid: valueNote ? value : null,
+      estimated_value_date: valueNote ? new Date().toISOString().slice(0, 10) : null,
+      lookup_source: valueNote ? "land_registry_postcode_median" : "guided_setup",
+      notes: valueNote,
+    });
+    for (const id of owners) fd.append("owner_ids", id);
+    await addHome(fd);
+    const { data } = await supabase.from("homes").select("id").eq("user_id", userId).eq("ownership_status", "current_home").order("created_at", { ascending: false }).limit(1).maybeSingle();
+    homeId = data?.id || null;
+  });
+
+  if (status !== "mortgage" || !homeId) return;
+  const monthly = parseNumber(formData.get("mortgage_monthly"));
+  const rate = parseNumber(formData.get("mortgage_rate"));
+  const balance = parseNumber(formData.get("mortgage_balance"));
+  if (!monthly && !balance) return;
+  const rateType = ["fixed", "tracker", "variable"].includes(text(formData, "mortgage_rate_type")) ? text(formData, "mortgage_rate_type") : "fixed";
+  await attempt("your mortgage", async () => {
+    const fd = form({
+      home_id: homeId,
+      lender: text(formData, "mortgage_lender"),
+      balance: balance ?? 0,
+      interest_rate: rate ?? 0,
+      rate_type: rateType === "variable" ? "standard_variable" : rateType,
+      repayment_type: "repayment",
+      initial_period_end: rateType === "variable" ? null : text(formData, "mortgage_deal_end"),
+      term_years: parseNumber(formData.get("mortgage_years_left")) ?? 25,
+      monthly_payment_override: monthly,
+      payment_day_of_month: dayOfMonth(formData, "mortgage_day"),
+    });
+    for (const id of owners) fd.append("liability_person_ids", id);
+    await addHomeMortgageDeal(fd);
+  });
 }
 
 export async function completeGuidedSetup(formData: FormData) {
@@ -164,8 +280,11 @@ export async function completeGuidedSetup(formData: FormData) {
   else if (parseNumber(formData.get("self_gross_annual_salary")) || parseNumber(formData.get("self_monthly_take_home"))) problems.push("your pay");
   if (partnerId) await attempt("your partner's pay", () => savePay(supabase, user.id, partnerId as string, formData, "partner", `${partnerName} salary`));
 
-  // 5. Regular bills.
+  // 5. Your home (rent / council tax / home and mortgage records).
   const labels = await existingBillLabels(supabase, user.id);
+  await attempt("your home", () => saveHome(supabase, user.id, formData, labels, [selfId, partnerId].filter(Boolean) as string[], attempt));
+
+  // 6. Regular bills (rent and council tax rows are hidden once the home step covers them).
   for (const bill of SETUP_BILLS) {
     const amount = parseNumber(formData.get(`bill_${bill.key}`));
     if (!amount || amount <= 0 || labels.has(bill.label.toLowerCase())) continue;
@@ -180,7 +299,7 @@ export async function completeGuidedSetup(formData: FormData) {
     })));
   }
 
-  // 6. Done — mark setup complete and show what to add next.
+  // 7. Done — mark setup complete and show what to add next.
   await supabase.from("app_user_profiles").upsert({
     user_id: user.id,
     onboarding_completed_at: new Date().toISOString(),

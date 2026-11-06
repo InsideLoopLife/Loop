@@ -38,3 +38,15 @@ export const EMPLOYER_OPTIONS: ReadonlyArray<{ value: Employer; label: string; d
   { value: "nhs", label: "The NHS", detail: "NHS England or Wales" },
   { value: "public", label: "Other public sector", detail: "Teacher, civil service, council, police, armed forces" },
 ];
+
+export type HomeStatus = "rent" | "mortgage" | "outright" | "family";
+
+export const HOME_OPTIONS: ReadonlyArray<{ value: HomeStatus; label: string; detail: string }> = [
+  { value: "rent", label: "I rent", detail: "From a landlord, letting agent or housing association" },
+  { value: "mortgage", label: "I own it with a mortgage", detail: "Including shared ownership" },
+  { value: "outright", label: "I own it outright", detail: "No mortgage left to pay" },
+  { value: "family", label: "I live with family or friends", detail: "No rent or council tax bill of your own" },
+];
+
+// Bill rows the home step already covers, so the bills step doesn't ask twice.
+export const HOME_COVERED_BILLS = ["housing", "council_tax"] as const;

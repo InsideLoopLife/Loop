@@ -138,6 +138,7 @@ export type HomeMortgageDeal = {
   initial_period_end: string | null;
   term_years: number;
   monthly_payment_override: number | null;
+  payment_day_of_month?: number | null;
   start_date: string;
   end_date: string | null;
   notes: string | null;
@@ -1656,6 +1657,14 @@ function MortgageForm({
         step="0.01"
         defaultValue={numberValue(deal?.monthly_payment_override)}
         placeholder="Actual monthly payment, e.g. 583"
+      />
+      <TextField
+        label="Payment day"
+        name="payment_day_of_month"
+        type="number"
+        step="1"
+        defaultValue={numberValue(deal?.payment_day_of_month)}
+        placeholder="Day it leaves your account, e.g. 1"
       />
       <TextField
         label="Start date"

@@ -30,11 +30,12 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
     .limit(1)
     .maybeSingle();
 
-  const [{ data: payRows }, { data: billRows }] = await Promise.all([
+  const [{ data: payRows }, { data: billRows }, { data: homeRows }] = await Promise.all([
     self?.id
       ? supabase.from("pay_events").select("id").eq("person_id", self.id).or(`effective_until.is.null,effective_until.gte.${today}`).limit(1)
       : Promise.resolve({ data: [] as any[] }),
     supabase.from("planned_items").select("label").eq("user_id", user.id).limit(500),
+    supabase.from("homes").select("id").eq("user_id", user.id).eq("ownership_status", "current_home").limit(1),
   ]);
 
   const name = String(profile?.display_name || profile?.full_name || user.user_metadata?.full_name || user.user_metadata?.name || "").split(" ")[0];
@@ -53,6 +54,7 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
           name,
           hasSelfPay: Boolean(payRows?.length),
           existingBills: (billRows || []).map((row: any) => String(row.label || "")),
+          hasHome: Boolean(homeRows?.length),
         }}
       />
 

@@ -280,6 +280,10 @@ export async function addHomeMortgageDeal(formData: FormData) {
       monthly_payment_override: parseNumber(
         formData.get("monthly_payment_override"),
       ),
+      payment_day_of_month: (() => {
+        const day = parseNumber(formData.get("payment_day_of_month"));
+        return day && day >= 1 && day <= 31 ? Math.round(day) : null;
+      })(),
       start_date:
         String(formData.get("start_date") || "") ||
         new Date().toISOString().slice(0, 10),
@@ -351,6 +355,12 @@ export async function updateHomeMortgageDeal(formData: FormData) {
       monthly_payment_override: parseNumber(
         formData.get("monthly_payment_override"),
       ),
+      ...(formData.has("payment_day_of_month")
+        ? { payment_day_of_month: (() => {
+            const day = parseNumber(formData.get("payment_day_of_month"));
+            return day && day >= 1 && day <= 31 ? Math.round(day) : null;
+          })() }
+        : {}),
       start_date:
         String(formData.get("start_date") || "") ||
         new Date().toISOString().slice(0, 10),

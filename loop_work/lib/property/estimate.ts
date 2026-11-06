@@ -68,7 +68,7 @@ const DEFAULT_RATES: Record<string, Record<string, number>> = {
   SCT: { A: 140000, B: 165000, C: 190000, D: 215000, E: 265000, F: 315000, G: 365000, H: 435000 },
 };
 
-async function lookupSoldPrices(postcode: string) {
+export async function lookupSoldPrices(postcode: string) {
   const pretty = displayPostcode(postcode);
   const query = `
 PREFIX ppd: <http://landregistry.data.gov.uk/def/ppi/>
@@ -100,7 +100,7 @@ LIMIT 30`;
   }
 }
 
-function estimateBand(input: { currentValuePence: number; countryCode: string; region?: string | null; comparableCount?: number }) {
+export function estimateBand(input: { currentValuePence: number; countryCode: string; region?: string | null; comparableCount?: number }) {
   const countryCode = input.countryCode || "ENG";
   const regionKey = String(input.region || "").toLowerCase();
   const factor = countryCode === "WLS" ? HISTORIC_FACTOR.wales : countryCode === "SCT" ? HISTORIC_FACTOR.scotland : (HISTORIC_FACTOR[regionKey] || HISTORIC_FACTOR.default);
