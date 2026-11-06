@@ -96,6 +96,7 @@ function estimateMonthlyNetFromGross(monthlyGross: number, pensionPercent: numbe
     pensionPercent,
     pensionMethod,
     studentLoanPlan,
+    nhsTierFromPay: false, // reduced maternity pay doesn't change the member's tier
   }).monthlyTakeHome;
 }
 

@@ -1,3 +1,5 @@
+import { nhsMemberContributionPercent } from "@/lib/calculations/nhs-pension";
+
 export type StudentLoanPlan = "none" | "plan_1" | "plan_2" | "plan_4" | "plan_5" | "postgraduate";
 export type PensionMethod = "none" | "net_pay" | "salary_sacrifice" | "relief_at_source" | "nhs_pension";
 
@@ -89,16 +91,20 @@ export function estimateAnnualTakeHome({
   studentLoanPlan = "none",
   pensionMethod = "net_pay",
   taxRegion = "rUK",
+  nhsTierFromPay = true,
 }: {
   grossAnnual: number;
   pensionPercent?: number;
   studentLoanPlan?: StudentLoanPlan;
   pensionMethod?: PensionMethod;
   taxRegion?: TaxRegion | string | null;
+  /** NHS member rates are set by pay tier, so a pay rise can move someone up a tier. */
+  nhsTierFromPay?: boolean;
 }) {
   const gross = Math.max(0, grossAnnual);
   const method = normalisePensionMethod(pensionMethod);
-  const grossPension = method === "none" ? 0 : Math.max(0, gross * (pensionPercent / 100));
+  const effectivePercent = method === "nhs_pension" && nhsTierFromPay && gross > 0 ? nhsMemberContributionPercent(gross) : pensionPercent;
+  const grossPension = method === "none" ? 0 : Math.max(0, gross * (effectivePercent / 100));
   const taxablePay = method === "net_pay" || method === "nhs_pension" || method === "salary_sacrifice"
     ? Math.max(0, gross - grossPension)
     : gross;
@@ -112,6 +118,7 @@ export function estimateAnnualTakeHome({
   const annualTakeHome = gross - pensionNetDeduction - incomeTax - nationalInsurance - studentLoan;
 
   return {
+    pensionPercent: effectivePercent,
     pension: grossPension,
     pensionNetDeduction,
     taxablePay,
