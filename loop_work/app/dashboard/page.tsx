@@ -934,45 +934,42 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
 
   return (
     <>
-      <main className="loop-overview-page mx-auto w-full max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="relative overflow-hidden rounded-[2.25rem] border border-white/70 bg-slate-950 p-6 text-white shadow-[0_36px_110px_-64px_rgba(15,23,42,.9)] md:p-8">
-          <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-orange-500/30 blur-3xl" />
-          <div className="absolute -bottom-32 left-1/3 h-72 w-72 rounded-full bg-emerald-400/20 blur-3xl" />
-          <div className="relative">
-            <p className="text-xs font-black uppercase tracking-[0.24em] text-orange-200">{selectedPlan.label}</p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">{firstName ? `Hey ${firstName},` : "Hey,"} here&apos;s how things are looking</h1>
-            <p className="mt-3 max-w-2xl text-sm font-medium text-slate-300">{performanceSummary}</p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className={`rounded-full px-3 py-1.5 text-xs font-black ${selectedPlan.surplus >= 1000 ? "bg-emerald-400/20 text-emerald-100" : selectedPlan.surplus >= 0 ? "bg-amber-400/20 text-amber-100" : "bg-red-400/20 text-red-100"}`}>{selectedPlan.surplus >= 1000 ? "Comfortable" : selectedPlan.surplus >= 0 ? "Tight but positive" : "Shortfall"}</span>
-              <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-black text-slate-200">{peopleRows.length} people tracked</span>
+      <main className="loop-overview-page mx-auto w-full max-w-[2000px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+        {/* The month in one figure: what's left once bills and saving are covered. */}
+        <section className="rounded-[18px] border border-[var(--line)] bg-white">
+          <div className="flex flex-wrap items-end justify-between gap-6 px-6 pb-5 pt-6 md:px-8 md:pt-8">
+            <div className="min-w-0">
+              <p className="text-[15px] text-[var(--muted)]">{firstName ? `${firstName}, here's ${selectedPlan.label}` : selectedPlan.label}</p>
+              <p className={`mt-2 text-[44px] font-semibold leading-none tracking-[-0.03em] md:text-[56px] ${selectedPlan.surplus >= 0 ? "text-[var(--ink)]" : "text-[var(--brick)]"}`}>{money(selectedPlan.surplus)}</p>
+              <p className="mt-2 text-[15px] text-[var(--muted)]">
+                {selectedPlan.surplus >= 0 ? "left over after bills and saving" : "short after bills and saving"}
+                {" · "}
+                <span className={selectedPlan.surplus >= 1000 ? "text-[var(--pine)]" : selectedPlan.surplus >= 0 ? "text-[var(--amber)]" : "text-[var(--brick)]"}>{selectedPlan.surplus >= 1000 ? "comfortable" : selectedPlan.surplus >= 0 ? "tight but positive" : "needs a look"}</span>
+              </p>
             </div>
-
-            <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-              <div className="rounded-3xl border border-white/20 bg-white/95 p-4 text-slate-950 shadow-sm"><p className="text-xs font-black uppercase text-slate-500">Income</p><p className="mt-1 text-2xl font-black">{money(selectedPlan.income)}</p></div>
-              <div className="rounded-3xl border border-white/20 bg-white/95 p-4 text-slate-950 shadow-sm"><p className="text-xs font-black uppercase text-slate-500">Outgoings</p><p className="mt-1 text-2xl font-black">{money(nonSavingsOutgoings)}</p></div>
-              <div className="rounded-3xl border border-white/20 bg-white/95 p-4 text-slate-950 shadow-sm"><p className="text-xs font-black uppercase text-slate-500">Savings this month</p><p className="mt-1 text-2xl font-black text-emerald-700">{money(savingsThisMonth)}</p><p className="mt-1 text-[11px] font-bold text-slate-400">{savingsRatePercent}% of income</p></div>
-              <div className="rounded-3xl border border-white/20 bg-white/95 p-4 text-slate-950 shadow-sm"><p className="text-xs font-black uppercase text-slate-500">Left over</p><p className={`mt-1 text-2xl font-black ${selectedPlan.surplus >= 0 ? "text-slate-950" : "text-red-600"}`}>{money(selectedPlan.surplus)}</p></div>
-              <div className="rounded-3xl border border-white/20 bg-white/95 p-4 text-slate-950 shadow-sm">
-                <p className="text-xs font-black uppercase text-slate-500">Investments &amp; pension</p>
-                <p className="mt-1 text-2xl font-black">{money((wealthSummary?.investmentValue || 0) + (wealthSummary?.pensionValue || 0))}</p>
-                {(investmentsPerf?.hasBaseline || pensionsPerf?.hasBaseline) ? (
-                  <p className={`mt-1 text-[11px] font-bold ${(investmentsPerf?.changeAmount || 0) + (pensionsPerf?.changeAmount || 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                    {(investmentsPerf?.changeAmount || 0) + (pensionsPerf?.changeAmount || 0) >= 0 ? "+" : ""}{money((investmentsPerf?.changeAmount || 0) + (pensionsPerf?.changeAmount || 0))} so far this month
-                  </p>
-                ) : (
-                  <p className="mt-1 text-[11px] font-bold text-slate-400">No performance history yet</p>
-                )}
-              </div>
-            </div>
+            {performanceSummary ? <p className="max-w-md text-sm text-[var(--muted)]">{performanceSummary}</p> : null}
           </div>
+          <dl className="grid grid-cols-2 border-t border-[var(--line)] md:grid-cols-4">
+            {[
+              { label: "Money in", value: money(selectedPlan.income), tone: "text-[var(--pine)]", href: "/income" },
+              { label: "Bills and spending", value: money(nonSavingsOutgoings), tone: "text-[var(--ink)]", href: "/spending" },
+              { label: "Saved this month", value: money(savingsThisMonth), tone: "text-[var(--ink)]", href: "/financial-flow?tab=savings" },
+              { label: "Pensions and investments", value: money((wealthSummary?.investmentValue || 0) + (wealthSummary?.pensionValue || 0)), tone: "text-[var(--ink)]", href: "/investments", note: (investmentsPerf?.hasBaseline || pensionsPerf?.hasBaseline) ? `${(investmentsPerf?.changeAmount || 0) + (pensionsPerf?.changeAmount || 0) >= 0 ? "+" : ""}${money((investmentsPerf?.changeAmount || 0) + (pensionsPerf?.changeAmount || 0))} this month` : null },
+            ].map((stat, i) => (
+              <Link key={stat.label} href={stat.href} className={`block px-6 py-4 hover:bg-[var(--paper)] md:px-8 ${i > 0 ? "border-l border-[var(--line)]" : ""} ${i === 2 ? "border-l-0 border-t md:border-l md:border-t-0" : ""} ${i === 3 ? "border-t md:border-t-0" : ""}`}>
+                <dt className="text-sm text-[var(--muted)]">{stat.label}</dt>
+                <dd className={`mt-1 text-[22px] font-semibold tracking-tight ${stat.tone}`}>{stat.value}</dd>
+                {stat.note ? <dd className="mt-0.5 text-xs text-[var(--muted)]">{stat.note}</dd> : null}
+              </Link>
+            ))}
+          </dl>
         </section>
-
         {standoutPoints.length > 0 ? (
           <section className="grid gap-3 md:grid-cols-3">
             {standoutPoints.map((point, index) => (
-              <div key={index} className="flex items-start gap-3 rounded-[1.75rem] border border-slate-200 bg-white/90 p-4 shadow-sm">
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-orange-50 text-lg">{point.icon}</span>
-                <p className="text-sm font-semibold leading-5 text-slate-700">{point.text}</p>
+              <div key={index} className="flex items-start gap-3 rounded-[14px] border border-[var(--line)] bg-white p-4">
+                <span className="text-lg leading-6">{point.icon}</span>
+                <p className="text-sm leading-6 text-[var(--ink)]">{point.text}</p>
               </div>
             ))}
           </section>

@@ -7,7 +7,7 @@ export function EvidenceBeat({ dataQuality, generatedAt }: { dataQuality: Financ
   return (
     <article className="rounded-[2rem] border border-slate-200 bg-white p-6">
       <Landmark className="text-orange-600" />
-      <h2 className="mt-4 text-2xl font-black">Evidence health</h2>
+      <h2 className="mt-4 text-2xl font-black">How up to date your data is</h2>
       <div className="mt-4 space-y-3">
         {dataQuality.length ? (
           dataQuality.slice(0, 3).map((q, i) => (

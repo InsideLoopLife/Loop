@@ -12,7 +12,7 @@ const CARD_META: Record<BriefingCardKey, { label: string; icon: typeof LayoutGri
   portfolio: { label: "Portfolio & markets", icon: BarChart3 },
   savings: { label: "Savings & goals", icon: PiggyBank },
   home: { label: "Home & mortgage", icon: HomeIcon },
-  evidence: { label: "Evidence health", icon: ShieldCheck },
+  evidence: { label: "Data freshness", icon: ShieldCheck },
   holdings_table: { label: "Your holdings", icon: Table2 },
   pension_funds_table: { label: "Pension funds", icon: Landmark },
 };

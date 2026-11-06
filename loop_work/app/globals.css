@@ -33,13 +33,21 @@
 
 :root {
   color-scheme: light;
-  --lt-ink: #061225;
-  --lt-muted: #546179;
-  --lt-border: rgba(148, 163, 184, 0.28);
-  --lt-card: rgba(255, 255, 255, 0.84);
-  --lt-orange: #ff6b00;
-  --lt-teal: #10b8a7;
-  --lt-indigo: #3730a3;
+  /* LOOP calm system (Nov 2026). One accent, hairline structure, money figures as the hero. */
+  --paper: #f4f6f3;
+  --card: #ffffff;
+  --ink: #18211d;
+  --muted: #5c6964;
+  --line: #e1e5e0;
+  --pine: #1f6a50;
+  --pine-strong: #17543f;
+  --pine-wash: #e7f0eb;
+  --brick: #a3402e;
+  --amber: #8f6410;
+  --lt-ink: var(--ink);
+  --lt-muted: var(--muted);
+  --lt-border: var(--line);
+  --lt-card: var(--card);
 }
 
 * {
@@ -53,28 +61,12 @@ html {
 
 body {
   min-height: 100vh;
-  font-family: Helvetica, Arial, sans-serif;
-  background:
-    radial-gradient(circle at 8% -12%, rgba(255, 107, 0, 0.15), transparent 30rem),
-    radial-gradient(circle at 80% 0%, rgba(16, 185, 129, 0.11), transparent 28rem),
-    radial-gradient(circle at 48% 18%, rgba(99, 102, 241, 0.10), transparent 26rem),
-    linear-gradient(180deg, #f8fbff 0%, #f3f6fb 48%, #eef3f8 100%);
-  color: var(--lt-ink);
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  text-rendering: geometricPrecision;
-}
-
-body::before {
-  content: "";
-  pointer-events: none;
-  position: fixed;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(15, 23, 42, 0.032) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15, 23, 42, 0.025) 1px, transparent 1px);
-  background-size: 42px 42px;
-  mask-image: linear-gradient(to bottom, black, transparent 70%);
-  z-index: -1;
+  font-family: "Onest", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  background: var(--paper);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
 }
 
 main {
@@ -126,102 +118,26 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 3px solid rgba(255, 107, 0, 0.28);
-  outline-offset: 3px;
+  outline: 2px solid var(--pine);
+  outline-offset: 2px;
 }
-
-/* Site-wide soft fintech card lift for existing screens without touching every file. */
-[class*="rounded-2xl"][class*="border"][class*="bg-white"],
-[class*="rounded-3xl"][class*="border"][class*="bg-white"] {
-  border-color: rgba(148, 163, 184, 0.23) !important;
-  background-color: rgba(255, 255, 255, 0.86) !important;
-  box-shadow: 0 22px 70px -44px rgba(15, 23, 42, 0.62), 0 1px 0 rgba(255, 255, 255, 0.8) inset !important;
-  backdrop-filter: blur(16px);
-}
-
-[class*="rounded-2xl"][class*="bg-slate-50"],
-[class*="rounded-3xl"][class*="bg-slate-50"] {
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.82)) !important;
-}
-
-input:not([type="checkbox"]),
-select,
-textarea {
-  border-radius: 1rem !important;
-  border-color: rgba(148, 163, 184, 0.34) !important;
-  background: rgba(255, 255, 255, 0.86) !important;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.75) inset;
-}
-
-input:not([type="checkbox"]):focus,
-select:focus,
-textarea:focus {
-  border-color: rgba(255, 107, 0, 0.7) !important;
-  box-shadow: 0 0 0 4px rgba(255, 107, 0, 0.12), 0 12px 30px -24px rgba(255, 107, 0, 0.6) !important;
-}
-
-button[class*="bg-slate-950"],
-a[class*="bg-slate-950"] {
-  background: linear-gradient(135deg, #061225 0%, #111827 55%, #27324a 100%) !important;
-  box-shadow: 0 14px 28px -18px rgba(6, 18, 37, 0.8);
-}
-
-button[class*="bg-slate-950"]:hover,
-a[class*="bg-slate-950"]:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 20px 36px -20px rgba(6, 18, 37, 0.9);
-}
-
-button[class*="bg-orange"],
-a[class*="bg-orange"] {
-  background: linear-gradient(135deg, #ff7a1a, #ff4d00) !important;
-  box-shadow: 0 16px 32px -20px rgba(255, 77, 0, 0.85);
-}
-
-.table-shine {
-  position: relative;
-  overflow: hidden;
-}
-
-.table-shine::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(120deg, transparent 20%, rgba(255, 255, 255, 0.35), transparent 46%);
-  transform: translateX(-120%);
-  transition: transform 650ms ease;
-  pointer-events: none;
-}
-
-.table-shine:hover::after {
-  transform: translateX(120%);
-}
-
-.fintech-noise {
-  background-image:
-    radial-gradient(circle at 25% 10%, rgba(255, 255, 255, 0.55), transparent 20rem),
-    radial-gradient(circle at 90% 10%, rgba(255, 107, 0, 0.16), transparent 24rem),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.62));
-}
-
 
 /* LOOP v27.90 page width guard */
 main.max-w-7xl,
 main.max-w-none,
 main.max-w-6xl,
-main.max-w-5xl {
-  width: min(95vw, 2000px) !important;
-  max-width: 2000px !important;
+main.max-w-5xl,
+main[class*="max-w-[2000px]"],
+main[class*="max-w-[1900px]"],
+main[class*="max-w-[1800px]"],
+main[class*="w-[95vw]"] {
+  width: min(100%, 1240px) !important;
+  max-width: 1240px !important;
+  margin-left: auto;
+  margin-right: auto;
 }
 
-@media (max-width: 768px) {
-  main.max-w-7xl,
-  main.max-w-none,
-  main.max-w-6xl,
-  main.max-w-5xl {
-    width: 100% !important;
-  }
-}
+
 
 /* LOOP v28.62 investments command centre ticker */
 @keyframes loop-investment-marquee {
@@ -245,53 +161,19 @@ main.max-w-5xl {
   }
 }
 
-/* LOOP v28.83 unified premium visual system + selectable navigation */
-:root {
-  --loop-navy: #07142d;
-  --loop-indigo: #5b4df4;
-  --loop-violet: #7657ff;
-  --loop-mint: #19b990;
-  --loop-orange: #ff8a2a;
-  --loop-coral: #ff5d72;
-  --loop-blue: #3297f2;
-}
-
+/* Side navigation layout */
 body[data-loop-nav="side"] {
   padding-left: 228px;
-  background:
-    radial-gradient(circle at 55% -8%, rgba(112, 91, 255, .13), transparent 31rem),
-    radial-gradient(circle at 98% 8%, rgba(63, 210, 178, .10), transparent 29rem),
-    linear-gradient(180deg, #fbfcff 0%, #f5f8fd 52%, #eef3f9 100%);
-}
-
-body[data-loop-nav="side"] main.max-w-7xl,
-body[data-loop-nav="side"] main.max-w-none,
-body[data-loop-nav="side"] main.max-w-6xl,
-body[data-loop-nav="side"] main.max-w-5xl {
-  width: min(calc(100vw - 264px), 1900px) !important;
+  background: var(--paper);
 }
 
 body[data-loop-nav="side"] > header { display: none !important; }
 
-/* Keep the main top navigation flat. The separate Wealth/Health switch retains
-   its selected pill background so the current domain remains obvious. */
 .loop-top-nav > a,
 .loop-top-nav > a:hover,
 .loop-top-nav > a:focus-visible {
   background: transparent !important;
 }
-
-/* Make existing screens visually consistent with the chosen premium concept. */
-main [class*="rounded-3xl"][class*="border"],
-main [class*="rounded-2xl"][class*="border"] {
-  border-color: rgba(163, 174, 198, .22) !important;
-}
-
-main [class*="bg-white"] {
-  backdrop-filter: blur(18px);
-}
-
-main h1 { font-weight: 900; }
 
 @media (max-width: 1023px) {
   body { padding-bottom: calc(5.75rem + env(safe-area-inset-bottom)); }
@@ -299,10 +181,7 @@ main h1 { font-weight: 900; }
   body[data-loop-nav="side"] > header.loop-mobile-navigation { display: block !important; }
   .loop-desktop-navigation { display: none !important; }
   .loop-mobile-bottom-nav { bottom: max(.75rem, env(safe-area-inset-bottom)); }
-  body[data-loop-nav="side"] main.max-w-7xl,
-  body[data-loop-nav="side"] main.max-w-none,
-  body[data-loop-nav="side"] main.max-w-6xl,
-  body[data-loop-nav="side"] main.max-w-5xl { width: 100% !important; }
+
 }
 
 /* Shared "convergence visual" — used on both the login page and the
@@ -326,4 +205,117 @@ main h1 { font-weight: 900; }
 @keyframes loop-glow {
   0%, 100% { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.25); }
   50% { box-shadow: 0 0 0 14px rgba(45, 212, 191, 0); }
+}
+
+
+/* ---------------------------------------------------------------------------
+   LOOP calm system: maps the existing utility classes onto one quiet design
+   language so every screen matches without rewriting each file.
+   --------------------------------------------------------------------------- */
+
+/* Type: three weights only. Headings are set by size, not by heaviness. */
+.font-black { font-weight: 650 !important; }
+.font-extrabold, .font-bold { font-weight: 600 !important; }
+.font-semibold { font-weight: 550 !important; }
+h1, h2, h3 { letter-spacing: -0.02em; font-weight: 600; }
+main h1 { font-weight: 650; }
+p { line-height: 1.55; }
+
+/* Sentence case labels: drop tracked capitals everywhere. */
+.uppercase { text-transform: none !important; }
+.tracking-wide, .tracking-wider, .tracking-widest,
+[class*="tracking-[0."] { letter-spacing: 0 !important; }
+.uppercase.text-\[10px\], .uppercase.text-\[11px\] { font-size: 12px !important; }
+
+/* Surfaces: white cards on paper with a hairline, no glass, glow or gradient wash. */
+.backdrop-blur, .backdrop-blur-sm, .backdrop-blur-md, .backdrop-blur-lg,
+.backdrop-blur-xl, .backdrop-blur-2xl, [class*="backdrop-blur"] { backdrop-filter: none !important; }
+.pointer-events-none.absolute.blur-3xl,
+.pointer-events-none.absolute.blur-2xl,
+.absolute.rounded-full.blur-3xl { display: none !important; }
+.table-shine::after { display: none; }
+.bg-white\/70, .bg-white\/80, .bg-white\/84, .bg-white\/85, .bg-white\/86, .bg-white\/88, .bg-white\/90, .bg-white\/92, .bg-white\/95 { background-color: var(--card) !important; }
+main [class*="rounded-2xl"][class*="border"],
+main [class*="rounded-3xl"][class*="border"],
+main [class*="rounded-["][class*="border"] { border-color: var(--line) !important; }
+[class*="shadow-[0_"], .shadow-xl, .shadow-2xl, .shadow-lg, .shadow-md {
+  box-shadow: 0 1px 2px rgba(24, 33, 29, 0.05) !important;
+}
+[role="dialog"] > div, .shadow-2xl[role="dialog"] { box-shadow: 0 24px 60px -24px rgba(24, 33, 29, 0.35) !important; }
+
+/* Radii: one scale. Big containers 18px, inner blocks 14px, controls 12px. */
+.rounded-\[3rem\], .rounded-\[2\.5rem\], .rounded-\[2\.25rem\], .rounded-\[2rem\],
+.rounded-\[1\.75rem\], .rounded-\[1\.6rem\], .rounded-\[1\.5rem\] { border-radius: 18px !important; }
+.rounded-\[1\.4rem\], .rounded-\[1\.35rem\], .rounded-\[1\.25rem\], .rounded-3xl { border-radius: 14px !important; }
+.rounded-2xl { border-radius: 12px !important; }
+
+/* Inner tinted blocks: flat. */
+[class*="rounded-2xl"][class*="bg-slate-50"],
+[class*="rounded-3xl"][class*="bg-slate-50"] { background: #f6f8f5 !important; }
+
+/* Decorative gradients become flat colour. */
+[class*="bg-gradient-to-"][class*="from-orange"],
+[class*="bg-gradient-to-"][class*="from-emerald"],
+[class*="bg-gradient-to-"][class*="from-indigo"],
+[class*="bg-gradient-to-"][class*="from-violet"] { background-image: none !important; background-color: var(--pine-wash) !important; }
+.h-1\.5.w-10.rounded-full[class*="bg-gradient"] { display: none !important; }
+
+/* Controls */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select,
+textarea {
+  border-radius: 12px !important;
+  border-color: var(--line) !important;
+  background-color: var(--card) !important;
+  box-shadow: none !important;
+}
+input:not([type="checkbox"]):focus,
+select:focus,
+textarea:focus {
+  border-color: var(--pine) !important;
+  box-shadow: 0 0 0 3px rgba(31, 106, 80, 0.15) !important;
+  outline: none;
+}
+input[type="checkbox"], input[type="radio"] { accent-color: var(--pine); }
+
+/* Buttons: ink for neutral primary, pine for "do it", no gradients or lifts.
+   [class~=] matches whole class names, so hover:/ring variants are untouched. */
+button[class~="bg-slate-950"], a[class~="bg-slate-950"],
+button[class~="bg-slate-900"], a[class~="bg-slate-900"] {
+  background: var(--ink) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+button[class~="bg-slate-950"]:hover, a[class~="bg-slate-950"]:hover { background: #2a3530 !important; }
+button[class~="bg-emerald-600"], a[class~="bg-emerald-600"],
+button[class~="bg-emerald-500"], a[class~="bg-emerald-500"],
+button[class~="bg-orange-500"], a[class~="bg-orange-500"],
+button[class~="bg-orange-600"], a[class~="bg-orange-600"] {
+  background: var(--pine) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+button[class~="bg-emerald-600"]:hover, a[class~="bg-emerald-600"]:hover,
+button[class~="bg-emerald-500"]:hover, a[class~="bg-emerald-500"]:hover { background: var(--pine-strong) !important; }
+[class*="hover:-translate-y"]:hover { transform: none !important; }
+
+/* Accent colours collapse to the palette. */
+.text-emerald-600, .text-emerald-700, .text-emerald-800 { color: var(--pine) !important; }
+.bg-emerald-50, .bg-emerald-100 { background-color: var(--pine-wash) !important; }
+.text-orange-600, .text-orange-700, .text-orange-800 { color: var(--amber) !important; }
+.bg-orange-50, .bg-orange-100 { background-color: #f6efe2 !important; }
+.text-red-600, .text-red-700, .text-rose-700, .text-rose-800 { color: var(--brick) !important; }
+.text-slate-950, .text-slate-900 { color: var(--ink) !important; }
+.text-slate-500, .text-slate-600 { color: var(--muted) !important; }
+.border-slate-200, .border-slate-100 { border-color: var(--line) !important; }
+
+/* Painted gradients: light ones become plain white, dark ones solid ink. */
+[class*="bg-[linear-gradient"], [class*="bg-[radial-gradient"] { background-image: none !important; background-color: var(--card); }
+[class*="linear-gradient(135deg,#0"], [class*="linear-gradient(180deg,#0"] { background-color: var(--ink) !important; }
+
+/* Dark hero panels: solid ink, no glow. */
+section[class*="bg-slate-950"] { background: var(--ink) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
 }

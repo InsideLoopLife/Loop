@@ -91,7 +91,7 @@ export function SavingsActivityThread({
       title={`${accountName} activity thread`}
       subtitle="Deposits, withdrawals, confirmed interest, fees and balance corrections are kept in one dated ledger. Unconfirmed interest is shown separately as an estimate."
       triggerClassName="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-100"
-      trigger={<><History className="h-4 w-4" />Thread</>}
+      trigger={<><History className="h-4 w-4" />History</>}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button

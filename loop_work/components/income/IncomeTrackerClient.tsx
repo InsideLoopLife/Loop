@@ -958,7 +958,7 @@ export function IncomeTrackerClient({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => setMonth(shiftMonth(month, -1))} className="grid h-8 w-8 place-items-center rounded-full bg-white/10 font-black hover:bg-white/20" aria-label="Previous month">‹</button>
-              <p className="min-w-[8.5rem] text-center text-xs font-black uppercase tracking-[0.24em] text-orange-200">{monthLabel(month)}</p>
+              <p className="min-w-[8.5rem] text-center text-sm font-medium text-white/75">{monthLabel(month)}</p>
               <button type="button" onClick={() => setMonth(shiftMonth(month, 1))} className="grid h-8 w-8 place-items-center rounded-full bg-white/10 font-black hover:bg-white/20" aria-label="Next month">›</button>
             </div>
             <h1 className="mt-3 text-4xl font-black tracking-tight md:text-6xl">
@@ -993,7 +993,7 @@ export function IncomeTrackerClient({
         </div>
       </section>
 
-      {schemaWarning ? <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-950"><p className="font-black">Income loaded using compatibility mode</p><p className="mt-1">Some optional pay fields are missing from the database, but core income rows remain available to view and edit. Run the latest income compatibility migration when convenient.</p></section> : null}
+      {schemaWarning ? <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-950"><p className="font-black">Some pay details couldn't load</p><p className="mt-1">Some optional pay fields are missing from the database, but core income rows remain available to view and edit. Run the latest income compatibility migration when convenient.</p></section> : null}
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
@@ -1343,7 +1343,7 @@ export function IncomeTrackerClient({
                                 </div>
                               </div>
                             ))}
-                          {studentLoanBalanceEvents.filter((event) => event.student_loan_account_id === account.id).length === 0 ? <p className="text-xs font-semibold text-slate-400">The next saved balance will start this thread.</p> : null}
+                          {studentLoanBalanceEvents.filter((event) => event.student_loan_account_id === account.id).length === 0 ? <p className="text-xs font-semibold text-slate-400">Saved balances will appear here.</p> : null}
                         </div>
                       </details>
                     </div>

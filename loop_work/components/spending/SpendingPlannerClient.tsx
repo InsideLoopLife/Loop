@@ -41,7 +41,7 @@ import { addChildCost, deleteChildCost, updateChildCost } from "@/app/household/
 import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
 import { SpendingQuickAdd } from "@/components/spending/SpendingQuickAdd";
 
-const SUMMARY_COLOURS = ["#0f766e", "#f97316", "#6366f1", "#0ea5e9", "#eab308", "#ec4899", "#84cc16", "#64748b", "#a855f7", "#14b8a6"];
+const SUMMARY_COLOURS = ["#1f6a50", "#c08a3e", "#5b6fa8", "#7fa886", "#b46a55", "#8a7fb0", "#3e8a99", "#a59a5c", "#6b7570", "#c9a7a0"];
 
 export type Person = {
   id: string;
@@ -1263,9 +1263,9 @@ function isSavingsFlowLine(item: any) {
   return type.includes("saving") || type.includes("investment") || type.includes("isa") || /savings transfer|isa top|regular saver|investment transfer/.test(title);
 }
 function amountPillClass(item: any) {
-  if (item.direction === "income") return "bg-emerald-100 text-emerald-800";
-  if (isSavingsFlowLine(item)) return "bg-blue-100 text-blue-800 ring-1 ring-blue-200";
-  return "bg-red-100 text-red-700";
+  if (item.direction === "income") return "text-[var(--pine)]";
+  if (isSavingsFlowLine(item)) return "text-sky-800";
+  return "text-[var(--ink)]";
 }
 function amountPrefix(item: any) {
   if (item.direction === "income") return "+";
@@ -1718,13 +1718,13 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
       {/* Month summary: the main thing on this page. Filters live inside it;
           "+" opens the step-by-step quick add. */}
       <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={() => shiftSelectedMonth(-1)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-lg font-black text-slate-700 hover:bg-slate-200" aria-label="Previous month">‹</button>
-            <h1 className="min-w-[10rem] text-center text-2xl font-black tracking-tight text-slate-950">{formatMonthLabel(selectedSummary.month)}</h1>
-            <button type="button" onClick={() => shiftSelectedMonth(1)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-lg font-black text-slate-700 hover:bg-slate-200" aria-label="Next month">›</button>
+        <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-3 sm:px-5 sm:py-4">
+          <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+            <button type="button" onClick={() => shiftSelectedMonth(-1)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-lg text-slate-700 hover:bg-slate-200" aria-label="Previous month">‹</button>
+            <h1 className="min-w-0 truncate text-center text-xl font-semibold tracking-tight text-slate-950 sm:min-w-[9rem] sm:text-2xl">{formatMonthLabel(selectedSummary.month)}</h1>
+            <button type="button" onClick={() => shiftSelectedMonth(1)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-lg text-slate-700 hover:bg-slate-200" aria-label="Next month">›</button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <details className="relative">
               <summary className="cursor-pointer list-none rounded-full bg-slate-100 px-4 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-200">More</summary>
               <div className="absolute right-0 z-40 mt-2 grid min-w-56 gap-1 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
@@ -1742,17 +1742,17 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
           {[
             { key: "income" as const, label: "Money in", value: selectedSummary.income, tone: "text-emerald-700" },
             { key: "outgoing" as const, label: "Money out", value: selectedSummary.outgoings, tone: "text-slate-950" },
-            { key: "all" as const, label: "Left over", value: selectedSummary.net, tone: selectedSummary.net >= 0 ? "text-sky-700" : "text-rose-700" },
+            { key: "all" as const, label: "Left over", value: selectedSummary.net, tone: selectedSummary.net >= 0 ? "text-[var(--ink)]" : "text-[var(--brick)]" },
           ].map((stat) => (
             <button
               key={stat.label}
               type="button"
               onClick={() => { setDirectionFilter(directionFilter === stat.key ? "all" : stat.key); setCategoryFilter(null); }}
-              className={`px-5 py-4 text-left transition hover:bg-slate-50 ${directionFilter === stat.key && stat.key !== "all" ? "bg-slate-50" : ""}`}
+              className={`min-w-0 px-3 py-3 text-left transition hover:bg-slate-50 sm:px-5 sm:py-4 ${directionFilter === stat.key && stat.key !== "all" ? "bg-slate-50" : ""}`}
               aria-pressed={directionFilter === stat.key}
             >
               <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">{stat.label}</p>
-              <p className={`mt-1 text-2xl font-black md:text-3xl ${stat.tone}`}>{money(stat.value)}</p>
+              <p className={`mt-1 truncate text-lg font-semibold tracking-tight sm:text-2xl md:text-3xl ${stat.tone}`}>{money(stat.value)}</p>
             </button>
           ))}
         </div>
@@ -1879,8 +1879,8 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
             const isSelected = selectableId ? selectedLineIds.includes(selectableId) : false;
             const avatarUrl = personAvatarUrl(peopleById, item.personId);
             return (
-              <div key={item.id} title={("lifecycleHint" in item && item.lifecycleHint) ? item.lifecycleHint : undefined} className={`${selectableId && optimisticDeletedLineIds.includes(selectableId) ? "hidden" : ""} group/line relative min-h-[6.25rem] rounded-2xl border border-slate-200 bg-white p-4`}>
-                <div className="flex min-h-[4.25rem] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div key={item.id} title={("lifecycleHint" in item && item.lifecycleHint) ? item.lifecycleHint : undefined} className={`${selectableId && optimisticDeletedLineIds.includes(selectableId) ? "hidden" : ""} group/line relative rounded-[12px] border border-slate-200 bg-white px-4 py-3`}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
                     {editingEnabled && selectableId ? (
                       <input
@@ -1920,7 +1920,7 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-                    <span className={`rounded-full px-3 py-1 text-sm font-black ${amountPillClass(item)}`}>
+                    <span className={`text-base font-semibold tabular-nums ${amountPillClass(item)}`}>
                       {amountPrefix(item)}{money(item.amount)}
                     </span>
                     <PersonMarker

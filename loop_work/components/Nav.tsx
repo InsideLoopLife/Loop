@@ -181,13 +181,12 @@ function Brand({
 }) {
   return (
     <Link href="/briefing" className="group flex items-center gap-3">
-      <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-2xl bg-slate-950 text-white shadow-xl shadow-indigo-950/30">
-        <span className="absolute inset-0 bg-[radial-gradient(circle_at_25%_20%,rgba(255,255,255,.34),transparent_30%),linear-gradient(135deg,#08152e,#24358f_55%,#7357ff)]" />
-        <span className="relative text-xl font-black">∞</span>
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[var(--pine)] text-white">
+        <span className="text-lg font-semibold leading-none">∞</span>
       </span>
       {!compact ? (
         <span
-          className={`text-2xl font-black tracking-[-0.06em] ${dark ? "text-white" : "text-slate-950 group-hover:text-indigo-700"}`}
+          className={`text-xl font-semibold tracking-[-0.03em] ${dark ? "text-white" : "text-[var(--ink)]"}`}
         >
           LOOP
         </span>
@@ -220,10 +219,10 @@ function NavItem({
       onTouchStart={() => onIntent?.(link.href)}
       className={
         side
-          ? `group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-bold transition ${
+          ? `group flex items-center gap-3 rounded-[10px] px-3 py-2 text-[14px] font-medium transition ${
               active
-                ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-950/25"
-                : "text-slate-300 hover:bg-white/10 hover:text-white"
+                ? "bg-[var(--pine-wash)] text-[var(--pine-strong)]"
+                : "text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"
             }`
           : `group relative flex items-center gap-1.5 px-2.5 py-2 text-[13px] font-black transition ${
               active
@@ -835,7 +834,7 @@ function NavInner() {
     return (
       <>
         {overlays}
-        <header className="loop-mobile-navigation sticky top-0 z-40 border-b border-slate-200/70 bg-white/92 px-4 py-3 backdrop-blur-2xl">
+        <header className="loop-mobile-navigation sticky top-0 z-40 border-b border-[var(--line)] bg-white px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <Brand />
             <div className="flex items-center gap-2">
@@ -848,15 +847,15 @@ function NavInner() {
         </header>
         <div id="loop-page-actions" className="fixed right-4 top-[4.5rem] z-30 flex items-center" />
         {mobileLayout === "bar" ? (
-          <nav className="loop-mobile-bottom-nav fixed inset-x-3 bottom-3 z-50 grid rounded-[1.4rem] border border-white/20 bg-slate-950/95 p-1.5 text-white shadow-2xl backdrop-blur-2xl" style={{ gridTemplateColumns: `repeat(${currentLinks.length}, minmax(0, 1fr))` }} aria-label={`${domain} mobile navigation`}>
-            {currentLinks.map((link) => { const Icon = link.icon; const active = isActiveLink(pathname, searchParams, link.href, currentLinks); return <Link key={link.href} href={link.href} onMouseEnter={() => prefetchRoute(link.href)} className={`flex min-w-0 flex-col items-center gap-1 rounded-2xl px-1 py-2 text-[9px] font-black ${active ? "bg-white text-slate-950" : "text-slate-300"}`}><Icon className="h-4 w-4" /><span className="max-w-full truncate">{link.label.replace("Pensions & Investments", "Invest")}</span></Link>; })}
+          <nav className="loop-mobile-bottom-nav fixed inset-x-3 bottom-3 z-50 grid rounded-[16px] border border-[var(--line)] bg-white p-1.5 text-[var(--ink)] shadow-[0_8px_24px_-12px_rgba(24,33,29,0.25)]" style={{ gridTemplateColumns: `repeat(${currentLinks.length}, minmax(0, 1fr))` }} aria-label={`${domain} mobile navigation`}>
+            {currentLinks.map((link) => { const Icon = link.icon; const active = isActiveLink(pathname, searchParams, link.href, currentLinks); return <Link key={link.href} href={link.href} onMouseEnter={() => prefetchRoute(link.href)} className={`flex min-w-0 flex-col items-center gap-1 rounded-[12px] px-1 py-2 text-[10.5px] font-medium ${active ? "bg-[var(--pine-wash)] text-[var(--pine-strong)]" : "text-[var(--muted)]"}`}><Icon className="h-4 w-4" /><span className="max-w-full truncate">{link.label.replace("Pensions & Investments", "Invest")}</span></Link>; })}
           </nav>
         ) : null}
         {mobileLayout === "cards" && mobileOpen ? (
-          <div className="fixed inset-0 z-[140] overflow-y-auto bg-[linear-gradient(180deg,#07142d,#102d68)] p-4 text-white">
+          <div className="fixed inset-0 z-[140] overflow-y-auto bg-[var(--paper)] p-4 text-[var(--ink)]">
             <div className="mx-auto max-w-lg pt-[max(1rem,env(safe-area-inset-top))]">
-              <div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-200">{domain}</p><h2 className="mt-1 text-3xl font-black">Where would you like to go?</h2></div><button type="button" onClick={() => setMobileOpen(false)} className="grid h-11 w-11 place-items-center rounded-full bg-white/10" aria-label="Close navigation cards"><X className="h-5 w-5" /></button></div>
-              <nav className="mt-6 grid grid-cols-2 gap-3" aria-label={`${domain} navigation cards`}>{currentLinks.map((link) => { const Icon = link.icon; return <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)} className="min-h-36 rounded-[1.75rem] border border-white/10 bg-white/10 p-5 shadow-lg backdrop-blur"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-indigo-700"><Icon className="h-5 w-5" /></span><span className="mt-5 block text-base font-black">{link.label}</span></Link>; })}</nav>
+              <div className="flex items-center justify-between"><div><h2 className="mt-1 text-3xl font-black">Where would you like to go?</h2></div><button type="button" onClick={() => setMobileOpen(false)} className="grid h-11 w-11 place-items-center rounded-full border border-[var(--line)] bg-white" aria-label="Close navigation cards"><X className="h-5 w-5" /></button></div>
+              <nav className="mt-6 grid grid-cols-2 gap-3" aria-label={`${domain} navigation cards`}>{currentLinks.map((link) => { const Icon = link.icon; return <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)} className="min-h-32 rounded-[18px] border border-[var(--line)] bg-white p-5"><span className="grid h-10 w-10 place-items-center rounded-[10px] bg-[var(--pine-wash)] text-[var(--pine-strong)]"><Icon className="h-5 w-5" /></span><span className="mt-5 block text-base font-black">{link.label}</span></Link>; })}</nav>
             </div>
           </div>
         ) : null}
@@ -884,14 +883,14 @@ function NavInner() {
           />
         ) : null}
         <aside
-          className={`loop-side-nav fixed inset-y-0 left-0 z-50 flex w-[228px] flex-col overflow-y-auto border-r border-white/10 bg-[linear-gradient(180deg,#07142d_0%,#092452_58%,#102d68_100%)] px-4 py-5 text-white shadow-2xl transition-transform lg:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}
+          className={`loop-side-nav fixed inset-y-0 left-0 z-50 flex w-[228px] flex-col overflow-y-auto border-r border-[var(--line)] bg-white px-4 py-5 text-[var(--ink)] transition-transform lg:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}
         >
           <div className="mb-4 flex items-center justify-between">
-            <Brand dark />
+            <Brand />
             <div className="flex items-center gap-1">
-              <CalendarQuickAccessButton dark />
+              <CalendarQuickAccessButton />
               <button
-                className="rounded-xl p-2 text-slate-300 hover:bg-white/10 lg:hidden"
+                className="rounded-xl p-2 text-[var(--muted)] hover:bg-[var(--paper)] lg:hidden"
                 onClick={() => setMobileOpen(false)}
                 aria-label="Close navigation"
               >
@@ -900,26 +899,23 @@ function NavInner() {
             </div>
           </div>
 
-          <div className="mb-5 grid grid-cols-2 rounded-2xl border border-white/10 bg-white/5 p-1 text-xs font-black">
+          <div className="mb-5 grid grid-cols-2 rounded-[12px] bg-[var(--paper)] p-1 text-[13px] font-medium">
             <Link
               href={wealthHome}
               onClick={() => setMobileOpen(false)}
-              className={`rounded-xl px-3 py-2 text-center transition ${domain === "wealth" ? "bg-white text-slate-950 shadow-lg" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}
+              className={`rounded-[9px] px-3 py-1.5 text-center transition ${domain === "wealth" ? "bg-white text-[var(--ink)] ring-1 ring-[var(--line)]" : "text-[var(--muted)] hover:text-[var(--ink)]"}`}
             >
               Wealth
             </Link>
             <Link
               href="/nutrition"
               onClick={() => setMobileOpen(false)}
-              className={`rounded-xl px-3 py-2 text-center transition ${domain === "health" ? "bg-emerald-400 text-emerald-950 shadow-lg" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}
+              className={`rounded-[9px] px-3 py-1.5 text-center transition ${domain === "health" ? "bg-white text-[var(--ink)] ring-1 ring-[var(--line)]" : "text-[var(--muted)] hover:text-[var(--ink)]"}`}
             >
               Health
             </Link>
           </div>
 
-          <div className="mb-2 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
-            {domain}
-          </div>
           <nav className="space-y-1">
             {currentLinks.map((link) => (
               <NavItem
@@ -940,34 +936,21 @@ function NavInner() {
 
           <div className="mt-auto pt-8">
             {features.aiFinancialBriefing ? (
-              <div className="mb-3 rounded-2xl border border-violet-300/20 bg-gradient-to-br from-violet-500/35 to-indigo-500/20 p-4 shadow-inner">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-sm font-black">Pro Plan</span>
-                  <span className="rounded-full bg-emerald-300/20 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-200">
-                    Active
-                  </span>
-                </div>
-                <p className="text-xs leading-5 text-indigo-100">
-                  AI insights, advanced analysis and alerts.
-                </p>
-                <Link
-                  href="/account?tab=plan"
-                  className="mt-3 block rounded-xl border border-white/25 px-3 py-2 text-center text-xs font-black hover:bg-white/10"
-                >
-                  View plan
-                </Link>
-              </div>
+              <Link href="/account?tab=plan" className="mb-2 flex items-center justify-between rounded-[10px] px-3 py-2 text-[13px] text-[var(--muted)] hover:bg-[var(--paper)]">
+                <span>Pro plan</span>
+                <span className="rounded-full bg-[var(--pine-wash)] px-2 py-0.5 text-[11px] font-medium text-[var(--pine-strong)]">Active</span>
+              </Link>
             ) : null}
             <button
               type="button"
               onClick={() => setAccountOpen(true)}
-              className="relative flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-black text-slate-200 hover:bg-white/10"
+              className="relative flex w-full items-center gap-2 rounded-[10px] px-3 py-2 text-left text-[14px] font-medium text-[var(--ink)] hover:bg-[var(--paper)]"
             >
               {avatarUrl ? <img src={avatarUrl} alt="" className="h-5 w-5 rounded-full object-cover" /> : <CircleUserRound className="h-5 w-5" />}
               <span className="flex-1">Account & settings</span>
               <ChevronDown className="h-4 w-4" />
               {unreadCount > 0 ? (
-                <span className="absolute left-7 top-1 h-2.5 w-2.5 rounded-full bg-violet-400 ring-2 ring-[#102d68]" />
+                <span className="absolute left-7 top-1 h-2.5 w-2.5 rounded-full bg-[var(--pine)] ring-2 ring-white" />
               ) : null}
             </button>
           </div>
