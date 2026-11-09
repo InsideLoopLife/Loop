@@ -16,7 +16,7 @@ import { StatCard } from "@/components/StatCard";
 import { createClient } from "@/lib/supabase/server";
 import { formatMoney, type MoneyDisplayPrecision } from "@/lib/format/money";
 import { estimateAnnualTakeHome, PensionMethod, StudentLoanPlan } from "@/lib/calculations/tax";
-import { MaternityPayMode, calculateNhsMaternityMonthlyAmount } from "@/lib/calculations/maternity";
+import { MaternityPayMode, calculateNhsMaternityMonthlyAmount, maternityInputFromPayEvent, pensionArrearsForMonth } from "@/lib/calculations/maternity";
 import {
   ActivityBillingMode,
   BillingSchedule,
@@ -98,6 +98,7 @@ type PayEvent = {
   maternity_smp_only_weeks: number | null;
   maternity_unpaid_weeks: number | null;
   maternity_smp_weekly_rate: number | null;
+  maternity_extras?: unknown;
   pay_timing: "fixed_day" | "last_workday" | null;
   pay_day_of_month: number | null;
   pay_adjustment: "previous_workday" | "next_workday" | "none" | null;
@@ -562,6 +563,21 @@ function buildMonthPlan({
       categoryLabel: cost.cost_kind === "activity" ? "Activities" : cost.cost_kind === "nursery" ? "Childcare" : "Child cost",
       categoryIcon: "👶",
       dueDate: dueDateForMonth(month, cost.payment_timing ?? "fixed_day", cost.payment_day_of_month ?? 1, cost.payment_adjustment ?? "previous_workday"),
+    });
+  });
+
+  payEvents.filter((event) => event.pay_kind === "maternity").forEach((event) => {
+    const arrears = pensionArrearsForMonth(maternityInputFromPayEvent(event), month);
+    if (arrears.netCost <= 0) return;
+    outgoingItems.push({
+      label: `${getPersonName(peopleById, event.person_id)} · NHS pension buy-back (unpaid leave)`,
+      value: arrears.netCost,
+      href: event.person_id ? `/household/${event.person_id}` : "/household",
+      personId: event.person_id,
+      helper: `${arrears.explanation} £${arrears.grossAmount.toFixed(2)} gross before tax relief.`,
+      categoryLabel: "Pension",
+      categoryIcon: "💰",
+      dueDate: dueDateForMonth(month, event.pay_timing ?? "last_workday", event.pay_day_of_month, event.pay_adjustment ?? "previous_workday"),
     });
   });
 

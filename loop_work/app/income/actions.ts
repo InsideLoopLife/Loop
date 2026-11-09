@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parseNumber } from "@/lib/format/money";
+import { maternityExtrasFormPatch } from "@/lib/calculations/maternity";
 import { ActiveHouseholdContext, applyMutableRecordFilter, getActiveHouseholdContext, householdWriteFields } from "@/lib/auth/household-context";
 
 async function requireIncomeUser() {
@@ -71,6 +72,7 @@ function payEventPayload(formData: FormData, personId: string) {
     maternity_smp_only_weeks: parseNumber(formData.get("maternity_smp_only_weeks")),
     maternity_unpaid_weeks: parseNumber(formData.get("maternity_unpaid_weeks")),
     maternity_smp_weekly_rate: parseNumber(formData.get("maternity_smp_weekly_rate")),
+    ...maternityExtrasFormPatch(formData),
     notes: String(formData.get("notes") || ""),
   };
 }

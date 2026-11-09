@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { SubmitButton } from "@/components/SubmitButton";
+import { MaternityKitPensionPanel } from "@/components/household/MaternityKitPensionPanel";
+import { parseMaternityExtras } from "@/lib/calculations/maternity";
 import { formatMoneyExact } from "@/lib/format/money";
 import { PensionMethod, StudentLoanPlan, estimateAnnualTakeHome, normalisePensionMethod } from "@/lib/calculations/tax";
 import { MaternityPayMode, calculateNhsMaternityGrossPot, maternityDefaults, maternityForecast } from "@/lib/calculations/maternity";
@@ -39,6 +41,7 @@ export type PayEventFormInitialValues = {
   maternity_smp_only_weeks?: number | string | null;
   maternity_unpaid_weeks?: number | string | null;
   maternity_smp_weekly_rate?: number | string | null;
+  maternity_extras?: unknown;
 };
 
 type PayEventWizardProps = {
@@ -87,7 +90,7 @@ function asMaternityPayMode(value: unknown): MaternityPayMode {
   return "nhs_spread_occupational_actual_smp";
 }
 
-type StepId = "person-type" | "label" | "pay-deductions" | "employer-pension" | "pay-timing" | "period-detail" | "maternity-advanced";
+type StepId = "person-type" | "label" | "pay-deductions" | "employer-pension" | "pay-timing" | "period-detail" | "maternity-advanced" | "maternity-kit-pension";
 
 export function PayEventWizard({
   peopleOptions,
@@ -130,6 +133,7 @@ export function PayEventWizard({
   const [smpOnlyWeeks, setSmpOnlyWeeks] = useState(valueToString(initialValues?.maternity_smp_only_weeks, String(defaults.smpOnlyWeeks)));
   const [unpaidWeeks, setUnpaidWeeks] = useState(valueToString(initialValues?.maternity_unpaid_weeks, String(defaults.unpaidWeeks)));
   const [smpWeeklyRate, setSmpWeeklyRate] = useState(valueToString(initialValues?.maternity_smp_weekly_rate, String(defaults.smpWeeklyRate)));
+  const [maternityExtras, setMaternityExtras] = useState(() => parseMaternityExtras(initialValues?.maternity_extras));
   const [stepIndex, setStepIndex] = useState(0);
 
   const grossAnnual = toNumber(grossAnnualSalary);
@@ -149,8 +153,9 @@ export function PayEventWizard({
       pensionPercent: toNumber(pensionPercent),
       pensionMethod,
       studentLoanPlan,
+      extras: maternityExtras,
     }),
-    [grossAnnual, maternityLeaveStart, maternityLeaveEnd, fullPayWeeks, halfPayWeeks, smpOnlyWeeks, unpaidWeeks, smpWeeklyRate, maternityPayMode, pensionPercent, pensionMethod, studentLoanPlan],
+    [grossAnnual, maternityLeaveStart, maternityLeaveEnd, fullPayWeeks, halfPayWeeks, smpOnlyWeeks, unpaidWeeks, smpWeeklyRate, maternityPayMode, pensionPercent, pensionMethod, studentLoanPlan, maternityExtras],
   );
 
   const maternityPot = useMemo(() => calculateNhsMaternityGrossPot(maternityInput), [maternityInput]);
@@ -168,6 +173,7 @@ export function PayEventWizard({
     if (pensionActive) list.push("employer-pension");
     list.push("pay-timing", "period-detail");
     if (isMaternity && isAdvanced) list.push("maternity-advanced");
+    if (isMaternity) list.push("maternity-kit-pension");
     return list;
   }, [pensionActive, isMaternity, isAdvanced]);
 
@@ -196,6 +202,7 @@ export function PayEventWizard({
       <input type="hidden" name="maternity_smp_only_weeks" value={payKind === "maternity" ? smpOnlyWeeks : ""} />
       <input type="hidden" name="maternity_unpaid_weeks" value={payKind === "maternity" ? unpaidWeeks : ""} />
       <input type="hidden" name="maternity_smp_weekly_rate" value={payKind === "maternity" ? smpWeeklyRate : ""} />
+      {payKind === "maternity" ? <input type="hidden" name="maternity_extras" value={JSON.stringify(maternityExtras)} /> : null}
       <input type="hidden" name="effective_from" value={isMaternity ? maternityLeaveStart : effectiveFrom} />
       <input type="hidden" name="effective_until" value={isMaternity ? maternityLeaveEnd : effectiveUntil} />
       {lockedPersonId ? <input type="hidden" name="person_id" value={lockedPersonId} /> : null}
@@ -426,6 +433,12 @@ export function PayEventWizard({
               ))}
             </div>
           </div>
+        ) : null}
+      </div>
+
+      <div style={{ display: currentStepId === "maternity-kit-pension" ? "block" : "none" }}>
+        {isMaternity ? (
+          <MaternityKitPensionPanel maternityInput={maternityInput} extras={maternityExtras} onChange={setMaternityExtras} compact={compact} />
         ) : null}
       </div>
 

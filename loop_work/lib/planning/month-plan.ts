@@ -1,6 +1,6 @@
 import { calculateNewCareTypeMonthlyCost, type CareType } from "@/lib/calculations/childcareRegistry";
 import { deductionIsBeforeTax, estimateAnnualTakeHome, type PensionMethod, type StudentLoanPlan } from "@/lib/calculations/tax";
-import { calculateNhsMaternityMonthlyAmount, type MaternityPayMode } from "@/lib/calculations/maternity";
+import { calculateNhsMaternityMonthlyAmount, maternityInputFromPayEvent, pensionArrearsForMonth, type MaternityPayMode } from "@/lib/calculations/maternity";
 import {
   calculateActivityMonthlyCost,
   calculateNurseryMonthlyCost,
@@ -57,6 +57,7 @@ export type PayEventForPlan = {
   maternity_smp_only_weeks: number | null;
   maternity_unpaid_weeks: number | null;
   maternity_smp_weekly_rate: number | null;
+  maternity_extras?: unknown;
   tax_region?: string | null;
   /** Exact pay for particular months (pay_event_monthly_overrides), e.g. maternity or a bonus month. */
   overrides?: PayEventOverrideForPlan[];
@@ -294,6 +295,8 @@ export function getPayAmount(event: PayEventForPlan, month: string) {
       smpOnlyWeeks: Number(event.maternity_smp_only_weeks ?? 13),
       unpaidWeeks: Number(event.maternity_unpaid_weeks ?? 13),
       smpWeeklyRate: Number(event.maternity_smp_weekly_rate ?? 194.32),
+      extras: event.maternity_extras,
+      taxRegion: (event as any).tax_region,
       payMode: event.maternity_pay_mode ?? "nhs_spread_occupational_actual_smp",
       pensionPercent: Number(event.pension_percent),
       pensionMethod: event.pension_method ?? "net_pay",
@@ -503,6 +506,20 @@ export function buildMonthPlan({
       href: cost.child_id ? `/household/${cost.child_id}` : "/household",
       personId: cost.child_id,
       helper: cost.cost_kind === "activity" ? "Activity / class" : cost.cost_kind === "nursery" ? "Nursery calendar estimate" : "Child cost",
+    });
+  });
+
+  // NHS pension arrears for unpaid maternity leave come off pay after return, so they run past
+  // the maternity event's own dates — check every maternity event, not only the active one.
+  payEvents.filter((event) => event.pay_kind === "maternity").forEach((event) => {
+    const arrears = pensionArrearsForMonth(maternityInputFromPayEvent(event), month);
+    if (arrears.netCost <= 0) return;
+    outgoingItems.push({
+      label: `${getPersonName(peopleById, event.person_id)} · NHS pension buy-back (unpaid leave)`,
+      value: arrears.netCost,
+      href: event.person_id ? `/household/${event.person_id}` : "/household",
+      personId: event.person_id,
+      helper: `${arrears.explanation} £${arrears.grossAmount.toFixed(2)} gross before tax relief.`,
     });
   });
 

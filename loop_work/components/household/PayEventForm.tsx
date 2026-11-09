@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { SubmitButton } from "@/components/SubmitButton";
+import { MaternityKitPensionPanel } from "@/components/household/MaternityKitPensionPanel";
+import { parseMaternityExtras } from "@/lib/calculations/maternity";
 import { formatMoneyExact } from "@/lib/format/money";
 import { PensionMethod, StudentLoanPlan, estimateAnnualTakeHome, normalisePensionMethod } from "@/lib/calculations/tax";
 import {
@@ -48,6 +50,7 @@ export type PayEventFormInitialValues = {
   maternity_smp_only_weeks?: number | string | null;
   maternity_unpaid_weeks?: number | string | null;
   maternity_smp_weekly_rate?: number | string | null;
+  maternity_extras?: unknown;
 };
 
 type PayEventFormProps = {
@@ -143,6 +146,7 @@ export function PayEventForm({
   const [smpOnlyWeeks, setSmpOnlyWeeks] = useState(valueToString(initialValues?.maternity_smp_only_weeks, String(defaults.smpOnlyWeeks)));
   const [unpaidWeeks, setUnpaidWeeks] = useState(valueToString(initialValues?.maternity_unpaid_weeks, String(defaults.unpaidWeeks)));
   const [smpWeeklyRate, setSmpWeeklyRate] = useState(valueToString(initialValues?.maternity_smp_weekly_rate, String(defaults.smpWeeklyRate)));
+  const [maternityExtras, setMaternityExtras] = useState(() => parseMaternityExtras(initialValues?.maternity_extras));
 
   const grossAnnual = toNumber(grossAnnualSalary);
   const normalEstimate = useMemo(() => estimateAnnualTakeHome({
@@ -165,7 +169,8 @@ export function PayEventForm({
     pensionPercent: toNumber(pensionPercent),
     pensionMethod,
     studentLoanPlan,
-  }), [grossAnnual, maternityLeaveStart, maternityLeaveEnd, fullPayWeeks, halfPayWeeks, smpOnlyWeeks, unpaidWeeks, smpWeeklyRate, maternityPayMode, pensionPercent, pensionMethod, studentLoanPlan]);
+    extras: maternityExtras,
+  }), [grossAnnual, maternityLeaveStart, maternityLeaveEnd, fullPayWeeks, halfPayWeeks, smpOnlyWeeks, unpaidWeeks, smpWeeklyRate, maternityPayMode, pensionPercent, pensionMethod, studentLoanPlan, maternityExtras]);
 
   const maternityPot = useMemo(() => calculateNhsMaternityGrossPot(maternityInput), [maternityInput]);
   const maternityMonths = useMemo(() => maternityForecast(maternityInput, compact ? 6 : 12), [maternityInput, compact]);
@@ -195,6 +200,7 @@ export function PayEventForm({
       <input type="hidden" name="maternity_smp_only_weeks" value={payKind === "maternity" ? smpOnlyWeeks : ""} />
       <input type="hidden" name="maternity_unpaid_weeks" value={payKind === "maternity" ? unpaidWeeks : ""} />
       <input type="hidden" name="maternity_smp_weekly_rate" value={payKind === "maternity" ? smpWeeklyRate : ""} />
+      {payKind === "maternity" ? <input type="hidden" name="maternity_extras" value={JSON.stringify(maternityExtras)} /> : null}
 
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -373,6 +379,8 @@ export function PayEventForm({
             <p className="mt-2 text-sm text-slate-600">Estimated first maternity month take-home. Gross maternity pot: {formatMoneyExact(maternityPot.totalGross)}.</p>
             <p className="mt-1 text-xs text-slate-500">Defaults use 8 weeks full pay, 18 weeks half pay + SMP, 13 weeks SMP-only and 13 weeks unpaid. Adjust in Advanced if your Trust/payroll differs.</p>
           </div>
+
+          <MaternityKitPensionPanel maternityInput={maternityInput} extras={maternityExtras} onChange={setMaternityExtras} compact={compact} />
 
           {!compact ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-4">

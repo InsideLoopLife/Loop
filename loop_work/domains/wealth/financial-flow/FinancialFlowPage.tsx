@@ -47,6 +47,7 @@ import { IncomeFlowScopeView, type IncomeFlowScope } from "@/components/financia
 import { getIncomeEntryMonthlyAmount as sharedIncomeEntryMonthlyAmount, getPayAmount as sharedGetPayAmount, incomeEntryAppliesToMonth as sharedIncomeEntryAppliesToMonth, mortgageDealMonthlyPayment, type PayEventOverrideForPlan } from "@/lib/planning/month-plan";
 import { withPayOverrides } from "@/lib/planning/pay-overrides";
 import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
+import { maternityInputFromPayEvent, pensionArrearsForMonth } from "@/lib/calculations/maternity";
 import { deductionsForMonth } from "@/lib/planning/month-plan";
 
 type TabKey = "flow" | "income" | "spending" | "savings";
@@ -86,6 +87,7 @@ type PayEvent = {
   maternity_smp_only_weeks?: number | null;
   maternity_unpaid_weeks?: number | null;
   maternity_smp_weekly_rate?: number | null;
+  maternity_extras?: unknown;
 };
 
 type IncomeEntry = {
@@ -440,6 +442,8 @@ function monthlyPay(event: PayEvent & { overrides?: PayEventOverrideForPlan[] },
       smpOnlyWeeks: n(event.maternity_smp_only_weeks) || 13,
       unpaidWeeks: n(event.maternity_unpaid_weeks) || 13,
       smpWeeklyRate: n(event.maternity_smp_weekly_rate) || 194.32,
+      extras: event.maternity_extras,
+      taxRegion: (event as any).tax_region,
       payMode: event.maternity_pay_mode || "nhs_spread_occupational_actual_smp",
       pensionPercent: n(event.pension_percent),
       pensionMethod: event.pension_method || "net_pay",
@@ -941,7 +945,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
   const [profileResult, peopleResult, payResult, incomeResult, plannedResult, spendingEntriesResult, categoriesResult, categoryGroupsResult, accountsResult, pensionsResult, movementsResult, potsResult, potAllocationsResult, dealsResult, childCostsResult] = await Promise.all([
     supabase.from("app_user_profiles").select("*").eq("user_id", user.id).maybeSingle(),
     supabase.from("people").select("id, name, relationship, user_id, linked_user_id, email, invite_email, birth_date, account_status, active_until, avatar_url").or(householdPeopleOrFilter(householdContext)).order("relationship").order("name").returns<Person[]>(),
-    supabase.from("pay_events").select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, tax_region").or(memberFilter).returns<PayEvent[]>(),
+    supabase.from("pay_events").select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, tax_region").or(memberFilter).returns<PayEvent[]>(),
     supabase.from("income_entries").select("id, person_id, label, gross_amount, net_amount, frequency, entry_date").or(memberFilter).returns<IncomeEntry[]>(),
     supabase.from("planned_items").select("id, person_id, category_id, direction, label, amount, recurrence, recurrence_interval_days, start_date, end_date, item_type, notes").or(visibleFilter).returns<PlannedItem[]>(),
     supabase.from("spending_entries").select("id, person_id, category_id, label, amount, spent_at, notes").or(visibleFilter).returns<SpendingEntry[]>(),
@@ -1010,6 +1014,13 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
       const category = classifyCategory(item.label, item.category_id ? categoryById.get(item.category_id) || null : null);
       const occurrenceAmount = n(item.amount) * plannedItemOccurrencesInRange(item, rangeStart, rangeEnd);
       addSpendLine({ key: `planned-${item.id}`, categoryKey: category.key, label: category.label, amount: occurrenceAmount, icon: category.icon, tone: category.tone, personId: item.person_id, href: `/spending?month=${monthKey}&direction=outgoing`, evidence: [{ key: `planned-${item.id}`, label: item.label || category.label, amount: occurrenceAmount, tone: category.tone, href: `/spending?month=${monthKey}&direction=outgoing` }] });
+    }
+
+    // NHS pension buy-back for unpaid maternity leave: runs after return, past
+    // the maternity record's own dates, so check every maternity record.
+    for (const event of payRows.filter((row: any) => row.pay_kind === "maternity" && personOwned(row, activeScope))) {
+      const arrears = pensionArrearsForMonth(maternityInputFromPayEvent(event as any), monthKey);
+      if (arrears.netCost > 0) addSpendLine({ key: `pension-arrears-${event.id}`, categoryKey: "savings", label: "Savings", amount: arrears.netCost, icon: PiggyBank, tone: "blue", personId: event.person_id, href: event.person_id ? `/household/${event.person_id}` : "/household", evidence: [{ key: `pension-arrears-${event.id}`, label: "NHS pension buy-back (unpaid leave)", amount: arrears.netCost, tone: "blue", href: "/income" }] });
     }
 
     for (const deal of (mortgageDealRows || []).filter((row: any) => isActiveInMonth(row.start_date, row.end_date, rangeStart, rangeEnd))) {

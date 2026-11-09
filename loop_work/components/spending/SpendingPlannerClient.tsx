@@ -128,6 +128,7 @@ export type PayEvent = {
   maternity_smp_only_weeks: number | null;
   maternity_unpaid_weeks: number | null;
   maternity_smp_weekly_rate: number | null;
+  maternity_extras?: unknown;
   pay_timing?: "fixed_day" | "last_workday" | null;
   pay_day_of_month?: number | null;
   pay_adjustment?: "previous_workday" | "next_workday" | "none" | null;
@@ -714,6 +715,8 @@ function getPayAmount(event: PayEvent, month: string) {
       smpOnlyWeeks: Number(event.maternity_smp_only_weeks ?? 13),
       unpaidWeeks: Number(event.maternity_unpaid_weeks ?? 13),
       smpWeeklyRate: Number(event.maternity_smp_weekly_rate ?? 194.32),
+      extras: event.maternity_extras,
+      taxRegion: (event as any).tax_region,
       payMode: event.maternity_pay_mode ?? "nhs_spread_occupational_actual_smp",
       pensionPercent: Number(event.pension_percent),
       pensionMethod: event.pension_method ?? "net_pay",

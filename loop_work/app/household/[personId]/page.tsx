@@ -63,6 +63,7 @@ type PayEvent = {
   maternity_smp_only_weeks: number | null;
   maternity_unpaid_weeks: number | null;
   maternity_smp_weekly_rate: number | null;
+  maternity_extras?: unknown;
   overrides?: PayEventOverride[];
 };
 
@@ -174,6 +175,8 @@ function getPayMonthlyNet(event: PayEvent, month = currentBillingMonth()) {
       smpOnlyWeeks: Number(event.maternity_smp_only_weeks ?? 13),
       unpaidWeeks: Number(event.maternity_unpaid_weeks ?? 13),
       smpWeeklyRate: Number(event.maternity_smp_weekly_rate ?? 194.32),
+      extras: event.maternity_extras,
+      taxRegion: (event as any).tax_region,
       payMode: event.maternity_pay_mode ?? "nhs_spread_occupational_actual_smp",
       pensionPercent: Number(event.pension_percent),
       pensionMethod: event.pension_method ?? "net_pay",
@@ -207,7 +210,7 @@ function headerClasses(relationship: Person["relationship"]) {
 }
 
 function payEventSelectFields() {
-  return "id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, pay_timing, pay_day_of_month, pay_adjustment, maternity_scheme, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, tax_region";
+  return "id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, pay_timing, pay_day_of_month, pay_adjustment, maternity_scheme, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, tax_region";
 }
 
 export default async function PersonPage({ params }: { params: Promise<{ personId: string }> }) {

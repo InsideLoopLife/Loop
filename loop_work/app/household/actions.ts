@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient, hasSupabaseAdminKey } from "@/lib/supabase/admin";
 import { sendTransactionalEmail } from "@/lib/notifications/send";
 import { parseNumber } from "@/lib/format/money";
+import { maternityExtrasFormPatch } from "@/lib/calculations/maternity";
 import { ActivityBillingMode, BillingSchedule, DaySession, FundingMode, calculateActivityMonthlyCost, calculateNurseryMonthlyCost } from "@/lib/calculations/childcare";
 import { CareType, mapCareTypeToCostKind, calculateNewCareTypeMonthlyCost } from "@/lib/calculations/childcareRegistry";
 
@@ -349,6 +350,7 @@ export async function addPayEvent(formData: FormData) {
     maternity_smp_only_weeks: parseNumber(formData.get("maternity_smp_only_weeks")),
     maternity_unpaid_weeks: parseNumber(formData.get("maternity_unpaid_weeks")),
     maternity_smp_weekly_rate: parseNumber(formData.get("maternity_smp_weekly_rate")),
+    ...maternityExtrasFormPatch(formData),
     notes: String(formData.get("notes") || ""),
   });
 
@@ -394,6 +396,7 @@ export async function updatePayEvent(formData: FormData) {
       maternity_smp_only_weeks: parseNumber(formData.get("maternity_smp_only_weeks")),
       maternity_unpaid_weeks: parseNumber(formData.get("maternity_unpaid_weeks")),
       maternity_smp_weekly_rate: parseNumber(formData.get("maternity_smp_weekly_rate")),
+      ...maternityExtrasFormPatch(formData),
       notes: String(formData.get("notes") || ""),
     }), id, householdContext);
 

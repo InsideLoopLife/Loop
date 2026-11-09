@@ -17,6 +17,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActiveHouseholdContext } from "@/domains/identity/household";
 import { getPayAmount, mortgageDealMonthlyPayment, selectActivePayEventsForMonth, type HomeMortgageDealForPlan, type PayEventForPlan } from "@/lib/planning/month-plan";
 import { withPayOverrides } from "@/lib/planning/pay-overrides";
+import { maternityInputFromPayEvent, pensionArrearsForMonth } from "@/lib/calculations/maternity";
 import type { CalorieProgressMetadata } from "./types";
 
 const WINDOW_DAYS = 45;
@@ -203,6 +204,28 @@ export async function materializePaymentsAndIncome({ db, household, today = new 
         title: deal.lender ? `Mortgage · ${deal.lender}` : "Mortgage",
         event_date: date,
         amount,
+      });
+    }
+  }
+
+  // NHS pension buy-back instalments for unpaid maternity leave (net of tax relief).
+  for (const event of payWithOverrides.filter((row: any) => row.pay_kind === "maternity") as any[]) {
+    for (const [y, m] of monthsBetween(from, to)) {
+      const month = `${y}-${String(m + 1).padStart(2, "0")}`;
+      const arrears = pensionArrearsForMonth(maternityInputFromPayEvent(event), month);
+      if (!(arrears.netCost > 0)) continue;
+      const date = payDate(event, y, m);
+      if (date < from || date > to) continue;
+      rows.push({
+        ...base,
+        user_id: event.user_id,
+        person_id: event.person_id,
+        source: "loop_payment",
+        event_type: "payment_due",
+        external_id: `pension_arrears:${event.id}:${iso(date)}`,
+        title: "NHS pension buy-back",
+        event_date: iso(date),
+        amount: Math.round(arrears.netCost * 100) / 100,
       });
     }
   }
