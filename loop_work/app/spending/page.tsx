@@ -39,6 +39,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
     { data: householdPets },
     { data: homeProfile },
     { data: categoryGroups },
+    { data: mortgageDeals },
     householdCountResult,
   ] = await Promise.all([
     supabase
@@ -91,6 +92,10 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
     Promise.resolve({ data: [] as any[] }),
     Promise.resolve({ data: null }),
     Promise.resolve({ data: [] as any[] }),
+    supabase
+      .from("home_mortgage_deals")
+      .select("id, lender, balance, interest_rate, term_years, monthly_payment_override, start_date, end_date, payment_day_of_month")
+      .or(householdVisibleFilter),
     supabase
       .from("app_household_members")
       .select("id", { count: "exact", head: true })
@@ -153,6 +158,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
           householdPets={(householdPets ?? []) as any}
           homeProfile={(homeProfile ?? null) as any}
           categoryGroups={(categoryGroups ?? []) as any}
+          mortgageDeals={(mortgageDeals ?? []) as any}
           initialMonth={resolvedSearchParams.month}
           initialPersonId={resolvedSearchParams.person}
           initialDirectionFilter={resolvedSearchParams.direction === "income" || resolvedSearchParams.direction === "outgoing" ? resolvedSearchParams.direction : "all"}

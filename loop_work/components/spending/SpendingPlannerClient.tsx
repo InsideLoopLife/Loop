@@ -40,7 +40,7 @@ import {
 import { addChildCost, deleteChildCost, updateChildCost } from "@/app/household/actions";
 import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
 import { SpendingQuickAdd } from "@/components/spending/SpendingQuickAdd";
-import { deductionsForMonth } from "@/lib/planning/month-plan";
+import { deductionsForMonth, mortgageDealMonthlyPayment, type HomeMortgageDealForPlan } from "@/lib/planning/month-plan";
 
 const SUMMARY_COLOURS = ["#1f6a50", "#c08a3e", "#5b6fa8", "#7fa886", "#b46a55", "#8a7fb0", "#3e8a99", "#a59a5c", "#6b7570", "#c9a7a0"];
 
@@ -255,6 +255,8 @@ type Props = {
   householdPets?: HouseholdPet[];
   homeProfile?: HomeProfile | null;
   categoryGroups?: { id: string; name: string; icon?: string | null }[];
+  /** Mortgage deals, so the mortgage shows here exactly as on the overview. */
+  mortgageDeals?: Array<HomeMortgageDealForPlan & { payment_day_of_month?: number | null }>;
   initialAddMode?: AddMode;
   initialAddTemplate?: SimpleFlowTemplate;
 };
@@ -1386,7 +1388,7 @@ function inferSpendingQuickCapture(
   };
 }
 
-export function SpendingPlannerClient({ people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], initialAddMode, initialAddTemplate }: Props) {
+export function SpendingPlannerClient({ people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], mortgageDeals = [], initialAddMode, initialAddTemplate }: Props) {
   const initialMonthValue = initialMonth && /^\d{4}-\d{2}$/.test(initialMonth) ? initialMonth : currentMonth();
   const [selectedPersonId, setSelectedPersonId] = useState(initialPersonId || "");
   const [directionFilter, setDirectionFilter] = useState<"all" | "income" | "outgoing">(initialDirectionFilter);
@@ -1438,14 +1440,17 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
     const entriesForMonth = filteredEntries.filter((entry) => dateIsInMonth(entry.spent_at, month));
     const payForMonth = filteredPayEvents.filter((event) => isActiveInMonth(event.effective_from, event.effective_until, month));
     const childForMonth = filteredChildCosts.filter((cost) => isActiveInMonth(cost.starts_on, cost.ends_on, month));
+    // The mortgage belongs to the household, so it shows unless one person is picked.
+    const mortgageForMonth = (selectedPersonId && !isHouseholdOnlyFilter) ? [] : mortgageDeals.filter((deal) => isActiveInMonth(deal.start_date, deal.end_date, month) && mortgageDealMonthlyPayment(deal) > 0);
 
     const income = plannedForMonth.filter((item) => item.direction === "income").reduce((sum, item) => sum + Number(item.amount) * plannedItemDatesForMonth(item, month).length, 0)
       + payForMonth.reduce((sum, event) => sum + getPayAmount(event, month), 0);
     const outgoings = plannedForMonth.filter((item) => item.direction === "outgoing").reduce((sum, item) => sum + Number(item.amount) * plannedItemDatesForMonth(item, month).length, 0)
       + entriesForMonth.reduce((sum, entry) => sum + Number(entry.amount), 0)
-      + childForMonth.reduce((sum, cost) => sum + getChildCostMonthlyAmount(cost, month), 0);
+      + childForMonth.reduce((sum, cost) => sum + getChildCostMonthlyAmount(cost, month), 0)
+      + mortgageForMonth.reduce((sum, deal) => sum + mortgageDealMonthlyPayment(deal), 0);
 
-    return { month, income, outgoings, net: income - outgoings, plannedForMonth, entriesForMonth, payForMonth, childForMonth };
+    return { month, income, outgoings, net: income - outgoings, plannedForMonth, entriesForMonth, payForMonth, childForMonth, mortgageForMonth };
   });
 
   const selectedSummary = monthSummaries.find((summary) => summary.month === selectedMonth) ?? monthSummaries[0];
@@ -1551,7 +1556,31 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
         childCost: cost,
       };
     }),
+    ...selectedSummary.mortgageForMonth.map((deal) => ({
+      id: `mortgage-${deal.id}`,
+      date: dueDateForMonth(selectedSummary.month, "fixed_day", deal.payment_day_of_month || Number(String(deal.start_date || "").slice(8, 10)) || 1, "next_workday"),
+      title: deal.lender ? `Mortgage · ${deal.lender}` : "Mortgage",
+      person: personName(peopleById, null),
+      personId: null as string | null,
+      direction: "outgoing" as const,
+      amount: Math.round(mortgageDealMonthlyPayment(deal) * 100) / 100,
+      categoryLabel: "Mortgage",
+      categoryIcon: "🏠",
+      lifecycleShort: null as string | null,
+      helper: "From Home & mortgage",
+      href: "/mortgage",
+    })),
   ].sort((a, b) => a.date.localeCompare(b.date));
+
+  // One set of figures, from exactly the lines listed below, split the same
+  // way as the overview and Summary: bills & spending, saved, left over.
+  const monthTotals = allMonthItems.reduce((t, item) => {
+    const amount = Number(item.amount || 0);
+    if (item.direction === "income") t.income += amount;
+    else if (item.direction === "outgoing") { if (isSavingsFlowLine(item)) t.saved += amount; else t.spent += amount; }
+    return t;
+  }, { income: 0, spent: 0, saved: 0 });
+  const monthLeftOver = monthTotals.income - monthTotals.spent - monthTotals.saved;
   // Outgoings by category for the summary bar (before the in/out and category filters).
   const categoryBreakdown = (() => {
     const totals = new Map<string, { label: string; icon: string | null; amount: number }>();
@@ -1743,12 +1772,18 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
           </div>
         </div>
 
-        <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100">
+        <div className="grid grid-cols-2 divide-slate-100 border-b border-slate-100 sm:grid-cols-4 sm:divide-x">
           {[
-            { key: "income" as const, label: "Money in", value: selectedSummary.income, tone: "text-emerald-700" },
-            { key: "outgoing" as const, label: "Money out", value: selectedSummary.outgoings, tone: "text-slate-950" },
-            { key: "all" as const, label: "Left over", value: selectedSummary.net, tone: selectedSummary.net >= 0 ? "text-[var(--ink)]" : "text-[var(--brick)]" },
-          ].map((stat) => (
+            { key: "income" as const, label: "Money in", value: monthTotals.income, tone: "text-[var(--pine)]" },
+            { key: "outgoing" as const, label: "Bills & spending", value: monthTotals.spent, tone: "text-[var(--ink)]" },
+            { key: "saved" as const, label: "Saved", value: monthTotals.saved, tone: "text-[var(--ink)]" },
+            { key: "all" as const, label: "Left over", value: monthLeftOver, tone: monthLeftOver >= 0 ? "text-[var(--ink)]" : "text-[var(--brick)]" },
+          ].map((stat) => stat.key === "saved" ? (
+            <div key={stat.label} className="min-w-0 px-3 py-3 sm:px-5 sm:py-4">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">{stat.label}</p>
+              <p className={`mt-1 truncate text-lg font-semibold tracking-tight sm:text-2xl md:text-3xl ${stat.tone}`}>{money(stat.value)}</p>
+            </div>
+          ) : (
             <button
               key={stat.label}
               type="button"
@@ -1772,7 +1807,7 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
                     type="button"
                     title={`${row.label}: ${money(row.amount)}`}
                     onClick={() => { setCategoryFilter(categoryFilter === row.label ? null : row.label); setDirectionFilter("all"); }}
-                    style={{ width: `${(row.amount / Math.max(1, selectedSummary.outgoings)) * 100}%`, backgroundColor: SUMMARY_COLOURS[i % SUMMARY_COLOURS.length], opacity: categoryFilter && categoryFilter !== row.label ? 0.25 : 1 }}
+                    style={{ width: `${(row.amount / Math.max(1, monthTotals.spent + monthTotals.saved)) * 100}%`, backgroundColor: SUMMARY_COLOURS[i % SUMMARY_COLOURS.length], opacity: categoryFilter && categoryFilter !== row.label ? 0.25 : 1 }}
                     className="h-full transition"
                     aria-label={`Show ${row.label}`}
                   />

@@ -7976,209 +7976,55 @@ export function PensionsInvestmentsClient({
 
       {experience === "overview" ? (
         <>
-          <section className="overflow-hidden rounded-[2.5rem] border border-white/70 bg-[radial-gradient(circle_at_top_left,#0f766e,transparent_28%),linear-gradient(135deg,#020617,#111827_55%,#431407)] p-8 text-white shadow-[0_35px_120px_-70px_rgba(15,23,42,.85)]">
-            <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.35em] text-emerald-200">
-                  Pensions & investments
-                </p>
-                <h1 className="mt-4 text-5xl font-black tracking-tight">
+          {/* One figure, then the three things that make it up. */}
+          <section className="rounded-[18px] border border-[var(--line)] bg-white">
+            <div className="grid gap-6 px-6 pb-5 pt-6 md:grid-cols-[1fr_minmax(0,22rem)] md:items-end md:px-8 md:pt-8">
+              <div className="min-w-0">
+                <p className="text-[15px] text-[var(--muted)]">Pensions and investments</p>
+                <p className="mt-2 text-[44px] font-semibold leading-none tracking-[-0.03em] text-[var(--ink)] md:text-[56px]">
                   {formatMoney(pensionTotal + investmentTotal)}
-                </h1>
-                <p className="mt-3 max-w-3xl text-sm font-semibold text-slate-100">
-                  Track pension pots and investment pots separately. Add the
-                  provider wrapper first, then add funds, holdings, groups or
-                  purchase lots inside the pot.
                 </p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                <button
-                  type="button"
-                  onClick={() => openPensionCommand()}
-                  className="group flex min-h-[118px] flex-col rounded-3xl bg-white/20 p-5 text-left backdrop-blur transition hover:-translate-y-0.5 hover:bg-white/25"
-                >
-                  <p className="text-xs font-black uppercase text-slate-200">
-                    Pensions
-                  </p>
-                  <p className="mt-2 text-2xl font-black">
-                    {formatMoney(pensionTotal)}
-                  </p>
-                  <p className="mt-auto pt-3 text-[11px] font-black uppercase tracking-wide text-slate-300 opacity-0 transition group-hover:opacity-100">
-                    Open live view
-                  </p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openInvestmentCommand()}
-                  className="group flex min-h-[118px] flex-col rounded-3xl bg-white/20 p-5 text-left backdrop-blur transition hover:-translate-y-0.5 hover:bg-white/25"
-                >
-                  <p className="text-xs font-black uppercase text-slate-200">
-                    Investments
-                  </p>
-                  <p className="mt-2 text-2xl font-black">
-                    {formatMoney(investmentTotal)}
-                  </p>
-                  <p className="mt-auto pt-3 text-[11px] font-black uppercase tracking-wide text-slate-300 opacity-0 transition group-hover:opacity-100">
-                    Open live view
-                  </p>
-                </button>
-                <div className="rounded-3xl bg-emerald-400/20 p-5 backdrop-blur">
-                  <p className="text-xs font-black uppercase text-emerald-100">
-                    Investment performance
-                  </p>
-                  {hasAnyUnverifiedProviderCost ? (
-                    <>
-                      <p className="mt-2 text-2xl font-black text-white">
-                        P/L pending
-                      </p>
-                      <p className="mt-1 text-xs font-bold text-emerald-100">
-                        Awaiting verified broker cost basis
-                      </p>
-                    </>
-                  ) : (
-                    <p className="mt-2 text-2xl font-black text-emerald-100">
-                      {formatMoney(investmentTotal - investmentCost)}
-                    </p>
-                  )}
-                </div>
+              <div className="min-w-0">
+                <MiniValueLine points={allInvestmentSnapshotPoints} emptyLabel="The line starts after the next price refresh" />
               </div>
             </div>
-          </section>
-
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <button
-              type="button"
-              onClick={() => setPersonFilter("all")}
-              className="group rounded-[2rem] border border-white/70 bg-white p-6 text-left shadow-[0_24px_80px_-60px_rgba(15,23,42,.75)] transition hover:-translate-y-0.5 hover:shadow-[0_30px_90px_-62px_rgba(15,23,42,.85)]"
-            >
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-                Total wealth
-              </p>
-              <p className="mt-3 text-3xl font-black text-slate-950">
-                {formatMoney(pensionTotal + investmentTotal)}
-              </p>
-              <div className="mt-5">
-                <MiniValueLine
-                  points={allInvestmentSnapshotPoints}
-                  emptyLabel="Price history starts after refresh"
-                />
+            <div className="grid grid-cols-1 border-t border-[var(--line)] sm:grid-cols-3">
+              <button type="button" onClick={() => openPensionCommand()} className="px-6 py-4 text-left hover:bg-[var(--paper)] md:px-8">
+                <p className="text-sm text-[var(--muted)]">Pensions</p>
+                <p className="mt-1 text-[22px] font-semibold tracking-tight text-[var(--ink)]">{formatMoney(pensionTotal)}</p>
+                <p className="mt-0.5 text-xs text-[var(--muted)]">{pensionAccounts.length} pot{pensionAccounts.length === 1 ? "" : "s"} · open</p>
+              </button>
+              <button type="button" onClick={() => openInvestmentCommand()} className="border-t border-[var(--line)] px-6 py-4 text-left hover:bg-[var(--paper)] sm:border-l sm:border-t-0 md:px-8">
+                <p className="text-sm text-[var(--muted)]">Investments</p>
+                <p className="mt-1 text-[22px] font-semibold tracking-tight text-[var(--ink)]">{formatMoney(investmentTotal)}</p>
+                <p className="mt-0.5 text-xs text-[var(--muted)]">{investmentHoldings.length} holding{investmentHoldings.length === 1 ? "" : "s"} · open</p>
+              </button>
+              <div className="border-t border-[var(--line)] px-6 py-4 sm:border-l sm:border-t-0 md:px-8">
+                <p className="text-sm text-[var(--muted)]">Investment growth so far</p>
+                {hasAnyUnverifiedProviderCost ? (
+                  <>
+                    <p className="mt-1 text-[22px] font-semibold tracking-tight text-[var(--ink)]">Not known yet</p>
+                    <p className="mt-0.5 text-xs text-[var(--muted)]">Waiting for what you paid from the broker</p>
+                  </>
+                ) : (
+                  <>
+                    <p className={`mt-1 text-[22px] font-semibold tracking-tight ${investmentTotal - investmentCost >= 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>
+                      {investmentTotal - investmentCost >= 0 ? "+" : ""}{formatMoney(investmentTotal - investmentCost)}
+                    </p>
+                    <p className="mt-0.5 text-xs text-[var(--muted)]">Value now, minus what went in</p>
+                  </>
+                )}
               </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => openInvestmentCommand()}
-              className="group flex min-h-[280px] flex-col rounded-[2rem] border border-white/70 bg-white p-6 text-left shadow-[0_24px_80px_-60px_rgba(15,23,42,.75)] transition hover:-translate-y-0.5 hover:shadow-[0_30px_90px_-62px_rgba(15,23,42,.85)]"
-            >
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-600">
-                Investments
-              </p>
-              <p className="mt-3 text-3xl font-black text-slate-950">
-                {formatMoney(investmentTotal)}
-              </p>
-              <p className="mt-2 text-sm font-bold text-slate-500">
-                {investmentHoldings.length} tracked holding(s)
-              </p>
-              <div className="mt-5">
-                <TinySparkline points={allInvestmentSnapshotPoints} />
-              </div>
-              <div className="mt-auto flex justify-end pt-4">
-                <span className="rounded-full bg-slate-950 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-white">
-                  Live view →
-                </span>
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => openPensionCommand()}
-              className="group flex min-h-[280px] flex-col rounded-[2rem] border border-white/70 bg-white p-6 text-left shadow-[0_24px_80px_-60px_rgba(15,23,42,.75)] transition hover:-translate-y-0.5 hover:shadow-[0_30px_90px_-62px_rgba(15,23,42,.85)]"
-            >
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">
-                Pensions
-              </p>
-              <p className="mt-3 text-3xl font-black text-slate-950">
-                {formatMoney(pensionTotal)}
-              </p>
-              <p className="mt-2 text-sm font-bold text-slate-500">
-                {pensionAccounts.length} pension pot(s)
-              </p>
-              <div className="mt-5 h-36 rounded-[1.5rem] bg-[linear-gradient(135deg,#eff6ff,#ecfdf5)] p-4">
-                <div className="flex h-full items-end gap-2">
-                  {pensionAccounts.slice(0, 8).map((account) => {
-                    const value = pensionAccountValue(
-                      account,
-                      pensionFunds.filter(
-                        (fund) => fund.pension_account_id === account.id,
-                      ),
-                    );
-                    const height =
-                      pensionTotal > 0
-                        ? Math.max(
-                            14,
-                            Math.min(100, (value / pensionTotal) * 100),
-                          )
-                        : 14;
-                    return (
-                      <span
-                        key={account.id}
-                        className="block flex-1 rounded-t-xl bg-blue-500/80 shadow-[0_12px_30px_-18px_rgba(37,99,235,.75)]"
-                        style={{ height: `${height}%` }}
-                      />
-                    );
-                  })}
-                  {pensionAccounts.length === 0 ? (
-                    <span className="text-sm font-bold text-slate-400">
-                      No pension pots yet
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-              <div className="mt-auto flex justify-end pt-4">
-                <span className="rounded-full bg-slate-950 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-white">
-                  Live view →
-                </span>
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => openInvestmentCommand()}
-              className="group rounded-[2rem] border border-white/70 bg-white p-6 text-left shadow-[0_24px_80px_-60px_rgba(15,23,42,.75)] transition hover:-translate-y-0.5 hover:shadow-[0_30px_90px_-62px_rgba(15,23,42,.85)]"
-            >
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-600">
-                Performance
-              </p>
-              {hasAnyUnverifiedProviderCost ? (
-                <>
-                  <p className="mt-3 text-3xl font-black text-slate-950">
-                    P/L pending
-                  </p>
-                  <p className="mt-2 text-sm font-bold text-slate-500">
-                    Awaiting verified broker cost basis
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p
-                    className={`mt-3 text-3xl font-black ${investmentTotal - investmentCost >= 0 ? "text-emerald-700" : "text-red-600"}`}
-                  >
-                    {formatMoney(investmentTotal - investmentCost)}
-                  </p>
-                  <p className="mt-2 text-sm font-bold text-slate-500">
-                    All-time tracked return
-                  </p>
-                </>
-              )}
-            </button>
+            </div>
           </section>
 
           <section className="grid gap-5 xl:grid-cols-2">
             <div className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-lg">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-600">
-                    Pension snapshots
-                  </p>
                   <h2 className="text-xl font-black text-slate-950">
-                    Tap a person to open pension detail
+                    Pensions by person
                   </h2>
                 </div>
                 <button
@@ -8186,7 +8032,7 @@ export function PensionsInvestmentsClient({
                   onClick={() => openPensionCommand()}
                   className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white"
                 >
-                  Open live view
+                  Open
                 </button>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
@@ -8259,11 +8105,8 @@ export function PensionsInvestmentsClient({
             <div className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-lg">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-600">
-                    Investment snapshots
-                  </p>
                   <h2 className="text-xl font-black text-slate-950">
-                    Tap a person to open investment detail
+                    Investments by person
                   </h2>
                 </div>
                 <button
@@ -8271,7 +8114,7 @@ export function PensionsInvestmentsClient({
                   onClick={() => openInvestmentCommand()}
                   className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white"
                 >
-                  Open live view
+                  Open
                 </button>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
@@ -9960,16 +9803,6 @@ export function PensionsInvestmentsClient({
         </section>
       ) : null}
 
-      <section className="rounded-[2rem] border border-amber-200 bg-amber-50/80 p-5 text-sm font-semibold text-amber-950">
-        <div className="flex gap-3">
-          <Sparkles className="mt-0.5 h-5 w-5" />
-          <p>
-            End-of-day/delayed prices are fine for tracking. Provider tokens
-            improve coverage, but the app can still use manual values, bulk
-            imports and source notes while you avoid full broker integrations.
-          </p>
-        </div>
-      </section>
 
       {modal?.type === "db-pension" ? (
         <ModalShell

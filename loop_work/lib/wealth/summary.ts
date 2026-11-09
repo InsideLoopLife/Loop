@@ -35,7 +35,7 @@ export async function buildWealthSummary(supabase: any, userId: string, month = 
     supabase.from("pension_accounts").select("id,current_value").in("user_id", userIds),
     supabase.from("pension_funds").select("pension_account_id,current_value,units,unit_price").in("user_id", userIds),
     supabase.from("investment_accounts").select("id").in("user_id", userIds),
-    supabase.from("investment_holdings").select("investment_account_id,units,latest_price,imported_current_value").in("user_id", userIds),
+    supabase.from("investment_holdings").select("investment_account_id,units,latest_price,imported_current_value").in("user_id", userIds).neq("record_status", "archived"),
     supabase.from("planned_items").select("direction,amount,monthly_cost,recurrence,start_date,end_date,end_behavior").in("user_id", userIds),
     supabase.from("income_entries").select("gross_amount,net_amount,frequency,entry_date").in("user_id", userIds),
     supabase.from("pay_events").select("*").in("user_id", userIds),

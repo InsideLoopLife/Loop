@@ -55,7 +55,7 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
     rows(scope(supabase.from("pension_accounts").select("id,current_value,value_as_of_date,updated_at"))),
     rows(scope(supabase.from("pension_funds").select("pension_account_id,fund_name,group_label,current_value,units,unit_price,annual_fund_fee_percent,performance_annualised_5y_percent,performance_annualised_10y_percent,performance_planning_rate_percent,performance_as_of_date"))),
     rows(scope(supabase.from("investment_accounts").select("id,label,provider"))),
-    rows(scope(supabase.from("investment_holdings").select("investment_account_id,asset_name,ticker,group_label,units,latest_price,day_change_gbp,day_change_percent,updated_at"))),
+    rows(scope(supabase.from("investment_holdings").select("investment_account_id,asset_name,ticker,group_label,units,latest_price,day_change_gbp,day_change_percent,updated_at").neq("record_status", "archived"))),
     rows(scope(supabase.from("financial_accounts").select("id,name,account_type,current_balance,is_liability,interest_rate"))),
     rows(scope(supabase.from("savings_account_movements").select("movement_type,amount,effective_at,created_at").gte("effective_at", monthStart()))),
     rows(scope(supabase.from("pay_events").select("gross_annual_salary,monthly_take_home_override,pension_percent,effective_from,effective_until"))),

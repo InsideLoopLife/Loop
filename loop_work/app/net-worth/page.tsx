@@ -56,7 +56,7 @@ export default async function NetWorthPage() {
     supabase.from("pension_accounts").select("id, person_id, label, provider, current_value").or(householdVisibleFilter).returns<PensionAccount[]>(),
     supabase.from("pension_funds").select("pension_account_id, current_value, units, unit_price").or(householdVisibleFilter).returns<PensionFund[]>(),
     supabase.from("investment_accounts").select("id, person_id, label, provider, account_type").or(householdVisibleFilter).returns<InvestmentAccount[]>(),
-    supabase.from("investment_holdings").select("investment_account_id, asset_name, units, latest_price").or(householdVisibleFilter).returns<InvestmentHolding[]>(),
+    supabase.from("investment_holdings").select("investment_account_id, asset_name, units, latest_price").or(householdVisibleFilter).neq("record_status", "archived").returns<InvestmentHolding[]>(),
     supabase.from("financial_accounts").select("id, name, owner_person_id, account_type, current_balance, is_liability, provider").or(householdVisibleFilter).returns<FinancialAccount[]>(),
   ]);
 

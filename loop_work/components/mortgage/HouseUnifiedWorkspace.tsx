@@ -250,11 +250,9 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
     Boolean(props.temporaryIncomeContext) &&
     Math.abs(Number(props.monthPlan.income || 0) - Number(props.normalMonthPlan.income || 0)) > 1;
 
-  const bankRate = Number(
-    props.boeBenchmarks.find((row) => row.term_type === "bank_rate")?.rate_percent ||
-      props.svrKnowledge.find((row) => Number(row.current_bank_rate || 0) > 0)?.current_bank_rate ||
-      0,
-  );
+  // Only the Bank Rate the rates worker reads each day; the lender SVR notes
+  // carry the rate from when each note was written, which goes stale.
+  const bankRate = Number(props.boeBenchmarks.find((row) => row.term_type === "bank_rate")?.rate_percent || 0);
   const fixedRows = props.boeBenchmarks
     .filter((row) => row.term_type === "2yr_fixed" && Number(row.rate_percent) > 0)
     .sort((a, b) => Number(a.ltv_tier ?? 100) - Number(b.ltv_tier ?? 100));
@@ -348,23 +346,33 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
             <div className="mx-auto w-full max-w-none space-y-6 lg:space-y-7">
 
               <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
-                {[["Current mortgage",formatMoney(mortgage.balance),`${ltv.toFixed(1)}% LTV`],["Monthly payment",formatMoney(mortgage.payment),deal?`${Number(deal.interest_rate).toFixed(2)}% · ${deal.lender || ""}`:"No mortgage"],["Home value",formatMoney(value.mid),`${formatMoney(value.low)} – ${formatMoney(value.high)}`]].map(([label,main,helper]) => <article key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:min-h-[122px] lg:p-5"><p className="text-[10px] font-bold uppercase text-slate-400">{label}</p><p className="mt-2 text-2xl font-bold">{main}</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{helper}</p></article>)}
-                <button onClick={() => choose("affordability")} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md lg:min-h-[122px] lg:p-5"><p className="text-[10px] font-bold uppercase text-slate-400">Affordability</p><p className="mt-2 text-2xl font-bold">{currentAffordability.score}/100</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{currentAffordability.label}{hasTemporaryIncome ? ` · normal ${normalAffordability.score}/100` : ""} · <span className="text-violet-700">View planning →</span></p></button>
+                {[["Mortgage left",formatMoney(mortgage.balance),`${ltv.toFixed(1)}% of the home's value`],["Monthly payment",formatMoney(mortgage.payment),deal?`${Number(deal.interest_rate).toFixed(2)}% · ${deal.lender || ""}`:"No mortgage"],["Home value",formatMoney(value.mid),`${formatMoney(value.low)} – ${formatMoney(value.high)}`]].map(([label,main,helper]) => <article key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:min-h-[122px] lg:p-5"><p className="text-[10px] font-bold uppercase text-slate-400">{label}</p><p className="mt-2 text-2xl font-bold">{main}</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{helper}</p></article>)}
+                <button onClick={() => choose("affordability")} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md lg:min-h-[122px] lg:p-5"><p className="text-[10px] font-bold uppercase text-slate-400">Affordability</p><p className="mt-2 text-2xl font-bold">{currentAffordability.score}/100</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{currentAffordability.label}{hasTemporaryIncome ? ` · normal ${normalAffordability.score}/100` : ""} · <span className="text-[var(--pine)]">Details →</span></p></button>
               </section>
 
-              <section className="grid gap-3 md:grid-cols-2">
-                <article className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-5 shadow-sm"><p className="text-[10px] font-bold uppercase text-emerald-700">Bank of England</p><p className="mt-2 text-3xl font-bold">{bankRate ? `${bankRate.toFixed(2)}%` : "Data unavailable"}</p><p className="mt-1 text-xs text-slate-600">Current Bank Rate · market context.</p></article>
-                <article className="rounded-2xl border border-violet-200 bg-violet-50/70 p-5 shadow-sm"><p className="text-[10px] font-bold uppercase text-violet-700">BoE mortgage benchmark</p><p className="mt-2 text-3xl font-bold">{benchmark ? `${Number(benchmark.rate_percent).toFixed(2)}%` : "Pending"}</p><p className="mt-1 text-xs text-slate-600">{benchmark ? "Nearest 2-year fixed benchmark for your LTV." : "BoE July 2026 fallback · 2-year fixed 75% LTV."}</p></article>
-              </section>
-
-              <section className="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm">
-                <div className="grid lg:grid-cols-[1.15fr_.85fr]">
-                  <div className="relative min-h-[280px] overflow-hidden bg-slate-100 sm:min-h-[360px] lg:min-h-[470px]">
-                    {showMaps && home?.latitude && home?.longitude ? <iframe title={`${home.label} map`} src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(home.longitude)-0.006}%2C${Number(home.latitude)-0.006}%2C${Number(home.longitude)+0.006}%2C${Number(home.latitude)+0.006}&layer=mapnik&marker=${home.latitude}%2C${home.longitude}`} className="absolute inset-0 h-full w-full border-0" loading="lazy"/> : null}
-                    <button onClick={() => choose("affordability")} className={`absolute right-4 top-4 rounded-2xl p-4 text-left shadow-lg ring-1 transition hover:scale-[1.02] ${currentAffordability.tone}`}><p className="text-[10px] font-bold uppercase">Affordability</p><p className="text-3xl font-bold">{currentAffordability.score}/100</p><p className="text-[11px] font-semibold">{currentAffordability.label}{hasTemporaryIncome ? ` · normal ${normalAffordability.score}/100` : ""} · Open →</p></button>
-                    <div className="absolute inset-x-4 bottom-4 grid gap-2 sm:grid-cols-3"><div className="rounded-xl bg-white/95 p-3 shadow-lg"><p className="text-[10px] font-bold uppercase text-slate-400">Current home</p><p className="font-bold">{home?.label || "Home"}</p></div><div className="rounded-xl bg-white/95 p-3 shadow-lg"><p className="text-[10px] font-bold uppercase text-slate-400">Valuation range</p><p className="font-bold">{formatMoney(value.low)} – {formatMoney(value.high)}</p></div><div className="rounded-xl bg-white/95 p-3 shadow-lg"><p className="text-[10px] font-bold uppercase text-slate-400">Mortgage</p><p className="font-bold">{formatMoney(mortgage.balance)}</p><p className="text-[10px] text-slate-500">{ltv.toFixed(1)}% LTV · {formatMoney(mortgage.payment)}/mo</p></div></div>
+              <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
+                <div className={showMaps && home?.latitude && home?.longitude ? "grid lg:grid-cols-[1fr_1fr]" : ""}>
+                  <div className="p-5 sm:p-6">
+                    <h2 className="text-xl font-bold">{home?.label || "Add your home"}</h2>
+                    {home?.full_address || home?.address_line ? <p className="mt-1 text-sm text-slate-500">{home?.full_address || home?.address_line}</p> : null}
+                    <dl className="mt-5 divide-y divide-slate-100 text-sm">
+                      <div className="flex items-baseline justify-between gap-4 py-2.5"><dt className="text-slate-500">Lender</dt><dd className="font-semibold">{deal ? [deal.lender, deal.product_name].filter(Boolean).join(" · ") || "—" : "No mortgage added"}</dd></div>
+                      {deal ? <div className="flex items-baseline justify-between gap-4 py-2.5"><dt className="text-slate-500">Rate</dt><dd className="font-semibold">{Number(deal.interest_rate).toFixed(2)}%</dd></div> : null}
+                      {(deal as any)?.initial_period_end ? <div className="flex items-baseline justify-between gap-4 py-2.5"><dt className="text-slate-500">Deal ends</dt><dd className="font-semibold">{new Date(`${(deal as any).initial_period_end}T00:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</dd></div> : null}
+                      <div className="flex items-baseline justify-between gap-4 py-2.5"><dt className="text-slate-500">Equity</dt><dd className="font-semibold">{formatMoney(Math.max(0, value.mid - mortgage.balance))}</dd></div>
+                      {bankRate ? <div className="flex items-baseline justify-between gap-4 py-2.5"><dt className="text-slate-500">Bank of England rate</dt><dd className="font-semibold">{bankRate.toFixed(2)}%{benchmark ? <span className="font-normal text-slate-500"> · typical 2-year fix {Number(benchmark.rate_percent).toFixed(2)}%</span> : null}</dd></div> : null}
+                    </dl>
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      <button onClick={() => setModal(deal ? { type: "edit_mortgage", deal } : { type: "add_mortgage", homeId: home?.id })} className="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-bold text-white">{deal ? "Edit mortgage" : "Add mortgage"}</button>
+                      <button onClick={() => setModal(home ? { type: "edit_home", home } : { type: "add_home" })} className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold">{home ? "Edit home" : "Add home"}</button>
+                      <button onClick={() => choose("rates")} className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold">Compare rates</button>
+                    </div>
                   </div>
-                  <div className="p-5 sm:p-6 lg:flex lg:min-h-[470px] lg:flex-col lg:justify-center lg:p-8"><p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-600">Current property</p><h2 className="mt-2 text-2xl font-bold">{home?.label || "Add a property"}</h2><p className="mt-1 text-sm text-slate-500">{home?.full_address || home?.address_line}</p><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-xl bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase text-slate-400">Lender</p><p className="mt-1 text-lg font-bold">{deal?.lender || "—"}</p><p className="text-[11px] text-slate-500">{deal?.product_name}</p></div><div className="rounded-xl bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase text-slate-400">Current payment</p><p className="mt-1 text-lg font-bold">{formatMoney(mortgage.payment)}</p><p className="text-[11px] text-slate-500">{deal ? `${Number(deal.interest_rate).toFixed(2)}%` : ""}</p></div></div><div className="mt-5 flex flex-wrap gap-2"><button onClick={() => setModal(home ? { type: "edit_home", home } : { type: "add_home" })} className="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-bold text-white">Edit property</button><button onClick={() => setModal(deal ? { type: "edit_mortgage", deal } : { type: "add_mortgage", homeId: home?.id })} className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-xs font-bold text-violet-700">Edit mortgage</button><button onClick={() => choose("rates")} className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold">Compare rates</button></div></div>
+                  {showMaps && home?.latitude && home?.longitude ? (
+                    <div className="relative min-h-[260px] bg-slate-100">
+                      <iframe title={`${home.label} map`} src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(home.longitude)-0.006}%2C${Number(home.latitude)-0.006}%2C${Number(home.longitude)+0.006}%2C${Number(home.latitude)+0.006}&layer=mapnik&marker=${home.latitude}%2C${home.longitude}`} className="absolute inset-0 h-full w-full border-0" loading="lazy"/>
+                    </div>
+                  ) : null}
                 </div>
               </section>
             </div>

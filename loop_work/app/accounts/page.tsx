@@ -1539,7 +1539,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
               </div>
               <SavingsMovementChart data={savingsMovementSeries} />
             </SectionCard>
-            <SectionCard title="LoopWatch" description="LoopWatch checks the whole savings portfolio for rate drag, tax exposure, stale balances and unused Money in & out.">
+            <SectionCard title="Worth a look" description="Rates, tax on interest and balances that need confirming. Only things worth acting on show here.">
               <div className="mb-5 rounded-3xl border border-blue-100 bg-blue-50/70 p-4">
                 <div className="flex flex-wrap items-end justify-between gap-2">
                   <div><p className="text-xs font-black uppercase tracking-[0.16em] text-blue-700">Central ISA allowance · {activeIsaRule.taxYear}</p><p className="mt-1 text-sm font-bold text-slate-600">Known current-year subscriptions across savings and investment accounts. Existing ISA balances and ISA-to-ISA transfers do not consume this year&apos;s allowance.</p></div>
@@ -1556,20 +1556,20 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                 </div>
               </div>
               <div className="space-y-3">
-                <OpportunityCard
-                  title="Opportunity cost"
+                {totalOpportunityCost >= 10 || intelligence.catalogue.status !== "healthy" ? <OpportunityCard
+                  title="Better rates available"
                   body={topRateOpportunities.length > 0 ? `${topRateOpportunities.length} account${topRateOpportunities.length === 1 ? " is" : "s are"} below the best broadly compatible eligible rate currently logged. Open Savings Health to model the effect before acting.` : intelligence.catalogue.status === "healthy" ? "No positive compatible rate gap is currently evidenced by the reviewed catalogue." : "The market check is incomplete, so £0 would not mean there is no opportunity. LOOP will show a value once enough fresh, reviewed products are available."}
                   metric={intelligence.catalogue.status === "healthy" ? `${formatMoney(totalOpportunityCost)}/yr` : "Check incomplete"}
                   tone={intelligence.catalogue.status !== "healthy" ? "warning" : totalOpportunityCost > 1 ? "action" : "good"}
-                />
+                /> : null}
                 <OpportunityCard
                   title={`${defaultOwnerPerson?.name || "Your"} interest allowance watch`}
                   body={intelligence.taxableInterest > 0 ? `Your Personal Savings Allowance is ${formatMoney(intelligence.savingsAllowance)}/yr. Estimated non-ISA interest is ${formatMoney(intelligence.nonIsaInterest)}/yr, leaving ${formatMoney(intelligence.taxableInterest)}/yr taxable. At ${intelligence.savingsTaxRate}% that is about ${formatMoney(intelligence.estimatedSavingsTax)}/yr. Review moving roughly ${formatMoney(intelligence.cashToShelter)} into an ISA, subject to access needs and eligibility. Known current-year ISA room: ${formatMoney(Math.max(0, intelligence.isaAllowance - intelligence.isaSubscribedAmount))}.` : `Your Personal Savings Allowance is ${formatMoney(intelligence.savingsAllowance)}/yr. Estimated non-ISA interest is ${formatMoney(intelligence.nonIsaInterest)}/yr, so no taxable excess is currently projected. Known current-year ISA room: ${formatMoney(Math.max(0, intelligence.isaAllowance - intelligence.isaSubscribedAmount))}.`}
                   metric={intelligence.nonIsaInterest > intelligence.savingsAllowance ? "Review now" : "Watching"}
                   tone={intelligence.nonIsaInterest > intelligence.savingsAllowance * 0.75 ? "warning" : "good"}
                 />
-                {topRateOpportunities.slice(0, 2).map((row) => (
-                  <OpportunityCard key={row.accountId} title={`${row.providerName}: rate drag`} body={`${row.accountName} is at ${row.currentRate.toFixed(2)}%. The strongest compatible eligible deal logged is ${row.bestRate?.toFixed(2)}%, worth about ${formatMoney(row.annualGain)} a year on the eligible balance.`} metric={`${formatMoney(row.annualGain)}/yr`} tone="action" />
+                {topRateOpportunities.filter((row) => row.annualGain >= 10).slice(0, 2).map((row) => (
+                  <OpportunityCard key={row.accountId} title={`${row.providerName}: better rate available`} body={`${row.accountName} is at ${row.currentRate.toFixed(2)}%. The strongest compatible eligible deal logged is ${row.bestRate?.toFixed(2)}%, worth about ${formatMoney(row.annualGain)} a year on the eligible balance.`} metric={`${formatMoney(row.annualGain)}/yr`} tone="action" />
                 ))}
                 {intelligence.opportunities.filter((item) => !["better-rate", "isa-shield"].includes(item.key)).slice(0, 2).map((item) => <OpportunityCard key={item.key} title={item.title} body={item.body} metric={item.metric} tone={item.tone} />)}
               </div>

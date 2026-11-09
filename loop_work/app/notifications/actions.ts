@@ -136,7 +136,7 @@ export async function createWeeklyPreview() {
     .maybeSingle();
 
   const [holdings, logs] = await Promise.all([
-    supabase.from("investment_holdings").select("asset_name, latest_price, average_buy_price, units, imported_current_value, imported_invested_value").eq("user_id", user.id).limit(200),
+    supabase.from("investment_holdings").select("asset_name, latest_price, average_buy_price, units, imported_current_value, imported_invested_value").eq("user_id", user.id).neq("record_status", "archived").limit(200),
     supabase.from("food_logs").select("label, calories, protein_g, fibre_g, salt_g, processed_score, gut_health_score, eaten_on").eq("user_id", user.id).gte("eaten_on", new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)).limit(200),
   ]);
 

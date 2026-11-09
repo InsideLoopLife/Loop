@@ -79,6 +79,7 @@ async function MortgageContent() {
     { data: liabilityAllocations },
     { data: dealPreferences },
     { data: workspacePreference },
+    { data: latestBankRate },
   ] = await Promise.all([
     supabase
       .from("mortgage_scenarios")
@@ -238,6 +239,15 @@ async function MortgageContent() {
       .select("moving_home_label, moving_home_description")
       .eq("user_id", user.id)
       .maybeSingle<MortgageWorkspacePreference>(),
+    // Bank Rate is read daily; fetch the newest on its own so the monthly
+    // benchmark rows can't push it out of the list above.
+    ratesSupabase
+      .from("mortgage_market_rate_benchmarks")
+      .select("term_type, ltv_tier, rate_percent, effective_month")
+      .eq("term_type", "bank_rate")
+      .order("fetched_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<MarketRateBenchmark>(),
   ]);
 
   const allPeopleRows = (rawPeople ?? []) as (Person & {
@@ -496,7 +506,7 @@ async function MortgageContent() {
         moveQueries={moveQueries ?? []}
         renewalRecommendations={renewalRecommendations ?? []}
         marketDeals={marketDeals ?? []}
-        boeBenchmarks={boeBenchmarks ?? []}
+        boeBenchmarks={[...(latestBankRate ? [latestBankRate] : []), ...(boeBenchmarks ?? []).filter((row) => row.term_type !== "bank_rate")]}
         svrKnowledge={svrKnowledge ?? []}
         monthPlan={monthPlan}
         normalMonthPlan={normalMonthPlan}

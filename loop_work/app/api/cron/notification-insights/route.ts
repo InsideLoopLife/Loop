@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   let created = 0;
   for (const profile of profiles || []) {
     const [holdings, logs] = await Promise.all([
-      supabase.from("investment_holdings").select("asset_name, latest_price, average_buy_price, units, imported_current_value, imported_invested_value").eq("user_id", profile.user_id).limit(200),
+      supabase.from("investment_holdings").select("asset_name, latest_price, average_buy_price, units, imported_current_value, imported_invested_value").eq("user_id", profile.user_id).neq("record_status", "archived").limit(200),
       supabase.from("food_logs").select("label, calories, protein_g, fibre_g, salt_g, processed_score, gut_health_score, eaten_on").eq("user_id", profile.user_id).gte("eaten_on", weekStart).limit(200),
     ]);
 

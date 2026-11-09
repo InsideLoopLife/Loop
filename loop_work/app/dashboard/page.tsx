@@ -859,10 +859,17 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
   const newChargesThisMonth = plannedItemRows.filter((item) => item.direction === "outgoing" && item.recurrence !== "one_off" && item.start_date && item.start_date.slice(0, 7) === selectedMonth && dateIsInMonth(item.start_date, selectedMonth));
   const biggestSpenderRow = committedOutgoingsByPerson.filter((row) => row.key !== "__household")[0] || null;
   const standoutPoints = [
-    biggestOutgoing ? { icon: biggestOutgoing.categoryIcon || "💳", text: `${biggestOutgoing.label.split(" · ").pop()} is the largest single outgoing this month at ${money(biggestOutgoing.value)}.` } : null,
+    biggestOutgoing ? { icon: biggestOutgoing.categoryIcon || "💳", text: `Your biggest payment this month is ${friendlyOutgoingName(biggestOutgoing.label.split(" · ").pop() || "")} at ${money(biggestOutgoing.value)}.` } : null,
     newChargesThisMonth.length > 0 ? { icon: "🆕", text: `${newChargesThisMonth.length} new recurring charge${newChargesThisMonth.length === 1 ? "" : "s"} started this month: ${newChargesThisMonth.slice(0, 3).map((item) => item.label).join(", ")}${newChargesThisMonth.length > 3 ? "…" : ""}.` } : null,
     biggestSpenderRow ? { icon: "👤", text: `${biggestSpenderRow.label} is carrying the most this month at ${money(biggestSpenderRow.total)} across ${biggestSpenderRow.lines.length} payment${biggestSpenderRow.lines.length === 1 ? "" : "s"}.` } : null,
   ].filter(Boolean) as { icon: string; text: string }[];
+
+  function friendlyOutgoingName(label: string) {
+    const lower = label.trim().toLowerCase();
+    if (/^mortgage( deals?)?$/.test(lower)) return "the mortgage";
+    if (lower === "rent") return "the rent";
+    return label.trim();
+  }
 
   const investmentsPerf = investmentPensionPerformance?.investments || null;
   const pensionsPerf = investmentPensionPerformance?.pensions || null;

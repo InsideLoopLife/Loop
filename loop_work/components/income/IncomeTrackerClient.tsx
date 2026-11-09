@@ -973,91 +973,43 @@ export function IncomeTrackerClient({
 
   return (
     <main className="mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
-      <section className="relative overflow-hidden rounded-[2rem] bg-slate-950 p-7 text-white shadow-[0_30px_120px_-70px_rgba(15,23,42,.9)]">
-        <div className="absolute -right-24 -top-20 h-72 w-72 rounded-full bg-orange-500/30 blur-3xl" />
-        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => setMonth(shiftMonth(month, -1))} className="grid h-8 w-8 place-items-center rounded-full bg-white/10 font-black hover:bg-white/20" aria-label="Previous month">‹</button>
-              <p className="min-w-[8.5rem] text-center text-sm font-medium text-white/75">{monthLabel(month)}</p>
-              <button type="button" onClick={() => setMonth(shiftMonth(month, 1))} className="grid h-8 w-8 place-items-center rounded-full bg-white/10 font-black hover:bg-white/20" aria-label="Next month">›</button>
+      {/* Take-home for the month, with who it's for right underneath. */}
+      <section className="rounded-[18px] border border-[var(--line)] bg-white">
+        <div className="flex flex-col gap-5 px-6 pb-5 pt-6 md:flex-row md:items-end md:justify-between md:px-8 md:pt-8">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={() => setMonth(shiftMonth(month, -1))} className="grid h-8 w-8 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)]" aria-label="Previous month">‹</button>
+              <p className="min-w-[8.5rem] text-center text-[15px] text-[var(--muted)]">{monthLabel(month)}</p>
+              <button type="button" onClick={() => setMonth(shiftMonth(month, 1))} className="grid h-8 w-8 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)]" aria-label="Next month">›</button>
             </div>
-            <h1 className="mt-3 text-4xl font-black tracking-tight md:text-6xl">
-              {formatMoney(monthlyNet)}
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm font-medium text-slate-300">
-              Estimated take-home for{" "}
-              {currentPerson
-                ? currentPerson.name
-                : hasHousehold
-                  ? "the household"
-                  : "this account"}{" "}
-              in {monthLabel(month)}.
+            <p className="mt-2 text-[44px] font-semibold leading-none tracking-[-0.03em] text-[var(--ink)] md:text-[56px]">{formatMoney(monthlyNet)}</p>
+            <p className="mt-2 text-[15px] text-[var(--muted)]">
+              take-home for {currentPerson ? currentPerson.name : hasHousehold ? "the household" : "you"}, after tax, NI and pension
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setQuickAddOpen(true)}
-              className="rounded-full bg-emerald-500 px-6 py-3 text-sm font-black text-white shadow-lg shadow-emerald-500/30 hover:bg-emerald-400"
-            >
-              + Add income
-            </button>
-            <button
-              type="button"
-              onClick={() => setModal("recurring")}
-              className="rounded-full px-4 py-3 text-xs font-black text-white/70 hover:text-white"
-            >
-              Detailed pay form
-            </button>
+            <button type="button" onClick={() => setModal("recurring")} className="rounded-full px-4 py-3 text-sm text-[var(--muted)] hover:text-[var(--ink)]">Full pay form</button>
+            <button type="button" onClick={() => setQuickAddOpen(true)} className="rounded-full bg-[var(--pine)] px-6 py-3 text-sm font-semibold text-white hover:bg-[var(--pine-strong)]">+ Add income</button>
           </div>
         </div>
+        {(hasHousehold && canViewHouseholdIncome) || peopleWithIncome.length > 1 ? (
+          <div className="flex flex-wrap gap-2 border-t border-[var(--line)] px-6 py-4 md:px-8">
+            {hasHousehold && canViewHouseholdIncome ? (
+              <button type="button" onClick={() => setPersonFilter("all")} aria-pressed={personFilter === "all"} className={`rounded-full px-4 py-2 text-sm transition ${personFilter === "all" ? "bg-[var(--ink)] text-white" : "bg-[var(--paper)] text-[var(--ink)] hover:bg-[var(--line)]"}`}>
+                Everyone · {formatMoney(lines.reduce((sum, line) => sum + line.monthlyNet, 0))}
+              </button>
+            ) : null}
+            {peopleWithIncome.map((person) => (
+              <button key={person.id} type="button" onClick={() => setPersonFilter(person.id)} aria-pressed={personFilter === person.id} className={`inline-flex items-center gap-2 rounded-full py-1.5 pl-1.5 pr-4 text-sm transition ${personFilter === person.id ? "bg-[var(--ink)] text-white" : "bg-[var(--paper)] text-[var(--ink)] hover:bg-[var(--line)]"}`}>
+                <MiniAvatar person={person} size="h-7 w-7 !rounded-full" />
+                {person.name} · {formatMoney(personSummary(person.id))}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       {schemaWarning ? <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-950"><p className="font-black">Some pay details couldn't load</p><p className="mt-1">Some optional pay fields are missing from the database, but core income rows remain available to view and edit. Run the latest income compatibility migration when convenient.</p></section> : null}
-
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-
-          {hasHousehold && canViewHouseholdIncome ? (
-            <button
-              onClick={() => setPersonFilter("all")}
-              className={`rounded-3xl border p-4 text-left transition ${personFilter === "all" ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-950 hover:-translate-y-0.5 hover:shadow"}`}
-            >
-              <p className="text-xs font-black uppercase tracking-wide opacity-70">
-                Household view
-              </p>
-              <p className="mt-1 text-2xl font-black">
-                {formatMoney(
-                  lines.reduce((sum, line) => sum + line.monthlyNet, 0),
-                )}
-              </p>
-            </button>
-          ) : null}
-          {peopleWithIncome.map((person) => (
-            <button
-              key={person.id}
-              onClick={() => setPersonFilter(person.id)}
-              className={`flex min-w-64 items-center gap-3 rounded-3xl border p-4 text-left transition ${personFilter === person.id ? "border-emerald-500 bg-white shadow ring-2 ring-emerald-500/20" : "border-slate-200 bg-white hover:-translate-y-0.5 hover:shadow"}`}
-            >
-              <MiniAvatar person={person} />
-              <span>
-                <span className="block text-xs font-black uppercase tracking-wide text-slate-500">
-                  {person.relationship}
-                </span>
-                <span className="block text-lg font-black text-slate-950">
-                  {person.name}
-                </span>
-                <span className="block text-sm font-black text-emerald-700">
-                  {formatMoney(personSummary(person.id))}/mo ·{" "}
-                  {lines.filter((line) => line.person_id === person.id).length}{" "}
-                  active line(s)
-                </span>
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
 
       {needsOwnProfileLink ? (
         <section className="rounded-[1.75rem] border border-red-200 bg-red-50 p-5 text-red-950">
@@ -1217,14 +1169,6 @@ export function IncomeTrackerClient({
                       Edit
                     </button>
                   ) : null}
-                  {line.manageHref ? (
-                    <Link
-                      href={line.manageHref}
-                      className="rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white"
-                    >
-                      Profile
-                    </Link>
-                  ) : null}
                   {line.source === "manual" ? (
                     <form
                       action={deleteIncomeEntry}
@@ -1295,8 +1239,8 @@ export function IncomeTrackerClient({
       <section>
         <SectionCard
           id="deductibles"
-          title="Deductibles"
-          description="Student loans and anything else taken from pay before it lands. Press + to add one."
+          title="Loans and other deductions"
+          description="Student loans and anything else taken from pay. Press + to add one."
           headerAction={
             <button type="button" onClick={() => setModal("deductionPicker")} className="grid h-10 w-10 place-items-center rounded-full bg-slate-950 text-lg font-black text-white hover:bg-slate-800">+</button>
           }
@@ -1574,7 +1518,7 @@ export function IncomeTrackerClient({
       {modal && typeof modal === "object" && modal.type === "addDeduction" ? (
         <Modal
           title={`Add ${modal.deductionLabel.toLowerCase()}`}
-          description="This is tracked as a monthly line under Deductibles. It doesn't yet adjust the tax/take-home calculation above — only student loans do that."
+          description="This is tracked as a monthly line under Loans and other deductions. It doesn't yet adjust the tax/take-home calculation above — only student loans do that."
           onClose={() => setModal(null)}
         >
           <AddDeductionForm

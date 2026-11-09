@@ -48,10 +48,13 @@ export function currentMortgageSnapshot(deal?: HomeMortgageDeal | null) {
   });
 
   const balance = Math.max(0, projected.projectedBalance);
+  // The payment is fixed from the balance and term the deal was entered with
+  // (the same figure Money in & out and the calendar use). Re-working it from
+  // today's lower balance over the full term again would understate it.
   const payment =
     Number(deal.monthly_payment_override || 0) ||
     calculateMonthlyMortgagePayment({
-      balance,
+      balance: Number(deal.balance || 0),
       annualInterestRate: Number(deal.interest_rate || 0),
       termYears: Number(deal.term_years || 25),
     });
