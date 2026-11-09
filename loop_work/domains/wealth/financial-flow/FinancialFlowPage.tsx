@@ -562,18 +562,10 @@ function MonthControls({ activeTab, month, scopeIds }: { activeTab: TabKey; mont
   const left = addMonths(month, -1);
   const right = addMonths(month, 1);
   return (
-    <div className="flex items-center gap-2 rounded-[2rem] border border-slate-800 bg-slate-950 p-1 text-sm font-black text-white shadow-sm">
-      <Link href={queryHref(activeTab, addMonths(month, -2), scopeIds)} className="grid h-11 w-11 place-items-center rounded-full bg-white/10 hover:bg-white/15" aria-label="Move back"><ArrowLeft className="h-4 w-4" /></Link>
-      <Link href={queryHref(activeTab, left, scopeIds)} className="hidden rounded-2xl bg-white/10 px-4 py-3 text-white/70 hover:bg-white/15 md:block">{monthLabel(left)}</Link>
-      <form action="/financial-flow" className="flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-slate-950 shadow-sm">
-        <input type="hidden" name="tab" value={activeTab} />
-        {scopeIds.length ? <input type="hidden" name="people" value={scopeIds.join(",")} /> : null}
-        <CalendarDays className="h-4 w-4 text-slate-500" />
-        <input name="month" type="month" defaultValue={month} className="w-[8.5rem] bg-transparent text-center font-black outline-none" aria-label="Selected month" />
-        <button className="rounded-full bg-slate-950 px-3 py-1.5 text-xs text-white">View</button>
-      </form>
-      <Link href={queryHref(activeTab, right, scopeIds)} className="hidden rounded-2xl bg-white/10 px-4 py-3 text-white/70 hover:bg-white/15 md:block">{monthLabel(right)}</Link>
-      <Link href={queryHref(activeTab, addMonths(month, 2), scopeIds)} className="grid h-11 w-11 place-items-center rounded-full bg-white/10 hover:bg-white/15" aria-label="Move forward"><ArrowRight className="h-4 w-4" /></Link>
+    <div className="flex items-center gap-1">
+      <Link href={queryHref(activeTab, left, scopeIds)} className="grid h-10 w-10 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)]" aria-label={`Back to ${monthLabel(left)}`}><ArrowLeft className="h-4 w-4" /></Link>
+      <p className="min-w-[8.5rem] text-center text-[15px] font-semibold text-[var(--ink)]">{monthLabel(month)}</p>
+      <Link href={queryHref(activeTab, right, scopeIds)} className="grid h-10 w-10 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)]" aria-label={`On to ${monthLabel(right)}`}><ArrowRight className="h-4 w-4" /></Link>
     </div>
   );
 }
@@ -1339,10 +1331,10 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
         ) : (
           <>
             <section className={`grid gap-4 md:grid-cols-4 ${activeTab === "spending" ? "xl:grid-cols-5" : ""}`}>
-              <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm"><p className="text-sm font-bold text-slate-500">Total monthly inflow</p><div className="mt-2 flex items-center justify-between"><p className="text-3xl font-black text-slate-950">{formatMoney(model.totalIncome)}</p><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-50 text-emerald-700"><ArrowDownRight className="h-5 w-5" /></span></div><p className="mt-1 text-sm font-medium text-slate-500">After-tax income · {scopeLabel}</p></article>
-              <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm"><p className="text-sm font-bold text-slate-500">Committed spending</p><div className="mt-2 flex items-center justify-between"><p className="text-3xl font-black text-slate-950">{formatMoney(model.committedSpending)}</p><span className="grid h-11 w-11 place-items-center rounded-2xl bg-orange-50 text-orange-700"><CreditCard className="h-5 w-5" /></span></div><p className="mt-1 text-sm font-medium text-slate-500">{percent(model.committedSpending, model.totalIncome)} of income</p></article>
-              <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm"><p className="text-sm font-bold text-slate-500">Savings rate</p><div className="mt-2 flex items-center justify-between"><p className="text-3xl font-black text-slate-950">{Math.round(savingsRate)}%</p><span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-50 text-emerald-700"><Target className="h-5 w-5" /></span></div><p className={`mt-1 text-sm font-black ${savingsRate >= 20 ? "text-emerald-700" : "text-amber-700"}`}>{savingsRate >= 20 ? "Above 20% target" : "Below 20% target"}</p></article>
-              <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm"><p className="text-sm font-bold text-slate-500">Leftover cash</p><div className="mt-2 flex items-center justify-between"><p className="text-3xl font-black text-slate-950">{formatMoney(model.leftoverCash)}</p><span className="grid h-11 w-11 place-items-center rounded-2xl bg-sky-50 text-sky-700"><WalletCards className="h-5 w-5" /></span></div><p className="mt-1 text-sm font-medium text-slate-500">{percent(model.leftoverCash, model.totalIncome)} of income</p></article>
+              <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">Money in</p><p className={`mt-1 text-[26px] font-semibold tracking-tight ${"text-[var(--pine)]"}`}>{formatMoney(model.totalIncome)}</p><p className="mt-1 text-xs text-[var(--muted)]">{`After tax · ${scopeLabel}`}</p></article>
+              <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">Bills and spending</p><p className={`mt-1 text-[26px] font-semibold tracking-tight ${"text-[var(--ink)]"}`}>{formatMoney(model.committedSpending)}</p><p className="mt-1 text-xs text-[var(--muted)]">{`${percent(model.committedSpending, model.totalIncome)} of money in`}</p></article>
+              <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">Saved</p><p className={`mt-1 text-[26px] font-semibold tracking-tight ${"text-[var(--ink)]"}`}>{formatMoney(model.savingsTotal)}</p><p className="mt-1 text-xs text-[var(--muted)]">{`${Math.round(savingsRate)}% of money in`}</p></article>
+              <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">Left over</p><p className={`mt-1 text-[26px] font-semibold tracking-tight ${(model.leftoverCash >= 0 ? "text-[var(--ink)]" : "text-[var(--brick)]")}`}>{formatMoney(model.leftoverCash)}</p><p className="mt-1 text-xs text-[var(--muted)]">{`${percent(model.leftoverCash, model.totalIncome)} of money in`}</p></article>
               {activeTab === "spending" ? (
                 <Link href={`/spending?month=${month.key}`} className="flex flex-col items-center justify-center gap-2 rounded-[2rem] border border-dashed border-slate-300 bg-white/60 p-5 text-center shadow-sm transition hover:border-slate-950 hover:bg-white">
                   <span className="grid h-11 w-11 place-items-center rounded-2xl bg-slate-950 text-white"><PlusCircle className="h-5 w-5" /></span>
