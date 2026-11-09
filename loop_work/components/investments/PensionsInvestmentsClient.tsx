@@ -6069,10 +6069,10 @@ function MiniValueLine({
     .join(" ");
   const change = points[points.length - 1].value - points[0].value;
   return (
-    <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+    <div>
       <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="text-xs font-black uppercase text-slate-500">
-          Snapshot line
+        <p className="text-xs text-[var(--muted)]">
+          Since tracking began
         </p>
         <p
           className={`text-sm font-black ${change >= 0 ? "text-emerald-700" : "text-red-600"}`}
@@ -6098,9 +6098,6 @@ function MiniValueLine({
           strokeLinejoin="round"
         />
       </svg>
-      <p className="mt-1 text-xs font-semibold text-slate-500">
-        Uses the saved price snapshot table when refresh jobs/manual checks run.
-      </p>
     </div>
   );
 }

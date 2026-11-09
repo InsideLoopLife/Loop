@@ -243,9 +243,11 @@ async function MortgageContent() {
     // benchmark rows can't push it out of the list above.
     ratesSupabase
       .from("mortgage_market_rate_benchmarks")
-      .select("term_type, ltv_tier, rate_percent, effective_month")
+      .select("term_type, ltv_tier, rate_percent, effective_month, fetched_at")
       .eq("term_type", "bank_rate")
-      .order("fetched_at", { ascending: false })
+      .not("fetched_at", "is", null)
+      .gte("fetched_at", new Date(Date.now() - 14 * 86400000).toISOString())
+      .order("fetched_at", { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle<MarketRateBenchmark>(),
   ]);
