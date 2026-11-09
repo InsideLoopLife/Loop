@@ -1,4 +1,10 @@
 import type { Metadata } from "next";
+// Onest is bundled and served from our own domain; the site's security
+// policy blocks Google's font stylesheet, so a <link> to it never loaded.
+import "@fontsource/onest/400.css";
+import "@fontsource/onest/500.css";
+import "@fontsource/onest/600.css";
+import "@fontsource/onest/700.css";
 import "./globals.css";
 import { PageTour } from "@/components/PageTour";
 import { RouteFreshnessManager } from "@/components/cache/RouteFreshnessManager";
@@ -13,11 +19,6 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet" />
-      </head>
       <body><PersistentLoopShell>{children}</PersistentLoopShell><PageTour /><RouteFreshnessManager /><RouteBootAutoPublisher /></body>
     </html>
   );
