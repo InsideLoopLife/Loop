@@ -1,3 +1,4 @@
+import { notifyPossibleWriteOff } from "@/lib/investments/write-off";
 import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -997,7 +998,7 @@ export async function runInvestmentPriceSnapshotJob(
     const { data: holdings, error } = await supabase
       .from("investment_holdings")
       .select(
-        "id, user_id, investment_account_id, ticker, exchange, units, average_buy_price, latest_price, price_polling_enabled, last_price_check_at, price_check_status, import_source_type, external_provider, asset_name, asset_kind, isin, listing_id, instrument_id, instrument_resolution_status",
+        "id, user_id, investment_account_id, ticker, exchange, units, average_buy_price, latest_price, price_polling_enabled, last_price_check_at, price_check_status, import_source_type, external_provider, asset_name, asset_kind, isin, listing_id, instrument_id, instrument_resolution_status, latest_price_date",
       )
       .neq("record_status", "archived")
       .order("asset_name")
@@ -1232,6 +1233,13 @@ export async function runInvestmentPriceSnapshotJob(
               .from("investment_holdings")
               .update({ last_price_check_at: startedAt, updated_at: startedAt } as any)
               .in("id", dueHoldings.map((holding) => holding.id));
+            // A month with no price at all: ask whether it has stopped trading.
+            for (const holding of dueHoldings) {
+              const lastPrice = String((holding as any).latest_price_date || "").slice(0, 10);
+              if (lastPrice && Date.parse(`${lastPrice}T12:00:00Z`) < Date.now() - 30 * 86400000) {
+                await notifyPossibleWriteOff(supabase as any, holding.id, `LOOP hasn't found a price for ${ticker}${exchange ? ` on ${exchange}` : ""} for over a month.`);
+              }
+            }
             return;
           }
           const aiGuard = isAiFeatureEnabled({ scope: "investment_market_search", worker: true });
@@ -1347,6 +1355,13 @@ export async function runInvestmentPriceSnapshotJob(
                   .in("id", dueHoldings.map((holding) => holding.id));
                 for (const affected of dueHoldings) {
                   await notifyHoldingDeactivated(supabase, affected, ticker, exchange, failReason);
+                  await notifyPossibleWriteOff(
+                    supabase as any,
+                    affected.id,
+                    aiResult.status === "acquired"
+                      ? `It appears to have been taken over${aiResult.explanation ? ` (${aiResult.explanation})` : ""}. If you were paid out, add that as a sale instead.`
+                      : `It appears to have been delisted${aiResult.explanation ? ` (${aiResult.explanation})` : ""}.`,
+                  );
                 }
                 logger.warn(
                   `[investment-price-job] AI lookup (status=${aiResult.status}) found nothing confident for ${ticker} ${exchange || ""}; marked inactive on ${dueHoldings.length} holding(s), will not retry automatically`,

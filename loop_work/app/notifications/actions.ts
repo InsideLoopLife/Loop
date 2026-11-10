@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/format/money";
+import { WRITE_OFF_NOTIFICATION_TYPE, writeOffHolding } from "@/lib/investments/write-off";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -50,7 +51,17 @@ export async function acceptNotificationRequest(formData: FormData) {
 
   const claimRequestId = (notification?.metadata as any)?.claim_request_id;
   const nutritionClaimRequestId = (notification?.metadata as any)?.nutrition_claim_request_id;
-  if (notification?.notification_type === "household_profile_claim" && claimRequestId) {
+  if (notification?.notification_type === WRITE_OFF_NOTIFICATION_TYPE) {
+    const holdingId = String((notification.metadata as any)?.holding_id || "");
+    if (holdingId) await writeOffHolding(supabase, holdingId, user.id);
+    const { error } = await supabase
+      .from("app_notifications")
+      .update({ status: "read", action_status: "accepted", read_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("user_id", user.id);
+    if (error) throw new Error(error.message);
+    revalidatePath("/investments");
+  } else if (notification?.notification_type === "household_profile_claim" && claimRequestId) {
     const { error } = await supabase.rpc("app_resolve_profile_data_claim", {
       p_request_id: claimRequestId,
       p_decision: "accept",

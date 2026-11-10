@@ -153,7 +153,12 @@ export default async function NotificationsPage({ searchParams }: { searchParams
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2 lg:justify-end">
-                    {approval && notification.status !== "read" ? (
+                    {type === "investment_write_off_approval" && notification.status === "unread" ? (
+                      <>
+                        <form action={acceptNotificationRequest}><input type="hidden" name="id" value={notification.id} /><button className="rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white">{Number(notification.metadata?.loss_gbp || 0) > 0 ? `Record £${Number(notification.metadata.loss_gbp).toFixed(2)} loss and archive` : "Archive it"}</button></form>
+                        <form action={declineNotificationRequest}><input type="hidden" name="id" value={notification.id} /><button className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700">It&apos;s still trading</button></form>
+                      </>
+                    ) : approval && notification.status !== "read" ? (
                       <>
                         <Link href={`/notifications/${notification.id}`} className="rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white">Review details</Link>
                         <form action={acceptNotificationRequest}><input type="hidden" name="id" value={notification.id} /><button className="rounded-full bg-emerald-600 px-3 py-2 text-xs font-black text-white"><MailCheck className="mr-1 inline h-4 w-4" /> Keep / accept</button></form>

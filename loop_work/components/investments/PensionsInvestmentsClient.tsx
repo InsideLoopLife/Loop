@@ -453,6 +453,8 @@ export type PensionsInvestmentsClientProps = {
   snapTradeConnection?: SnapTradeConnectionSummary;
   /** Last whole-portfolio value per day (loop_portfolio_daily_values). */
   portfolioDailyValues?: Array<{ day: string; value: number }>;
+  /** Holdings archived after they stopped trading: what was paid is a one-off loss. */
+  writtenOff?: Array<{ name: string; loss: number; at: string }>;
 };
 
 type Modal =
@@ -7188,6 +7190,7 @@ export function PensionsInvestmentsClient({
   investmentDataTier,
   snapTradeConnection,
   portfolioDailyValues = [],
+  writtenOff = [],
 }: PensionsInvestmentsClientProps) {
   useEffect(() => {
     writeRouteSnapshot<PensionsInvestmentsClientProps>("investments-core", {
@@ -7936,10 +7939,21 @@ export function PensionsInvestmentsClient({
                   </>
                 ) : (
                   <>
-                    <p className={`mt-1 text-[22px] font-semibold tracking-tight ${investmentTotal - investmentCost >= 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>
-                      {investmentTotal - investmentCost >= 0 ? "+" : ""}{formatMoney(investmentTotal - investmentCost)}
-                    </p>
-                    <p className="mt-0.5 text-xs text-[var(--muted)]">Value now, minus what went in</p>
+                    {(() => {
+                      // Money lost on holdings that stopped trading still counts against growth.
+                      const writtenOffLoss = writtenOff.reduce((sum, row) => sum + row.loss, 0);
+                      const growth = investmentTotal - investmentCost - writtenOffLoss;
+                      return (
+                        <>
+                          <p className={`mt-1 text-[22px] font-semibold tracking-tight ${growth >= 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>
+                            {growth >= 0 ? "+" : ""}{formatMoney(growth)}
+                          </p>
+                          <p className="mt-0.5 text-xs text-[var(--muted)]" title={writtenOff.map((row) => `${row.name}: £${row.loss.toFixed(2)}`).join(", ")}>
+                            Value now, minus what went in{writtenOffLoss > 0 ? ` · includes £${writtenOffLoss.toFixed(2)} written off (${writtenOff.length})` : ""}
+                          </p>
+                        </>
+                      );
+                    })()}
                   </>
                 )}
               </div>
