@@ -760,16 +760,9 @@ function priceDisplay(holding: InvestmentHolding) {
   }
   return gbp;
 }
+const FUND_COLOURS = ["#1f6a50", "#5f9c84", "#a9cbbb", "#8f6410", "#c9a76a", "#5c6964"];
 function fundColour(index: number) {
-  const colours = [
-    "bg-slate-950",
-    "bg-blue-700",
-    "bg-sky-300",
-    "bg-emerald-700",
-    "bg-orange-500",
-    "bg-violet-600",
-  ];
-  return colours[index % colours.length];
+  return FUND_COLOURS[index % FUND_COLOURS.length];
 }
 function PersonOptions({ people }: { people: Person[] }) {
   return (
@@ -823,22 +816,35 @@ function ModalShell({
     </ModalFrame>
   );
 }
-function AllocationBar({ funds }: { funds: PensionFund[] }) {
+function AllocationBar({ funds, showKey = false }: { funds: PensionFund[]; showKey?: boolean }) {
   const total = funds.reduce((sum, fund) => sum + valueOfFund(fund), 0);
-  if (total <= 0) return <div className="h-4 rounded-full bg-slate-100" />;
+  if (total <= 0 || funds.length === 0) return null;
   return (
-    <div className="flex h-5 overflow-hidden rounded-full bg-slate-100 ring-1 ring-white">
-      {funds.map((fund, index) => {
-        const percent = (valueOfFund(fund) / total) * 100;
-        return (
-          <div
-            key={fund.id}
-            className={`${fundColour(index)} min-w-[4px]`}
-            style={{ width: `${Math.max(2, percent)}%` }}
-            title={`${fund.fund_name}: ${percent.toFixed(1)}%`}
-          />
-        );
-      })}
+    <div>
+      <div className="flex h-2 gap-0.5 overflow-hidden rounded-full">
+        {funds.map((fund, index) => {
+          const percent = (valueOfFund(fund) / total) * 100;
+          return (
+            <div
+              key={fund.id}
+              className="min-w-[4px] rounded-full"
+              style={{ width: `${Math.max(2, percent)}%`, background: fundColour(index) }}
+              title={`${fund.fund_name}: ${percent.toFixed(1)}%`}
+            />
+          );
+        })}
+      </div>
+      {showKey ? (
+        <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
+          {funds.map((fund, index) => (
+            <li key={fund.id} className="inline-flex min-w-0 items-center gap-1.5">
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: fundColour(index) }} />
+              <span className="truncate">{fund.fund_name.replace(/^L&G PMC\s*/i, "")}</span>
+              <span>{Math.round((valueOfFund(fund) / total) * 100)}%</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -1489,16 +1495,16 @@ function PensionHistoryChart({ accountId }: { accountId: string }) {
   }, [accountId]);
 
   if (error) {
-    return <p className="mt-4 text-xs font-semibold text-white/50">{error}</p>;
+    return <p className="mt-4 text-xs text-[var(--muted)]">{error}</p>;
   }
   if (!points) {
-    return <div className="mt-4 h-24 animate-pulse rounded-2xl bg-white/5" />;
+    return <div className="mt-4 h-24 animate-pulse rounded-xl bg-[var(--paper)]" />;
   }
   const usable = points.filter((point) => Number.isFinite(point.value) && point.value > 0);
   if (usable.length < 2) {
     return (
-      <div className="mt-4 rounded-2xl border border-dashed border-white/15 bg-white/5 p-4 text-center text-xs font-semibold text-white/50">
-        Waiting for a second daily value snapshot — this fills in once the pension sync has run more than once.
+      <div className="mt-4 rounded-xl border border-dashed border-[var(--line)] p-4 text-center text-xs text-[var(--muted)]">
+        The chart starts after a second day of values.
       </div>
     );
   }
@@ -1532,18 +1538,18 @@ function PensionHistoryChart({ accountId }: { accountId: string }) {
   return (
     <div className="mt-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-bold text-white/60">Pot value history · {usable.length} day(s) tracked</p>
-        <p className={`text-xs font-black ${positive ? "text-emerald-300" : "text-red-300"}`}>{positive ? "▲" : "▼"} {Math.abs(changePercent).toFixed(1)}% since first tracked</p>
+        <p className="text-xs text-[var(--muted)]">Last {usable.length} days</p>
+        <p className={`text-xs font-semibold ${positive ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>{positive ? "+" : "−"}{Math.abs(changePercent).toFixed(1)}%</p>
       </div>
       <svg viewBox="0 0 100 92" preserveAspectRatio="none" className="mt-2 h-24 w-full overflow-visible">
         <defs>
           <linearGradient id={`pension-hist-fill-${accountId}`} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor={positive ? "#34d399" : "#fb7185"} stopOpacity="0.22" />
-            <stop offset="100%" stopColor={positive ? "#34d399" : "#fb7185"} stopOpacity="0" />
+            <stop offset="0%" stopColor={positive ? "#1f6a50" : "#a3402e"} stopOpacity="0.14" />
+            <stop offset="100%" stopColor={positive ? "#1f6a50" : "#a3402e"} stopOpacity="0" />
           </linearGradient>
         </defs>
         <path d={`${d} L100,90 L0,90 Z`} fill={`url(#pension-hist-fill-${accountId})`} />
-        <path d={d} fill="none" stroke="currentColor" className={positive ? "text-emerald-300" : "text-red-300"} strokeWidth="0.7" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={d} fill="none" stroke="currentColor" style={{ color: positive ? "#1f6a50" : "#a3402e" }} strokeWidth="0.9" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </div>
   );
@@ -5819,96 +5825,58 @@ function PensionContributionLogicCard({
   if (isPrivatePension) {
     const regular = Math.max(0, Number(account.fixed_monthly_contribution || 0));
     return (
-      <div className="mt-4 rounded-[1.5rem] border border-teal-100 bg-white p-4 shadow-sm sm:mt-6 sm:rounded-[2rem] sm:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-teal-700">Private pension contributions</p>
-            <h3 className="mt-1 text-lg font-black text-slate-950">Money going into this pension</h3>
-            <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-500 sm:text-sm">
-              Private pensions are tracked from contributions and provider confirmations. Salary sacrifice and employer NI are hidden because they are not part of this pot&apos;s contribution method.
-            </p>
-          </div>
-          <span className="rounded-full bg-teal-50 px-3 py-2 text-xs font-black text-teal-800">Private / manually tracked</span>
-        </div>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Regular contribution</p>
-            <p className="mt-1 text-2xl font-black text-slate-950">{formatMoney(regular)}</p>
-            <p className="mt-1 text-xs font-semibold text-slate-500">per month</p>
-          </div>
-          <span className="hidden text-xl font-black text-slate-300 sm:block">+</span>
-          <div className="rounded-2xl bg-sky-50 p-4">
-            <p className="text-[10px] font-black uppercase tracking-wide text-sky-600">Manual threads</p>
-            <p className="mt-1 text-base font-black text-slate-950">Add when money moves</p>
-            <p className="mt-1 text-xs font-semibold text-slate-500">Contribution, transfer or fund purchase</p>
-          </div>
-          <span className="hidden text-xl font-black text-slate-300 sm:block">→</span>
-          <div className="rounded-2xl bg-teal-50 p-4">
-            <p className="text-[10px] font-black uppercase tracking-wide text-teal-700">Expected regular input</p>
-            <p className="mt-1 text-2xl font-black text-teal-950">{formatMoney(regular)}</p>
-            <p className="mt-1 text-xs font-semibold text-teal-700">before any one-offs</p>
-          </div>
-        </div>
-
-        <p className="mt-3 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white">
+      <div className="mt-5 rounded-[14px] bg-[var(--paper)] p-4 sm:p-5">
+        <p className="text-sm text-[var(--muted)]">Going in each month</p>
+        <p className="mt-1 text-[22px] font-semibold tracking-tight text-[var(--ink)]">{formatMoney(regular)}</p>
+        <p className="mt-1 text-xs text-[var(--muted)]">
           {regular > 0
-            ? `LOOP expects ${formatMoney(regular)} per month from the private contribution setting. Manual threads remain separate evidence.`
-            : "No regular contribution is set. Use the thread below whenever you make a contribution or transfer."}
+            ? "Your regular payment, from this pot's settings. One-off payments and transfers go in History."
+            : "No regular payment set. Add one in Settings, or record payments in History as you make them."}
         </p>
       </div>
     );
   }
 
   const result = projectedAccountContributionBreakdown(account, payEvents);
-  const activePay = activePayForPerson(payEvents, account.person_id);
   const passback = Number(account.employer_ni_passback_percent ?? 100);
   const niRate = Number(account.employer_ni_rate_percent ?? 15);
-  // BUGFIX: this badge used to also require employer_ni_topup_mode === "saved_ni",
-  // the same stale check that caused the £0 NI-reinvested bug. The checkbox alone
-  // is now authoritative, so the badge matches it directly.
-  const niActive = Boolean(account.employer_ni_topup_enabled) && result.employerNiReinvestedMonthly > 0;
+  const parts: Array<{ label: string; amount: number; note: string }> = [
+    { label: "You", amount: result.employeeSacrificeMonthly, note: `${Number(account.employee_contribution_percent || 0).toFixed(1)}% of pay` },
+    { label: "Employer", amount: result.employerBaseMonthly, note: `${Number(account.employer_contribution_percent || 0).toFixed(1)}% of pay` },
+    ...(result.employerNiReinvestedMonthly > 0 ? [{ label: "Employer's NI saving", amount: result.employerNiReinvestedMonthly, note: `${passback.toFixed(0)}% of the ${niRate.toFixed(0)}% they save` }] : []),
+    ...(result.fixedMonthly > 0 ? [{ label: "Extra", amount: result.fixedMonthly, note: "fixed each month" }] : []),
+  ];
   return (
-    <div className="mt-4 rounded-[1.5rem] border border-teal-100 bg-white p-4 shadow-sm sm:mt-6 sm:rounded-[2rem] sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.22em] text-teal-700">Pension contribution logic</p>
-          <h3 className="mt-1 text-lg font-black text-slate-950">How the monthly input is calculated</h3>
-          <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-500 sm:text-sm">
-            Uses the active pre-sacrifice salary for {activePay ? "this person" : "the selected owner"}, then separates employee sacrifice, employer base and NI reinvestment.
-          </p>
-        </div>
-        <span className={`rounded-full px-3 py-2 text-xs font-black ${niActive ? "bg-teal-100 text-teal-800" : "bg-slate-100 text-slate-600"}`}>
-          {niActive
-            ? `Employer NI top-up · ${passback.toFixed(0)}% pass-back`
-            : "Employer NI pass-back not active"}
-        </span>
+    <div className="mt-5 rounded-[14px] bg-[var(--paper)] p-4 sm:p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm text-[var(--muted)]">Going in each month</p>
+        <p className="text-xs text-[var(--muted)]">
+          From {formatMoney(result.grossMonthly)} a month salary{account.contribution_method === "salary_sacrifice" ? " · salary sacrifice" : ""}
+        </p>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-7">
-        {[
-          ["Gross salary", result.grossMonthly, "monthly"],
-          ["Employee sacrifice", result.employeeSacrificeMonthly, `${Number(account.employee_contribution_percent || 0).toFixed(2)}%`],
-          ["Employer base", result.employerBaseMonthly, `${Number(account.employer_contribution_percent || 0).toFixed(2)}% · ${result.employerBaseSalaryBasis === "pre_sacrifice" ? "notional salary" : "post-sacrifice"}`],
-          ["Employer NI saved", result.employerNiSavedMonthly, `${niRate.toFixed(2)}% of sacrificed pay`],
-          ["NI reinvested", result.employerNiReinvestedMonthly, `${passback.toFixed(0)}% passed back`],
-          ["Fixed extra", result.fixedMonthly, "monthly"],
-          ["Total input", result.totalMonthlyPensionInput, "per month"],
-        ].map(([label, amount, note], index) => (
-          <div key={String(label)} className={`rounded-2xl border p-3 ${index === 6 ? "col-span-2 border-teal-200 bg-teal-50 xl:col-span-1" : index === 4 ? "border-emerald-200 bg-emerald-50" : "border-slate-100 bg-slate-50"}`}>
-            <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">{label}</p>
-            <p className={`mt-1 text-base font-black sm:text-lg ${index === 6 ? "text-teal-700" : index === 4 ? "text-emerald-700" : "text-slate-950"}`}>{formatMoney(Number(amount))}</p>
-            <p className="mt-1 text-[10px] font-bold text-slate-500">{note}</p>
+      <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-3">
+        {parts.map((part, index) => (
+          <div key={part.label} className="flex items-end gap-3">
+            {index > 0 ? <span className="pb-5 text-lg text-[var(--muted)]">+</span> : null}
+            <div>
+              <p className="text-xs text-[var(--muted)]">{part.label}</p>
+              <p className="text-[19px] font-semibold tracking-tight text-[var(--ink)]">{formatMoney(part.amount)}</p>
+              <p className="text-[11px] text-[var(--muted)]">{part.note}</p>
+            </div>
           </div>
         ))}
-      </div>
-      <div className="mt-3 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white">
-        You sacrifice <strong>{formatMoney(result.employeeSacrificeMonthly)}</strong> each month. Your employer adds <strong>{formatMoney(result.employerBaseMonthly)}</strong>
-        {result.employerNiReinvestedMonthly > 0 ? <> and reinvests <strong>{formatMoney(result.employerNiReinvestedMonthly)}</strong> of its NI saving</> : null}. Total projected monthly pension input: <strong>{formatMoney(result.totalMonthlyPensionInput)}</strong>.
+        <div className="flex items-end gap-3">
+          <span className="pb-5 text-lg text-[var(--muted)]">=</span>
+          <div>
+            <p className="text-xs text-[var(--muted)]">Total</p>
+            <p className="text-[19px] font-semibold tracking-tight text-[var(--pine)]">{formatMoney(result.totalMonthlyPensionInput)}</p>
+            <p className="text-[11px] text-[var(--muted)]">a month</p>
+          </div>
+        </div>
       </div>
       {result.warnings.length ? (
-        <div className="mt-3 space-y-1 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">
-          {result.warnings.map((warning) => <p key={warning}>• {warning}</p>)}
-          <p>Salary sacrifice must not reduce cash earnings below National Minimum Wage; LOOP cannot verify that without contracted-hours data.</p>
+        <div className="mt-3 space-y-1 rounded-xl bg-[#f6efe2] p-3 text-xs text-[var(--amber)]">
+          {result.warnings.map((warning) => <p key={warning}>{warning}</p>)}
         </div>
       ) : null}
     </div>
@@ -7863,19 +7831,19 @@ export function PensionsInvestmentsClient({
   const areaOptions = [
     {
       value: "investments" as const,
-      label: "User investments",
+      label: "Investments",
       icon: TrendingUp,
       visible: filteredInvestmentAccounts.length > 0 || area === "investments",
     },
     {
       value: "pensions" as const,
-      label: "User pensions",
+      label: "Pensions",
       icon: PiggyBank,
       visible: filteredPensionAccounts.length > 0 || area === "pensions",
     },
     {
       value: "db" as const,
-      label: "Defined benefit",
+      label: "Final salary",
       icon: PiggyBank,
       visible: filteredDbPensionSchemes.length > 0 || area === "db",
     },
@@ -8016,176 +7984,56 @@ export function PensionsInvestmentsClient({
             </div>
           </section>
 
-          <section className="grid gap-5 xl:grid-cols-2">
-            <div className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-lg">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-black text-slate-950">
-                    Pensions by person
-                  </h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => openPensionCommand()}
-                  className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white"
-                >
-                  Open
-                </button>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                {ownerCards
-                  .filter(
-                    (card) =>
-                      card.summary.pensionValue > 0 || card.id === "all",
-                  )
-                  .map((card) => {
-                    const person =
-                      card.id !== "all" && card.id !== "household"
-                        ? people.find((item) => item.id === card.id)
-                        : null;
-                    const share =
-                      pensionTotal > 0
-                        ? (card.summary.pensionValue / pensionTotal) * 100
-                        : 0;
-                    return (
-                      <button
-                        key={`pension-${card.id}`}
-                        type="button"
-                        onClick={() => openPensionDetail(card.id)}
-                        className="rounded-[1.5rem] border border-slate-100 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200"
-                      >
-                        <div className="flex items-center gap-3">
-                          <ProfileAvatar
-                            person={person}
-                            label={
-                              card.id === "all"
-                                ? "WH"
-                                : card.id === "household"
-                                  ? "SH"
-                                  : initials(card.name)
-                            }
-                          />
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-black text-slate-950">
-                              {card.name}
-                            </span>
-                            <span className="block text-xs font-bold text-slate-500">
-                              {card.summary.dbCount
-                                ? `${card.summary.dbCount} DB scheme(s) · `
-                                : ""}
-                              {formatMoney(card.summary.pensionValue)}
-                            </span>
-                          </span>
-                        </div>
-                        <div className="mt-4 h-16 rounded-2xl bg-blue-50 p-2">
-                          <div className="flex h-full items-end gap-1">
-                            {Array.from({ length: 16 }).map((_, index) => (
-                              <span
-                                key={index}
-                                className="block flex-1 rounded-t-md bg-blue-500/80"
-                                style={{
-                                  height: `${Math.max(12, Math.min(100, share + (index % 4) * 8))}%`,
-                                }}
-                              />
-                            ))}
+          {/* Who holds what: one row per person, pensions and investments side by side. */}
+          <section className="rounded-[18px] border border-[var(--line)] bg-white">
+            <div className="flex items-center justify-between gap-3 px-6 pt-6 md:px-8">
+              <h2 className="text-lg font-semibold text-[var(--ink)]">By person</h2>
+              <p className="text-xs text-[var(--muted)]">Tap a figure to open it</p>
+            </div>
+            <div className="mt-3 hidden grid-cols-[minmax(0,1.4fr)_1fr_1fr_1fr] gap-4 px-6 text-xs text-[var(--muted)] md:grid md:px-8">
+              <span>Person</span>
+              <span className="text-right">Pensions</span>
+              <span className="text-right">Investments</span>
+              <span className="text-right">Total</span>
+            </div>
+            <ul className="mt-1 divide-y divide-[var(--line)] px-6 pb-3 md:px-8">
+              {ownerCards
+                .filter((card) => card.id !== "all" && (card.summary.pensionValue > 0 || card.summary.investmentValue > 0 || card.summary.dbCount > 0))
+                .sort((x, y) => (y.summary.pensionValue + y.summary.investmentValue) - (x.summary.pensionValue + x.summary.investmentValue))
+                .map((card) => {
+                  const person = card.id !== "household" ? people.find((item) => item.id === card.id) : null;
+                  const total = card.summary.pensionValue + card.summary.investmentValue;
+                  const householdTotal = pensionTotal + investmentTotal;
+                  const share = householdTotal > 0 ? (total / householdTotal) * 100 : 0;
+                  const ownerHoldings = holdingsForOwnerCard(card.id);
+                  const pl = card.summary.investmentValue - card.summary.investmentCost;
+                  const showGrowth = card.summary.investmentValue > 0 && !hasUnverifiedProviderCostBasis(ownerHoldings);
+                  return (
+                    <li key={`owner-${card.id}`} className="grid grid-cols-2 items-center gap-x-4 gap-y-2 py-4 md:grid-cols-[minmax(0,1.4fr)_1fr_1fr_1fr]">
+                      <div className="col-span-2 flex min-w-0 items-center gap-3 md:col-span-1">
+                        <ProfileAvatar person={person} label={card.id === "household" ? "SH" : initials(card.name)} compact />
+                        <div className="min-w-0">
+                          <p className="truncate text-[15px] font-semibold text-[var(--ink)]">{card.id === "household" ? "Shared" : card.name}</p>
+                          <div className="mt-1.5 h-1.5 w-28 overflow-hidden rounded-full bg-[var(--paper)]" title={`${share.toFixed(0)}% of the household's total`}>
+                            <div className="h-full rounded-full bg-[var(--pine)]" style={{ width: `${Math.max(share > 0 ? 3 : 0, share)}%` }} />
                           </div>
                         </div>
-                        <p className="mt-3 text-xs font-black text-blue-700">
-                          {share.toFixed(1)}% of pension value
-                        </p>
+                      </div>
+                      <button type="button" onClick={() => openPensionDetail(card.id)} disabled={card.summary.pensionValue <= 0 && !card.summary.dbCount} className="rounded-xl px-2 py-1.5 text-left hover:bg-[var(--paper)] disabled:hover:bg-transparent md:text-right">
+                        <span className="block text-xs text-[var(--muted)] md:hidden">Pensions</span>
+                        <span className="block text-[15px] font-semibold text-[var(--ink)]">{card.summary.pensionValue > 0 ? formatMoney(card.summary.pensionValue) : "—"}</span>
+                        {card.summary.dbCount ? <span className="block text-xs text-[var(--muted)]">+ {card.summary.dbCount} final salary</span> : null}
                       </button>
-                    );
-                  })}
-              </div>
-            </div>
-
-            <div className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-lg">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-black text-slate-950">
-                    Investments by person
-                  </h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => openInvestmentCommand()}
-                  className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white"
-                >
-                  Open
-                </button>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                {ownerCards
-                  .filter(
-                    (card) =>
-                      card.summary.investmentValue > 0 || card.id === "all",
-                  )
-                  .map((card) => {
-                    const ownerHoldings = holdingsForOwnerCard(card.id);
-                    const cardPoints = aggregateSnapshots(
-                      investmentSnapshots,
-                      ownerHoldings,
-                    );
-                    const pl =
-                      card.summary.investmentValue -
-                      card.summary.investmentCost;
-                    const cardHasUnverifiedProviderCost =
-                      hasUnverifiedProviderCostBasis(ownerHoldings);
-                    const ownerDayMovement = dayMovementFromSnapshots(
-                      ownerHoldings,
-                      investmentSnapshots,
-                    );
-                    const person =
-                      card.id !== "all" && card.id !== "household"
-                        ? people.find((item) => item.id === card.id)
-                        : null;
-                    return (
-                      <button
-                        key={`investment-${card.id}`}
-                        type="button"
-                        onClick={() => openInvestmentDetail(card.id)}
-                        className={`rounded-[1.5rem] border-2 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 ${personFilter === card.id && area === "investments" ? "border-orange-400 shadow-orange-200/60" : "border-slate-100 hover:border-emerald-200"}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <ProfileAvatar
-                            person={person}
-                            label={
-                              card.id === "all"
-                                ? "WH"
-                                : card.id === "household"
-                                  ? "SH"
-                                  : initials(card.name)
-                            }
-                          />
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-black text-slate-950">
-                              {card.name}
-                            </span>
-                            <span className="block text-xs font-bold text-slate-500">
-                              {formatMoney(card.summary.investmentValue)} ·{" "}
-                              {ownerHoldings.length} holding(s)
-                            </span>
-                          </span>
-                        </div>
-                        <div className="mt-4 rounded-2xl bg-slate-50 p-2">
-                          <TinySparkline points={cardPoints} />
-                        </div>
-                        <p
-                          className={`mt-3 text-xs font-black ${cardHasUnverifiedProviderCost ? "text-slate-500" : pl >= 0 ? "text-emerald-700" : "text-red-600"}`}
-                        >
-                          {card.summary.investmentValue
-                            ? cardHasUnverifiedProviderCost
-                              ? ownerDayMovement.has
-                                ? `${ownerDayMovement.change >= 0 ? "+" : ""}${formatMoney(ownerDayMovement.change)} today`
-                                : performanceUnavailableLabel()
-                              : `${formatMoney(pl)} tracked return`
-                            : "No investment value yet"}
-                        </p>
+                      <button type="button" onClick={() => openInvestmentDetail(card.id)} disabled={card.summary.investmentValue <= 0} className="rounded-xl px-2 py-1.5 text-left hover:bg-[var(--paper)] disabled:hover:bg-transparent md:text-right">
+                        <span className="block text-xs text-[var(--muted)] md:hidden">Investments</span>
+                        <span className="block text-[15px] font-semibold text-[var(--ink)]">{card.summary.investmentValue > 0 ? formatMoney(card.summary.investmentValue) : "—"}</span>
+                        {showGrowth ? <span className={`block text-xs ${pl >= 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>{pl >= 0 ? "+" : ""}{formatMoney(pl)} growth</span> : null}
                       </button>
-                    );
-                  })}
-              </div>
-            </div>
+                      <p className="hidden text-right text-[15px] font-semibold text-[var(--ink)] md:block">{formatMoney(total)}</p>
+                    </li>
+                  );
+                })}
+            </ul>
           </section>
         </>
       ) : null}
@@ -8282,154 +8130,103 @@ export function PensionsInvestmentsClient({
       ) : null}
 
       {experience === "pension-command" ? (
-        <section className="space-y-3 sm:space-y-5">
-          <div className="overflow-hidden rounded-[1.75rem] border border-white/70 bg-[radial-gradient(circle_at_top_left,#2563eb,transparent_30%),linear-gradient(135deg,#020617,#172554_62%,#0f766e)] p-4 text-white shadow-[0_35px_120px_-72px_rgba(15,23,42,.9)] sm:rounded-[2.4rem] sm:p-6">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-              <div className="flex items-start gap-3 sm:gap-4">
-                <button
-                  type="button"
-                  onClick={openOverview}
-                  className="mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/15 text-white ring-1 ring-white/15 sm:h-11 sm:w-11"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                </button>
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.3em] text-blue-100">
-                    Pension live view
-                  </p>
-                  <h2 className="mt-2 text-3xl font-black tracking-tight sm:mt-3 sm:text-4xl">
-                    {formatMoney(commandPensionTotal)}
-                  </h2>
-                  <p className="mt-1 max-w-2xl text-xs font-semibold leading-relaxed text-blue-50 sm:mt-2 sm:text-sm">
-                    Review pots, schemes and contribution timing.
-                  </p>
-                </div>
-              </div>
-              <div
-                className="flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-white/10 p-1 sm:gap-2"
-                aria-label="Filter pension live view by household member"
-              >
-                {commandFilterCards.map((card) => {
-                  const person =
-                    card.id !== "all" && card.id !== "household"
-                      ? people.find((item) => item.id === card.id)
-                      : null;
-                  const selected = commandFilterUsesAll
-                    ? card.id === "all"
-                    : selectedCommandFilterIds.includes(card.id);
-                  return (
-                    <button
-                      key={`command-pension-filter-${card.id}`}
-                      type="button"
-                      title={card.name}
-                      aria-label={`Filter pensions by ${card.name}`}
-                      onClick={() => toggleCommandFilter(card.id)}
-                      className={`rounded-full p-1 transition ${selected ? "bg-white shadow-lg" : "hover:bg-white/15"}`}
-                    >
-                      <ProfileAvatar
-                        person={person}
-                        label={
-                          card.id === "all"
-                            ? "WH"
-                            : card.id === "household"
-                              ? "SH"
-                              : initials(card.name)
-                        }
-                        compact
-                      />
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 sm:mt-6 sm:gap-3">
-              <div className="rounded-2xl bg-white/15 p-3 ring-1 ring-white/10 sm:rounded-[1.6rem] sm:p-5">
-                <p className="text-xs font-black uppercase tracking-wide text-blue-100">
-                  Pots
-                </p>
-                <p className="mt-1 text-xl font-black sm:mt-2 sm:text-2xl">
-                  {commandPensionAccounts.length}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-white/15 p-3 ring-1 ring-white/10 sm:rounded-[1.6rem] sm:p-5">
-                <p className="text-xs font-black uppercase tracking-wide text-blue-100">
-                  Funds
-                </p>
-                <p className="mt-1 text-xl font-black sm:mt-2 sm:text-2xl">
-                  {commandPensionFunds.length}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-white/15 p-3 ring-1 ring-white/10 sm:rounded-[1.6rem] sm:p-5">
-                <p className="text-xs font-black uppercase tracking-wide text-blue-100">
-                  DB schemes
-                </p>
-                <p className="mt-1 text-xl font-black sm:mt-2 sm:text-2xl">
-                  {commandDbSchemes.length}
-                </p>
-              </div>
-            </div>
-          </div>
-          <div className="grid gap-4 lg:grid-cols-3">
-            {commandPensionAccounts.map((account) => {
-              const funds = pensionFunds.filter(
-                (fund) => fund.pension_account_id === account.id,
-              );
-              const value =
-                funds.reduce((sum, fund) => sum + valueOfFund(fund), 0) ||
-                Number(account.current_value || 0);
-              return (
-                <button
-                  key={`pension-command-${account.id}`}
-                  type="button"
-                  onClick={() =>
-                    openPensionDetail(account.person_id || "household")
-                  }
-                  className="rounded-[2rem] border border-white/70 bg-white p-5 text-left shadow-[0_24px_80px_-60px_rgba(15,23,42,.75)] transition hover:-translate-y-0.5 hover:border-blue-200"
-                >
-                  <div className="flex items-center gap-3">
-                    <ProviderLogo provider={account.provider} />
-                    <div className="min-w-0">
-                      <p className="truncate text-lg font-black text-slate-950">
-                        {account.label}
-                      </p>
-                      <p className="text-xs font-bold text-slate-500">
-                        {account.provider} ·{" "}
-                        {ownerName(people, account.person_id)}
-                      </p>
+        <section className="space-y-5">
+          {(() => {
+            const potRows = commandPensionAccounts.map((account) => {
+              const funds = pensionFunds.filter((fund) => fund.pension_account_id === account.id);
+              const value = pensionAccountValue(account, funds);
+              const monthlyIn = projectedAccountMonthlyContribution(account, payEvents);
+              const fees =
+                monthlyFeeOn(value, account.annual_platform_fee_percent, account.fixed_monthly_fee) +
+                funds.reduce((sum, fund) => sum + monthlyFeeOn(valueOfFund(fund), fund.annual_fund_fee_percent), 0);
+              return { account, funds, value, monthlyIn, fees };
+            }).sort((x, y) => y.value - x.value);
+            const monthlyInTotal = potRows.reduce((sum, row) => sum + row.monthlyIn, 0);
+            const feesTotal = potRows.reduce((sum, row) => sum + row.fees, 0);
+            const openPot = (accountId: string, personId: string | null) => {
+              openPensionDetail(personId || "household");
+              setExpandedPensionAccountIds((current) => new Set(current).add(accountId));
+              window.setTimeout(() => document.getElementById(`investment-account-${accountId}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+            };
+            return (
+              <>
+                <div className="rounded-[18px] border border-[var(--line)] bg-white">
+                  <div className="flex flex-col gap-5 px-6 pb-5 pt-6 md:flex-row md:items-end md:justify-between md:px-8 md:pt-8">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <button type="button" onClick={openOverview} aria-label="Back" className="mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)]">
+                        <ArrowLeft className="h-5 w-5" />
+                      </button>
+                      <div className="min-w-0">
+                        <p className="text-[15px] text-[var(--muted)]">Pensions{commandFilterUsesAll ? "" : ` · ${commandFilterLabel}`}</p>
+                        <p className="mt-2 text-[44px] font-semibold leading-none tracking-[-0.03em] text-[var(--ink)] md:text-[56px]">{formatMoney(commandPensionTotal)}</p>
+                      </div>
                     </div>
+                    {ownerCards.filter((card) => card.id !== "all" && (card.summary.pensionValue > 0 || card.summary.dbCount > 0)).length > 1 ? (
+                      <div className="flex flex-wrap gap-2" aria-label="Show pensions for">
+                        {commandFilterCards.filter((card) => { if (card.id === "all") return true; const owner = ownerCards.find((item) => item.id === card.id); return Boolean(owner && (owner.summary.pensionValue > 0 || owner.summary.dbCount > 0)); }).map((card) => {
+                          const person = card.id !== "all" && card.id !== "household" ? people.find((item) => item.id === card.id) : null;
+                          const selected = commandFilterUsesAll ? card.id === "all" : selectedCommandFilterIds.includes(card.id);
+                          return (
+                            <button key={`command-pension-filter-${card.id}`} type="button" onClick={() => toggleCommandFilter(card.id)} aria-pressed={selected}
+                              className={`inline-flex items-center gap-2 rounded-full py-1.5 text-sm transition ${person ? "pl-1.5 pr-4" : "px-4"} ${selected ? "bg-[var(--ink)] text-white" : "bg-[var(--paper)] text-[var(--ink)] hover:bg-[var(--line)]"}`}>
+                              {person ? <ProfileAvatar person={person} compact /> : null}
+                              {card.id === "all" ? "Everyone" : card.id === "household" ? "Shared" : card.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
-                  <p className="mt-5 text-3xl font-black text-slate-950">
-                    {formatMoney(value)}
-                  </p>
-                  <div className="mt-4 flex h-20 items-end gap-1 rounded-2xl bg-blue-50 p-3">
-                    {Array.from({ length: 18 }).map((_, index) => (
-                      <span
-                        key={index}
-                        className="block flex-1 rounded-t-md bg-blue-500/80"
-                        style={{
-                          height: `${Math.max(16, Math.min(96, 30 + ((index * 11) % 52)))}%`,
-                        }}
-                      />
+                  <div className="grid grid-cols-1 border-t border-[var(--line)] sm:grid-cols-3">
+                    {[
+                      { label: "Going in each month", value: formatMoney(monthlyInTotal), note: "You, your employer and tax relief" },
+                      { label: "Fees", value: `${formatMoney(feesTotal)}/mo`, note: "Platform and fund charges, estimated" },
+                      { label: "Pots", value: String(potRows.length), note: `${commandPensionFunds.length} fund${commandPensionFunds.length === 1 ? "" : "s"}${commandDbSchemes.length ? ` · ${commandDbSchemes.length} final salary` : ""}` },
+                    ].map((stat, i) => (
+                      <div key={stat.label} className={`px-6 py-4 md:px-8 ${i > 0 ? "border-t border-[var(--line)] sm:border-l sm:border-t-0" : ""}`}>
+                        <p className="text-sm text-[var(--muted)]">{stat.label}</p>
+                        <p className="mt-1 text-[22px] font-semibold tracking-tight text-[var(--ink)]">{stat.value}</p>
+                        <p className="mt-0.5 text-xs text-[var(--muted)]">{stat.note}</p>
+                      </div>
                     ))}
                   </div>
-                </button>
-              );
-            })}
-            {commandPensionAccounts.length === 0 ? (
-              <div className="rounded-[2rem] border border-dashed border-slate-300 bg-white/70 p-8 text-center text-sm font-bold text-slate-500">
-                No pension pots for this filter yet.
-              </div>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setExperience("pension-detail")}
-              className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white"
-            >
-              Open pension breakdown
-            </button>
-          </div>
+                </div>
+
+                <div className="rounded-[18px] border border-[var(--line)] bg-white p-6 md:p-8">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-lg font-semibold text-[var(--ink)]">Your pots</h2>
+                    <button type="button" onClick={() => setExperience("pension-detail")} className="text-sm text-[var(--muted)] hover:text-[var(--ink)]">See every fund →</button>
+                  </div>
+                  <ul className="mt-3 divide-y divide-[var(--line)]">
+                    {potRows.map(({ account, funds, value, monthlyIn, fees }) => (
+                      <li key={`pension-command-${account.id}`}>
+                        <button type="button" onClick={() => openPot(account.id, account.person_id)} className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 py-4 text-left hover:bg-[var(--paper)] md:-mx-3 md:w-[calc(100%+1.5rem)] md:rounded-xl md:px-3">
+                          <ProviderLogo provider={account.provider} />
+                          <span className="min-w-0">
+                            <span className="block truncate text-[15px] font-semibold text-[var(--ink)]">{account.label}</span>
+                            <span className="block truncate text-xs text-[var(--muted)]">
+                              {account.provider} · {ownerName(people, account.person_id)} · {account.pension_type === "work" ? "Work" : "Private"}
+                            </span>
+                            <span className="mt-2 block max-w-md"><AllocationBar funds={funds} /></span>
+                          </span>
+                          <span className="text-right">
+                            <span className="block text-[17px] font-semibold text-[var(--ink)]">{formatMoney(value)}</span>
+                            <span className="block text-xs text-[var(--muted)]">{monthlyIn > 0 ? `${formatMoney(monthlyIn)}/mo in` : "Nothing going in"} · {formatMoney(fees)}/mo fees</span>
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {potRows.length === 0 ? <p className="py-6 text-center text-sm text-[var(--muted)]">No pension pots for this filter yet.</p> : null}
+                  {commandDbSchemes.length ? (
+                    <button type="button" onClick={() => { setArea("db"); setExperience("db-detail"); }} className="mt-3 text-sm text-[var(--muted)] hover:text-[var(--ink)]">
+                      {commandDbSchemes.length} final salary scheme{commandDbSchemes.length === 1 ? "" : "s"} →
+                    </button>
+                  ) : null}
+                </div>
+              </>
+            );
+          })()}
         </section>
       ) : null}
 
@@ -8453,7 +8250,7 @@ export function PensionsInvestmentsClient({
                           : "db-detail",
                     );
                   }}
-                  className={`inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-black shadow-sm ${area === option.value ? "bg-slate-950 text-white" : "border border-slate-200 bg-white text-slate-700"}`}
+                  className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm transition ${area === option.value ? "bg-[var(--ink)] font-semibold text-white" : "text-[var(--muted)] hover:bg-white hover:text-[var(--ink)]"}`}
                 >
                   <Icon className="h-4 w-4" /> {option.label}
                 </button>
@@ -8577,68 +8374,39 @@ export function PensionsInvestmentsClient({
 
       {experience === "pension-detail" && area === "pensions" ? (
         <section className="space-y-5">
-          <div className="flex flex-col gap-4 rounded-[2rem] border border-white/10 bg-white/[0.06] p-4 text-white shadow-[0_30px_120px_-75px_rgba(0,0,0,.95)] backdrop-blur lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={openOverview}
-                className="grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white ring-1 ring-white/10"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-blue-200/80">
-                  Pension breakdown
-                </p>
-                <h2 className="text-2xl font-black text-white">
-                  {personFilter === "all"
-                    ? "Whole household"
-                    : personFilter === "household"
-                      ? "Shared pots"
-                      : ownerName(people, personFilter)}
-                </h2>
+          {(() => {
+            const visibleFees = filteredPensionAccounts.reduce((sum, account) => {
+              const funds = pensionFunds.filter((fund) => fund.pension_account_id === account.id);
+              const value = pensionAccountValue(account, funds);
+              return sum + monthlyFeeOn(value, account.annual_platform_fee_percent, account.fixed_monthly_fee) + funds.reduce((total, fund) => total + monthlyFeeOn(valueOfFund(fund), fund.annual_fund_fee_percent), 0);
+            }, 0);
+            const visibleValue = filteredPensionAccounts.reduce((sum, account) => sum + pensionAccountValue(account, pensionFunds.filter((fund) => fund.pension_account_id === account.id)), 0);
+            const visibleMonthlyIn = filteredPensionAccounts.reduce((sum, account) => sum + projectedAccountMonthlyContribution(account, payEvents), 0);
+            return (
+              <div className="rounded-[18px] border border-[var(--line)] bg-white">
+                <div className="flex items-center gap-3 px-6 pt-6 md:px-8">
+                  <button type="button" onClick={() => openPensionCommand([personFilter])} aria-label="Back to pensions" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)]">
+                    <ArrowLeft className="h-5 w-5" />
+                  </button>
+                  <h2 className="text-lg font-semibold text-[var(--ink)]">
+                    Pensions · {personFilter === "all" ? "Everyone" : personFilter === "household" ? "Shared" : ownerName(people, personFilter)}
+                  </h2>
+                </div>
+                <div className="mt-4 grid grid-cols-1 border-t border-[var(--line)] sm:grid-cols-3">
+                  {[
+                    { label: "Value", value: formatMoney(visibleValue) },
+                    { label: "Going in each month", value: formatMoney(visibleMonthlyIn) },
+                    { label: "Fees", value: `${formatMoney(visibleFees)}/mo` },
+                  ].map((stat, i) => (
+                    <div key={stat.label} className={`px-6 py-4 md:px-8 ${i > 0 ? "border-t border-[var(--line)] sm:border-l sm:border-t-0" : ""}`}>
+                      <p className="text-sm text-[var(--muted)]">{stat.label}</p>
+                      <p className="mt-1 text-[22px] font-semibold tracking-tight text-[var(--ink)]">{stat.value}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => openPensionCommand([personFilter])}
-              className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white"
-            >
-              Open live view
-            </button>
-          </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-[2rem] border border-white/70 bg-white p-5 shadow-sm">
-              <p className="text-sm font-bold text-slate-500">
-                Total pension value
-              </p>
-              <p className="mt-3 text-3xl font-black">
-                {formatMoney(pensionTotal)}
-              </p>
-            </div>
-            <div className="rounded-[2rem] border border-white/70 bg-white p-5 shadow-sm">
-              <p className="text-sm font-bold text-slate-500">
-                Fixed monthly top-up
-              </p>
-              <p className="mt-3 text-3xl font-black">
-                {formatMoney(
-                  pensionAccounts.reduce(
-                    (sum, account) =>
-                      sum + Number(account.fixed_monthly_contribution || 0),
-                    0,
-                  ),
-                )}
-              </p>
-            </div>
-            <div className="rounded-[2rem] border border-white/70 bg-white p-5 shadow-sm">
-              <p className="text-sm font-bold text-slate-500">
-                Estimated monthly fees
-              </p>
-              <p className="mt-3 text-3xl font-black">
-                {formatMoney(monthlyPensionFees)}
-              </p>
-            </div>
-          </div>
+            );
+          })()}
           {filteredPensionAccounts.map((account) => {
             const funds = pensionFunds.filter(
               (fund) => fund.pension_account_id === account.id,
@@ -8681,119 +8449,49 @@ export function PensionsInvestmentsClient({
                 <article
                   key={account.id}
                   id={`investment-account-${account.id}`}
-                  className={`relative min-w-0 overflow-hidden rounded-[1.75rem] border bg-white shadow-[0_28px_90px_-62px_rgba(15,23,42,.75)] transition duration-700 sm:rounded-[2.25rem] ${highlightedAccountId === account.id ? "scale-[1.01] border-emerald-400 ring-4 ring-emerald-300/70" : "border-white/70"}`}
+                  className={`min-w-0 scroll-mt-24 overflow-hidden rounded-[18px] border bg-white transition ${highlightedAccountId === account.id ? "border-[var(--pine)] ring-2 ring-[var(--pine-wash)]" : "border-[var(--line)]"}`}
                 >
-                  <OwnerBadge people={people} personId={account.person_id} />
-                  <div className="grid min-w-0 lg:grid-cols-[minmax(0,1fr)_360px]">
-                    <div className="min-w-0 p-5 sm:p-7">
-                      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="flex min-w-0 items-start gap-4">
+                  <div className="grid min-w-0 lg:grid-cols-[minmax(0,1fr)_340px]">
+                    <div className="min-w-0 p-6">
+                      <div className="flex min-w-0 items-start justify-between gap-4">
+                        <div className="flex min-w-0 items-center gap-3">
                           <ProviderLogo provider={account.provider} />
                           <div className="min-w-0">
-                            <p className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-600">
-                              {account.pension_type === "work"
-                                ? "Work pension"
-                                : "Private pension"}
-                            </p>
-                            <h2 className="mt-3 truncate text-xl font-black text-slate-950 sm:text-2xl">
-                              {account.label}
-                            </h2>
-                            <p className="mt-1 text-sm font-semibold text-slate-500">
-                              {account.provider} · {ownerName(people, account.person_id)}
+                            <h2 className="truncate text-lg font-semibold text-[var(--ink)]">{account.label}</h2>
+                            <p className="truncate text-sm text-[var(--muted)]">
+                              {account.provider} · {ownerName(people, account.person_id)} · {account.pension_type === "work" ? "Work pension" : "Private pension"}
                             </p>
                           </div>
                         </div>
-                        <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setExpandedPensionAccountIds((current) => {
-                                const next = new Set(current);
-                                next.add(account.id);
-                                return next;
-                              })
-                            }
-                            aria-expanded="false"
-                            className="inline-flex items-center gap-1 rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white"
-                          >
-                            <ChevronDown className="h-3.5 w-3.5" /> Expand
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openPensionThreads(account.id)}
-                            className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-2 text-xs font-black text-blue-700"
-                            title="Open the complete contribution thread"
-                          >
-                            <ThreadIcon className="h-3.5 w-3.5" /> Threads
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setModal({ type: "edit-pension-account", account })
-                            }
-                            className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"
-                          >
-                            <Settings className="h-3.5 w-3.5" /> Settings
-                          </button>
-                          <form action={deletePensionAccount}>
-                            <input type="hidden" name="id" value={account.id} />
-                            <button className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600">
-                              Delete
-                            </button>
-                          </form>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button type="button" onClick={() => openPensionThreads(account.id)} className="rounded-full px-3 py-2 text-xs text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]" title="Every contribution, month by month">History</button>
+                          <button type="button" onClick={() => setModal({ type: "edit-pension-account", account })} aria-label="Pot settings" className="grid h-8 w-8 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"><Settings className="h-4 w-4" /></button>
                         </div>
                       </div>
 
-                      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                        <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
-                          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
-                            Monthly input
-                          </p>
-                          <p className="mt-1 text-xl font-black text-slate-950">
-                            {formatMoney(monthlyInput)}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
-                          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
-                            Est. fees
-                          </p>
-                          <p className="mt-1 text-xl font-black text-slate-950">
-                            {formatMoney(estimatedMonthlyFees)}
-                            <span className="text-xs text-slate-500"> /mo</span>
-                          </p>
-                        </div>
-                        <div className="col-span-2 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100 sm:col-span-1">
-                          <p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">
-                            Funds
-                          </p>
-                          <p className="mt-1 text-xl font-black text-emerald-900">
-                            {funds.length}
-                          </p>
-                        </div>
-                      </div>
+                      <dl className="mt-5 grid grid-cols-3 gap-4 text-sm">
+                        <div><dt className="text-[var(--muted)]">Going in</dt><dd className="mt-0.5 text-[17px] font-semibold text-[var(--ink)]">{formatMoney(monthlyInput)}<span className="text-xs font-normal text-[var(--muted)]">/mo</span></dd></div>
+                        <div><dt className="text-[var(--muted)]">Fees</dt><dd className="mt-0.5 text-[17px] font-semibold text-[var(--ink)]">{formatMoney(estimatedMonthlyFees)}<span className="text-xs font-normal text-[var(--muted)]">/mo</span></dd></div>
+                        <div><dt className="text-[var(--muted)]">Funds</dt><dd className="mt-0.5 text-[17px] font-semibold text-[var(--ink)]">{funds.length}</dd></div>
+                      </dl>
 
-                      <div className="mt-5" aria-label="Current pension fund allocation">
-                        <AllocationBar funds={funds} />
-                      </div>
+                      <div className="mt-5"><AllocationBar funds={funds} showKey={funds.length > 1} /></div>
+
+                      <button
+                        type="button"
+                        onClick={() => setExpandedPensionAccountIds((current) => new Set(current).add(account.id))}
+                        aria-expanded="false"
+                        className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-[var(--paper)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--line)]"
+                      >
+                        <ChevronDown className="h-4 w-4" /> Show funds and contributions
+                      </button>
                     </div>
-                    <aside className="relative min-w-0 bg-gradient-to-br from-teal-950 to-slate-900 p-5 text-white sm:p-7">
-                      <p className="text-xs font-black uppercase tracking-[0.22em] text-teal-300">
-                        Pot value
-                      </p>
-                      <div className="relative mt-2 inline-block">
-                        <p className="text-4xl font-black">
-                          {formatMoney(total)}
-                        </p>
+                    <aside className="min-w-0 border-t border-[var(--line)] p-6 lg:border-l lg:border-t-0">
+                      <p className="text-sm text-[var(--muted)]">Pot value</p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <p className="text-[32px] font-semibold leading-none tracking-tight text-[var(--ink)]">{formatMoney(total)}</p>
                         {account.valuation_mode === "provider_value" ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setModal({ type: "quick-edit-pension-value", account })
-                            }
-                            aria-label="Quick edit pot value"
-                            title="Quick edit"
-                            className="absolute -right-8 top-0 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-white/70 transition hover:bg-white/20 hover:text-white"
-                          >
+                          <button type="button" onClick={() => setModal({ type: "quick-edit-pension-value", account })} aria-label="Update pot value" title="Update value" className="grid h-7 w-7 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)]">
                             <Settings className="h-3.5 w-3.5" />
                           </button>
                         ) : null}
@@ -8808,28 +8506,20 @@ export function PensionsInvestmentsClient({
               <div
                 key={account.id}
                 id={`investment-account-${account.id}`}
-                className={`relative min-w-0 overflow-hidden rounded-[1.75rem] border bg-white shadow-[0_28px_90px_-62px_rgba(15,23,42,.75)] transition duration-700 sm:rounded-[2.25rem] ${highlightedAccountId === account.id ? "scale-[1.01] border-emerald-400 ring-4 ring-emerald-300/70" : "border-white/70"}`}
+                className={`relative min-w-0 scroll-mt-24 overflow-hidden rounded-[18px] border bg-white transition ${highlightedAccountId === account.id ? "border-[var(--pine)] ring-2 ring-[var(--pine-wash)]" : "border-[var(--line)]"}`}
               >
                 {highlightedAccountId === account.id ? <span className="absolute right-5 top-5 z-20 rounded-full bg-emerald-500 px-3 py-1 text-xs font-black text-white shadow-lg">New pot</span> : null}
-                <OwnerBadge people={people} personId={account.person_id} />
                 <div className="grid lg:grid-cols-[1fr_340px]">
                   <div className="min-w-0 p-4 sm:p-6">
                     <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                       <div className="flex gap-4">
                         <ProviderLogo provider={account.provider} />
                         <div>
-                          <p className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-600">
-                            {account.pension_type === "work"
-                              ? "Work pension"
-                              : "Private pension"}
-                          </p>
-                          <h2 className="mt-3 text-2xl font-black text-slate-950">
+                          <h2 className="text-lg font-semibold text-[var(--ink)]">
                             {account.label}
                           </h2>
-                          <p className="text-sm font-semibold text-slate-500">
-                            {account.provider} ·{" "}
-                            {ownerName(people, account.person_id)} ·{" "}
-                            {account.contribution_method.replace(/_/g, " ")}
+                          <p className="text-sm text-[var(--muted)]">
+                            {account.provider} · {ownerName(people, account.person_id)} · {account.pension_type === "work" ? "Work pension" : "Private pension"} · {account.contribution_method.replace(/_/g, " ")}
                           </p>
                         </div>
                       </div>
@@ -8845,31 +8535,31 @@ export function PensionsInvestmentsClient({
                               })
                             }
                             aria-expanded="true"
-                            className="inline-flex items-center gap-1 rounded-full bg-slate-950 px-3 py-2 text-xs font-black text-white"
+                            className="inline-flex items-center gap-1 rounded-full bg-[var(--paper)] px-3 py-2 text-xs font-semibold text-[var(--ink)] hover:bg-[var(--line)]"
                           >
-                            <ChevronUp className="h-3.5 w-3.5" /> Collapse
+                            <ChevronUp className="h-3.5 w-3.5" /> Hide funds
                           </button>
                         ) : null}
                         <button
                           type="button"
                           onClick={() => openPensionThreads(account.id)}
-                          className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-2 text-xs font-black text-blue-700"
-                          title="Open the complete contribution thread"
+                          className="rounded-full px-3 py-2 text-xs text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"
+                          title="Every contribution, month by month"
                         >
-                          <ThreadIcon className="h-3.5 w-3.5" /> Threads
+                          History
                         </button>
                         <button
                           type="button"
                           onClick={() =>
                             setModal({ type: "edit-pension-account", account })
                           }
-                          className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"
+                          className="rounded-full px-3 py-2 text-xs text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"
                         >
-                          <Settings className="h-3.5 w-3.5" /> Settings
+                          Settings
                         </button>
                         <form action={deletePensionAccount}>
                           <input type="hidden" name="id" value={account.id} />
-                          <button className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600">
+                          <button className="rounded-full px-3 py-2 text-xs text-[var(--brick)] hover:bg-[#f6e7e3]" onClick={(event) => { if (!window.confirm(`Delete ${account.label}? This removes its funds and history.`)) event.preventDefault(); }}>
                             Delete
                           </button>
                         </form>
@@ -8877,7 +8567,7 @@ export function PensionsInvestmentsClient({
                     </div>
                     <PensionContributionLogicCard account={account} payEvents={payEvents} />
                     <div className="mt-6">
-                      <AllocationBar funds={funds} />
+                      <AllocationBar funds={funds} showKey={funds.length > 1} />
                     </div>
                     <div
                       id={`pension-threads-${account.id}`}
@@ -8885,14 +8575,14 @@ export function PensionsInvestmentsClient({
                     >
                       <CollapsibleSection
                         key={`pension-summary-${account.id}-${pensionThreadRequest?.accountId === account.id ? pensionThreadRequest.nonce : 0}`}
-                        title="Pension contribution summary"
-                        subtitle="Combined employee, employer and NI contributions across this pension"
+                        title="Contributions"
+                        subtitle="Every payment into this pot, month by month"
                         defaultOpen={pensionThreadRequest?.accountId === account.id}
                         badge={
-                          <span className="rounded-full bg-teal-600 px-3 py-1.5 text-xs font-black text-white">
+                          <span className="rounded-full bg-white px-3 py-1 text-xs text-[var(--muted)]">
                             {accountContributionEvents.filter((event) => event.event_status !== "removed" && event.event_status !== "superseded" && (event.pension_account_id === account.id || (event.pension_fund_id ? funds.some((fund) => fund.id === event.pension_fund_id) : false))).length
-                              ? "Has events"
-                              : "No events yet"}
+                              ? "Recorded"
+                              : "None yet"}
                           </span>
                         }
                       >
@@ -8907,7 +8597,7 @@ export function PensionsInvestmentsClient({
                       {funds.map((fund) => (
                         <article
                           key={fund.id}
-                          className="group min-w-0 rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-slate-200/70 sm:rounded-[2rem] sm:p-5"
+                          className="min-w-0 rounded-[14px] border border-[var(--line)] bg-white p-4 sm:p-5"
                         >
                           {(() => {
                             const fundEvents = accountContributionEvents
@@ -8915,50 +8605,22 @@ export function PensionsInvestmentsClient({
                               .sort((a, b) => String(b.investment_date || b.contribution_date || "").localeCompare(String(a.investment_date || a.contribution_date || "")));
                             const latestFundEvent = fundEvents.find((event) => event.source === "provider_statement" || event.source === "manual_reconciliation") || fundEvents[0];
                             return (
-                              <div className="mb-4 grid gap-2 sm:grid-cols-3">
-                                <div className="rounded-2xl bg-teal-50 px-3 py-2 ring-1 ring-teal-100">
-                                  <p className="text-[10px] font-black uppercase tracking-wide text-teal-700">Latest confirmed purchase</p>
-                                  <p className="mt-1 text-sm font-black text-slate-950">{latestFundEvent ? formatMoney(Number(latestFundEvent.contribution_amount || 0)) : "No purchase yet"}</p>
-                                </div>
-                                <div className="rounded-2xl bg-blue-50 px-3 py-2 ring-1 ring-blue-100">
-                                  <p className="text-[10px] font-black uppercase tracking-wide text-blue-700">Purchase date</p>
-                                  <p className="mt-1 text-sm font-black text-slate-950">{latestFundEvent ? formatThreadDate(latestFundEvent.investment_date || latestFundEvent.contribution_date) : "Pending"}</p>
-                                </div>
-                                <div className="rounded-2xl bg-orange-50 px-3 py-2 ring-1 ring-orange-100">
-                                  <p className="text-[10px] font-black uppercase tracking-wide text-orange-700">Recorded payments</p>
-                                  <p className="mt-1 text-sm font-black text-slate-950">{fundEvents.length}</p>
-                                </div>
-                              </div>
+                              <p className="mb-2 text-xs text-[var(--muted)]">
+                                {latestFundEvent
+                                  ? `Last bought ${formatMoney(Number(latestFundEvent.contribution_amount || 0))} on ${formatThreadDate(latestFundEvent.investment_date || latestFundEvent.contribution_date)} · ${fundEvents.length} payment${fundEvents.length === 1 ? "" : "s"} recorded`
+                                  : "No purchases recorded yet"}
+                              </p>
                             );
                           })()}
                           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                            <div>
-                              <p className="text-lg font-black text-slate-950">
+                            <div className="min-w-0">
+                              <p className="text-[15px] font-semibold text-[var(--ink)]">
                                 {fund.fund_name}
                               </p>
-                              <p className="mt-1 text-sm font-semibold text-slate-500">
-                                {fund.group_label || "Fund"} ·{" "}
-                                {formatMoney(valueOfFund(fund))} · contribution{" "}
-                                {fund.contribution_active
-                                  ? `${Number(fund.monthly_contribution_percent).toFixed(1)}%`
-                                  : "off"}
-                              </p>
-                              <p className="mt-1 text-xs font-semibold text-slate-500">
-                                Fee{" "}
-                                {Number(
-                                  fund.annual_fund_fee_percent || 0,
-                                ).toFixed(3)}
-                                %/yr
-                              </p>
-                              <p className="mt-1 text-xs font-black text-emerald-700">
-                                Projected monthly top-up:{" "}
-                                {formatMoney(
-                                  projectedFundContribution(
-                                    account,
-                                    fund,
-                                    payEvents,
-                                  ),
-                                )}
+                              <p className="mt-0.5 text-sm text-[var(--muted)]">
+                                <span className="font-semibold text-[var(--ink)]">{formatMoney(valueOfFund(fund))}</span>
+                                {" · "}{fund.contribution_active ? `${formatMoney(projectedFundContribution(account, fund, payEvents))}/mo in (${Number(fund.monthly_contribution_percent).toFixed(0)}%)` : "No new money"}
+                                {" · "}fee {Number(fund.annual_fund_fee_percent || 0).toFixed(2)}%
                               </p>
                             </div>
                             <div className="flex flex-wrap gap-2 lg:justify-end">
@@ -8970,15 +8632,15 @@ export function PensionsInvestmentsClient({
                                     provider: account.provider,
                                   })
                                 }
-                                className="rounded-full bg-orange-100 px-3 py-2 text-xs font-black text-orange-700"
+                                className="rounded-full px-3 py-2 text-xs text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"
                               >
-                                AI check
+                                Check fund
                               </button>
                               <button
                                 onClick={() =>
                                   setModal({ type: "edit-pension-fund", fund })
                                 }
-                                className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"
+                                className="rounded-full px-3 py-2 text-xs text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"
                               >
                                 Edit
                               </button>
@@ -8988,15 +8650,15 @@ export function PensionsInvestmentsClient({
                                   name="id"
                                   value={fund.id}
                                 />
-                                <button className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600">
+                                <button className="rounded-full px-3 py-2 text-xs text-[var(--brick)] hover:bg-[#f6e7e3]" onClick={(event) => { if (!window.confirm(`Delete ${fund.fund_name}?`)) event.preventDefault(); }}>
                                   Delete
                                 </button>
                               </form>
                             </div>
                           </div>
                           <CollapsibleSection
-                            title={`${fund.fund_name} purchase thread`}
-                            subtitle="Dated purchase amounts, unit prices and units—editable against the provider statement"
+                            title="Purchases"
+                            subtitle="Each payment with its unit price and units. Edit to match your statement."
                           >
                             <PensionContributionThread
                               account={account}
@@ -9015,74 +8677,40 @@ export function PensionsInvestmentsClient({
                       ) : null}
                     </div>
                   </div>
-                  <aside className="relative bg-gradient-to-br from-teal-950 to-slate-900 p-6 text-white">
-                    <p className="text-xs font-black uppercase tracking-[0.22em] text-teal-300">
-                      Pot value
-                    </p>
-                    <div className="relative mt-2 inline-block">
-                      <p className="text-4xl font-black">
-                        {formatMoney(total)}
-                      </p>
+                  <aside className="min-w-0 border-t border-[var(--line)] p-6 lg:border-l lg:border-t-0">
+                    <p className="text-sm text-[var(--muted)]">Pot value</p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <p className="text-[32px] font-semibold leading-none tracking-tight text-[var(--ink)]">{formatMoney(total)}</p>
                       {account.valuation_mode === "provider_value" ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setModal({ type: "quick-edit-pension-value", account })
-                          }
-                          aria-label="Quick edit pot value"
-                          title="Quick edit"
-                          className="absolute -right-8 top-0 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-white/70 transition hover:bg-white/20 hover:text-white"
-                        >
+                        <button type="button" onClick={() => setModal({ type: "quick-edit-pension-value", account })} aria-label="Update pot value" title="Update value" className="grid h-7 w-7 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)]">
                           <Settings className="h-3.5 w-3.5" />
                         </button>
                       ) : null}
                     </div>
-                    <p className="mt-1 text-sm font-semibold text-slate-300">
-                      {account.valuation_mode === "provider_value"
-                        ? "No live provider feed — update manually via the cog above"
-                        : "Provider/fund values update when refreshed or edited"}
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      {account.valuation_mode === "provider_value" ? "Updated by hand. Use the cog to enter a new value." : "Updates with fund prices."}
                     </p>
                     <PensionHistoryChart accountId={account.id} />
-                    <div className="mt-6 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur">
-                      <p className="text-sm font-bold text-slate-200">
-                        Estimated fees
-                      </p>
-                      <p className="mt-1 text-2xl font-black">
-                        {formatMoney(estimatedMonthlyFees)}
-                        <span className="text-sm font-bold text-slate-300">
-                          {" "}
-                          / month
-                        </span>
-                      </p>
+                    <dl className="mt-5 divide-y divide-[var(--line)] text-sm">
+                      <div className="flex justify-between py-2.5"><dt className="text-[var(--muted)]">Fees</dt><dd className="font-semibold text-[var(--ink)]">{formatMoney(estimatedMonthlyFees)}/mo</dd></div>
+                      {account.employer_ni_topup_enabled ? (
+                        <div className="flex justify-between gap-4 py-2.5"><dt className="text-[var(--muted)]">Employer NI saving</dt><dd className="text-right font-semibold text-[var(--ink)]">{Number(account.employer_ni_passback_percent ?? 100).toFixed(0)}% passed back</dd></div>
+                      ) : null}
+                    </dl>
+                    <div className="mt-5 grid gap-2">
+                      <button
+                        onClick={() => setModal({ type: "provider-fund-search", accountId: account.id, provider: account.provider })}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[var(--ink)] px-4 py-2.5 text-sm font-semibold text-white"
+                      >
+                        <Search className="h-4 w-4" /> Find a fund
+                      </button>
+                      <button
+                        onClick={() => setModal({ type: "pension-fund", accountId: account.id })}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"
+                      >
+                        <Plus className="h-4 w-4" /> Add a fund by hand
+                      </button>
                     </div>
-                    {account.employer_ni_topup_enabled ? (
-                      <div className="mt-4 rounded-3xl bg-emerald-400/15 p-4 text-sm font-bold text-emerald-100">
-                        Employer NI reinvestment enabled · {Number(account.employer_ni_passback_percent ?? 100).toFixed(0)}% of the {Number(account.employer_ni_rate_percent ?? 15).toFixed(2)}% employer NI saving passed back
-                      </div>
-                    ) : null}
-                    <button
-                      onClick={() =>
-                        setModal({
-                          type: "provider-fund-search",
-                          accountId: account.id,
-                          provider: account.provider,
-                        })
-                      }
-                      className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-950"
-                    >
-                      <Search className="h-4 w-4" /> Find funds
-                    </button>
-                    <button
-                      onClick={() =>
-                        setModal({
-                          type: "pension-fund",
-                          accountId: account.id,
-                        })
-                      }
-                      className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/20 px-4 py-3 text-sm font-black text-white"
-                    >
-                      <Plus className="h-4 w-4" /> Add fund manually
-                    </button>
                   </aside>
                 </div>
               </div>
