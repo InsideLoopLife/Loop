@@ -299,7 +299,10 @@ function isDue(
   if (force) return true;
   const isProviderFund = String(holding.asset_kind || "").toLowerCase() === "fund" || /^GB00[A-Z0-9]{8}$/i.test(String(holding.ticker || "")) || /vanguard|fund/i.test(String(holding.exchange || ""));
   const isMappedCoverageRetry = holding.price_check_status === "coverage_retry" && Boolean(verifiedFundIdentity(holding.isin || holding.ticker));
-  const cadence = isMappedCoverageRetry ? 15 : isProviderFund ? 12 * 60 : userCadenceMinutes(profile, settings);
+  // A quote that failed once (often a provider outage) is retried daily
+  // rather than dropped from tracking for good.
+  const isQuoteRetry = holding.price_check_status === "quote_retry";
+  const cadence = isMappedCoverageRetry ? 15 : isQuoteRetry ? 24 * 60 : isProviderFund ? 12 * 60 : userCadenceMinutes(profile, settings);
   const last = holding.last_price_check_at
     ? Date.parse(holding.last_price_check_at)
     : 0;
@@ -1222,6 +1225,15 @@ export async function runInvestmentPriceSnapshotJob(
           // polling (see the remap handling in lib/investments/actions.ts),
           // so this is never a truly permanent dead end — just not
           // automatic after the first attempt.
+          // Already waiting on a daily retry: no second AI lookup, just try
+          // again tomorrow.
+          if (dueHoldings.every((holding) => holding.price_check_status === "quote_retry")) {
+            await supabase
+              .from("investment_holdings")
+              .update({ last_price_check_at: startedAt, updated_at: startedAt } as any)
+              .in("id", dueHoldings.map((holding) => holding.id));
+            return;
+          }
           const aiGuard = isAiFeatureEnabled({ scope: "investment_market_search", worker: true });
           if (aiGuard.allowed) {
             let aiResolved = false;
@@ -1287,7 +1299,25 @@ export async function runInvestmentPriceSnapshotJob(
                 }
               }
 
-              if (!aiResolved) {
+              // In September a quote-provider outage made this path drop
+              // MSFT, JPM, AAPL and 60 other real listings from tracking for
+              // good. Only a confident "delisted" or "acquired" ends tracking
+              // now; anything else (including "not found") retries daily.
+              const terminal = aiResult.status === "delisted" || aiResult.status === "acquired";
+              if (!aiResolved && !terminal) {
+                await supabase
+                  .from("investment_holdings")
+                  .update({
+                    last_price_check_at: startedAt,
+                    price_check_status: "quote_retry",
+                    price_polling_enabled: true,
+                    instrument_resolution_notes: `No price found for ${ticker}${exchange ? ` on ${exchange}` : ""} on ${startedAt.slice(0, 10)}. Trying again daily.`,
+                    updated_at: startedAt,
+                  } as any)
+                  .in("id", dueHoldings.map((holding) => holding.id));
+                logger.warn(`[investment-price-job] no quote for ${ticker} ${exchange || ""}; retrying daily`);
+              }
+              if (!aiResolved && terminal) {
                 const assetLabel = `"${ticker}"${first.asset_name ? ` (${first.asset_name})` : ""}`;
                 // Use what the model actually said, when it said something —
                 // "delisted"/"acquired"/"renamed" gets a real, specific reason

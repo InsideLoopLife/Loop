@@ -809,8 +809,30 @@ export async function GET(request: NextRequest) {
       currentHoldings.slice(0, 16).map(async (holding) => {
         const listingId = String(holding.listing_id || "");
         const units = Number(holding.units || 0);
-        if (!listingId || !(units > 0)) {
+        // Daily prices LOOP logged for this holding: the fallback when the
+        // market feed has no intraday points for the range.
+        const dailySeries = async () => {
+          const daily = await supabase
+            .from("investment_price_snapshots")
+            .select("snapshot_at, price")
+            .eq("holding_id", holding.id)
+            .gte("snapshot_at", since)
+            .order("snapshot_at", { ascending: true })
+            .limit(1000);
+          return downsample(
+            (daily.data || [])
+              .map((row: any) => ({ at: String(row.snapshot_at || ""), price: Number(row.price || 0) }))
+              .filter((row) => row.at && row.price > 0)
+              .map((row) => ({ at: row.at, label: labelFor(row.at, range), price: row.price, value: row.price * units, source: "LOOP daily prices" })),
+            maxPointsForRange(range),
+          );
+        };
+        if (!(units > 0)) {
           seriesByHolding[holding.id] = [];
+          return;
+        }
+        if (!listingId) {
+          seriesByHolding[holding.id] = await dailySeries();
           return;
         }
 
@@ -823,7 +845,7 @@ export async function GET(request: NextRequest) {
           .limit(Math.min(2500, Math.max(600, maxPointsForRange(range) * 3)));
 
         if (result.error) {
-          seriesByHolding[holding.id] = [];
+          seriesByHolding[holding.id] = await dailySeries();
           return;
         }
 
@@ -847,10 +869,9 @@ export async function GET(request: NextRequest) {
             source: String(row.source || "stored market observation"),
           }));
 
-        seriesByHolding[holding.id] = downsample(
-          observed,
-          maxPointsForRange(range),
-        );
+        seriesByHolding[holding.id] = observed.length >= 2
+          ? downsample(observed, maxPointsForRange(range))
+          : await dailySeries();
       }),
     );
 

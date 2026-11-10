@@ -523,8 +523,8 @@ function PortfolioChart({ points, costValue, positive, dark }: { points: Array<{
 }
 
 // Widget Asset Mini Chart (Fixed Height, Not Stretched)
-function AssetMiniChart({ points, positive, dark }: { points: Array<{ date: string; value: number }>; positive: boolean; dark: boolean; }) {
-  if (!points || points.length < 2) return <div className={`h-full w-full flex items-center justify-center text-xs font-semibold ${dark ? "text-white/20" : "text-slate-400"}`}>Chart loading...</div>;
+function AssetMiniChart({ points, positive, dark, emptyLabel }: { points: Array<{ date: string; value: number }>; positive: boolean; dark: boolean; emptyLabel?: string }) {
+  if (!points || points.length < 2) return <div className={`h-full w-full flex items-center justify-center px-6 text-center text-xs font-semibold ${dark ? "text-white/30" : "text-slate-400"}`}>{emptyLabel || "No prices for this period yet"}</div>;
   const values = points.map(p => Number(p.value)).filter(v => Number.isFinite(v));
   const rawMin = Math.min(...values); const rawMax = Math.max(...values);
   const spread = Math.max(1, rawMax - rawMin);
@@ -542,12 +542,14 @@ function AssetMiniChart({ points, positive, dark }: { points: Array<{ date: stri
   const max = rawMax + spread * 0.1;
   const pathD = linePath(points, min, Math.max(1, max - min), 100, 15);
   
-  // Format the time strings for the X-axis timestamps
+  // Times for a day's chart, dates for anything longer.
+  const firstStamp = Date.parse(points[0].date); const lastStamp = Date.parse(points[points.length - 1].date);
+  const spansDays = Number.isFinite(firstStamp) && Number.isFinite(lastStamp) && lastStamp - firstStamp > 36 * 3600 * 1000;
   const formatTime = (dateStr: string, isStart = false) => {
     if (dateStr === "Start" || dateStr === "Open") return isStart ? "08:00" : "16:30";
     if (dateStr === "Now") return new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
     const date = new Date(dateStr);
-    if (!isNaN(date.getTime())) return date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    if (!isNaN(date.getTime())) return spansDays ? date.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
     return dateStr;
   }
   const startTime = formatTime(points[0].date, true);
@@ -859,7 +861,7 @@ export function AmplifiedInvestmentsDashboard({
   const [selectedTickerItem, setSelectedTickerItem] = useState<string | null>(null);
   const [showCostBasisDrawer, setShowCostBasisDrawer] = useState(false);
   const [showOtherHoldingsDrawer, setShowOtherHoldingsDrawer] = useState(false);
-  const [sidePanel, setSidePanel] = useState<"summary" | "cost-basis" | "other">(() => (holdings.some(holdingNeedsCostBasis) ? "cost-basis" : "summary"));
+  const [sidePanel, setSidePanel] = useState<"summary" | "cost-basis" | "other">("summary");
   const [otherHoldings, setOtherHoldings] = useState<InvestmentHolding[]>([]);
   const [remotePortfolioHistory, setRemotePortfolioHistory] = useState<RemoteHistoryPayload | null>(null);
   const [remoteAssetMoves, setRemoteAssetMoves] = useState<Record<string, RemoteMovement>>({});
@@ -1071,15 +1073,9 @@ export function AmplifiedInvestmentsDashboard({
   const tableItems = bundledHoldings.map((holding) => {
       const value = holdingValue(holding); const localMove = movementForHolding(holding, snapshots, period); const remoteMove = remoteAssetMoves[assetBundleKey(holding)]; const move = period !== "1D" && remoteMove?.has ? { change: Number(remoteMove.change || 0), pct: Number(remoteMove.pct || 0), has: true } : localMove;
       const observedPoints = observedPointsForHolding(holding);
-      let points = observedPoints.length >= 2
+      const points = observedPoints.length >= 2
         ? observedPoints
         : holdingPeriodPoints(holding, snapshots, period);
-      if (points.length === 1) {
-        points = [
-          { date: "Start", value: points[0].value },
-          { date: "Now", value: points[0].value },
-        ];
-      }
       // Chart geometry now prefers shared market observations. Day move remains
       // a separate previous-close metric and is never used to manufacture points.
       return { holding, value, move, points, allocation: representedValue > 0 ? (value / representedValue) * 100 : 0 };
@@ -1087,7 +1083,8 @@ export function AmplifiedInvestmentsDashboard({
   // Positions worth under £1 are usually sold-out leftovers from a broker import.
   const tinyHoldingCount = bundledHoldings.filter((holding) => holdingValue(holding) < 1).length;
 
-  const activeWidgetAsset = tableItems.find(item => item.holding.id === selectedTickerItem);
+  // The biggest holding is shown until another is picked, so the panel is never empty.
+  const activeWidgetAsset = tableItems.find(item => item.holding.id === selectedTickerItem) || tableItems[0];
 
   const allTableItems = useMemo(() => holdings.map((h) => ({ holding: h, value: holdingValue(h) })).filter((item) => item.value > 0), [holdings]);
   const pieGroups = useMemo(() => Array.from(commandPieGroups(allTableItems, investmentAccounts, investmentPieSettings).values()).filter((group) => group.value > 0 || group.holdings > 0).sort((a, b) => b.value - a.value), [allTableItems, investmentAccounts, investmentPieSettings]);
@@ -1170,7 +1167,7 @@ export function AmplifiedInvestmentsDashboard({
         </div>
 
         {/* MAIN CHART & RIGHT-RAIL CONTAINER */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_400px] xl:grid-cols-[1fr_440px]">
+        <div className="grid grid-cols-1 gap-6">
           <div className="space-y-6">
             <div className={`rounded-3xl border p-6 ${dark ? "border-white/10 bg-[#0c1017]" : "border-slate-200 bg-white"}`}>
               <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
@@ -1301,10 +1298,10 @@ export function AmplifiedInvestmentsDashboard({
             </div>
 
             {/* INTERACTIVE HOLDINGS GRID WITH STICKY CHART */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative items-start mt-6">
+            <div className="grid grid-cols-1 gap-6 relative items-start lg:grid-cols-5">
               
               {/* LEFT COLUMN: TABLE */}
-              <div className={`lg:col-span-2 rounded-3xl border p-6 ${dark ? "border-white/10 bg-[#0c1017]" : "border-slate-200 bg-white"}`}>
+              <div className={`lg:col-span-3 rounded-3xl border p-6 ${dark ? "border-white/10 bg-[#0c1017]" : "border-slate-200 bg-white"}`}>
                 <div className="mb-4 flex items-center justify-between">
                   <div>
                     <h3 className={`text-base font-bold ${dark ? "text-white" : "text-slate-900"}`}>Holdings ({tableItems.length})</h3>
@@ -1393,7 +1390,7 @@ export function AmplifiedInvestmentsDashboard({
                     <tbody className={`divide-y text-xs font-medium ${dark ? "divide-white/5" : "divide-slate-100"}`}>
                       {tableItems.map((item) => {
                         const isUp = item.move.pct >= 0;
-                        const isSelected = selectedTickerItem === item.holding.id;
+                        const isSelected = activeWidgetAsset?.holding.id === item.holding.id;
                         return (
                           <tr key={item.holding.id} onClick={() => setSelectedTickerItem(item.holding.id)} className={`cursor-pointer transition-colors ${isSelected ? (dark ? "bg-white/10" : "bg-slate-100") : (dark ? "hover:bg-white/5" : "hover:bg-slate-50")}`}>
                             <td className="py-3 pl-2">
@@ -1421,101 +1418,110 @@ export function AmplifiedInvestmentsDashboard({
                 </div>
               </div>
 
-              {/* RIGHT COLUMN: STICKY CHART WIDGET */}
-              {/* FIX: Removed vertical height stretching so it doesn't break the layout. It's now a clean, fixed-size card. */}
-              <div className="lg:col-span-1 relative hidden lg:block h-full">
-                 <div className={`sticky top-24 rounded-3xl border p-6 shadow-2xl ${dark ? "border-white/10 bg-[#0c1017]" : "border-slate-200 bg-white"}`}>
-                    {activeWidgetAsset ? (
-                       <div>
-                         {/* Asset Title Bar */}
-                         <div className="flex items-center gap-4 mb-6">
-                           <AssetBadge holding={activeWidgetAsset.holding} dark={dark} />
-                           <div>
-                             <h3 className={`text-xl font-bold ${dark ? "text-white" : "text-slate-900"}`}>{primaryHoldingLabel(activeWidgetAsset.holding)}</h3>
-                             <p className={`text-xs ${dark ? "text-white/40" : "text-slate-500"}`}>{secondaryHoldingLabel(activeWidgetAsset.holding)}</p>
-                           </div>
-                         </div>
-                         
-                         {/* Real Asset Chart Rendering - Fixed to a clean h-56 */}
-                         <div className={`h-56 w-full rounded-2xl border ${dark ? "border-white/10 bg-[#06080c]" : "border-slate-200 bg-slate-50"}`}>
-                           <AssetMiniChart points={activeWidgetAsset.points} positive={activeWidgetAsset.move.pct >= 0} dark={dark} />
-                         </div>
-                         
-                         {/* Financial Snapshot */}
-                         <div className="mt-6 space-y-4">
-                            <div className={`flex items-center justify-between border-b pb-3 ${dark ? "border-white/5" : "border-slate-100"}`}>
-                               <p className={`text-xs font-bold uppercase tracking-wider ${dark ? "text-white/40" : "text-slate-500"}`}>Current Value</p>
-                               <p className={`text-lg font-bold ${dark ? "text-white" : "text-slate-900"}`}>{formatMoney(activeWidgetAsset.value)}</p>
-                            </div>
-                            <div className={`flex items-center justify-between border-b pb-3 ${dark ? "border-white/5" : "border-slate-100"}`}>
-                               <p className={`text-xs font-bold uppercase tracking-wider ${dark ? "text-white/40" : "text-slate-500"}`}>Day Move</p>
-                               <p className={`text-lg font-bold ${activeWidgetAsset.move.pct >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                                 {activeWidgetAsset.move.pct >= 0 ? "+" : ""}{activeWidgetAsset.move.change ? formatMoney(activeWidgetAsset.move.change) : "0.00"} ({activeWidgetAsset.move.pct.toFixed(2)}%)
-                               </p>
-                            </div>
-                            <div className="flex items-center justify-between pb-3">
-                               <p className={`text-xs font-bold uppercase tracking-wider ${dark ? "text-white/40" : "text-slate-500"}`}>Allocation</p>
-                               <p className="text-lg font-bold text-emerald-500">{activeWidgetAsset.allocation.toFixed(2)}%</p>
-                            </div>
-                         </div>
-                       </div>
-                    ) : (
-                       <div className="h-64 flex flex-col items-center justify-center text-center px-4">
-                          <div className={`grid h-12 w-12 place-items-center rounded-full mb-4 ${dark ? "bg-white/5 text-white/30" : "bg-slate-100 text-slate-400"}`}>
-                            <TrendingUp className="h-6 w-6" />
+              {/* RIGHT: the picked holding (the biggest until you pick one) */}
+              <div className="relative hidden h-full lg:col-span-2 lg:block">
+                {activeWidgetAsset ? (() => {
+                  const item = activeWidgetAsset;
+                  const h = item.holding;
+                  const cost = holdingCost(h);
+                  const growth = cost > 0 ? item.value - cost : 0;
+                  const priceDate = String(h.latest_price_date || "").slice(0, 10);
+                  const staleDays = priceDate ? Math.floor((Date.now() - Date.parse(`${priceDate}T12:00:00`)) / 86400000) : 0;
+                  const muted = dark ? "text-white/40" : "text-slate-500";
+                  const strong = dark ? "text-white" : "text-slate-900";
+                  const cell = `rounded-2xl p-3 ${dark ? "bg-white/[0.04]" : "bg-slate-50"}`;
+                  return (
+                    <div className={`sticky top-24 rounded-3xl border p-6 ${dark ? "border-white/10 bg-[#0c1017]" : "border-slate-200 bg-white"}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <AssetBadge holding={h} dark={dark} />
+                          <div className="min-w-0">
+                            <h3 className={`truncate text-lg font-bold ${strong}`}>{primaryHoldingLabel(h)}</h3>
+                            <p className={`truncate text-xs ${muted}`}>{secondaryHoldingLabel(h)}</p>
                           </div>
-                          <p className={`text-sm font-bold mb-1 ${dark ? "text-white/50" : "text-slate-600"}`}>Pick a holding</p>
-                          <p className={`text-xs ${dark ? "text-white/30" : "text-slate-400"}`}>Tap a holding on the left to see its chart.</p>
-                       </div>
-                    )}
-                 </div>
-              </div>
-            </div>
-          </div>
-
-          {/* FAR RIGHT COLUMN (Side Panel for Cost Basis & Summary) */}
-          <div className="h-full relative">
-            <div className="sticky top-24 h-[calc(100vh-7rem)]">
-              {sidePanel === "cost-basis" ? (
-                <CostBasisRail holdings={filteredHoldings} dark={dark} onOpenFull={() => setShowCostBasisDrawer(true)} onClose={() => setSidePanel("summary")} />
-              ) : sidePanel === "other" ? (
-                <OtherHoldingsRail holdings={otherHoldings} snapshots={snapshots} period={period} dark={dark} onClose={() => setSidePanel("summary")} onExpand={() => setShowOtherHoldingsDrawer(true)} />
-              ) : (
-                <div className={`flex h-full flex-col justify-between rounded-3xl border p-6 ${dark ? "border-white/10 bg-[#0c1017]" : "border-slate-200 bg-white"}`}>
-                  <div>
-                    <div className="mb-4 flex items-center justify-between">
-                      <p className={`text-[10px] font-bold uppercase tracking-widest ${dark ? "text-white/40" : "text-slate-500"}`}>Portfolio summary</p>
-                      <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-500">Live sync</span>
-                    </div>
-                    <h3 className={`mb-1 text-2xl font-bold ${dark ? "text-white" : "text-slate-900"}`}>{formatMoney(activeTotalValue)}</h3>
-                    <p className={`mb-6 text-xs ${dark ? "text-white/40" : "text-slate-500"}`}>Across {tableItems.length} holdings</p>
-                    <div className="space-y-4">
-                      <div className={`rounded-2xl border p-4 ${dark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
-                        <div className="mb-1 flex items-center justify-between text-xs">
-                          <span className={dark ? "text-white/40" : "text-slate-500"}>Change over {period === "1D" ? "today" : period}</span>
-                          <span className={`font-bold ${positive ? "text-emerald-500" : "text-rose-500"}`}>{periodMove.has ? `${periodMove.change >= 0 ? "+" : ""}${formatMoney(periodMove.change)} (${periodMove.pct.toFixed(2)}%)` : "—"}</span>
                         </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className={dark ? "text-white/40" : "text-slate-500"}>What you paid</span>
-                          <span className={`font-bold ${dark ? "text-white" : "text-slate-900"}`}>{activeCostValue > 0 ? formatMoney(activeCostValue) : "Not verified"}</span>
+                        <div className="shrink-0 text-right">
+                          <p className={`text-lg font-bold ${strong}`}>{formatMoney(item.value)}</p>
+                          <p className={`text-xs font-bold ${!item.move.has ? muted : item.move.pct >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                            {item.move.has ? `${item.move.pct >= 0 ? "▲" : "▼"} ${Math.abs(item.move.pct).toFixed(2)}% ${period === "1D" ? "today" : period}` : `— ${period === "1D" ? "today" : period}`}
+                          </p>
                         </div>
                       </div>
+
+                      <div className="mt-4 flex justify-end">
+                        <div className={`flex items-center gap-1 rounded-full p-1 ${dark ? "bg-white/5" : "bg-slate-100"}`}>
+                          {PERIODS.map((p) => (
+                            <button key={`asset-period-${p}`} type="button" onClick={() => setPeriod(p)} className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold transition ${period === p ? (dark ? "bg-emerald-500/20 text-emerald-400" : "bg-white text-emerald-700 shadow-sm") : muted}`}>
+                              {p === "MAX" ? "All" : p}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className={`mt-2 h-56 w-full rounded-2xl border ${dark ? "border-white/10 bg-[#06080c]" : "border-slate-200 bg-slate-50"}`}>
+                        <AssetMiniChart points={item.points} positive={item.points.length >= 2 ? item.points[item.points.length - 1].value >= item.points[0].value : item.move.pct >= 0} dark={dark} emptyLabel={staleDays > 4 && priceDate ? `No prices since ${new Date(`${priceDate}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : undefined} />
+                      </div>
+                      {staleDays > 4 && priceDate ? (
+                        <p className="mt-2 text-xs text-amber-600 dark:text-amber-500">Last price from {new Date(`${priceDate}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}. LOOP is fetching it again.</p>
+                      ) : null}
+
+                      <div className="mt-4 grid grid-cols-3 gap-2">
+                        <div className={cell}>
+                          <p className={`text-[10px] font-bold uppercase tracking-wide ${muted}`}>Price</p>
+                          <p className={`mt-0.5 text-sm font-bold ${strong}`}>{unitPriceLabel(h)}</p>
+                        </div>
+                        <div className={cell}>
+                          <p className={`text-[10px] font-bold uppercase tracking-wide ${muted}`}>Units</p>
+                          <p className={`mt-0.5 text-sm font-bold ${strong}`}>{Number(h.units || 0).toLocaleString("en-GB", { maximumFractionDigits: 4 })}</p>
+                        </div>
+                        <div className={cell}>
+                          <p className={`text-[10px] font-bold uppercase tracking-wide ${muted}`}>Share</p>
+                          <p className={`mt-0.5 text-sm font-bold ${strong}`}>{item.allocation.toFixed(1)}%</p>
+                        </div>
+                        <div className={cell}>
+                          <p className={`text-[10px] font-bold uppercase tracking-wide ${muted}`}>Paid per unit</p>
+                          <p className={`mt-0.5 text-sm font-bold ${cost > 0 ? strong : "text-amber-500"}`}>{cost > 0 ? paidPerUnitLabel(averageHoldingPrice(h)) : "Not set"}</p>
+                        </div>
+                        <div className={cell}>
+                          <p className={`text-[10px] font-bold uppercase tracking-wide ${muted}`}>You paid</p>
+                          <p className={`mt-0.5 text-sm font-bold ${strong}`}>{cost > 0 ? formatMoney(cost) : "—"}</p>
+                        </div>
+                        <div className={cell}>
+                          <p className={`text-[10px] font-bold uppercase tracking-wide ${muted}`}>Growth</p>
+                          <p className={`mt-0.5 text-sm font-bold ${cost > 0 ? (growth >= 0 ? "text-emerald-500" : "text-rose-500") : muted}`}>
+                            {cost > 0 ? `${growth >= 0 ? "+" : "−"}${formatMoney(Math.abs(growth))}` : "—"}
+                          </p>
+                          {cost > 0 ? <p className={`text-[10px] ${muted}`}>{growth >= 0 ? "+" : "−"}{Math.abs((growth / cost) * 100).toFixed(1)}%</p> : null}
+                        </div>
+                      </div>
+                      {cost <= 0 ? (
+                        <button type="button" onClick={() => setSidePanel("cost-basis")} className="mt-3 w-full rounded-xl border border-amber-500/20 bg-amber-500/10 py-2 text-xs font-bold text-amber-600 transition hover:bg-amber-500/20 dark:text-amber-500">
+                          Add what you paid
+                        </button>
+                      ) : null}
                     </div>
-                  </div>
-                  <div className="space-y-2 pt-6">
-                    {missingCostBasis.length > 0 ? (
-                      <button type="button" onClick={() => setSidePanel("cost-basis")} className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 py-2.5 text-xs font-bold text-amber-600 dark:text-amber-500 transition hover:bg-amber-500/20">
-                        <AlertTriangle className="h-4 w-4" /> Resolve {missingCostBasis.length} missing cost basis
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              )}
+                  );
+                })() : null}
+              </div>
             </div>
           </div>
 
         </div>
       </div>
+
+      {/* Cost basis and "Other" open as a drawer over the page rather than
+          holding a whole column of the layout open. */}
+      {sidePanel !== "summary" ? (
+        <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+          <button type="button" aria-label="Close" onClick={() => setSidePanel("summary")} className="absolute inset-0 bg-black/30" />
+          <div className="relative h-full w-full max-w-[460px] p-3">
+            {sidePanel === "cost-basis" ? (
+              <CostBasisRail holdings={filteredHoldings} dark={dark} onOpenFull={() => setShowCostBasisDrawer(true)} onClose={() => setSidePanel("summary")} />
+            ) : (
+              <OtherHoldingsRail holdings={otherHoldings} snapshots={snapshots} period={period} dark={dark} onClose={() => setSidePanel("summary")} onExpand={() => setShowOtherHoldingsDrawer(true)} />
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {/* KNOWN GAP (not silently fixed): CostBasisDrawer/OtherHoldingsDrawer
           were referenced here but never actually built anywhere in this
