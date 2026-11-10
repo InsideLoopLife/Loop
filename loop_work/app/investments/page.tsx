@@ -237,7 +237,7 @@ async function InvestmentsContent({ searchParams }: { searchParams?: Promise<{ a
   const householdContext = await getActiveHouseholdContext(supabase, user);
   const dataOwnerUserId = householdContext.dataOwnerUserId || user.id;
 
-  const [peopleResult, pensionAccountsResult, pensionFundsResult, pensionContributionEventsResult, investmentAccountsResult, investmentAccountOwnersResult, investmentPieSettingsResult, investmentHoldingsResult, investmentLotsResult, dbPensionSchemesResult, dbPensionEventsResult, payEventsResult, profileResult, snapTradeConnectionResult, investmentSnapshotsResult, investmentCoveragePlaceholdersResult] = await Promise.all([
+  const [peopleResult, pensionAccountsResult, pensionFundsResult, pensionContributionEventsResult, investmentAccountsResult, investmentAccountOwnersResult, investmentPieSettingsResult, investmentHoldingsResult, investmentLotsResult, dbPensionSchemesResult, dbPensionEventsResult, payEventsResult, profileResult, snapTradeConnectionResult, investmentSnapshotsResult, investmentCoveragePlaceholdersResult, portfolioDailyResult] = await Promise.all([
     supabase.from("people").select("id, name, relationship, avatar_url, linked_user_id").eq("user_id", dataOwnerUserId).order("relationship").returns<Person[]>(),
     supabase.from("pension_accounts").select("id, person_id, label, provider, pension_type, contribution_method, employee_contribution_percent, employer_contribution_percent, employer_ni_topup_percent, employer_ni_topup_enabled, employer_ni_topup_mode, employer_ni_rate_percent, employer_ni_passback_percent, employer_base_salary_basis, fixed_monthly_contribution, annual_platform_fee_percent, fixed_monthly_fee, current_value, value_as_of_date, source_url, contribution_frequency, contribution_day, regular_pay_day, pension_payment_timing, contribution_delay_days, pension_investment_day, pension_investment_timing, contribution_paused, contribution_auto_apply_enabled, contribution_started_on, contribution_ended_on, valuation_mode, notes, last_contribution_projection_at").eq("user_id", dataOwnerUserId).order("created_at", { ascending: false }).returns<PensionAccount[]>(),
     supabase.from("pension_funds").select("id, pension_account_id, fund_name, fund_code, group_label, target_allocation_percent, monthly_contribution_percent, contribution_active, current_value, units, unit_price, annual_fund_fee_percent, price_as_of_date, fee_source_url, notes, glossary_id, performance_annualised_5y_percent, performance_annualised_10y_percent, performance_planning_rate_percent, performance_as_of_date, performance_source_url, performance_status, performance_verified_at, last_provider_refresh_at").eq("user_id", dataOwnerUserId).order("created_at", { ascending: true }).returns<PensionFund[]>(),
@@ -269,6 +269,7 @@ async function InvestmentsContent({ searchParams }: { searchParams?: Promise<{ a
     supabase.from("integration_connections").select("status, external_connection_id, last_synced_at, updated_at").eq("user_id", user.id).eq("provider", "SnapTrade").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("investment_price_snapshots").select("id, holding_id, snapshot_at, snapshot_date, price, units, value, source").eq("user_id", dataOwnerUserId).order("snapshot_at", { ascending: false }).limit(600).returns<InvestmentSnapshot[]>(),
     supabase.from("investment_instrument_coverage_placeholders").select("id, investment_account_id, request_id, query, exchange_hint, status, eta_text, progress, resolved_ticker, resolved_exchange, resolved_asset_name, created_at, updated_at").eq("user_id", dataOwnerUserId).neq("status", "archived").order("created_at", { ascending: false }).limit(100).returns<InvestmentCoveragePlaceholder[]>(),
+    supabase.rpc("loop_portfolio_daily_values", { p_user_id: dataOwnerUserId, p_days: 365 }),
   ]);
 
   // "Since last price check" badges on the pension overview: only real,
@@ -336,6 +337,7 @@ async function InvestmentsContent({ searchParams }: { searchParams?: Promise<{ a
         initialInvestmentViewMode={profileResult.data?.investment_view_mode === "squares" ? "squares" : "lines"}
         initialPensionViewMode={profileResult.data?.pension_view_mode === "full" ? "full" : "cards"}
         investmentDataTier={investmentDataEntitlementForProfile(profileResult.data)}
+        portfolioDailyValues={(portfolioDailyResult?.data ?? []) as any}
         snapTradeConnection={{
           connected: String(snapTradeConnectionResult.data?.status || "").toLowerCase() === "connected" || profileResult.data?.market_data_provider_status === "connected",
           status: snapTradeConnectionResult.data?.status || null,

@@ -447,6 +447,8 @@ export type PensionsInvestmentsClientProps = {
   initialPensionViewMode?: "cards" | "full";
   investmentDataTier?: InvestmentDataEntitlement;
   snapTradeConnection?: SnapTradeConnectionSummary;
+  /** Last whole-portfolio value per day (loop_portfolio_daily_values). */
+  portfolioDailyValues?: Array<{ day: string; value: number }>;
 };
 
 type Modal =
@@ -1005,7 +1007,7 @@ function PotOwnerProfiles({
       <button
         type="button"
         onClick={onClick}
-        className="inline-flex h-9 items-center gap-2 rounded-full bg-white/10 px-2.5 text-xs font-black text-white ring-1 ring-white/15"
+        className="inline-flex h-9 items-center gap-2 rounded-full px-2.5 text-xs text-[var(--muted)] hover:bg-[var(--paper)]"
         title="Manage pot owners"
       >
         <UserPlus className="h-3.5 w-3.5" />
@@ -1016,7 +1018,7 @@ function PotOwnerProfiles({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-9 items-center rounded-full bg-white/10 py-0 pl-1.5 pr-2 text-xs font-black text-white ring-1 ring-white/15"
+      className="inline-flex h-9 items-center rounded-full py-0 pl-1.5 pr-2 text-xs text-[var(--muted)] hover:bg-[var(--paper)]"
       title={`Manage pot owners: ${owners.map((person) => person.name).join(", ")}`}
     >
       <span className="flex -space-x-2">
@@ -1025,7 +1027,7 @@ function PotOwnerProfiles({
         ))}
       </span>
       {owners.length > 5 ? (
-        <span className="ml-2 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px]">
+        <span className="ml-2 rounded-full bg-[var(--paper)] px-1.5 py-0.5 text-[10px]">
           +{owners.length - 5}
         </span>
       ) : null}
@@ -1589,7 +1591,7 @@ function ProfileAvatar({
 
 function AccountTypePill({ type }: { type: string }) {
   return (
-    <span className="inline-flex h-9 items-center rounded-full bg-emerald-300/15 px-3 text-xs font-black uppercase tracking-wide text-emerald-100 ring-1 ring-white/10">
+    <span className="inline-flex items-center rounded-full bg-[var(--pine-wash)] px-2 py-0.5 text-[11px] font-semibold text-[var(--pine-strong)]">
       {accountTypeLabel(type)}
     </span>
   );
@@ -2073,6 +2075,45 @@ function HoldingCard({
     onInfo();
   }
 
+  const checkedAt = holding.last_price_check_at || holding.latest_price_date || holding.updated_at;
+  const checkedDaysAgo = checkedAt ? (Date.now() - new Date(checkedAt).getTime()) / 86400000 : null;
+  const priceStale = checkedDaysAgo != null && checkedDaysAgo > 4;
+  const units = Number(holding.units || 0);
+  const unitsLabel = units >= 100 ? units.toLocaleString("en-GB", { maximumFractionDigits: 2 }) : units.toLocaleString("en-GB", { maximumFractionDigits: 4 });
+  const gain = plReliable ? (
+    <p className={`text-xs font-semibold ${pl >= 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>
+      {pl >= 0 ? "+" : ""}{formatMoney(pl)} · {pct >= 0 ? "+" : ""}{pct.toFixed(1)}%
+    </p>
+  ) : hasFallbackPl ? (
+    <p className={`text-xs font-semibold ${fallbackPl >= 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>
+      {fallbackPl >= 0 ? "+" : ""}{formatMoney(fallbackPl)} today
+    </p>
+  ) : (
+    <p className="text-xs text-[var(--muted)]">Growth needs what you paid</p>
+  );
+  const actions = (
+    <div className="flex items-center gap-0.5" data-no-card-open>
+      <form action={refreshInvestmentHoldingPrice}>
+        <input type="hidden" name="id" value={holding.id} />
+        <button className="grid h-8 w-8 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]" title="Check the price now" aria-label="Check the price now">
+          <RefreshCw className="h-3.5 w-3.5" />
+        </button>
+      </form>
+      <button type="button" onClick={onEdit} className="rounded-full px-2.5 py-1.5 text-xs text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]">Edit</button>
+      <form action={deleteInvestmentHolding}>
+        <input type="hidden" name="id" value={holding.id} />
+        <button className="rounded-full px-2.5 py-1.5 text-xs text-[var(--brick)] hover:bg-[#f6e7e3]" onClick={(event) => { if (!window.confirm(`Delete ${holding.asset_name}?`)) event.preventDefault(); }}>Delete</button>
+      </form>
+    </div>
+  );
+  const meta = (
+    <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
+      {unitsLabel} {units === 1 ? "unit" : "units"} · {priceDisplay(holding)} each
+      {holding.ticker ? ` · ${holding.ticker}` : ""}
+      {priceStale ? <span className="text-[var(--amber)]"> · price {Math.round(checkedDaysAgo!)} days old</span> : null}
+    </p>
+  );
+
   return (
     <div
       role="button"
@@ -2081,159 +2122,46 @@ function HoldingCard({
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") openFromCard(event);
       }}
-      className="group cursor-pointer rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-2xl hover:shadow-slate-200/70 sm:p-5"
-      title="Open detailed chart and holding information"
+      className={`cursor-pointer rounded-[14px] border border-[var(--line)] bg-white transition hover:border-[#c9d1cb] ${investmentViewMode === "squares" ? "p-4" : "px-4 py-3"}`}
+      title="Open chart and details"
     >
-      <div
-        className={
-          investmentViewMode === "squares"
-            ? "grid gap-4"
-            : "grid gap-4 xl:grid-cols-[minmax(300px,1fr)_minmax(300px,420px)_220px] xl:items-center"
-        }
-      >
-        <div>
-          <div className="flex items-start gap-3">
+      {investmentViewMode === "squares" ? (
+        <div className="grid gap-3">
+          <div className="flex min-w-0 items-start gap-3">
             <AssetLogo holding={holding} />
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-lg font-black text-slate-950">
-                  {holding.asset_name}
-                </p>
-                <button
-                  type="button"
-                  onClick={onInfo}
-                  className="grid h-7 w-7 place-items-center rounded-full bg-slate-100 text-slate-600"
-                  title="Holding information"
-                >
-                  <Info className="h-3.5 w-3.5" />
-                </button>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black uppercase text-slate-600">
-                  {holding.asset_kind || "share"}
-                </span>
-                <MarketStatusPill holding={holding} />
-              </div>
-              <p className="mt-1 text-sm font-semibold text-slate-500">
-                {holding.ticker || "No ticker"}
-                {holding.exchange
-                  ? ` · ${exchangeLabel(holding.exchange)}`
-                  : ""}
-                {holding.isin ? ` · ${holding.isin}` : ""} ·{" "}
-                {Number(holding.units).toFixed(8)} units · latest{" "}
-                {priceDisplay(holding)}
-              </p>
-              <p className="mt-1 text-[11px] font-black uppercase tracking-wide text-slate-400">
-                Last checked{" "}
-                {shortRelativeTime(
-                  holding.last_price_check_at ||
-                    holding.latest_price_date ||
-                    holding.updated_at,
-                )}
-                {holding.price_check_status
-                  ? ` · ${holding.price_check_status}`
-                  : ""}
-              </p>
-              {holding.group_label || lots.length ? (
-                <p className="mt-1 text-xs font-semibold text-slate-500">
-                  {holding.group_label || "Manual holding"}
-                  {lots.length ? ` · ${lots.length} purchase lot(s)` : ""}
-                </p>
-              ) : null}
-              {(() => {
-                const original = originalCostSummary(holding, lots);
-                return (
-                  <p className="mt-1 text-xs font-semibold text-slate-500">
-                    {isProviderImportedHolding(holding) &&
-                    !hasVerifiedProviderCostBasis(holding)
-                      ? "Cost basis not supplied by provider · daily movement uses today's opening baseline"
-                      : `Original cost: ${original.cost > 0 ? formatMoney(original.cost) : "not supplied"} · ${original.source}`}
-                  </p>
-                );
-              })()}
-              {lots.length ? (
-                <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  {lots.slice(0, 4).map((lot) => (
-                    <div
-                      key={lot.id}
-                      className="rounded-2xl bg-white px-3 py-2 text-xs font-bold text-slate-500"
-                    >
-                      {lot.purchase_date}: {Number(lot.units).toFixed(8)} @{" "}
-                      {String(lot.price_quote_unit || "").toLowerCase() ===
-                      "gbx"
-                        ? `${(Number(lot.purchase_price || 0) * 100).toFixed(2)}p · ${gbpPriceLabel(Number(lot.purchase_price || 0))}`
-                        : gbpPriceLabel(Number(lot.purchase_price || 0))}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+              <p className="truncate text-[15px] font-semibold text-[var(--ink)]">{holding.asset_name}</p>
+              {meta}
             </div>
           </div>
-        </div>
-        <div className="rounded-[1.5rem] bg-white/80 p-3 ring-1 ring-slate-100">
-          <InvestmentHistoryChart
-            holdingId={holding.id}
-            title={`${holding.asset_name} price history`}
-            mode="price"
-            compact
-            bare
-            showRange={false}
-          />
-        </div>
-        <div
-          className={
-            investmentViewMode === "squares"
-              ? "text-left"
-              : "text-left xl:text-right"
-          }
-        >
-          <p className="text-3xl font-black">{formatMoney(value)}</p>
-          {plReliable ? (
-            <p
-              className={`text-sm font-black ${pl >= 0 ? "text-emerald-700" : "text-red-600"}`}
-            >
-              {formatMoney(pl)} · {pct.toFixed(1)}%
-            </p>
-          ) : hasFallbackPl ? (
-            <p
-              className={`text-sm font-black ${fallbackPl >= 0 ? "text-emerald-700" : "text-red-600"}`}
-            >
-              {fallbackPl >= 0 ? "+" : ""}
-              {formatMoney(fallbackPl)} today
-            </p>
-          ) : (
-            <p className="text-sm font-black text-slate-500">
-              {performanceUnavailableLabel(holding)}
-            </p>
-          )}
-          <div
-            className={
-              investmentViewMode === "squares"
-                ? "mt-2 flex flex-wrap gap-2"
-                : "mt-2 flex flex-wrap gap-2 xl:justify-end"
-            }
-          >
-            <form action={refreshInvestmentHoldingPrice}>
-              <input type="hidden" name="id" value={holding.id} />
-              <button className="rounded-full bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">
-                <RefreshCw className="mr-1 inline h-3.5 w-3.5" />
-                Check price
-              </button>
-            </form>
-            <button
-              type="button"
-              onClick={onEdit}
-              className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"
-            >
-              Edit
-            </button>
-            <form action={deleteInvestmentHolding}>
-              <input type="hidden" name="id" value={holding.id} />
-              <button className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600">
-                Delete
-              </button>
-            </form>
+          <InvestmentHistoryChart holdingId={holding.id} title={`${holding.asset_name} price history`} mode="price" compact bare showRange={false} />
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <p className="text-[20px] font-semibold tracking-tight text-[var(--ink)]">{formatMoney(value)}</p>
+              {gain}
+            </div>
+            {actions}
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_160px_auto_auto]">
+          <div className="flex min-w-0 items-center gap-3">
+            <AssetLogo holding={holding} />
+            <div className="min-w-0">
+              <p className="truncate text-[15px] font-semibold text-[var(--ink)]">{holding.asset_name}</p>
+              {meta}
+            </div>
+          </div>
+          <div className="hidden md:block">
+            <InvestmentHistoryChart holdingId={holding.id} title={`${holding.asset_name} price history`} mode="price" compact bare showRange={false} />
+          </div>
+          <div className="text-left md:min-w-[7.5rem] md:text-right">
+            <p className="text-[17px] font-semibold text-[var(--ink)]">{formatMoney(value)}</p>
+            {gain}
+          </div>
+          {actions}
+        </div>
+      )}
     </div>
   );
 }
@@ -2287,53 +2215,47 @@ function PieStackCard({
   });
   const shouldShowHoldings = open || query.trim().length > 0;
   return (
-    <div className="rounded-[2rem] border border-slate-200 bg-white p-5">
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <div className="rounded-[14px] border border-[var(--line)] bg-white p-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
-            Grouped stocks
-          </p>
-          <h3 className="mt-1 text-xl font-black text-slate-950">{label}</h3>
-          <p className="text-sm font-semibold text-slate-500">
-            {holdings.length} holding(s) · {share.toFixed(1)}% of this pot
+          <h3 className="text-[17px] font-semibold text-[var(--ink)]">{label}</h3>
+          <p className="text-sm text-[var(--muted)]">
+            {holdings.length} holdings · {share.toFixed(0)}% of this pot
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
           <div className="text-left lg:text-right">
-            <p className="text-3xl font-black text-slate-950">
+            <p className="text-[22px] font-semibold tracking-tight text-[var(--ink)]">
               {formatMoney(value)}
             </p>
             {plReliable ? (
-              <p
-                className={`text-sm font-black ${pl >= 0 ? "text-emerald-700" : "text-red-600"}`}
-              >
-                {formatMoney(pl)} · {pct.toFixed(1)}%
+              <p className={`text-xs font-semibold ${pl >= 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>
+                {pl >= 0 ? "+" : ""}{formatMoney(pl)} · {pct >= 0 ? "+" : ""}{pct.toFixed(1)}%
               </p>
             ) : (
-              <p className="text-sm font-black text-slate-500">
-                Performance needs cost price
-              </p>
+              <p className="text-xs text-[var(--muted)]">Growth needs what you paid</p>
             )}
           </div>
           <button
             type="button"
             onClick={onSettings}
-            className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200"
-            title="Grouped stock settings"
+            className="grid h-9 w-9 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"
+            title="Group settings"
           >
             <Settings className="h-4 w-4" />
           </button>
           <button
             type="button"
             onClick={() => setOpen((current) => !current)}
-            className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white"
+            className="inline-flex items-center gap-1 rounded-full bg-[var(--paper)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--line)]"
           >
-            {open ? "Collapse group" : "Open group"}
+            {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            {open ? "Hide holdings" : `Show ${holdings.length} holdings`}
           </button>
         </div>
       </div>
       {open ? (
-        <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-4">
             <AssetAllocationMosaic
               holdings={holdings}
@@ -2348,11 +2270,11 @@ function PieStackCard({
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm font-bold outline-none ring-blue-500 focus:ring-2"
-                  placeholder="Search stocks in this group by ticker or name"
+                  placeholder="Find a holding"
                 />
               </div>
-              <p className="text-xs font-bold text-slate-500">
-                Click any allocation tile to open that holding.
+              <p className="text-xs text-[var(--muted)]">
+                Tap a tile to open it.
               </p>
             </div>
           </div>
@@ -2392,12 +2314,7 @@ function PieStackCard({
             </div>
           </div>
         </div>
-      ) : (
-        <div className="rounded-[1.5rem] border border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">
-          This group is bundled by default · {holdings.length} holding(s) hidden · open
-          the group to inspect individual stocks and allocation.
-        </div>
-      )}
+      ) : null}
       {shouldShowHoldings ? (
         <div
           className={
@@ -6020,7 +5937,7 @@ function MiniValueLine({
 }) {
   if (points.length < 2)
     return (
-      <div className="flex h-36 items-center justify-center rounded-[1.5rem] border border-dashed border-slate-200 bg-slate-50 text-sm font-bold text-slate-400">
+      <div className="flex h-28 items-center justify-center rounded-xl border border-dashed border-[var(--line)] text-xs text-[var(--muted)]">
         {emptyLabel}
       </div>
     );
@@ -6031,41 +5948,24 @@ function MiniValueLine({
   const d = points
     .map((point, index) => {
       const x = (index / Math.max(1, points.length - 1)) * 100;
-      const y = 92 - ((point.value - min) / spread) * 76;
+      const y = 88 - ((point.value - min) / spread) * 72;
       return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(" ");
-  const change = points[points.length - 1].value - points[0].value;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const day = (value: string) => new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="text-xs text-[var(--muted)]">
-          Since tracking began
-        </p>
-        <p
-          className={`text-sm font-black ${change >= 0 ? "text-emerald-700" : "text-red-600"}`}
-        >
-          {change >= 0 ? "+" : ""}
-          {formatMoney(change)}
-        </p>
+      <div className="flex items-baseline justify-between gap-3 text-xs text-[var(--muted)]">
+        <span>Investments since {day(first.date)}</span>
+        <span>{formatMoney(first.value)} → <span className="font-semibold text-[var(--ink)]">{formatMoney(last.value)}</span></span>
       </div>
-      <svg viewBox="0 0 100 100" className="h-28 w-full overflow-visible">
-        <path
-          d="M0,96 L100,96"
-          stroke="currentColor"
-          className="text-slate-100"
-          strokeWidth="2"
-        />
-        <path
-          d={d}
-          fill="none"
-          stroke="currentColor"
-          className={change >= 0 ? "text-emerald-600" : "text-red-500"}
-          strokeWidth="4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="mt-2 h-24 w-full overflow-visible">
+        <path d={`${d} L100,100 L0,100 Z`} fill="#1f6a50" opacity="0.07" />
+        <path d={d} fill="none" stroke="#1f6a50" vectorEffect="non-scaling-stroke" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
+      <p className="mt-1 text-[11px] text-[var(--muted)]">Value, including money added or taken out</p>
     </div>
   );
 }
@@ -7249,6 +7149,7 @@ export function PensionsInvestmentsClient({
   initialPensionViewMode = "cards",
   investmentDataTier,
   snapTradeConnection,
+  portfolioDailyValues = [],
 }: PensionsInvestmentsClientProps) {
   useEffect(() => {
     writeRouteSnapshot<PensionsInvestmentsClientProps>("investments-core", {
@@ -7951,7 +7852,7 @@ export function PensionsInvestmentsClient({
                 </p>
               </div>
               <div className="min-w-0">
-                <MiniValueLine points={allInvestmentSnapshotPoints} emptyLabel="The line starts after the next price refresh" />
+                <MiniValueLine points={portfolioDailyValues.length >= 2 ? portfolioDailyValues.map((row) => ({ date: String(row.day), value: Number(row.value) })) : allInvestmentSnapshotPoints} emptyLabel="The line starts after the next price refresh" />
               </div>
             </div>
             <div className="grid grid-cols-1 border-t border-[var(--line)] sm:grid-cols-3">
@@ -8613,12 +8514,19 @@ export function PensionsInvestmentsClient({
                                 const fundEvents = accountContributionEvents
                                   .filter((event) => event.pension_fund_id === fund.id && event.event_status !== "removed" && event.event_status !== "superseded")
                                   .sort((a, b) => String(b.investment_date || b.contribution_date || "").localeCompare(String(a.investment_date || a.contribution_date || "")));
-                                const latestFundEvent = fundEvents.find((event) => event.source === "provider_statement" || event.source === "manual_reconciliation") || fundEvents[0];
+                                const confirmed = fundEvents.filter((event) => event.source === "provider_statement" || event.source === "manual_reconciliation" || event.event_status === "invested");
+                                const latestConfirmed = confirmed[0];
+                                const waiting = fundEvents.filter((event) => ["awaiting_provider_confirmation", "pending_investment"].includes(String(event.event_status)));
+                                const nextWaiting = waiting[waiting.length - 1];
+                                const providerName = account.provider || "the provider";
                                 return (
                                   <p className="mt-1 text-xs text-[var(--muted)]">
-                                    {latestFundEvent
-                                      ? `Last bought ${formatMoney(Number(latestFundEvent.contribution_amount || 0))} on ${formatThreadDate(latestFundEvent.investment_date || latestFundEvent.contribution_date)} · ${fundEvents.length} payment${fundEvents.length === 1 ? "" : "s"} recorded`
-                                      : "No purchases recorded yet"}
+                                    {latestConfirmed
+                                      ? `Last confirmed ${formatMoney(Number(latestConfirmed.contribution_amount || 0))} on ${formatThreadDate(latestConfirmed.investment_date || latestConfirmed.contribution_date)}`
+                                      : "No confirmed purchases yet"}
+                                    {waiting.length
+                                      ? ` · ${waiting.length} waiting for ${providerName} to confirm (next ${formatMoney(Number(nextWaiting.contribution_amount || 0))}, ${formatThreadDate(nextWaiting.investment_date || nextWaiting.contribution_date)})`
+                                      : ""}
                                   </p>
                                 );
                               })()}
@@ -8890,64 +8798,52 @@ export function PensionsInvestmentsClient({
 
       {experience === "investment-detail" && area === "investments" ? (
         <section className="space-y-5">
-          <div className="flex flex-col gap-4 rounded-[2rem] border border-white/10 bg-white/[0.06] p-4 text-white shadow-[0_30px_120px_-75px_rgba(0,0,0,.95)] backdrop-blur lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={openOverview}
-                className="grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white ring-1 ring-white/10"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-600">
-                  Investment breakdown
-                </p>
-                <h2 className="text-2xl font-black text-slate-950">
-                  {personFilter === "all"
-                    ? "Whole household"
-                    : personFilter === "household"
-                      ? "Shared pots"
-                      : ownerName(people, personFilter)}
-                </h2>
+          {(() => {
+            const visibleHoldings = investmentHoldings.filter((holding) => filteredInvestmentAccounts.some((account) => account.id === holding.investment_account_id));
+            const value = filteredInvestmentAccounts.reduce((sum, account) => sum + accountDisplayValue(account, investmentHoldings.filter((holding) => holding.investment_account_id === account.id)), 0);
+            const cost = visibleHoldings.reduce((sum, holding) => sum + holdingCost(holding), 0);
+            const reliable = !hasUnverifiedProviderCostBasis(visibleHoldings);
+            const growth = value - cost;
+            return (
+              <div className="rounded-[18px] border border-[var(--line)] bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-6 pt-6 md:px-8">
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={openOverview} aria-label="Back" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)]">
+                      <ArrowLeft className="h-5 w-5" />
+                    </button>
+                    <h2 className="text-lg font-semibold text-[var(--ink)]">
+                      Investments · {personFilter === "all" ? "Everyone" : personFilter === "household" ? "Shared" : ownerName(people, personFilter)}
+                    </h2>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {filteredInvestmentAccounts.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => setCollapsedInvestmentAccountIds(allVisibleInvestmentPotsCollapsed ? new Set() : new Set(filteredInvestmentAccounts.map((account) => account.id)))}
+                        className="rounded-full px-3 py-2 text-sm text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"
+                      >
+                        {allVisibleInvestmentPotsCollapsed ? "Open all pots" : "Close all pots"}
+                      </button>
+                    ) : null}
+                    <button type="button" onClick={() => openInvestmentCommand([personFilter])} className="rounded-full px-3 py-2 text-sm text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]">Live view →</button>
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-1 border-t border-[var(--line)] sm:grid-cols-3">
+                  {[
+                    { label: "Value", value: formatMoney(value), tone: "text-[var(--ink)]" },
+                    { label: "Growth so far", value: reliable ? `${growth >= 0 ? "+" : ""}${formatMoney(growth)}` : "Not known yet", tone: reliable ? (growth >= 0 ? "text-[var(--pine)]" : "text-[var(--brick)]") : "text-[var(--ink)]" },
+                    { label: "Pots", value: `${filteredInvestmentAccounts.length}`, tone: "text-[var(--ink)]", note: `${visibleHoldings.length} holdings` },
+                  ].map((stat, i) => (
+                    <div key={stat.label} className={`px-6 py-4 md:px-8 ${i > 0 ? "border-t border-[var(--line)] sm:border-l sm:border-t-0" : ""}`}>
+                      <p className="text-sm text-[var(--muted)]">{stat.label}</p>
+                      <p className={`mt-1 text-[22px] font-semibold tracking-tight ${stat.tone}`}>{stat.value}</p>
+                      {stat.note ? <p className="mt-0.5 text-xs text-[var(--muted)]">{stat.note}</p> : null}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => openInvestmentCommand([personFilter])}
-              className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white"
-            >
-              Open live view
-            </button>
-          </div>
-          {filteredInvestmentAccounts.length ? (
-            <div className="flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setCollapsedInvestmentAccountIds(
-                    allVisibleInvestmentPotsCollapsed
-                      ? new Set()
-                      : new Set(
-                          filteredInvestmentAccounts.map(
-                            (account) => account.id,
-                          ),
-                        ),
-                  )
-                }
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm"
-              >
-                {allVisibleInvestmentPotsCollapsed ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronUp className="h-4 w-4" />
-                )}
-                {allVisibleInvestmentPotsCollapsed
-                  ? "Open all pots"
-                  : "Collapse all pots"}
-              </button>
-            </div>
-          ) : null}
+            );
+          })()}
           {filteredInvestmentAccounts.map((account) => {
             const holdings = investmentHoldings.filter(
               (holding) => holding.investment_account_id === account.id,
@@ -9011,174 +8907,63 @@ export function PensionsInvestmentsClient({
             return (
               <div
                 key={account.id}
-                className="relative overflow-hidden rounded-[2.25rem] border border-white/70 bg-white shadow-[0_28px_90px_-62px_rgba(15,23,42,.75)]"
+                className="overflow-hidden rounded-[18px] border border-[var(--line)] bg-white"
               >
-                <div className="border-b border-slate-100 bg-gradient-to-br from-slate-950 via-slate-900 to-orange-950 p-6 text-white">
-                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="flex gap-4">
+                <div className={`p-6 ${collapsed ? "" : "border-b border-[var(--line)]"}`}>
+                  <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
                       <ProviderLogo provider={account.provider} />
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h2 className="truncate text-lg font-semibold text-[var(--ink)]">{account.label}</h2>
                           <AccountTypePill type={account.account_type} />
-                          <PotOwnerProfiles
-                            people={people}
-                            account={account}
-                            ownerRows={investmentAccountOwners}
-                            onClick={() =>
-                              setModal({
-                                type: "investment-account-owners",
-                                account,
-                              })
-                            }
-                          />
                         </div>
-                        <div className="mt-3 flex items-center gap-2">
-                          <h2 className="text-3xl font-black tracking-tight">
-                            {account.label}
-                          </h2>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setModal({
-                                type: "edit-investment-account",
-                                account,
-                              })
-                            }
-                            className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-slate-100 ring-1 ring-white/15 hover:bg-white/15"
-                            title="Pot settings"
-                          >
-                            <Settings className="h-4 w-4" />
-                          </button>
-                          {holdings.length > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setModal({
-                                  type: "organise-investment-pies",
-                                  account,
-                                  holdings,
-                                })
-                              }
-                              className="grid h-9 w-9 place-items-center rounded-full bg-orange-400/20 text-orange-100 ring-1 ring-orange-200/30 hover:bg-orange-400/30"
-                              title="Edit all assets / organise into groups"
-                            >
-                              <Layers className="h-4 w-4" />
-                            </button>
-                          ) : null}
-                        </div>
-                        <p className="mt-1 text-sm font-semibold text-slate-300">
-                          {account.provider} · {holdings.length} holding(s) ·{" "}
-                          {fundCount} fund/ETF item(s)
+                        <p className="truncate text-sm text-[var(--muted)]">
+                          {account.provider} · {holdings.length} holding{holdings.length === 1 ? "" : "s"}
+                          {isIsaAccount ? ` · ISA ${isaInfo.year}: ${formatMoney(isaInfo.remaining)} allowance left` : ""}
+                          {providerCash > 0.5 ? ` · ${formatMoney(providerCash)} cash` : ""}
                         </p>
-                        <div className="mt-2 flex flex-wrap gap-2 text-xs font-black">
-                          {providerCash > 0.5 ? (
-                            <span className="rounded-full bg-amber-300/15 px-3 py-1 text-amber-100 ring-1 ring-amber-200/20">
-                              Cash available {formatMoney(providerCash)}
-                            </span>
-                          ) : null}
-                          {cashBreakdown.investable > 0.01 &&
-                          cashBreakdown.dividends > 0.01 ? (
-                            <span className="rounded-full bg-white/10 px-3 py-1 text-slate-100 ring-1 ring-white/15">
-                              main {formatMoney(cashBreakdown.investable)} ·
-                              dividends {formatMoney(cashBreakdown.dividends)}
-                            </span>
-                          ) : null}
-                          {isIsaAccount ? (
-                            <span className="rounded-full bg-blue-300/15 px-3 py-1 text-blue-100 ring-1 ring-blue-200/20">
-                              ISA {isaInfo.year}: used{" "}
-                              {formatMoney(isaInfo.subscribed)} · remaining{" "}
-                              {formatMoney(isaInfo.remaining)}
-                            </span>
-                          ) : null}
-                        </div>
                       </div>
+                      <PotOwnerProfiles
+                        people={people}
+                        account={account}
+                        ownerRows={investmentAccountOwners}
+                        onClick={() => setModal({ type: "investment-account-owners", account })}
+                      />
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-[160px_1fr_1fr_64px] lg:min-w-[580px]">
+                    <div className="flex items-center gap-4 lg:gap-6">
                       <button
                         type="button"
-                        onClick={() =>
-                          setExpandedInvestmentChartId(
-                            expandedInvestmentChartId === account.id
-                              ? null
-                              : account.id,
-                          )
-                        }
-                        className="rounded-3xl bg-white/10 p-2 text-left transition hover:bg-white/15"
-                        title="Open larger pot history chart"
+                        onClick={() => setExpandedInvestmentChartId(expandedInvestmentChartId === account.id ? null : account.id)}
+                        className="hidden w-40 rounded-xl p-1 text-left hover:bg-[var(--paper)] sm:block"
+                        title="Show a larger chart"
                       >
-                        <InvestmentHistoryChart
-                          accountId={account.id}
-                          title="Pot sparkline"
-                          mode="value"
-                          compact
-                          bare
-                          showRange={false}
-                        />
+                        <InvestmentHistoryChart accountId={account.id} title="Pot sparkline" mode="value" compact bare showRange={false} />
                       </button>
-                      <div className="rounded-3xl bg-white/10 p-4 text-right">
-                        <p className="text-xs font-black uppercase text-slate-300">
-                          Value
-                        </p>
-                        <p className="mt-1 text-2xl font-black">
-                          {formatMoney(total)}
-                        </p>
-                      </div>
-                      <div className="rounded-3xl bg-white/10 p-4 text-right">
-                        <p className="text-xs font-black uppercase text-slate-300">
-                          Performance
-                        </p>
+                      <div className="text-right">
+                        <p className="text-[22px] font-semibold tracking-tight text-[var(--ink)]">{formatMoney(total)}</p>
                         {accountPlReliable ? (
-                          <p
-                            className={`mt-1 text-2xl font-black ${accountPl >= 0 ? "text-emerald-100" : "text-red-100"}`}
-                          >
-                            {formatMoney(accountPl)}
-                          </p>
+                          <p className={`text-xs font-semibold ${accountPl >= 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>{accountPl >= 0 ? "+" : ""}{formatMoney(accountPl)} growth</p>
+                        ) : accountDayMovement.has ? (
+                          <p className={`text-xs font-semibold ${accountDayMovement.change >= 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>{accountDayMovement.change >= 0 ? "+" : ""}{formatMoney(accountDayMovement.change)} today</p>
                         ) : (
-                          <>
-                            <p
-                              className={`mt-1 text-2xl font-black ${accountDayMovement.has ? (accountDayMovement.change >= 0 ? "text-emerald-100" : "text-red-100") : "text-slate-100"}`}
-                            >
-                              {accountDayMovement.has
-                                ? `${accountDayMovement.change >= 0 ? "+" : ""}${formatMoney(accountDayMovement.change)}`
-                                : "—"}
-                            </p>
-                            <p className="mt-1 text-[11px] font-bold text-slate-300">
-                              {accountDayMovement.has
-                                ? "Today from stored movement"
-                                : "True P/L needs broker cost basis"}
-                            </p>
-                          </>
+                          <p className="text-xs text-[var(--muted)]">Growth needs what you paid</p>
                         )}
                       </div>
-                      <div className="flex h-full min-h-[5.5rem] flex-col items-center justify-center gap-2 rounded-3xl bg-white/10 py-2 ring-1 ring-white/10">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            toggleInvestmentAccountCollapse(account.id)
-                          }
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10 text-white hover:bg-white/15"
-                          title={collapsed ? "Open pot" : "Collapse pot"}
-                        >
-                          {collapsed ? (
-                            <Plus className="h-3.5 w-3.5" />
-                          ) : (
-                            <span className="text-xl leading-none">−</span>
-                          )}
+                      <div className="flex items-center gap-0.5">
+                        <button type="button" onClick={() => setModal({ type: "edit-investment-account", account })} className="grid h-9 w-9 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]" title="Pot settings" aria-label="Pot settings">
+                          <Settings className="h-4 w-4" />
                         </button>
-                        <AccountSourceMark account={account} />
+                        <button type="button" onClick={() => toggleInvestmentAccountCollapse(account.id)} className="grid h-9 w-9 place-items-center rounded-full text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]" title={collapsed ? "Show holdings" : "Hide holdings"} aria-label={collapsed ? "Show holdings" : "Hide holdings"} aria-expanded={!collapsed}>
+                          {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                        </button>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="p-6">
-                  {collapsed ? (
-                    <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm font-bold text-slate-500">
-                      Pot collapsed · {holdings.length} holding(s) ·{" "}
-                      {formatMoney(total)} current value. Use the + button in
-                      the header to reopen holdings and actions.
-                    </div>
-                  ) : (
+                <div className={collapsed ? "hidden" : "p-6"}>
+                  {collapsed ? null : (
                     <>
                       {expandedInvestmentChartId === account.id ? (
                         <div className="mb-5 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_480px]">
@@ -9322,13 +9107,13 @@ export function PensionsInvestmentsClient({
                         ))}
                         {holdings.length === 0 &&
                         pendingCoverage.length === 0 ? (
-                          <div className="rounded-3xl border border-dashed border-slate-300 p-5 text-sm font-semibold text-slate-500">
-                            No holdings yet. Search a stock, ETF or provider
-                            fund and then add the units you own.
+                          <div className="rounded-[14px] border border-dashed border-[var(--line)] p-5 text-sm text-[var(--muted)]">
+                            No holdings yet. Add a stock, ETF or fund and how
+                            many units you own.
                           </div>
                         ) : null}
                       </div>
-                      <div className="mt-5 flex flex-wrap gap-2">
+                      <div className="mt-5 flex flex-wrap items-center gap-1">
                         <button
                           onClick={() =>
                             setModal({
@@ -9336,7 +9121,7 @@ export function PensionsInvestmentsClient({
                               accountId: account.id,
                             })
                           }
-                          className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white"
+                          className="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white"
                         >
                           <Plus className="h-4 w-4" /> Add holding
                         </button>
@@ -9348,11 +9133,10 @@ export function PensionsInvestmentsClient({
                             onClick={() =>
                               setModal({ type: "moneybox-allocation", account })
                             }
-                            className="inline-flex items-center gap-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700"
-                            title="Set the Moneybox fund/ETF allocation, regular contribution, estimated buy delay and optional current value anchor."
+                            className="rounded-full px-4 py-2 text-sm text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"
+                            title="Set the Moneybox fund split, regular contribution and buy delay."
                           >
-                            <PiggyBank className="h-4 w-4" /> Configure Moneybox
-                            allocation
+                            Moneybox split
                           </button>
                         ) : null}
                         {String(
@@ -9364,7 +9148,7 @@ export function PensionsInvestmentsClient({
                               refreshSnapTradeInvestmentAccount(account)
                             }
                             disabled={syncingSnapTradeAccountId !== null}
-                            className="inline-flex items-center gap-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700"
+                            className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"
                             title="Refresh this imported broker account and replace any account-value placeholder with position-level stock/ETF holdings when SnapTrade returns them."
                           >
                             <RefreshCw
@@ -9372,7 +9156,7 @@ export function PensionsInvestmentsClient({
                             />
                             {syncingSnapTradeAccountId === account.id
                               ? "Refreshing positions…"
-                              : "Refresh SnapTrade positions"}
+                              : "Refresh from broker"}
                           </button>
                         ) : null}
                         {holdings.length > 0 ? (
@@ -9385,10 +9169,10 @@ export function PensionsInvestmentsClient({
                                 holdings,
                               })
                             }
-                            className="inline-flex items-center gap-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700"
-                            title="Assign imported holdings into your own Trading 212 groups when the broker does not expose group membership."
+                            className="rounded-full px-4 py-2 text-sm text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"
+                            title="Group holdings into your own pies."
                           >
-                            <Layers className="h-4 w-4" /> Organise into pies
+                            Organise into pies
                           </button>
                         ) : null}
                         {account.provider
@@ -9401,10 +9185,9 @@ export function PensionsInvestmentsClient({
                                 accountId: account.id,
                               })
                             }
-                            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700"
+                            className="rounded-full px-4 py-2 text-sm text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]"
                           >
-                            <FileSpreadsheet className="h-4 w-4" /> Bulk import
-                            Trading 212 group
+                            Import a Trading 212 pie
                           </button>
                         ) : null}
                       </div>
