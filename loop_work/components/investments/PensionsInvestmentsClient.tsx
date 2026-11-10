@@ -1893,6 +1893,13 @@ function inferredInvestmentGroupLabel(
   if (explicit && !/^Trading 212 .+ bundle$/i.test(explicit)) return explicit;
   return "";
 }
+/** Green for up, red for down, stronger with size (full strength at `cap` %). */
+function moveTint(pct: number | null, cap: number) {
+  if (pct === null || !Number.isFinite(pct) || Math.abs(pct) < 0.005) return "rgba(148, 163, 184, 0.12)";
+  const strength = 0.1 + 0.32 * Math.min(1, Math.abs(pct) / cap);
+  return pct > 0 ? `rgba(16, 185, 129, ${strength.toFixed(3)})` : `rgba(239, 68, 68, ${strength.toFixed(3)})`;
+}
+
 function AssetAllocationMosaic({
   holdings,
   total,
@@ -1924,29 +1931,41 @@ function AssetAllocationMosaic({
       className={`${compact ? "h-48" : "h-64"} flex flex-wrap gap-1 overflow-hidden rounded-[1.75rem] bg-slate-100 p-1 ring-1 ring-white/80`}
     >
       {items.map((item) => {
-        const positive = item.pl >= 0;
         const basis = `${Math.max(compact ? 12 : 18, Math.min(compact ? 42 : 52, item.share * (compact ? 1.45 : 1.85)))}%`;
-        const tileClass = `flex h-full min-h-[4.1rem] flex-col items-center justify-center rounded-[1.35rem] p-2 text-center ring-1 ring-white/70 ${positive ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`;
+        // Top of the tile is today, bottom is since you bought: each end is
+        // green or red, stronger the bigger the move, blended between.
+        const dayPctRaw = Number(item.holding.day_change_percent);
+        const dayPct = Number.isFinite(dayPctRaw) && item.holding.day_change_percent !== null ? dayPctRaw : null;
+        const dayMove = holdingDayMoveValue(item.holding);
+        const hasCost = item.cost > 0;
+        const tileClass = "flex h-full min-h-[4.1rem] flex-col items-center justify-center rounded-[1.35rem] p-2 text-center text-slate-900 ring-1 ring-white/70";
         const tileStyle = {
           flexGrow: Math.max(5, item.share),
           flexBasis: basis,
+          backgroundImage: `linear-gradient(to bottom, ${moveTint(dayPct, 3)}, ${moveTint(hasCost ? item.pct : null, 60)})`,
         };
         const content = (
           <>
             <AssetLogo holding={item.holding} size="sm" />
             <p className="mt-1 max-w-full truncate text-xs font-black text-slate-950">
               {item.holding.ticker || item.holding.asset_name}
+              <span className="ml-1 font-semibold text-slate-500">{item.share.toFixed(1)}%</span>
             </p>
-            <p className="text-[11px] font-black">
-              {item.share.toFixed(1)}% ·{" "}
-              {isPriceUnverified(item.holding) ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
-                  <Loader2 className="h-2.5 w-2.5 animate-spin" /> Processing
-                </span>
-              ) : (
-                <>{item.pct >= 0 ? "+" : ""}{item.pct.toFixed(1)}%</>
-              )}
-            </p>
+            {isPriceUnverified(item.holding) ? (
+              <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Processing
+              </span>
+            ) : (
+              <>
+                <p className={`text-sm font-black ${dayPct === null || dayPct === 0 ? "text-slate-500" : dayPct > 0 ? "text-emerald-800" : "text-red-700"}`}>
+                  {dayPct === null ? "No move yet today" : `${dayPct > 0 ? "+" : ""}${dayPct.toFixed(2)}%`}
+                  {dayPct !== null && dayMove !== null ? <span className="ml-1 text-[11px] font-bold">{signedGbp(dayMove)}</span> : null}
+                </p>
+                <p className={`text-[11px] font-bold ${!hasCost ? "text-slate-500" : item.pct >= 0 ? "text-emerald-800" : "text-red-700"}`}>
+                  {hasCost ? `${item.pct >= 0 ? "+" : ""}${item.pct.toFixed(1)}% all time` : "All time: add what you paid"}
+                </p>
+              </>
+            )}
           </>
         );
         return onSelect ? (
@@ -2202,6 +2221,9 @@ function PieStackCard({
   const pct = cost > 0 ? (pl / cost) * 100 : 0;
   const plReliable = !hasUnverifiedProviderCostBasis(holdings);
   const share = accountTotal > 0 ? (value / accountTotal) * 100 : 0;
+  const dayMoves = holdings.map(holdingDayMoveValue).filter((move): move is number => move !== null && Number.isFinite(move));
+  const dayChange = dayMoves.reduce((sum, move) => sum + move, 0);
+  const dayPct = value - dayChange > 0 ? (dayChange / (value - dayChange)) * 100 : 0;
   const dividendYield = Number(
     pieSetting?.expected_dividend_yield_percent || 0,
   );
@@ -2232,9 +2254,14 @@ function PieStackCard({
             <p className="text-[22px] font-semibold tracking-tight text-[var(--ink)]">
               {formatMoney(value)}
             </p>
+            {dayMoves.length ? (
+              <p className={`text-sm font-semibold ${Math.abs(dayChange) < 0.005 ? "text-[var(--muted)]" : dayChange > 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>
+                {signedGbp(dayChange)} · {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}% today
+              </p>
+            ) : null}
             {plReliable ? (
               <p className={`text-xs font-semibold ${pl >= 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>
-                {pl >= 0 ? "+" : ""}{formatMoney(pl)} · {pct >= 0 ? "+" : ""}{pct.toFixed(1)}%
+                {pl >= 0 ? "+" : ""}{formatMoney(pl)} · {pct >= 0 ? "+" : ""}{pct.toFixed(1)}% all time
               </p>
             ) : (
               <p className="text-xs text-[var(--muted)]">Growth needs what you paid</p>
