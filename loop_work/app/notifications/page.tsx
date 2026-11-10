@@ -130,7 +130,8 @@ export default async function NotificationsPage({ searchParams }: { searchParams
             const approval = type.includes("allocation") || type.includes("approval") || type.includes("profile_claim");
             const invite = type.includes("household_invite");
             const period = notification.period_key || "week";
-            const hasPeriodToggle = type.includes("investment") || type.includes("weekly_progress") || type.includes("weekly_insight");
+            const writeOff = type === "investment_write_off_approval";
+            const hasPeriodToggle = !writeOff && (type.includes("investment") || type.includes("weekly_progress") || type.includes("weekly_insight"));
             return (
               <article key={notification.id} className={`rounded-3xl border p-5 ${tone(notification.status, notification.severity, category)}`}>
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -142,7 +143,7 @@ export default async function NotificationsPage({ searchParams }: { searchParams
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="font-black text-slate-950">{notification.title}</h2>
                         {invite ? <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-black uppercase text-amber-700">Invite — action needed</span> : null}
-                        {approval ? <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-black uppercase text-emerald-700">Needs decision</span> : null}
+                        {writeOff && notification.action_status === "accepted" ? <span className="rounded-full bg-slate-200 px-2 py-1 text-[11px] font-black uppercase text-slate-700">Written off</span> : writeOff && notification.action_status === "declined" ? <span className="rounded-full bg-slate-200 px-2 py-1 text-[11px] font-black uppercase text-slate-700">Kept</span> : approval && notification.status === "unread" ? <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-black uppercase text-emerald-700">Needs decision</span> : null}
                         <span className="rounded-full bg-white/80 px-2 py-1 text-[11px] font-black uppercase text-slate-500">{category}</span>
                         <span className="rounded-full bg-white/80 px-2 py-1 text-[11px] font-black uppercase text-slate-500">{notification.severity}</span>
                       </div>
