@@ -336,6 +336,8 @@ async function accountAvatarUrlFromForm(
       const { data } = supabase.storage.from("user-avatars").getPublicUrl(path);
       return data.publicUrl;
     }
+    // Images belong in Storage: inline data URLs end up in every page that shows them.
+    if (process.env.NODE_ENV === "production") throw new Error("That image couldn't be uploaded. Please try again.");
     const buffer = Buffer.from(await file.arrayBuffer());
     return `data:${file.type};base64,${buffer.toString("base64")}`;
   }
@@ -361,6 +363,8 @@ async function householdImageUrlFromForm(
       const { data } = supabase.storage.from("household-images").getPublicUrl(path);
       return data.publicUrl;
     }
+    // Images belong in Storage: inline data URLs end up in every page that shows them.
+    if (process.env.NODE_ENV === "production") throw new Error("That image couldn't be uploaded. Please try again.");
     const buffer = Buffer.from(await file.arrayBuffer());
     return `data:${file.type};base64,${buffer.toString("base64")}`;
   }

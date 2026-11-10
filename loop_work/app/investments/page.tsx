@@ -245,7 +245,22 @@ async function InvestmentsContent({ searchParams }: { searchParams?: Promise<{ a
     supabase.from("investment_account_owners").select("investment_account_id, person_id").eq("user_id", dataOwnerUserId).returns<InvestmentAccountOwner[]>(),
     supabase.from("investment_pie_settings").select("id, investment_account_id, group_label, monthly_reinvest_amount, reinvest_frequency, expected_dividend_yield_percent, auto_reinvest_dividends, notes").eq("user_id", dataOwnerUserId).returns<InvestmentPieSetting[]>(),
     supabase.from("investment_holdings").select("id, investment_account_id, asset_name, ticker, exchange, group_label, asset_kind, isin, units, average_buy_price, latest_price, latest_price_date, currency, annual_asset_fee_percent, target_allocation_percent, price_polling_enabled, price_quote_unit, source_url, native_latest_price, native_currency, native_exchange, latest_fx_rate_to_gbp, latest_fx_source, previous_close_price_gbp, previous_close_native_price, previous_close_native_currency, previous_close_at, day_change_gbp, day_change_percent, day_change_native, day_change_native_percent, cost_basis_status, imported_invested_value, imported_current_value, imported_result_value, imported_account_currency, import_source_type, external_provider, external_position_raw, price_check_status, instrument_resolution_status, instrument_resolution_notes, last_price_check_at, updated_at, notes").eq("user_id", dataOwnerUserId).neq("record_status", "archived").order("created_at", { ascending: true }).returns<InvestmentHolding[]>(),
-    supabase.from("investment_purchase_lots").select("id, holding_id, purchase_date, units, purchase_price, price_quote_unit, external_transaction_id, external_source, total_cost, fees, notes").eq("user_id", dataOwnerUserId).order("purchase_date", { ascending: true }).returns<InvestmentLot[]>(),
+    // Only lots for holdings still held, fetched in pages: a response stops at
+    // 1,000 rows, and this household already has ~1,000 lots.
+    (async () => {
+      const rows: InvestmentLot[] = [];
+      for (let from = 0; from < 20000; from += 1000) {
+        const { data, error } = await supabase.from("investment_purchase_lots")
+          .select("id, holding_id, purchase_date, units, purchase_price, price_quote_unit, external_transaction_id, external_source, total_cost, fees, notes, investment_holdings!inner(record_status)")
+          .eq("user_id", dataOwnerUserId).neq("investment_holdings.record_status", "archived")
+          .order("purchase_date", { ascending: true }).order("id", { ascending: true })
+          .range(from, from + 999);
+        if (error) return { data: rows, error };
+        rows.push(...(data ?? []).map(({ investment_holdings: _h, ...lot }: any) => lot as InvestmentLot));
+        if (!data || data.length < 1000) break;
+      }
+      return { data: rows, error: null };
+    })(),
     supabase.from("defined_benefit_pensions").select("id, person_id, scheme_name, provider, scheme_section, accrual_rate, revaluation_rate_percent, rules_source_url, rules_source_type, rules_confidence, notes").eq("user_id", dataOwnerUserId).order("created_at", { ascending: false }).returns<DbPensionScheme[]>(),
     supabase.from("db_pension_service_events").select("id, db_pension_id, band_label, pensionable_pay, contribution_percent, start_date, end_date, notes").eq("user_id", dataOwnerUserId).order("start_date", { ascending: true }).returns<DbPensionServiceEvent[]>(),
     supabase.from("pay_events").select("id, person_id, gross_annual_salary, monthly_take_home_override, effective_from, effective_until").eq("user_id", dataOwnerUserId).order("effective_from", { ascending: true }).returns<PayEvent[]>(),

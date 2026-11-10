@@ -1,3 +1,4 @@
+import { createPageTimer } from "@/lib/perf/timing";
 import {
   getChildCostMonthlyAmount as sharedChildCostMonthlyAmount,
   getIncomeEntryMonthlyAmount as sharedIncomeEntryMonthlyAmount,
@@ -597,6 +598,7 @@ function buildMonthPlan({
 }
 
 async function DashboardContent({ searchParams }: { searchParams?: Promise<{ month?: string; year?: string; person?: string }> }) {
+  const timer = createPageTimer("dashboard");
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const selectedMonth = resolvedSearchParams.month || currentMonth();
   const selectedYear = Number(resolvedSearchParams.year || selectedMonth.slice(0, 4) || new Date().getFullYear());
@@ -604,17 +606,17 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
   const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await timer.time("auth", supabase.auth.getUser());
 
   if (!user) redirect("/login");
 
-  const householdContext = await getActiveHouseholdContext(supabase, user);
+  const householdContext = await timer.time("household", getActiveHouseholdContext(supabase, user));
   const dataOwnerUserId = user.id;
   const dataClient = supabase;
   const householdVisibleFilter = visibleDataOrFilter(householdContext);
   const wealthUserIds = householdContext.householdId ? householdContext.memberUserIds : [dataOwnerUserId];
 
-  const [{ data: profile }, { data: dashboardPrefs }, { data: categories }, { data: childCosts }, { data: people }, { data: payEvents }, { data: mortgageDeals }, { data: plannedItems }, { data: incomeEntries }, { data: dealBills }, { data: payOverrides }, wealthSummary, investmentPensionPerformance, { data: positionSnapshots }, { data: pensionSnapshots }, { data: pensionContributionEvents }, { data: pensionPerformanceAssumptions }, insightEvidence] = await Promise.all([
+  const [{ data: profile }, { data: dashboardPrefs }, { data: categories }, { data: childCosts }, { data: people }, { data: payEvents }, { data: mortgageDeals }, { data: plannedItems }, { data: incomeEntries }, { data: dealBills }, { data: payOverrides }, wealthSummary, investmentPensionPerformance, { data: positionSnapshots }, { data: pensionSnapshots }, { data: pensionContributionEvents }, { data: pensionPerformanceAssumptions }, insightEvidence] = await timer.time("main_queries", Promise.all([
     dataClient
       .from("financial_profiles")
       .select("name, annual_salary, monthly_take_home, monthly_dividends, pension_percent, student_loan_plan, monthly_mortgage, monthly_savings_target")
@@ -674,8 +676,8 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
       .select("id, pay_event_id, person_id, month, statutory_pay, occupational_pay, gross_pay, net_pay_override")
       .eq("user_id", dataOwnerUserId)
       .returns<PayEventOverride[]>(),
-    buildWealthSummary(dataClient, dataOwnerUserId, selectedMonth).catch(() => null),
-    buildMonthlyInvestmentPensionPerformance(dataClient, wealthUserIds, selectedMonth).catch(() => null),
+    timer.time("wealthSummary", buildWealthSummary(dataClient, dataOwnerUserId, selectedMonth).catch(() => null)),
+    timer.time("perf", buildMonthlyInvestmentPensionPerformance(dataClient, wealthUserIds, selectedMonth).catch(() => null)),
     dataClient
       .from("financial_position_snapshots")
       .select("snapshot_date, net_worth, total_assets, total_liabilities, investment_value, savings_value, pension_value, property_equity")
@@ -703,8 +705,8 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
       .in("user_id", wealthUserIds)
       .order("as_of_date", { ascending: false })
       .returns<PensionPerformanceAssumption[]>(),
-    buildDashboardInsightEvidence(dataClient, wealthUserIds, `${selectedYear}-01-01`),
-  ]);
+    timer.time("insights", buildDashboardInsightEvidence(dataClient, wealthUserIds, `${selectedYear}-01-01`)),
+  ]));
 
   const typedProfile = profile as FinancialProfile | null;
   const typedCategories = (categories ?? []) as SpendingCategory[];
@@ -720,11 +722,11 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
   }
   let rawPayRows = ((payEvents ?? []) as PayEvent[]);
   if (rawPayRows.length === 0 && peopleRows.length > 0) {
-    const { data: payByPerson } = await dataClient
+    const { data: payByPerson } = await timer.time("payByPerson", dataClient
       .from("pay_events")
       .select("*")
       .in("person_id", peopleRows.map((person) => person.id))
-      .returns<PayEvent[]>();
+      .returns<PayEvent[]>());
     rawPayRows = (payByPerson ?? []) as PayEvent[];
   }
   const payRows = rawPayRows.map((event) => ({ ...event, overrides: overridesByEvent.get(event.id) || [] }));
@@ -949,12 +951,13 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
     next_best_action: { value: nextAction.title, delta: "Highest-value evidenced action", attention: { title: nextAction.title, body: nextAction.body }, source: "renewals + freshness + Money in & out", href: nextAction.href },
   };
 
-  const { data: dashboardWidgets } = await dataClient
+  const { data: dashboardWidgets } = await timer.time("widgets", dataClient
     .from("user_dashboard_widgets")
     .select("*")
     .eq("user_id", dataOwnerUserId)
-    .order("layout_y", { ascending: true });
+    .order("layout_y", { ascending: true }));
 
+  timer.log();
   return (
     <>
       <main className="loop-overview-page mx-auto w-full max-w-[2000px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">

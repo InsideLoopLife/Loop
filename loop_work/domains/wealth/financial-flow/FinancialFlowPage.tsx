@@ -1,3 +1,4 @@
+import { createPageTimer } from "@/lib/perf/timing";
 import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
@@ -918,6 +919,7 @@ function DetailPanel({ activeTab, month, incomeLines, spendRows, savingsRows }: 
 }
 
 async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{ tab?: string; person?: string; people?: string; month?: string }> }) {
+  const timer = createPageTimer("financial-flow");
   const params = searchParams ? await searchParams : {};
   // Income and Spending live on their own pages; old ?tab= links go straight there.
   if (params.tab === "income" || params.tab === "spending") {
@@ -925,7 +927,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
   }
   const activeTab: TabKey = tabs.some((tab) => tab.key === params.tab) ? (params.tab as TabKey) : "flow";
   const month = parseMonth(params.month);
-  const { supabase, user, householdContext } = await requireWealthPageAccess();
+  const { supabase, user, householdContext } = await timer.time("auth_household", requireWealthPageAccess());
   const memberFilter = householdMemberDataOrFilter(householdContext);
   const visibleFilter = visibleDataOrFilter(householdContext);
   const allocationFilter = householdContext.householdId
@@ -934,7 +936,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
 
   const cachedSavingsRateDeals = activeTab === "savings" ? await getCachedSavingsRateDeals() : [];
 
-  const [profileResult, peopleResult, payResult, incomeResult, plannedResult, spendingEntriesResult, categoriesResult, categoryGroupsResult, accountsResult, pensionsResult, movementsResult, potsResult, potAllocationsResult, dealsResult, childCostsResult] = await Promise.all([
+  const [profileResult, peopleResult, payResult, incomeResult, plannedResult, spendingEntriesResult, categoriesResult, categoryGroupsResult, accountsResult, pensionsResult, movementsResult, potsResult, potAllocationsResult, dealsResult, childCostsResult] = await timer.time("main_queries", Promise.all([
     supabase.from("app_user_profiles").select("*").eq("user_id", user.id).maybeSingle(),
     supabase.from("people").select("id, name, relationship, user_id, linked_user_id, email, invite_email, birth_date, account_status, active_until, avatar_url").or(householdPeopleOrFilter(householdContext)).order("relationship").order("name").returns<Person[]>(),
     supabase.from("pay_events").select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, tax_region").or(memberFilter).returns<PayEvent[]>(),
@@ -950,12 +952,12 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     activeTab === "savings" ? supabase.from("savings_pot_allocations").select("id, savings_pot_id, financial_account_id, amount, allocation_percent").or(allocationFilter).returns<SavingsPotAllocation[]>() : Promise.resolve({ data: [] as SavingsPotAllocation[] }),
     Promise.resolve({ data: cachedSavingsRateDeals as SavingsRateDeal[] }),
     supabase.from("child_costs").select("id, child_id, label, cost_kind, category_id, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on, care_type, care_details").or(memberFilter).returns<ChildCostForPlan[]>(),
-  ]);
+  ]));
   // Mortgage payments and exact monthly pay come from the same shared logic as Summary and the calendar.
-  const [{ data: mortgageDealRows }, payRows] = await Promise.all([
+  const [{ data: mortgageDealRows }, payRows] = await timer.time("mortgage_pay", Promise.all([
     supabase.from("home_mortgage_deals").select("id, lender, balance, interest_rate, term_years, monthly_payment_override, start_date, end_date").or(visibleFilter),
     withPayOverrides(supabase, payResult.data || []),
-  ]);
+  ]));
 
   const people = dedupeHouseholdPeople(peopleResult.data || [], user.id) as Person[];
   const scopeIds = selectedScopeIds(people, params.people, params.person);
@@ -1255,6 +1257,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
   });
   const scopeSavingsRate = model.totalIncome > 0 ? model.savingsTotal / model.totalIncome * 100 : 0;
 
+  timer.log({ tab: activeTab });
   return (
     <>
       <FinancialFlowWorkspaceNav section={activeTab} month={month.key} />

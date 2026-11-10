@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowDownUp,
   CalendarDays,
@@ -78,6 +78,13 @@ function WidgetPreview({ type, category }: { type: string; category?: string }) 
 }
 
 export function AddWidgetPanel({ onSelect, onClose, activeWidgetTypes = [] }: AddWidgetPanelProps) {
+  // Escape closes it, like every other window in LOOP.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const definitions = listWidgetDefinitions();
   const [category, setCategory] = useState("all");
   const filteredDefinitions = definitions.filter((definition) => category === "all" || definition.category === category || (category === "core" && !definition.category));
