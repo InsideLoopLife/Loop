@@ -869,6 +869,29 @@ export async function GET(request: NextRequest) {
             source: String(row.source || "stored market observation"),
           }));
 
+        if (observed.length < 2 && range === "1d") {
+          // Market shut (weekend, or before today's open): show the last
+          // session rather than an empty chart.
+          const recent = await supabase
+            .from("investment_instrument_price_points")
+            .select("point_at, observed_at, price_gbp, gbp_price, source")
+            .eq("listing_id", listingId)
+            .gte("point_at", new Date(Date.now() - 5 * 86400000).toISOString())
+            .order("point_at", { ascending: false })
+            .limit(1500);
+          const rows = (recent.data || [])
+            .map((row: any) => ({ at: String(row.point_at || row.observed_at || ""), price: Number(row.gbp_price ?? row.price_gbp ?? 0), source: String(row.source || "") }))
+            .filter((row) => row.at && row.price > 0);
+          const lastDay = rows[0]?.at.slice(0, 10);
+          const session = rows.filter((row) => row.at.slice(0, 10) === lastDay).reverse();
+          if (session.length >= 2) {
+            seriesByHolding[holding.id] = downsample(
+              session.map((row) => ({ at: row.at, label: labelFor(row.at, range), price: row.price, value: row.price * units, source: row.source || "last session" })),
+              maxPointsForRange(range),
+            );
+            return;
+          }
+        }
         seriesByHolding[holding.id] = observed.length >= 2
           ? downsample(observed, maxPointsForRange(range))
           : await dailySeries();

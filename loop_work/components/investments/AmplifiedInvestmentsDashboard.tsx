@@ -18,6 +18,7 @@ import {
   updateInvestmentHolding,
 } from "@/lib/investments/actions";
 import { fetchLiveFxRates } from "@/lib/investments/live-fx";
+import { useLiveTheme } from "@/components/investments/useLiveTheme";
 
 export type InvestmentPeriod = "1D" | "5D" | "1M" | "6M" | "YTD" | "1Y" | "5Y" | "MAX";
 
@@ -47,7 +48,6 @@ const PERIOD_RANGE: Record<InvestmentPeriod, string> = { "1D": "1d", "5D": "5d",
 const PERIOD_DAYS: Record<InvestmentPeriod, number> = { "1D": 1, "5D": 5, "1M": 31, "6M": 186, "YTD": 366, "1Y": 366, "5Y": 365 * 5, "MAX": 365 * 20 };
 
 const CLIENT_HISTORY_CACHE = new Map<string, { payload: RemoteHistoryPayload; expiresAt: number }>();
-const INVESTMENTS_THEME_STORAGE_KEY = "loop:investments-theme";
 
 async function loadHistoryPayload(url: string, force = false) {
   const cached = CLIENT_HISTORY_CACHE.get(url);
@@ -402,6 +402,21 @@ export function unitPriceLabel(holding: InvestmentHolding) {
   const native = Number(holding.native_latest_price || 0);
   if (native > 0) return formatNativeUnitPrice(native, holding.native_currency, holding.price_quote_unit);
   const latest = latestHoldingPrice(holding); return latest > 0 ? formatMoney(latest) : "Price pending";
+}
+
+/** Price in pounds, so it lines up with "Paid per unit"; the listing's own currency goes underneath. */
+function PriceCell({ holding, dark }: { holding: InvestmentHolding; dark: boolean }) {
+  const gbp = latestHoldingPrice(holding);
+  const code = String(holding.native_currency || "").toUpperCase();
+  const native = Number(holding.native_latest_price || 0);
+  const foreign = native > 0 && code && code !== "GBP" && code !== "GBX" && String(holding.price_quote_unit || "").toLowerCase() !== "gbx";
+  if (!(gbp > 0)) return <>{unitPriceLabel(holding)}</>;
+  return (
+    <>
+      {paidPerUnitLabel(gbp)}
+      {foreign ? <span className={`block text-[10px] font-medium ${dark ? "text-white/35" : "text-slate-400"}`}>{formatNativeUnitPrice(native, holding.native_currency, holding.price_quote_unit)}</span> : null}
+    </>
+  );
 }
 
 export function nativeCostInputMeta(holding: InvestmentHolding) {
@@ -856,7 +871,6 @@ export function AmplifiedInvestmentsDashboard({
 }: Props) {
   const router = useRouter();
   const [period, setPeriod] = useState<InvestmentPeriod>("1D");
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [selectedHolding, setSelectedHolding] = useState<InvestmentHolding | null>(null);
   const [selectedTickerItem, setSelectedTickerItem] = useState<string | null>(null);
   const [showCostBasisDrawer, setShowCostBasisDrawer] = useState(false);
@@ -869,25 +883,10 @@ export function AmplifiedInvestmentsDashboard({
   const [observedCadenceMinutes, setObservedCadenceMinutes] = useState<number | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [movementLoading, setMovementLoading] = useState(false);
-  const dark = theme === "dark";
+  // Standalone it owns the page theme; inside the Live page the wrapper does.
+  const { dark, toggle: toggleTheme } = useLiveTheme(!hideHeader);
   const [selectedAccountFilter, setSelectedAccountFilter] = useState<string | null>(null);
   const [liveRates, setLiveRates] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    const savedTheme = window.localStorage.getItem(INVESTMENTS_THEME_STORAGE_KEY);
-    const initialTheme = savedTheme === "dark" || savedTheme === "light"
-      ? savedTheme
-      : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    setTheme(initialTheme);
-  }, []);
-
-  const toggleTheme = () => {
-    setTheme((current) => {
-      const next = current === "dark" ? "light" : "dark";
-      window.localStorage.setItem(INVESTMENTS_THEME_STORAGE_KEY, next);
-      return next;
-    });
-  };
 
   useEffect(() => {
     let isMounted = true;
@@ -1101,7 +1100,7 @@ export function AmplifiedInvestmentsDashboard({
   const profileImage = (!selectedAccountFilter || selectedAccountFilter === "ALL") ? "/household-avatar.png" : (people[0]?.avatar_url || "/default-avatar.png");
 
   return (
-    <section className={`min-h-screen w-full max-w-none px-4 py-6 font-sans transition-colors duration-200 sm:px-6 lg:px-8 ${dark ? "bg-[#06080c] text-white" : "bg-slate-50 text-slate-900"}`}>
+    <section className={`w-full max-w-none font-sans transition-colors duration-200 ${hideHeader ? "" : "min-h-screen px-4 py-6 sm:px-6 lg:px-8"} ${dark ? `${hideHeader ? "" : "bg-[#06080c] "}text-white` : `${hideHeader ? "" : "bg-slate-50 "}text-slate-900`}`}>
       <style dangerouslySetInnerHTML={{ __html: `
         @keyframes loopMarquee { 0% { transform: translateX(0%); } 100% { transform: translateX(-50%); } }
         .animate-loop-marquee { display: flex; width: max-content; animation: loopMarquee 45s linear infinite; }
@@ -1109,15 +1108,6 @@ export function AmplifiedInvestmentsDashboard({
       `}} />
 
       <div className="w-full space-y-6">
-        {hideHeader ? (
-          <div className="sticky top-3 z-40 flex justify-end pointer-events-none">
-            <button type="button" onClick={toggleTheme} aria-label={`Switch to ${dark ? "light" : "dark"} mode`} className={`pointer-events-auto inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold shadow-lg backdrop-blur transition ${dark ? "border-white/10 bg-[#0c1017]/90 text-white hover:bg-white/10" : "border-slate-200 bg-white/90 text-slate-700 hover:bg-slate-50"}`}>
-              {dark ? <Sun className="h-3.5 w-3.5 text-amber-500" /> : <Moon className="h-3.5 w-3.5 text-slate-600" />}
-              {dark ? "Light mode" : "Dark mode"}
-            </button>
-          </div>
-        ) : null}
-        
         {/* HEADER */}
         {!hideHeader ? (
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -1343,7 +1333,7 @@ export function AmplifiedInvestmentsDashboard({
                           </div>
                         </div>
                         <div className={`mt-2 flex items-center justify-between border-t pt-2 text-[11px] ${dark ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500"}`}>
-                          <span>Price {unitPriceLabel(item.holding)}</span>
+                          <span>Price {latestHoldingPrice(item.holding) > 0 ? paidPerUnitLabel(latestHoldingPrice(item.holding)) : unitPriceLabel(item.holding)}</span>
                           <span>Paid {holdingCost(item.holding) > 0 ? paidPerUnitLabel(averageHoldingPrice(item.holding)) : <span className="font-bold text-amber-500">not set</span>}</span>
                         </div>
                         {/* Tap-to-expand chart, right in the card — mobile
@@ -1402,7 +1392,7 @@ export function AmplifiedInvestmentsDashboard({
                                 </div>
                               </div>
                             </td>
-                            <td className={`py-3 text-right font-semibold ${dark ? "text-white" : "text-slate-900"}`}>{unitPriceLabel(item.holding)}</td>
+                            <td className={`py-3 text-right font-semibold ${dark ? "text-white" : "text-slate-900"}`}><PriceCell holding={item.holding} dark={dark} /></td>
                             <td className={`py-3 text-right font-bold ${!item.move.has ? (dark ? "text-white/30" : "text-slate-400") : isUp ? "text-emerald-500" : "text-rose-500"}`}>
                               {item.move.has ? `${isUp ? "▲" : "▼"} ${Math.abs(item.move.pct).toFixed(2)}%` : "—"}
                             </td>
@@ -1458,7 +1448,7 @@ export function AmplifiedInvestmentsDashboard({
                         </div>
                       </div>
                       <div className={`mt-2 h-56 w-full rounded-2xl border ${dark ? "border-white/10 bg-[#06080c]" : "border-slate-200 bg-slate-50"}`}>
-                        <AssetMiniChart points={item.points} positive={item.points.length >= 2 ? item.points[item.points.length - 1].value >= item.points[0].value : item.move.pct >= 0} dark={dark} emptyLabel={staleDays > 4 && priceDate ? `No prices since ${new Date(`${priceDate}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : undefined} />
+                        <AssetMiniChart points={item.points} positive={item.points.length >= 2 ? item.points[item.points.length - 1].value >= item.points[0].value : item.move.pct >= 0} dark={dark} emptyLabel={staleDays > 4 && priceDate ? `No prices since ${new Date(`${priceDate}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : period === "1D" ? "No trades in the last day. Funds are priced once a day, so try 5D or longer." : undefined} />
                       </div>
                       {staleDays > 4 && priceDate ? (
                         <p className="mt-2 text-xs text-amber-600 dark:text-amber-500">Last price from {new Date(`${priceDate}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}. LOOP is fetching it again.</p>
@@ -1467,7 +1457,7 @@ export function AmplifiedInvestmentsDashboard({
                       <div className="mt-4 grid grid-cols-3 gap-2">
                         <div className={cell}>
                           <p className={`text-[10px] font-bold uppercase tracking-wide ${muted}`}>Price</p>
-                          <p className={`mt-0.5 text-sm font-bold ${strong}`}>{unitPriceLabel(h)}</p>
+                          <p className={`mt-0.5 text-sm font-bold ${strong}`}><PriceCell holding={h} dark={dark} /></p>
                         </div>
                         <div className={cell}>
                           <p className={`text-[10px] font-bold uppercase tracking-wide ${muted}`}>Units</p>

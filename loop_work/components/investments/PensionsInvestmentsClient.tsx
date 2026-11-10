@@ -27,7 +27,10 @@ import {
   Trash2,
   TrendingUp,
   UserPlus,
+  Sun,
+  Moon,
 } from "lucide-react";
+import { useLiveTheme } from "@/components/investments/useLiveTheme";
 import { FormInput } from "@/components/FormInput";
 import { AddPensionAccountWizard } from "@/components/investments/AddPensionAccountWizard";
 import { AddPensionFundWizard } from "@/components/investments/AddPensionFundWizard";
@@ -7773,12 +7776,14 @@ export function PensionsInvestmentsClient({
   ].filter((option) => option.visible);
 
   const isInvestmentLivePage = experience === "investment-command";
+  // One light/dark choice for the whole Live page, navigation included.
+  const { dark: liveDark, toggle: toggleLiveTheme } = useLiveTheme(isInvestmentLivePage);
 
   return (
     <main
       className={
         isInvestmentLivePage
-          ? "min-h-[calc(100vh-4rem)] w-full space-y-5 bg-[#05070b] px-3 py-4 sm:px-5 lg:px-7"
+          ? `min-h-[calc(100vh-4rem)] w-full space-y-5 px-3 py-4 transition-colors sm:px-5 lg:px-7 ${liveDark ? "bg-[#06080c]" : "bg-slate-50"}`
           : "mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-8 sm:px-6 lg:px-8"
       }
     >
@@ -7963,24 +7968,24 @@ export function PensionsInvestmentsClient({
 
       {experience === "investment-command" ? (
         <section className="space-y-5">
-          <div className="flex flex-col gap-4 rounded-[2rem] border border-white/10 bg-white/[0.06] p-4 text-white shadow-[0_30px_120px_-75px_rgba(0,0,0,.95)] backdrop-blur lg:flex-row lg:items-center lg:justify-between">
+          <div className={`flex flex-col gap-4 rounded-[1.5rem] border p-4 lg:flex-row lg:items-center lg:justify-between ${liveDark ? "border-white/10 bg-[#0c1017] text-white" : "border-slate-200 bg-white text-slate-900"}`}>
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={openOverview}
-                className="grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white ring-1 ring-white/10"
+                className={`grid h-11 w-11 place-items-center rounded-full ${liveDark ? "bg-white/10 text-white" : "bg-slate-100 text-slate-700"}`}
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
               <div>
-                <p className="text-xs text-emerald-200/80">Live</p>
-                <h2 className="text-2xl font-semibold text-white">
+                <p className={`text-xs ${liveDark ? "text-emerald-300/80" : "text-emerald-700"}`}>Live</p>
+                <h2 className={`text-2xl font-semibold ${liveDark ? "text-white" : "text-slate-900"}`}>
                   Investments{commandFilterUsesAll ? "" : ` · ${commandFilterLabel}`}
                 </h2>
               </div>
             </div>
             <div
-              className="flex flex-wrap items-center gap-1 rounded-full bg-white/10 p-1"
+              className={`flex flex-wrap items-center gap-1 rounded-full p-1 ${liveDark ? "bg-white/10" : "bg-slate-100"}`}
               aria-label="Show investments for"
             >
               {commandFilterCards.filter((card) => { if (card.id === "all") return true; const owner = ownerCards.find((item) => item.id === card.id); return Boolean(owner && owner.summary.investmentValue > 0); }).map((card) => {
@@ -7998,7 +8003,7 @@ export function PensionsInvestmentsClient({
                     title={card.name}
                     aria-label={`Filter investments by ${card.name}`}
                     onClick={() => toggleCommandFilter(card.id)}
-                    className={`inline-flex items-center gap-2 rounded-full py-1 text-sm transition ${person ? "pl-1 pr-3.5" : "px-3.5"} ${selected ? "bg-white text-slate-950" : "text-white/80 hover:bg-white/10"}`}
+                    className={`inline-flex items-center gap-2 rounded-full py-1 text-sm transition ${person ? "pl-1 pr-3.5" : "px-3.5"} ${selected ? (liveDark ? "bg-white text-slate-950" : "bg-slate-900 text-white") : (liveDark ? "text-white/80 hover:bg-white/10" : "text-slate-600 hover:bg-white")}`}
                   >
                     {person ? <ProfileAvatar person={person} compact /> : null}
                     {card.id === "all" ? "Everyone" : card.id === "household" ? "Shared" : card.name}
@@ -8010,15 +8015,18 @@ export function PensionsInvestmentsClient({
               <button
                 type="button"
                 onClick={() => setExperience("investment-detail")}
-                className="rounded-full px-4 py-2 text-xs text-white/70 hover:bg-white/10 hover:text-white"
+                className={`rounded-full px-4 py-2 text-xs ${liveDark ? "text-white/70 hover:bg-white/10 hover:text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
               >
                 Pots and holdings
               </button>
               <form action={refreshAllInvestmentPrices}>
-                <button className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-white hover:bg-white/15">
+                <button className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold ${liveDark ? "bg-white/10 text-white hover:bg-white/15" : "bg-slate-100 text-slate-800 hover:bg-slate-200"}`}>
                   <RefreshCw className="h-4 w-4" /> Refresh prices
                 </button>
               </form>
+              <button type="button" onClick={toggleLiveTheme} aria-label={`Switch to ${liveDark ? "light" : "dark"} mode`} className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold ${liveDark ? "bg-white/10 text-white hover:bg-white/15" : "bg-slate-100 text-slate-800 hover:bg-slate-200"}`}>
+                {liveDark ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4" />} {liveDark ? "Light" : "Dark"}
+              </button>
             </div>
           </div>
           <AmplifiedInvestmentsDashboard

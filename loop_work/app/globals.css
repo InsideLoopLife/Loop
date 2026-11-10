@@ -319,3 +319,31 @@ section[class*="bg-slate-950"] { background: var(--ink) !important; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* Live investments page in dark: the whole page, navigation included. */
+html.loop-live-dark {
+  color-scheme: dark;
+  --paper: #06080c;
+  --card: #0c1017;
+  --ink: #f2f5f3;
+  --muted: #8d9792;
+  --line: rgba(255, 255, 255, 0.1);
+  --pine-wash: rgba(31, 106, 80, 0.25);
+}
+html.loop-live-dark body { background: #06080c; }
+html.loop-live-dark :is(.loop-desktop-navigation, .loop-mobile-navigation, .loop-mobile-bottom-nav) {
+  background: rgba(12, 16, 23, 0.92) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+html.loop-live-dark :is(.loop-desktop-navigation, .loop-mobile-navigation, .loop-mobile-bottom-nav) :is(.bg-white, .bg-slate-50, .bg-slate-100) {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+html.loop-live-dark :is(.loop-desktop-navigation, .loop-mobile-navigation, .loop-mobile-bottom-nav) :is(.border-slate-200, .border-slate-200\/70) {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+html.loop-live-dark :is(.loop-desktop-navigation, .loop-mobile-navigation, .loop-mobile-bottom-nav) :is(.text-slate-500, .text-slate-600, .text-slate-700, .text-slate-800, .text-slate-900, .text-slate-950) {
+  color: rgba(242, 245, 243, 0.78) !important;
+}
+html.loop-live-dark .loop-desktop-navigation .bg-slate-950 { background: #f2f5f3 !important; color: #06080c !important; }
+html.loop-live-dark .loop-desktop-navigation .bg-slate-200 { background: rgba(255, 255, 255, 0.12) !important; }
+html.loop-live-dark .loop-top-nav a::after { background: #f2f5f3 !important; }
