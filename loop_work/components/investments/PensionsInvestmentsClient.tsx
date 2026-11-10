@@ -8029,7 +8029,7 @@ export function PensionsInvestmentsClient({
                         <span className="block text-[15px] font-semibold text-[var(--ink)]">{card.summary.investmentValue > 0 ? formatMoney(card.summary.investmentValue) : "—"}</span>
                         {showGrowth ? <span className={`block text-xs ${pl >= 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>{pl >= 0 ? "+" : ""}{formatMoney(pl)} growth</span> : null}
                       </button>
-                      <p className="hidden text-right text-[15px] font-semibold text-[var(--ink)] md:block">{formatMoney(total)}</p>
+                      <p className="hidden text-right text-[15px] font-semibold text-[var(--ink)] md:block">{total > 0 ? formatMoney(total) : "—"}</p>
                     </li>
                   );
                 })}
@@ -8179,7 +8179,7 @@ export function PensionsInvestmentsClient({
                   </div>
                   <div className="grid grid-cols-1 border-t border-[var(--line)] sm:grid-cols-3">
                     {[
-                      { label: "Going in each month", value: formatMoney(monthlyInTotal), note: "You, your employer and tax relief" },
+                      { label: "Going in each month", value: formatMoney(monthlyInTotal), note: "You and your employer" },
                       { label: "Fees", value: `${formatMoney(feesTotal)}/mo`, note: "Platform and fund charges, estimated" },
                       { label: "Pots", value: String(potRows.length), note: `${commandPensionFunds.length} fund${commandPensionFunds.length === 1 ? "" : "s"}${commandDbSchemes.length ? ` · ${commandDbSchemes.length} final salary` : ""}` },
                     ].map((stat, i) => (
@@ -8599,19 +8599,6 @@ export function PensionsInvestmentsClient({
                           key={fund.id}
                           className="min-w-0 rounded-[14px] border border-[var(--line)] bg-white p-4 sm:p-5"
                         >
-                          {(() => {
-                            const fundEvents = accountContributionEvents
-                              .filter((event) => event.pension_fund_id === fund.id && event.event_status !== "removed" && event.event_status !== "superseded")
-                              .sort((a, b) => String(b.investment_date || b.contribution_date || "").localeCompare(String(a.investment_date || a.contribution_date || "")));
-                            const latestFundEvent = fundEvents.find((event) => event.source === "provider_statement" || event.source === "manual_reconciliation") || fundEvents[0];
-                            return (
-                              <p className="mb-2 text-xs text-[var(--muted)]">
-                                {latestFundEvent
-                                  ? `Last bought ${formatMoney(Number(latestFundEvent.contribution_amount || 0))} on ${formatThreadDate(latestFundEvent.investment_date || latestFundEvent.contribution_date)} · ${fundEvents.length} payment${fundEvents.length === 1 ? "" : "s"} recorded`
-                                  : "No purchases recorded yet"}
-                              </p>
-                            );
-                          })()}
                           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                             <div className="min-w-0">
                               <p className="text-[15px] font-semibold text-[var(--ink)]">
@@ -8622,6 +8609,19 @@ export function PensionsInvestmentsClient({
                                 {" · "}{fund.contribution_active ? `${formatMoney(projectedFundContribution(account, fund, payEvents))}/mo in (${Number(fund.monthly_contribution_percent).toFixed(0)}%)` : "No new money"}
                                 {" · "}fee {Number(fund.annual_fund_fee_percent || 0).toFixed(2)}%
                               </p>
+                              {(() => {
+                                const fundEvents = accountContributionEvents
+                                  .filter((event) => event.pension_fund_id === fund.id && event.event_status !== "removed" && event.event_status !== "superseded")
+                                  .sort((a, b) => String(b.investment_date || b.contribution_date || "").localeCompare(String(a.investment_date || a.contribution_date || "")));
+                                const latestFundEvent = fundEvents.find((event) => event.source === "provider_statement" || event.source === "manual_reconciliation") || fundEvents[0];
+                                return (
+                                  <p className="mt-1 text-xs text-[var(--muted)]">
+                                    {latestFundEvent
+                                      ? `Last bought ${formatMoney(Number(latestFundEvent.contribution_amount || 0))} on ${formatThreadDate(latestFundEvent.investment_date || latestFundEvent.contribution_date)} · ${fundEvents.length} payment${fundEvents.length === 1 ? "" : "s"} recorded`
+                                      : "No purchases recorded yet"}
+                                  </p>
+                                );
+                              })()}
                             </div>
                             <div className="flex flex-wrap gap-2 lg:justify-end">
                               <button
@@ -8656,17 +8656,19 @@ export function PensionsInvestmentsClient({
                               </form>
                             </div>
                           </div>
-                          <CollapsibleSection
-                            title="Purchases"
-                            subtitle="Each payment with its unit price and units. Edit to match your statement."
-                          >
-                            <PensionContributionThread
+                          <details className="group mt-3">
+                            <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-full px-2 py-1 text-xs text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]">
+                              <ChevronDown className="h-3.5 w-3.5 transition group-open:rotate-180" /> Purchases
+                            </summary>
+                            <div className="mt-2">
+                              <PensionContributionThread
                               account={account}
                               funds={[fund]}
                               events={accountContributionEvents.filter((event) => event.pension_fund_id === fund.id)}
                               fund={fund}
                             />
-                          </CollapsibleSection>
+                            </div>
+                          </details>
                         </article>
                       ))}
                       {funds.length === 0 ? (
