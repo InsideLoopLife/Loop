@@ -1893,6 +1893,13 @@ function inferredInvestmentGroupLabel(
   if (explicit && !/^Trading 212 .+ bundle$/i.test(explicit)) return explicit;
   return "";
 }
+/** "+£1.22" / "−£1,204": pence under £100, whole pounds above. */
+function signedPounds(value: number) {
+  const abs = Math.abs(value);
+  const digits = abs < 100 ? 2 : 0;
+  return `${value > 0 ? "+" : value < 0 ? "−" : ""}£${abs.toLocaleString("en-GB", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+}
+
 /** Green for up, red for down, stronger with size (full strength at `cap` %). */
 function moveTint(pct: number | null, cap: number) {
   if (pct === null || !Number.isFinite(pct) || Math.abs(pct) < 0.005) return "rgba(148, 163, 184, 0.12)";
@@ -1958,8 +1965,8 @@ function AssetAllocationMosaic({
             ) : (
               <>
                 <p className={`text-sm font-black ${dayPct === null || dayPct === 0 ? "text-slate-500" : dayPct > 0 ? "text-emerald-800" : "text-red-700"}`}>
-                  {dayPct === null ? "No move yet today" : `${dayPct > 0 ? "+" : ""}${dayPct.toFixed(2)}%`}
-                  {dayPct !== null && dayMove !== null ? <span className="ml-1 text-[11px] font-bold">{signedGbp(dayMove)}</span> : null}
+                  {dayPct === null ? "No move yet today" : `${dayPct > 0 ? "+" : ""}${dayPct.toFixed(2)}% today`}
+                  {dayPct !== null && dayMove !== null && Math.abs(dayMove) >= 0.005 ? <span className="ml-1 text-[11px] font-bold">{signedPounds(dayMove)}</span> : null}
                 </p>
                 <p className={`text-[11px] font-bold ${!hasCost ? "text-slate-500" : item.pct >= 0 ? "text-emerald-800" : "text-red-700"}`}>
                   {hasCost ? `${item.pct >= 0 ? "+" : ""}${item.pct.toFixed(1)}% all time` : "All time: add what you paid"}
@@ -2256,7 +2263,7 @@ function PieStackCard({
             </p>
             {dayMoves.length ? (
               <p className={`text-sm font-semibold ${Math.abs(dayChange) < 0.005 ? "text-[var(--muted)]" : dayChange > 0 ? "text-[var(--pine)]" : "text-[var(--brick)]"}`}>
-                {signedGbp(dayChange)} · {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}% today
+                {signedPounds(dayChange)} · {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}% today
               </p>
             ) : null}
             {plReliable ? (
