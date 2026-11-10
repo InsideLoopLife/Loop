@@ -132,11 +132,22 @@ export function readOdsSheets(ods: Buffer): Array<{ name: string; rows: string[]
     const rows: string[][] = [];
     for (const rowMatch of table[2].matchAll(/<table:table-row[^>]*?(?:\/>|>([\s\S]*?)<\/table:table-row>)/g)) {
       const cells: string[] = [];
+      let spanText = "";
+      let spanLeft = 0;
       for (const cell of (rowMatch[1] || "").matchAll(/<table:(?:covered-)?table-cell([^>]*?)(?:\/>|>([\s\S]*?)<\/table:(?:covered-)?table-cell>)/g)) {
         const attrs = cell[1] || "";
         const repeat = Math.min(Number(attrs.match(/table:number-columns-repeated="(\d+)"/)?.[1] || 1), 50);
         const value = attrs.match(/office:value="([^"]*)"/)?.[1] ?? decodeXml(cell[2] || "");
-        for (let r = 0; r < repeat; r++) cells.push(value);
+        // A merged header ("Area Band D council tax") spans several year
+        // columns; the covered cells are empty, so carry the text across.
+        const span = Number(attrs.match(/table:number-columns-spanned="(\d+)"/)?.[1] || 0);
+        if (span > 1) { spanText = value; spanLeft = span; }
+        const isCovered = cell[0].startsWith("<table:covered-table-cell");
+        for (let r = 0; r < repeat; r++) {
+          if (isCovered && spanLeft > 0 && !value) cells.push(spanText);
+          else cells.push(value);
+          if (spanLeft > 0) spanLeft -= 1;
+        }
       }
       rows.push(cells);
     }
@@ -192,7 +203,17 @@ export async function refreshEnglandCouncilTax(db: SupabaseClient, opts: { force
   const res = await fetch(ENGLAND_TABLE.url, { headers: { "user-agent": "Loop council tax import (insideloop.life)" } });
   if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
   const extracted = extractBandD(readOdsSheets(Buffer.from(await res.arrayBuffer())));
-  if (!extracted) throw new Error("Could not find a Band D by billing authority column in the file.");
+  if (!extracted) {
+    // Say what the file looked like, so the next run's log shows why.
+    const sheets = readOdsSheets(Buffer.from(await (await fetch(ENGLAND_TABLE.url, { headers: { "user-agent": "Loop council tax import (insideloop.life)" } })).arrayBuffer()));
+    const summary = sheets.map((sheet) => {
+      const codeRows = sheet.rows.filter((r) => r.some((c) => LA_CODE.test(c)));
+      const first = codeRows[0] ? sheet.rows.indexOf(codeRows[0]) : -1;
+      const header = first > 0 ? sheet.rows.slice(Math.max(0, first - 4), first).map((r) => r.filter(Boolean).join(" | ")).join(" // ").slice(0, 400) : "";
+      return `${sheet.name}: ${sheet.rows.length} rows, ${codeRows.length} with council codes${header ? `; headers: ${header}` : ""}${codeRows[0] ? `; first row: ${codeRows[0].slice(0, 12).join(" | ").slice(0, 300)}` : ""}`;
+    });
+    throw new Error(`Could not find a Band D by billing authority column in the file. ${summary.join(" ;; ").slice(0, 3000)}`);
+  }
 
   // Sanity checks before touching the table: right number of councils and a
   // median close to the published national average.
