@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { createClient } from "@/lib/supabase/server";
 import { WealthRouteSkeleton } from "@/components/loading/WealthRouteSkeleton";
 import {
@@ -64,7 +65,7 @@ export async function InstantBootSnapshot({
   const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await getVerifiedUser(supabase);
 
   if (!user) return <WealthRouteSkeleton label={fallbackLabel} />;
 

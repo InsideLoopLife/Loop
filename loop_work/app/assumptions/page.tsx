@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { SectionCard } from "@/components/SectionCard";
@@ -50,7 +51,7 @@ export default async function AssumptionsPage() {
   const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await getVerifiedUser(supabase);
 
   if (!user) redirect("/login");
 

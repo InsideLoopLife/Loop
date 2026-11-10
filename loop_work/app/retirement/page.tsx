@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
@@ -56,7 +57,7 @@ function actualPensionContributions(accounts: PensionAccount[], events: Contribu
 
 async function RetirementContent() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   const householdContext = await getActiveHouseholdContext(supabase, user);

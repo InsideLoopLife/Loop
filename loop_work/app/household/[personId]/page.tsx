@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { getChildCostMonthlyAmount as sharedChildCostMonthlyAmount } from "@/lib/planning/month-plan";
 import { ProfileImageFileInput } from "@/components/ProfileImageFileInput";
 import Link from "next/link";
@@ -218,7 +219,7 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
   const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await getVerifiedUser(supabase);
 
   if (!user) redirect("/login");
 

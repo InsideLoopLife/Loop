@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { redirect } from "next/navigation";
 import { ShieldCheck, Database, Download, FileClock, LockKeyhole, ServerCog, UsersRound } from "lucide-react";
 import { Nav } from "@/components/Nav";
@@ -38,7 +39,7 @@ export default async function PlatformPage() {
   const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await getVerifiedUser(supabase);
 
   if (!user) redirect("/login");
 

@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
@@ -18,7 +19,7 @@ export default async function SnapTradeCallbackPage({ searchParams }: Props) {
   const errorMessage = String(first(params.error) || first(params.message) || "");
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getVerifiedUser(supabase);
   if (!user) redirect(`/login?next=${encodeURIComponent("/integrations/snaptrade/callback")}`);
 
   const isSuccess = status === "SUCCESS" || status === "CONNECTED" || status === "OK";

@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { Nav } from "@/components/Nav";
@@ -230,7 +231,7 @@ type InvestmentCoveragePlaceholder = {
 
 async function InvestmentsContent({ searchParams }: { searchParams?: Promise<{ add?: string }> } = {}) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   const householdContext = await getActiveHouseholdContext(supabase, user);

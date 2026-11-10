@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import type React from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -11,7 +12,7 @@ function StatusPill({ children }: { children: React.ReactNode }) {
 
 export default async function InboundEmailPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   const [{ data: aliasRows }, { data: imports }, { data: plan }] = await Promise.all([

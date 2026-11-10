@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, CheckCircle2 } from "lucide-react";
@@ -8,7 +9,7 @@ export const metadata = { title: "You're set up" };
 
 export default async function OnboardingDonePage({ searchParams }: { searchParams: Promise<{ next?: string; problems?: string }> }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   const { next, problems } = await searchParams;

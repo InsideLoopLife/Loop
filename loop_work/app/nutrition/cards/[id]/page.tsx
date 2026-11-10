@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
@@ -130,7 +131,7 @@ function videoUrls(meal: MealDetail) {
 
 export default async function NutritionRecipeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   const { id } = await params;

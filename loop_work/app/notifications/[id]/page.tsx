@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { ArrowLeft, CheckCircle2, ExternalLink, Handshake, HeartPulse, PoundSterling, Utensils } from "lucide-react";
@@ -21,7 +22,7 @@ function areaFor(key: string) {
 export default async function NotificationHandoverPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   const { data: notification } = await supabase

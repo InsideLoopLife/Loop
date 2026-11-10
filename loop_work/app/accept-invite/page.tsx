@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { claimPersonInvite } from "./actions";
@@ -7,7 +8,7 @@ export default async function AcceptInvitePage({ searchParams }: { searchParams?
   const token = params.token || "";
   const inviteId = params.invite || "";
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getVerifiedUser(supabase);
   const next = inviteId ? `/accept-invite?invite=${encodeURIComponent(inviteId)}` : `/accept-invite?token=${encodeURIComponent(token)}`;
 
   return (

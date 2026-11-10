@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { redirect } from "next/navigation";
 import { BellRing, CalendarClock, CheckCircle2, FileText, RefreshCw, ShieldCheck, Sparkles, Trash2, WalletCards } from "lucide-react";
 import { Nav } from "@/components/Nav";
@@ -481,7 +482,7 @@ export default async function LoopWatchPage() {
   const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   const householdContext = await getActiveHouseholdContext(supabase, user);

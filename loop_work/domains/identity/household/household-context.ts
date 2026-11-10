@@ -31,6 +31,41 @@ function fallbackContext(userId: string): ActiveHouseholdContext {
 }
 
 export async function getActiveHouseholdContext(supabase: SupabaseLike, user: { id: string; email?: string | null }): Promise<ActiveHouseholdContext> {
+  // One round trip instead of four. Runs under the caller's RLS; if it isn't
+  // available (or the client isn't user-scoped) the step-by-step path below runs.
+  try {
+    const { data, error } = await supabase.rpc("loop_active_household_context");
+    const membership = data?.membership;
+    const household = data?.household;
+    if (!error && membership?.household_id && household?.id) {
+      const memberUserIds = Array.from(new Set([
+        ...((data.member_user_ids || []) as unknown[]).map((id) => String(id || "")).filter(Boolean),
+        household.owner_user_id || user.id,
+        user.id,
+      ]));
+      const permissionTier = membership.permission_tier || "member";
+      const role = membership.role || "member";
+      const isOwnerOrAdmin = ownerAdminTiers.has(permissionTier) || ["owner", "admin"].includes(role);
+      return {
+        userId: user.id,
+        householdId: membership.household_id,
+        householdName: household.name || null,
+        dataOwnerUserId: household.owner_user_id || user.id,
+        role,
+        permissionTier,
+        isOwnerOrAdmin,
+        canManagePeople: Boolean(membership.can_manage_people || ownerAdminTiers.has(permissionTier)),
+        canViewHouseholdIncome: Boolean(membership.can_view_household_income || isOwnerOrAdmin),
+        memberUserIds,
+      };
+    }
+  } catch {
+    // fall back below
+  }
+  return getActiveHouseholdContextStepByStep(supabase, user);
+}
+
+async function getActiveHouseholdContextStepByStep(supabase: SupabaseLike, user: { id: string; email?: string | null }): Promise<ActiveHouseholdContext> {
   const client = supabase;
 
   const { data: profile } = await client

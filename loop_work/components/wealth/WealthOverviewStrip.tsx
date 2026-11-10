@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { buildWealthSummary } from "@/lib/wealth/summary";
@@ -15,7 +16,7 @@ function Tile({ href, title, value, helper }: { href: string; title: string; val
 
 export async function WealthOverviewStrip() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getVerifiedUser(supabase);
   if (!user) return null;
   const summary = await buildWealthSummary(supabase, user.id);
   return (

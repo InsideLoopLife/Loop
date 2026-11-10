@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { buildFinancialBriefing } from "@/lib/briefing/build-financial-briefing";
@@ -9,7 +10,7 @@ export default async function BriefingPage() {
   const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   const entitlements = await getEffectiveEntitlements(user.id);

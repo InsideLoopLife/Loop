@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { redirect } from "next/navigation";
 import { createServerDatabaseClient } from "@/platform/database/server-client";
 
@@ -9,7 +10,7 @@ export async function requireSignedInUser(redirectTo = "/login") {
   const {
     data: { user },
     error,
-  } = await supabase.auth.getUser();
+  } = await getVerifiedUser(supabase);
 
   if (error || !user) redirect(redirectTo);
 

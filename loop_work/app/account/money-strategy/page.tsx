@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { createClient } from "@/lib/supabase/server";
 import { penceToPounds } from "@/lib/money/dealMath";
 import { generateMoneyOpportunities, saveMoneyProfile } from "./actions";
@@ -8,7 +9,7 @@ function Percent({ value }: { value: number | null | undefined }) {
 
 export default async function MoneyStrategyPage() {
   const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await getVerifiedUser(supabase);
   const user = userData.user;
 
   if (!user) {

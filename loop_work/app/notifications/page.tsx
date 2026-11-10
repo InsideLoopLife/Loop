@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BellRing, CheckCircle2, HeartPulse, Info, LineChart, MailCheck, Sparkles, Trash2, UserCheck } from "lucide-react";
@@ -9,7 +10,7 @@ import { acceptNotificationRequest, createWeeklyPreview, declineNotificationRequ
 
 async function requireUser() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
   return { supabase, user };
 }

@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -22,7 +23,7 @@ async function switchOn(formData: FormData) {
   const section = SECTIONS[key];
   if (!section) redirect("/account?tab=wealth");
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
   await supabase.from("app_user_profiles").upsert({ user_id: user.id, [section.column]: true, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
   revalidatePath("/", "layout");

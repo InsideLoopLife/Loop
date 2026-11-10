@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
@@ -42,7 +43,7 @@ export default async function JoinHouseholdPage({ searchParams }: { searchParams
   const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await getVerifiedUser(supabase);
 
   const nextPath = inviteId ? `/household/join?invite=${encodeURIComponent(inviteId)}` : `/household/join?token=${encodeURIComponent(token)}`;
   if (!user) redirect(`/login?next=${encodeURIComponent(nextPath)}`);

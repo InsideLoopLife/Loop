@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { createPageTimer } from "@/lib/perf/timing";
 import {
   getChildCostMonthlyAmount as sharedChildCostMonthlyAmount,
@@ -606,7 +607,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
   const supabase = await createClient();
   const {
     data: { user },
-  } = await timer.time("auth", supabase.auth.getUser());
+  } = await timer.time("auth", getVerifiedUser(supabase));
 
   if (!user) redirect("/login");
 

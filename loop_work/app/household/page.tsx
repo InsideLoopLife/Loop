@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Home, Mail, QrCode, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
@@ -182,7 +183,7 @@ function CreateHouseholdEmptyState({ profile }: { profile: any }) {
 
 export default async function HouseholdPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   await processPendingHouseholdLinksForUser({ userId: user.id, email: user.email });

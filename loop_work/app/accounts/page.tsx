@@ -1,3 +1,4 @@
+import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
@@ -641,7 +642,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
   // overage. Everything else on this page still uses the regular client.
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
 
   const householdContext = await getActiveHouseholdContext(supabase, user);
