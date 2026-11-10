@@ -23,8 +23,9 @@ function mortgageProjectedBalance(deal: any) {
   } catch { return n(deal.balance); }
 }
 
-export async function buildWealthSummary(supabase: any, userId: string, month = new Date().toISOString().slice(0, 7)) {
-  const householdContext = await getActiveHouseholdContext(supabase, { id: userId });
+export async function buildWealthSummary(supabase: any, userId: string, month = new Date().toISOString().slice(0, 7), knownHouseholdContext?: { householdId: string | null; memberUserIds: string[] }) {
+  // Pages that already know the household pass it in, saving a round trip.
+  const householdContext = knownHouseholdContext ?? await getActiveHouseholdContext(supabase, { id: userId });
   const userIds = householdContext.householdId ? householdContext.memberUserIds : [userId];
 
   const [accounts, homes, valuations, mortgages, pensions, pensionFunds, investmentAccounts, holdings, plannedItems, incomeEntries, payEvents, childCosts, spendingEntries] = await Promise.all([
