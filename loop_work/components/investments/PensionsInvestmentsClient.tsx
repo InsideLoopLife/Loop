@@ -7973,19 +7973,17 @@ export function PensionsInvestmentsClient({
                 <ArrowLeft className="h-5 w-5" />
               </button>
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-200/80">
-                  Investment live view
-                </p>
-                <h2 className="text-2xl font-black text-white">
-                  Optimise portfolio view
+                <p className="text-xs text-emerald-200/80">Live</p>
+                <h2 className="text-2xl font-semibold text-white">
+                  Investments{commandFilterUsesAll ? "" : ` · ${commandFilterLabel}`}
                 </h2>
               </div>
             </div>
             <div
-              className="flex items-center gap-2 rounded-full bg-white/10 p-1"
-              aria-label="Filter live view by household member"
+              className="flex flex-wrap items-center gap-1 rounded-full bg-white/10 p-1"
+              aria-label="Show investments for"
             >
-              {commandFilterCards.map((card) => {
+              {commandFilterCards.filter((card) => { if (card.id === "all") return true; const owner = ownerCards.find((item) => item.id === card.id); return Boolean(owner && owner.summary.investmentValue > 0); }).map((card) => {
                 const person =
                   card.id !== "all" && card.id !== "household"
                     ? people.find((item) => item.id === card.id)
@@ -8000,19 +7998,10 @@ export function PensionsInvestmentsClient({
                     title={card.name}
                     aria-label={`Filter investments by ${card.name}`}
                     onClick={() => toggleCommandFilter(card.id)}
-                    className={`rounded-full p-1 transition ${selected ? "bg-emerald-400/25 shadow-lg shadow-emerald-950/20 ring-1 ring-emerald-300/25" : "hover:bg-white/10"}`}
+                    className={`inline-flex items-center gap-2 rounded-full py-1 text-sm transition ${person ? "pl-1 pr-3.5" : "px-3.5"} ${selected ? "bg-white text-slate-950" : "text-white/80 hover:bg-white/10"}`}
                   >
-                    <ProfileAvatar
-                      person={person}
-                      label={
-                        card.id === "all"
-                          ? "WH"
-                          : card.id === "household"
-                            ? "SH"
-                            : initials(card.name)
-                      }
-                      compact
-                    />
+                    {person ? <ProfileAvatar person={person} compact /> : null}
+                    {card.id === "all" ? "Everyone" : card.id === "household" ? "Shared" : card.name}
                   </button>
                 );
               })}
@@ -8021,12 +8010,12 @@ export function PensionsInvestmentsClient({
               <button
                 type="button"
                 onClick={() => setExperience("investment-detail")}
-                className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-black text-white hover:bg-white/15"
+                className="rounded-full px-4 py-2 text-xs text-white/70 hover:bg-white/10 hover:text-white"
               >
-                Open pot breakdown
+                Pots and holdings
               </button>
               <form action={refreshAllInvestmentPrices}>
-                <button className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white">
+                <button className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-white hover:bg-white/15">
                   <RefreshCw className="h-4 w-4" /> Refresh prices
                 </button>
               </form>

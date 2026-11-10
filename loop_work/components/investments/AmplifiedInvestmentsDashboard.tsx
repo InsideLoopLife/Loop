@@ -369,10 +369,15 @@ export function primaryHoldingLabel(holding: InvestmentHolding) {
   return providerish || name;
 }
 
+const PLACEHOLDER_NAMES = /^(trading\s*212|moneybox|vanguard|investment holding|holding)$/i;
+const KIND_LABELS: Record<string, string> = { fund: "Fund", etf: "ETF", share: "Share", stock: "Share", bond: "Bond", cash: "Cash" };
+
 export function secondaryHoldingLabel(holding: InvestmentHolding) {
   const primary = primaryHoldingLabel(holding); const name = String(holding.asset_name || "").trim();
-  if (!name) return holding.group_label || "Investment holding";
-  if (name.toLowerCase() === primary.toLowerCase()) return holding.group_label || "Investment holding";
+  const fallback = KIND_LABELS[String(holding.asset_kind || "").toLowerCase()] || (holding.group_label && !/^core$/i.test(holding.group_label) ? holding.group_label : "") || "";
+  // Some broker imports store the broker's name instead of the company's.
+  if (!name || PLACEHOLDER_NAMES.test(name)) return fallback;
+  if (name.toLowerCase() === primary.toLowerCase()) return fallback;
   return name;
 }
 
@@ -626,8 +631,8 @@ function DiversificationBars({ holdings, snapshots, totalValue, period, dark, on
     <div className={`rounded-3xl border p-3 sm:p-5 ${dark ? "border-white/10 bg-[#0c1017]" : "border-slate-200 bg-white"}`}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className={`text-[10px] font-bold uppercase tracking-widest ${dark ? "text-white/40" : "text-slate-500"}`}>Diversification</p>
-          <div className="mt-0.5 flex items-center gap-1.5"><h3 className={`text-base font-bold ${dark ? "text-white" : "text-slate-900"}`}><span className="md:hidden">Allocation &amp; movement</span><span className="hidden md:inline">Weight × movement bars</span></h3></div>
+          <p className={`text-[10px] font-bold uppercase tracking-widest ${dark ? "text-white/40" : "text-slate-500"}`}>Width is how much you hold · height is how it moved</p>
+          <div className="mt-0.5 flex items-center gap-1.5"><h3 className={`text-base font-bold ${dark ? "text-white" : "text-slate-900"}`}>Weight and movement</h3></div>
         </div>
         <div className="flex items-center gap-2">
           <div className={`flex max-w-full items-center gap-1 overflow-x-auto rounded-full p-1 ${dark ? "bg-white/[0.05]" : "bg-slate-100"}`}>
@@ -656,7 +661,7 @@ function DiversificationBars({ holdings, snapshots, totalValue, period, dark, on
                 <div className="min-w-0">
                   <p className={`truncate text-xs font-bold ${dark ? "text-white" : "text-slate-900"}`}>{primaryHoldingLabel(item.holding)}</p>
                   <p className={`mt-2 text-2xl font-black tracking-tight ${dark ? "text-white" : "text-slate-950"}`}>{item.share.toFixed(1)}%</p>
-                  <p className={`text-[10px] font-semibold ${dark ? "text-white/45" : "text-slate-500"}`}>of selected portfolio</p>
+                  <p className={`text-[10px] font-semibold ${dark ? "text-white/45" : "text-slate-500"}`}>of what you hold</p>
                 </div>
                 <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-black ${!item.move.has ? (dark ? "bg-white/10 text-white/40" : "bg-white/70 text-slate-400") : positive ? (dark ? "bg-emerald-400/15 text-emerald-300" : "bg-white/80 text-emerald-700") : (dark ? "bg-rose-400/15 text-rose-300" : "bg-white/80 text-rose-600")}`}>
                   {item.move.has ? `${positive ? "▲ " : "▼ "}${Math.abs(item.move.pct).toFixed(2)}%` : "—"}
@@ -672,10 +677,11 @@ function DiversificationBars({ holdings, snapshots, totalValue, period, dark, on
         <div className="z-10 flex w-full items-stretch overflow-hidden rounded-xl">
           {items.map((item) => {
             const positive = item.move.pct >= 0;
-            const barHeight = item.move.has ? clamp(12 + Math.sqrt(Math.abs(item.move.pct)) * 36, 12, 90) : 4;
+            // Flat (0.00%) moves get a hairline, not a bar that looks like a move.
+            const barHeight = item.move.has ? (Math.abs(item.move.pct) < 0.005 ? 2 : clamp(8 + Math.sqrt(Math.abs(item.move.pct)) * 36, 8, 90)) : 2;
             const isOther = item.holding.id === "portfolio-other";
             return (
-              <button key={item.holding.id} type="button" onClick={() => (isOther ? onOpenOther(remainder.map((row) => row.holding)) : onOpenHolding(item.holding))} className={`group relative min-w-0 shrink-0 text-center transition ${isOther ? "cursor-pointer border-x border-dashed border-rose-500/60 hover:bg-rose-500/5" : "cursor-pointer border-r border-white/10 hover:bg-white/[0.04]"}`} style={{ flexBasis: `${item.share}%`, width: `${item.share}%` }}>
+              <button key={item.holding.id} type="button" onClick={() => (isOther ? onOpenOther(remainder.map((row) => row.holding)) : onOpenHolding(item.holding))} className={`group relative min-w-0 shrink-0 text-center transition ${isOther ? (dark ? "cursor-pointer border-l border-dashed border-white/20 hover:bg-white/[0.04]" : "cursor-pointer border-l border-dashed border-slate-300 hover:bg-slate-50") : (dark ? "cursor-pointer border-r border-white/10 hover:bg-white/[0.04]" : "cursor-pointer border-r border-slate-100 hover:bg-slate-50")}`} style={{ flexBasis: `${item.share}%`, width: `${item.share}%` }}>
                 <div className="relative flex h-[150px] w-full items-center justify-center">
                   <div className={`absolute inset-x-px rounded-sm transition-all ${positive ? "bg-gradient-to-t from-emerald-500 to-emerald-400" : "bg-gradient-to-b from-rose-400 to-rose-600"} ${!item.move.has ? "grayscale opacity-20" : ""}`} style={positive ? { bottom: "50%", height: `${barHeight}px`, borderTopLeftRadius: "4px", borderTopRightRadius: "4px" } : { top: "50%", height: `${barHeight}px`, borderBottomLeftRadius: "4px", borderBottomRightRadius: "4px" }} />
                   <span className={`absolute whitespace-nowrap text-[10px] font-bold ${!item.move.has ? (dark ? "text-white/40" : "text-slate-400") : positive ? "text-emerald-400" : "text-rose-500"}`} style={positive ? { bottom: `calc(50% + ${barHeight + 4}px)` } : { top: `calc(50% + ${barHeight + 4}px)` }}>
@@ -684,7 +690,7 @@ function DiversificationBars({ holdings, snapshots, totalValue, period, dark, on
                 </div>
                 <div className="mt-1 min-w-0 px-0.5">
                   <p className={`truncate text-xs font-bold ${dark ? "text-white group-hover:text-emerald-400" : "text-slate-900"}`}>{primaryHoldingLabel(item.holding)}</p>
-                  <p className={`text-[10px] ${dark ? "text-white/40" : "text-slate-400"}`}>{item.share.toFixed(1)}% of selected view</p>
+                  <p className={`text-[10px] ${dark ? "text-white/40" : "text-slate-400"}`}>{item.share.toFixed(1)}%</p>
                 </div>
               </button>
             );
@@ -1070,7 +1076,9 @@ export function AmplifiedInvestmentsDashboard({
       // Chart geometry now prefers shared market observations. Day move remains
       // a separate previous-close metric and is never used to manufacture points.
       return { holding, value, move, points, allocation: representedValue > 0 ? (value / representedValue) * 100 : 0 };
-    }).filter((item) => item.value > 0).sort((a, b) => b.value - a.value);
+    }).filter((item) => item.value >= 1).sort((a, b) => b.value - a.value);
+  // Positions worth under £1 are usually sold-out leftovers from a broker import.
+  const tinyHoldingCount = bundledHoldings.filter((holding) => holdingValue(holding) < 1).length;
 
   const activeWidgetAsset = tableItems.find(item => item.holding.id === selectedTickerItem);
 
@@ -1188,15 +1196,15 @@ export function AmplifiedInvestmentsDashboard({
 
                   <div className="space-y-2 border-t border-white/10 pt-2 text-xs">
                     <div className="flex items-center justify-between">
-                      <span className={`font-medium ${dark ? "text-white/40" : "text-slate-500"}`}>-- Current value (mid)</span>
+                      <span className={`font-medium ${dark ? "text-white/40" : "text-slate-500"}`}>Value now</span>
                       <span className={`font-bold ${dark ? "text-white" : "text-slate-900"}`}>{formatMoney(activeTotalValue)}</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className={`font-medium ${dark ? "text-white/40" : "text-slate-500"}`}>-- Buy line (cost basis)</span>
+                      <span className={`font-medium ${dark ? "text-white/40" : "text-slate-500"}`}>What you paid</span>
                       <span className={`font-bold ${dark ? "text-white" : "text-slate-900"}`}>{activeCostValue > 0 ? formatMoney(activeCostValue) : "—"}</span>
                     </div>
                     <div className="flex items-center justify-between pt-1">
-                      <span className={`font-medium ${dark ? "text-white/40" : "text-slate-500"}`}>Gain / loss</span>
+                      <span className={`font-medium ${dark ? "text-white/40" : "text-slate-500"}`}>Growth</span>
                       <span className={`font-bold ${activeCostValue > 0 && activeTotalValue >= activeCostValue ? "text-emerald-500" : "text-rose-500"}`}>
                         {activeCostValue > 0 ? `${activeTotalValue >= activeCostValue ? "+" : ""}${formatMoney(activeTotalValue - activeCostValue)} (${((activeTotalValue - activeCostValue) / activeCostValue * 100).toFixed(2)}%)` : "—"}
                       </span>
@@ -1224,7 +1232,7 @@ export function AmplifiedInvestmentsDashboard({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <p className={`text-[10px] font-bold uppercase tracking-widest ${dark ? "text-white/40" : "text-slate-500"}`}>Accounts, pies and groups</p>
+                  <p className={`text-[10px] font-bold uppercase tracking-widest ${dark ? "text-white/40" : "text-slate-500"}`}>Accounts and pies</p>
                 </div>
                 {selectedAccountFilter && selectedAccountFilter !== "ALL" ? (
                   <button type="button" onClick={() => setSelectedAccountFilter(null)} className="flex items-center gap-1 text-xs font-semibold text-emerald-500 hover:text-emerald-600">
@@ -1239,8 +1247,8 @@ export function AmplifiedInvestmentsDashboard({
                     <div className="mb-3 flex items-center gap-3">
                       <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-500 text-xs font-extrabold text-black">ALL</span>
                       <div className="min-w-0">
-                        <p className={`truncate text-xs font-bold ${dark ? "text-white" : "text-slate-900"}`}>All Accounts</p>
-                        <p className={`truncate text-[10px] ${dark ? "text-white/40" : "text-slate-500"}`}>Household aggregate</p>
+                        <p className={`truncate text-xs font-bold ${dark ? "text-white" : "text-slate-900"}`}>Everything</p>
+                        <p className={`truncate text-[10px] ${dark ? "text-white/40" : "text-slate-500"}`}>All accounts</p>
                       </div>
                     </div>
                     <div className="flex items-baseline justify-between">
@@ -1259,11 +1267,20 @@ export function AmplifiedInvestmentsDashboard({
                     <div key={group.key} onClick={() => setSelectedAccountFilter(isSelected ? null : group.key)} className={`flex cursor-pointer flex-col justify-between rounded-2xl border p-4 transition ${isSelected ? (dark ? "border-emerald-500/80 bg-emerald-500/10" : "border-emerald-500/50 bg-emerald-50") : dark ? "border-white/10 bg-[#0c1017] hover:border-white/20" : "border-slate-200 bg-white hover:border-slate-300"}`}>
                       <div>
                         <div className="mb-3 flex items-center gap-3">
-                          <span className={`h-8 w-8 rounded-full ${circleColour} grid shrink-0 place-items-center text-xs font-extrabold text-white`}>{group.groupLabel.slice(0, 2).toUpperCase()}</span>
-                          <div className="min-w-0">
-                            <p className={`truncate text-xs font-bold ${dark ? "text-white" : "text-slate-900"}`}>{group.groupLabel}</p>
-                            <p className={`truncate text-[10px] ${dark ? "text-white/40" : "text-slate-500"}`}>{group.accountLabel}</p>
-                          </div>
+                          {(() => {
+                            // "Core" is the default pie name, so show the account instead.
+                            const genericPie = /^core$/i.test(String(group.groupLabel || "").trim()) || group.groupLabel === group.accountLabel;
+                            const title = genericPie ? group.accountLabel : group.groupLabel;
+                            return (
+                              <>
+                                <span className={`h-8 w-8 rounded-full ${circleColour} grid shrink-0 place-items-center text-xs font-extrabold text-white`}>{String(title || "?").slice(0, 2).toUpperCase()}</span>
+                                <div className="min-w-0">
+                                  <p className={`truncate text-xs font-bold ${dark ? "text-white" : "text-slate-900"}`}>{title}</p>
+                                  <p className={`truncate text-[10px] ${dark ? "text-white/40" : "text-slate-500"}`}>{genericPie ? `${group.holdings} holding${group.holdings === 1 ? "" : "s"}` : group.accountLabel}</p>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                         <div className="flex items-baseline justify-between">
                           <span className={`text-base font-bold ${dark ? "text-white" : "text-slate-900"}`}>{formatMoney(group.value)}</span>
@@ -1283,8 +1300,8 @@ export function AmplifiedInvestmentsDashboard({
               <div className={`lg:col-span-2 rounded-3xl border p-6 ${dark ? "border-white/10 bg-[#0c1017]" : "border-slate-200 bg-white"}`}>
                 <div className="mb-4 flex items-center justify-between">
                   <div>
-                    <h3 className={`text-base font-bold ${dark ? "text-white" : "text-slate-900"}`}>All holdings ({tableItems.length})</h3>
-                    <p className={`text-xs ${dark ? "text-white/40" : "text-slate-500"}`}>Scroll and click any asset to inspect deep performance analytics.</p>
+                    <h3 className={`text-base font-bold ${dark ? "text-white" : "text-slate-900"}`}>Holdings ({tableItems.length})</h3>
+                    <p className={`text-xs ${dark ? "text-white/40" : "text-slate-500"}`}>Tap one to see its chart.{tinyHoldingCount ? ` ${tinyHoldingCount} worth under £1 hidden.` : ""}</p>
                   </div>
                   <span className={`rounded-full px-3 py-1 text-xs font-semibold ${dark ? "bg-white/5 text-white/60" : "bg-slate-100 text-slate-500"}`}>
                     {selectedAccountFilter && selectedAccountFilter !== "ALL" ? "Filtered list" : "Full household"}
@@ -1323,7 +1340,7 @@ export function AmplifiedInvestmentsDashboard({
                         </div>
                         <div className={`mt-2 flex items-center justify-between border-t pt-2 text-[11px] ${dark ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500"}`}>
                           <span>Price {unitPriceLabel(item.holding)}</span>
-                          <span>Cost {holdingCost(item.holding) > 0 ? formatMoney(averageHoldingPrice(item.holding)) : <span className="font-bold text-amber-500">Missing</span>}</span>
+                          <span>Paid {holdingCost(item.holding) > 0 ? formatNativeUnitPrice(averageHoldingPrice(item.holding), "GBP") : <span className="font-bold text-amber-500">not set</span>}</span>
                         </div>
                         {/* Tap-to-expand chart, right in the card — mobile
                             never had this before at all (the chart panel
@@ -1360,10 +1377,10 @@ export function AmplifiedInvestmentsDashboard({
                     <thead>
                       <tr className={`border-b text-[10px] font-bold uppercase tracking-wider ${dark ? "border-white/10 text-white/40" : "border-slate-200 text-slate-400"}`}>
                         <th className="py-3 pl-2">Asset</th>
-                        <th className="py-3 text-right">Price (mid)</th>
-                        <th className="py-3 text-right">Day Move</th>
-                        <th className="py-3 text-right">Cost / unit</th>
-                        <th className="py-3 text-right">Total Value</th>
+                        <th className="py-3 text-right">Price</th>
+                        <th className="py-3 text-right">Today</th>
+                        <th className="py-3 text-right">You paid</th>
+                        <th className="py-3 text-right">Value</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y text-xs font-medium ${dark ? "divide-white/5" : "divide-slate-100"}`}>
@@ -1386,7 +1403,7 @@ export function AmplifiedInvestmentsDashboard({
                               {item.move.has ? `${isUp ? "▲" : "▼"} ${Math.abs(item.move.pct).toFixed(2)}%` : "—"}
                             </td>
                             <td className={`py-3 text-right font-semibold ${dark ? "text-white/70" : "text-slate-600"}`}>
-                              {holdingCost(item.holding) > 0 ? formatMoney(averageHoldingPrice(item.holding)) : <span className="text-amber-500 font-bold">Missing</span>}
+                              {holdingCost(item.holding) > 0 ? formatNativeUnitPrice(averageHoldingPrice(item.holding), "GBP") : <span className="text-amber-500 font-bold">Not set</span>}
                             </td>
                             <td className={`py-3 pr-2 text-right font-bold ${dark ? "text-white" : "text-slate-900"}`}>{formatMoney(item.value)}</td>
                           </tr>
@@ -1464,7 +1481,7 @@ export function AmplifiedInvestmentsDashboard({
                       <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-500">Live sync</span>
                     </div>
                     <h3 className={`mb-1 text-2xl font-bold ${dark ? "text-white" : "text-slate-900"}`}>{formatMoney(activeTotalValue)}</h3>
-                    <p className={`mb-6 text-xs ${dark ? "text-white/40" : "text-slate-500"}`}>Aggregate across {bundledHoldings.length} tracked entities</p>
+                    <p className={`mb-6 text-xs ${dark ? "text-white/40" : "text-slate-500"}`}>Across {tableItems.length} holdings</p>
                     <div className="space-y-4">
                       <div className={`rounded-2xl border p-4 ${dark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
                         <div className="mb-1 flex items-center justify-between text-xs">
