@@ -685,6 +685,40 @@ async function buildHoldingMovements(
     direct.filter(Boolean).forEach((row: any) => { result[row.key] = row; });
   }
 
+  // Funds with no market feed (Moneybox funds, Vanguard via ISIN) still have
+  // LOOP's own daily price for each holding. Use that rather than "pending".
+  const stillMissing = grouped.filter((group) => !result[group.key]?.has);
+  if (stillMissing.length) {
+    const holdingIds = stillMissing.flatMap((group) => group.rows.map((row: any) => row.id)).filter(Boolean);
+    if (holdingIds.length) {
+      const { data } = await supabase
+        .from("investment_price_snapshots")
+        .select("holding_id, snapshot_at, price")
+        .eq("user_id", userId)
+        .in("holding_id", holdingIds)
+        .gte("snapshot_at", since)
+        .gt("price", 0)
+        .order("snapshot_at", { ascending: true })
+        .limit(5000);
+      const byHolding = new Map<string, Array<{ at: string; price: number }>>();
+      for (const row of data || []) {
+        const list = byHolding.get(row.holding_id) || [];
+        list.push({ at: row.snapshot_at, price: Number(row.price) });
+        byHolding.set(row.holding_id, list);
+      }
+      for (const group of stillMissing) {
+        const points = group.rows.map((row: any) => byHolding.get(row.id) || []).sort((a, b) => b.length - a.length)[0] || [];
+        if (points.length < 2) continue;
+        const first = points[0].price;
+        const last = points[points.length - 1].price;
+        if (first <= 0 || last <= 0) continue;
+        const pct = ((last - first) / first) * 100;
+        const opening = group.value / (1 + pct / 100);
+        result[group.key] = { pct, change: group.value - opening, has: true, source: "LOOP daily prices", points: points.length };
+      }
+    }
+  }
+
   grouped.forEach((group) => {
     if (!result[group.key]) result[group.key] = { pct: 0, change: 0, has: false, source: "history pending", points: 0 };
   });

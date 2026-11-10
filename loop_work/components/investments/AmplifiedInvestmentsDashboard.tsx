@@ -391,6 +391,13 @@ export function formatNativeUnitPrice(value: number, currency?: string | null, p
   return `${value.toFixed(value >= 100 ? 2 : 4)}${code ? ` ${code}` : ""}`;
 }
 
+/** What you paid per unit: pence for very cheap holdings, pounds and pence otherwise. */
+export function paidPerUnitLabel(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "—";
+  if (value < 1) return `${(value * 100).toFixed(value < 0.1 ? 2 : 1)}p`;
+  return `£${value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export function unitPriceLabel(holding: InvestmentHolding) {
   const native = Number(holding.native_latest_price || 0);
   if (native > 0) return formatNativeUnitPrice(native, holding.native_currency, holding.price_quote_unit);
@@ -1340,7 +1347,7 @@ export function AmplifiedInvestmentsDashboard({
                         </div>
                         <div className={`mt-2 flex items-center justify-between border-t pt-2 text-[11px] ${dark ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500"}`}>
                           <span>Price {unitPriceLabel(item.holding)}</span>
-                          <span>Paid {holdingCost(item.holding) > 0 ? formatNativeUnitPrice(averageHoldingPrice(item.holding), "GBP") : <span className="font-bold text-amber-500">not set</span>}</span>
+                          <span>Paid {holdingCost(item.holding) > 0 ? paidPerUnitLabel(averageHoldingPrice(item.holding)) : <span className="font-bold text-amber-500">not set</span>}</span>
                         </div>
                         {/* Tap-to-expand chart, right in the card — mobile
                             never had this before at all (the chart panel
@@ -1378,7 +1385,7 @@ export function AmplifiedInvestmentsDashboard({
                       <tr className={`border-b text-[10px] font-bold uppercase tracking-wider ${dark ? "border-white/10 text-white/40" : "border-slate-200 text-slate-400"}`}>
                         <th className="py-3 pl-2">Asset</th>
                         <th className="py-3 text-right">Price</th>
-                        <th className="py-3 text-right">Today</th>
+                        <th className="py-3 text-right">{period === "1D" ? "Today" : period}</th>
                         <th className="py-3 text-right">You paid</th>
                         <th className="py-3 text-right">Value</th>
                       </tr>
@@ -1403,7 +1410,7 @@ export function AmplifiedInvestmentsDashboard({
                               {item.move.has ? `${isUp ? "▲" : "▼"} ${Math.abs(item.move.pct).toFixed(2)}%` : "—"}
                             </td>
                             <td className={`py-3 text-right font-semibold ${dark ? "text-white/70" : "text-slate-600"}`}>
-                              {holdingCost(item.holding) > 0 ? formatNativeUnitPrice(averageHoldingPrice(item.holding), "GBP") : <span className="text-amber-500 font-bold">Not set</span>}
+                              {holdingCost(item.holding) > 0 ? paidPerUnitLabel(averageHoldingPrice(item.holding)) : <span className="text-amber-500 font-bold">Not set</span>}
                             </td>
                             <td className={`py-3 pr-2 text-right font-bold ${dark ? "text-white" : "text-slate-900"}`}>{formatMoney(item.value)}</td>
                           </tr>
@@ -1457,8 +1464,8 @@ export function AmplifiedInvestmentsDashboard({
                           <div className={`grid h-12 w-12 place-items-center rounded-full mb-4 ${dark ? "bg-white/5 text-white/30" : "bg-slate-100 text-slate-400"}`}>
                             <TrendingUp className="h-6 w-6" />
                           </div>
-                          <p className={`text-sm font-bold mb-1 ${dark ? "text-white/50" : "text-slate-600"}`}>No asset selected</p>
-                          <p className={`text-xs ${dark ? "text-white/30" : "text-slate-400"}`}>Click a holding from the list on the left to view its real-time chart and performance metrics.</p>
+                          <p className={`text-sm font-bold mb-1 ${dark ? "text-white/50" : "text-slate-600"}`}>Pick a holding</p>
+                          <p className={`text-xs ${dark ? "text-white/30" : "text-slate-400"}`}>Tap a holding on the left to see its chart.</p>
                        </div>
                     )}
                  </div>
@@ -1485,11 +1492,11 @@ export function AmplifiedInvestmentsDashboard({
                     <div className="space-y-4">
                       <div className={`rounded-2xl border p-4 ${dark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
                         <div className="mb-1 flex items-center justify-between text-xs">
-                          <span className={dark ? "text-white/40" : "text-slate-500"}>Selected Period Move</span>
+                          <span className={dark ? "text-white/40" : "text-slate-500"}>Change over {period === "1D" ? "today" : period}</span>
                           <span className={`font-bold ${positive ? "text-emerald-500" : "text-rose-500"}`}>{periodMove.has ? `${periodMove.change >= 0 ? "+" : ""}${formatMoney(periodMove.change)} (${periodMove.pct.toFixed(2)}%)` : "—"}</span>
                         </div>
                         <div className="flex items-center justify-between text-xs">
-                          <span className={dark ? "text-white/40" : "text-slate-500"}>Total Cost Basis</span>
+                          <span className={dark ? "text-white/40" : "text-slate-500"}>What you paid</span>
                           <span className={`font-bold ${dark ? "text-white" : "text-slate-900"}`}>{activeCostValue > 0 ? formatMoney(activeCostValue) : "Not verified"}</span>
                         </div>
                       </div>

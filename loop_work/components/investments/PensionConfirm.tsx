@@ -6,7 +6,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { confirmPensionPayment, setPensionFundValue } from "@/lib/investments/actions";
-import { formatMoney } from "@/lib/format/money";
+import { formatMoney as roundMoney } from "@/lib/format/money";
+
+// Exact pounds and pence: these are figures people check against a statement.
+const formatMoney = (value: number) => `£${Number(value || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+void roundMoney;
 import { ChoiceGrid, MoneyField, quickInputClass, StepModal, todayIso, toNumber, type QuickStep } from "@/components/quick-add/StepModal";
 
 export type PaymentToConfirm = {
