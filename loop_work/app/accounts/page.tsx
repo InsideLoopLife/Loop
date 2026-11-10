@@ -88,6 +88,7 @@ import {
   saveSavingsDealEligibility,
 } from "./actions";
 import { getChildCostMonthlyAmount as sharedChildCostMonthlyAmount } from "@/lib/planning/month-plan";
+import { NewPotButton, PotMoneyButton } from "@/components/savings/SavingsPotQuickAdd";
 
 type FinancialAccount = {
   id: string;
@@ -342,12 +343,12 @@ type SavingsPotAllocation = {
 const tabs = [
   { key: "overview", label: "Overview" },
   { key: "pots", label: "Pots" },
-  { key: "accounts", label: "Tracked accounts" },
+  { key: "accounts", label: "Accounts" },
   { key: "banks", label: "Your banks", hidden: true },
-  { key: "rates", label: "Better-rate watch" },
-  { key: "ai", label: "AI optimiser" },
+  { key: "rates", label: "Better rates" },
+  { key: "ai", label: "Savings health", hidden: true },
   { key: "projection", label: "Projection" },
-  { key: "add", label: "Add account" },
+  { key: "add", label: "Add account", hidden: true },
 ] as const;
 
 type SavingsTab = (typeof tabs)[number]["key"];
@@ -603,7 +604,7 @@ function TabLink({ tab, activeTab }: { tab: SavingsTab; activeTab: SavingsTab })
   return (
     <Link
       href={`/accounts?tab=${tab}`}
-      className={`shrink-0 snap-start rounded-full px-4 py-2 text-sm font-black transition ${activeTab === tab ? "bg-slate-950 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"}`}
+      className={`shrink-0 rounded-full px-4 py-2 text-sm transition ${activeTab === tab ? "bg-[var(--ink)] font-semibold text-white" : "text-[var(--muted)] hover:bg-white hover:text-[var(--ink)]"}`}
     >
       {config.label}
     </Link>
@@ -1503,91 +1504,144 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
         }}
       />
       <main className="mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
-        <header className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-950">Savings</h1>
-            <p className="mt-1 max-w-2xl text-[15px] text-slate-500">Balances, interest, pots for your goals and better rates.</p>
+        {accountRows.length === 0 && potRows.length === 0 ? <PageLandingExperience kind="savings" /> : null}
+
+        {accountRows.length > 0 || potRows.length > 0 || activeTab !== "overview" ? (<>
+        {/* One figure, then what's moving it this month. */}
+        <section className="rounded-[18px] border border-[var(--line)] bg-white">
+          <div className="flex flex-col gap-5 px-6 pb-5 pt-6 md:flex-row md:items-end md:justify-between md:px-8 md:pt-8">
+            <div className="min-w-0">
+              <p className="text-[15px] text-[var(--muted)]">Savings</p>
+              <p className="mt-2 text-[44px] font-semibold leading-none tracking-[-0.03em] text-[var(--ink)] md:text-[56px]">{formatMoney(totalSavings)}</p>
+              <p className="mt-2 text-[15px] text-[var(--muted)]">across {accountRows.length} account{accountRows.length === 1 ? "" : "s"}{potRows.length ? ` · ${potRows.length} pot${potRows.length === 1 ? "" : "s"}` : ""}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href="/accounts?tab=add" className="rounded-full px-4 py-2.5 text-sm text-[var(--muted)] hover:text-[var(--ink)]">Add account</Link>
+              <NewPotButton action={createSavingsPot} accounts={accountRows.map((account) => ({ id: account.id, name: account.name, provider: account.provider }))} essentialMonthlyOutgoings={Math.max(0, intelligence.essentialOutgoings.essential)} />
+            </div>
           </div>
-        </header>
-
-        {accountRows.length === 0 ? <PageLandingExperience kind="savings" /> : null}
-
-        {accountRows.length > 0 || activeTab !== "overview" ? (<>
-        <section className="grid gap-4 md:grid-cols-5">
-          <Link href="/accounts?tab=accounts"><StatCard title="Tracked savings" value={formatMoney(totalSavings)} helper={`${personalSavings.length} personal · ${sharedSavings.length} shared`} /></Link>
-          <Link href="/accounts?tab=accounts"><StatCard title="Monthly top-up" value={formatMoney(monthlyTopUps)} helper="Across active ladders" /></Link>
-          <SavingsPotsRotator goals={potRotatorGoals} />
-          <Link href="/accounts?tab=ai"><StatCard title="Savings health" value={`${intelligence.score}/100`} helper={`${intelligence.catalogue.confidence} confidence · automation ${hasAiSavingsFeature ? "on" : "optional"}`} /></Link>
-          <Link href="/accounts?tab=projection"><StatCard title="12m projection" value={formatMoney(twelveMonthSavings)} helper="Savings assumptions" /></Link>
+          <div className="grid grid-cols-1 border-t border-[var(--line)] sm:grid-cols-3">
+            {[
+              { label: "Going in each month", value: formatMoney(monthlyTopUps), note: "Regular top-ups", href: "/accounts?tab=accounts" },
+              { label: "Interest this month", value: formatMoney(currentMonthInterest.total), note: "Earned so far, estimated", href: "/accounts?tab=accounts" },
+              { label: "In a year", value: formatMoney(twelveMonthSavings), note: "At today's rates and top-ups", href: "/accounts?tab=projection" },
+            ].map((stat, i) => (
+              <Link key={stat.label} href={stat.href} className={`px-6 py-4 hover:bg-[var(--paper)] md:px-8 ${i > 0 ? "border-t border-[var(--line)] sm:border-l sm:border-t-0" : ""}`}>
+                <p className="text-sm text-[var(--muted)]">{stat.label}</p>
+                <p className="mt-1 text-[22px] font-semibold tracking-tight text-[var(--ink)]">{stat.value}</p>
+                <p className="mt-0.5 text-xs text-[var(--muted)]">{stat.note}</p>
+              </Link>
+            ))}
+          </div>
         </section>
 
-        <nav aria-label="Savings workspace sections" className="sticky top-3 z-20 -mx-1 flex snap-x snap-mandatory flex-nowrap gap-2 overflow-x-auto rounded-[1.35rem] border border-white/70 bg-white/90 p-3 shadow-sm backdrop-blur-xl [overscroll-behavior-x:contain] [scrollbar-width:thin]">
+        <nav aria-label="Savings sections" className="-mx-1 flex flex-nowrap gap-1 overflow-x-auto px-1 [scrollbar-width:none]">
           {tabs.filter((tab) => !("hidden" in tab && tab.hidden)).map((tab) => <TabLink key={tab.key} tab={tab.key} activeTab={activeTab} />)}
         </nav>
         </>) : null}
 
+        {activeTab === "overview" && (potRows.length > 0 || accountRows.length > 0) ? (
+          <section className="rounded-[18px] border border-[var(--line)] bg-white p-6 md:p-8">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-[var(--ink)]">Pots</h2>
+                <p className="text-sm text-[var(--muted)]">Money set aside for something.</p>
+              </div>
+              {potRows.length ? <Link href="/accounts?tab=pots" className="text-sm text-[var(--muted)] hover:text-[var(--ink)]">Manage pots →</Link> : null}
+            </div>
+            {potRows.length ? (
+              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {sortedPotRows.map(({ pot, allocated, target, neededPerMonth, progress, attentionStatus }) => (
+                  <article key={pot.id} className="rounded-[14px] border border-[var(--line)] p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="truncate text-base font-semibold text-[var(--ink)]">{pot.name}</h3>
+                        <p className="mt-0.5 text-xs text-[var(--muted)]">
+                          {pot.target_date ? `By ${new Date(`${pot.target_date}T12:00:00`).toLocaleDateString("en-GB", { month: "short", year: "numeric" })}` : "No deadline"}
+                          {attentionStatus === "attention" ? <span className="ml-2 text-[var(--amber)]">Behind</span> : null}
+                        </p>
+                      </div>
+                      <PotMoneyButton potId={pot.id} potName={pot.name} action={addSavingsPotMovement} />
+                    </div>
+                    <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--paper)]">
+                      <div className="h-full rounded-full bg-[var(--pine)]" style={{ width: `${Math.max(progress > 0 ? 2 : 0, Math.round(progress))}%` }} />
+                    </div>
+                    <div className="mt-2 flex items-baseline justify-between gap-3 text-sm">
+                      <span className="font-semibold text-[var(--ink)]">{formatMoney(allocated)} <span className="font-normal text-[var(--muted)]">of {target > 0 ? formatMoney(target) : "no target"}</span></span>
+                      <span className="text-xs text-[var(--muted)]">{neededPerMonth > 0 ? `${formatMoney(neededPerMonth)}/mo` : target > 0 ? "Done" : ""}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-5 rounded-[14px] border border-dashed border-[var(--line)] p-6 text-center">
+                <p className="text-sm text-[var(--muted)]">Saving for a holiday, a car or a rainy day? A pot tells you how much to put by each month.</p>
+                <div className="mt-4 flex justify-center">
+                  <NewPotButton label="Start a pot" action={createSavingsPot} accounts={accountRows.map((account) => ({ id: account.id, name: account.name, provider: account.provider }))} essentialMonthlyOutgoings={Math.max(0, intelligence.essentialOutgoings.essential)} />
+                </div>
+              </div>
+            )}
+          </section>
+        ) : null}
+
         {activeTab === "overview" && accountRows.length > 0 ? (
-          <div className="grid gap-7 xl:grid-cols-[1.15fr_0.85fr]">
-            <SectionCard title="Savings activity" description="A clean monthly view of what you saved, withdrew and earned in interest. Hover for exact values.">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="rounded-2xl bg-orange-50 px-4 py-3"><p className="text-[10px] font-black uppercase tracking-wide text-orange-700">Withdrawn</p><p className="mt-1 font-black text-slate-950">{formatMoney(currentMonthSummary.out)}</p></div>
-                  <div className="rounded-2xl bg-blue-50 px-4 py-3"><p className="text-[10px] font-black uppercase tracking-wide text-blue-700">Interest</p><p className="mt-1 font-black text-slate-950">{formatMoney(currentMonthInterest.total)}</p><p className="mt-1 text-xs font-black text-blue-700/70">Provider paid {formatMoney(currentMonthInterest.providerConfirmed)} · through yesterday {formatMoney(currentMonthInterest.accruedThroughYesterday)} · today est. {formatMoney(currentMonthInterest.estimated)}</p></div>
-                  <div className="rounded-2xl bg-emerald-50 px-4 py-3"><p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">Saved</p><p className="mt-1 font-black text-slate-950">{formatMoney(currentMonthSummary.in)}</p></div>
-                </div>
-                <Link href="/accounts?tab=projection" className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-600">Expand projection</Link>
+          <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+            <section className="rounded-[18px] border border-[var(--line)] bg-white p-6 md:p-8">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-[var(--ink)]">Accounts</h2>
+                <Link href="/accounts?tab=accounts" className="text-sm text-[var(--muted)] hover:text-[var(--ink)]">Update balances →</Link>
               </div>
-              <SavingsMovementChart data={savingsMovementSeries} />
-            </SectionCard>
-            <SectionCard title="Worth a look" description="Rates, tax on interest and balances that need confirming. Only things worth acting on show here.">
-              <div className="mb-5 rounded-3xl border border-blue-100 bg-blue-50/70 p-4">
-                <div className="flex flex-wrap items-end justify-between gap-2">
-                  <div><p className="text-xs font-black uppercase tracking-[0.16em] text-blue-700">Central ISA allowance · {activeIsaRule.taxYear}</p><p className="mt-1 text-sm font-bold text-slate-600">Known current-year subscriptions across savings and investment accounts. Existing ISA balances and ISA-to-ISA transfers do not consume this year&apos;s allowance.</p></div>
-                  <a href={activeIsaRule.sourceUrl} target="_blank" rel="noreferrer" className="text-xs font-black text-blue-800 underline">UK rules ↗</a>
-                </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {isaPositions.map((position) => (
-                    <article key={position.person.id} className="rounded-2xl bg-white p-4 shadow-sm">
-                      <div className="flex items-start justify-between gap-3"><div><p className="font-black text-slate-950">{position.person.name}</p><p className="text-xs font-bold text-slate-500">{isJuniorIsaWrapper(position.wrapper) ? "Junior ISA" : "Adult ISA"} allowance</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${position.eligibility.eligible ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{position.eligibility.eligible ? "Eligible" : "Not eligible"}</span></div>
-                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-400" style={{ width: `${Math.min(100, position.allowance > 0 ? position.used / position.allowance * 100 : 0)}%` }} /></div>
-                      <div className="mt-2 flex justify-between text-xs font-black"><span className="text-slate-500">Known used {formatMoney(position.used)}</span><span className="text-blue-800">{formatMoney(position.remaining)} left</span></div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-              <div className="space-y-3">
-                {totalOpportunityCost >= 10 || intelligence.catalogue.status !== "healthy" ? <OpportunityCard
-                  title="Better rates available"
-                  body={topRateOpportunities.length > 0 ? `${topRateOpportunities.length} account${topRateOpportunities.length === 1 ? " is" : "s are"} below the best broadly compatible eligible rate currently logged. Open Savings Health to model the effect before acting.` : intelligence.catalogue.status === "healthy" ? "No positive compatible rate gap is currently evidenced by the reviewed catalogue." : "The market check is incomplete, so £0 would not mean there is no opportunity. LOOP will show a value once enough fresh, reviewed products are available."}
-                  metric={intelligence.catalogue.status === "healthy" ? `${formatMoney(totalOpportunityCost)}/yr` : "Check incomplete"}
-                  tone={intelligence.catalogue.status !== "healthy" ? "warning" : totalOpportunityCost > 1 ? "action" : "good"}
-                /> : null}
-                <OpportunityCard
-                  title={`${defaultOwnerPerson?.name || "Your"} interest allowance watch`}
-                  body={intelligence.taxableInterest > 0 ? `Your Personal Savings Allowance is ${formatMoney(intelligence.savingsAllowance)}/yr. Estimated non-ISA interest is ${formatMoney(intelligence.nonIsaInterest)}/yr, leaving ${formatMoney(intelligence.taxableInterest)}/yr taxable. At ${intelligence.savingsTaxRate}% that is about ${formatMoney(intelligence.estimatedSavingsTax)}/yr. Review moving roughly ${formatMoney(intelligence.cashToShelter)} into an ISA, subject to access needs and eligibility. Known current-year ISA room: ${formatMoney(Math.max(0, intelligence.isaAllowance - intelligence.isaSubscribedAmount))}.` : `Your Personal Savings Allowance is ${formatMoney(intelligence.savingsAllowance)}/yr. Estimated non-ISA interest is ${formatMoney(intelligence.nonIsaInterest)}/yr, so no taxable excess is currently projected. Known current-year ISA room: ${formatMoney(Math.max(0, intelligence.isaAllowance - intelligence.isaSubscribedAmount))}.`}
-                  metric={intelligence.nonIsaInterest > intelligence.savingsAllowance ? "Review now" : "Watching"}
-                  tone={intelligence.nonIsaInterest > intelligence.savingsAllowance * 0.75 ? "warning" : "good"}
-                />
-                {topRateOpportunities.filter((row) => row.annualGain >= 10).slice(0, 2).map((row) => (
-                  <OpportunityCard key={row.accountId} title={`${row.providerName}: better rate available`} body={`${row.accountName} is at ${row.currentRate.toFixed(2)}%. The strongest compatible eligible deal logged is ${row.bestRate?.toFixed(2)}%, worth about ${formatMoney(row.annualGain)} a year on the eligible balance.`} metric={`${formatMoney(row.annualGain)}/yr`} tone="action" />
+              <ul className="mt-3 divide-y divide-[var(--line)]">
+                {[...accountRows]
+                  .map((account) => ({ account, balance: estimatedSavingsBalanceFromLedger(account, movements ?? []) }))
+                  .sort((x, y) => y.balance - x.balance)
+                  .map(({ account, balance }) => {
+                    const institution = findInstitution(account.provider_slug || account.provider);
+                    const owner = account.owner_person_id ? ownerById.get(account.owner_person_id) : null;
+                    return (
+                      <li key={account.id} className="flex items-center gap-4 py-3.5">
+                        <FinancialInstitutionLogo provider={account.provider_slug || account.provider} className="h-10 w-10 shrink-0 rounded-xl" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[15px] font-semibold text-[var(--ink)]">{institution?.name || account.provider || "Savings"} · {account.name || account.savings_product_name || "Savings"}</p>
+                          <p className="truncate text-xs text-[var(--muted)]">
+                            {Number(account.interest_rate || 0) > 0 ? `${Number(account.interest_rate).toFixed(2)}%` : "No interest"}
+                            {Number(account.monthly_top_up_amount || 0) > 0 ? ` · ${formatMoney(Number(account.monthly_top_up_amount))}/mo in` : ""}
+                            {owner ? ` · ${owner.name}` : ""}
+                          </p>
+                        </div>
+                        <p className="shrink-0 text-[15px] font-semibold text-[var(--ink)]">{formatMoney(balance)}</p>
+                      </li>
+                    );
+                  })}
+              </ul>
+            </section>
+            <section className="rounded-[18px] border border-[var(--line)] bg-white p-6 md:p-8">
+              <h2 className="text-lg font-semibold text-[var(--ink)]">Worth a look</h2>
+              <div className="mt-4 space-y-3">
+                {intelligence.taxableInterest > 0 ? (
+                  <OpportunityCard
+                    title="Tax on your interest"
+                    body={`About ${formatMoney(intelligence.nonIsaInterest)} of interest a year is outside an ISA, ${formatMoney(intelligence.taxableInterest)} over the ${formatMoney(intelligence.savingsAllowance)} tax-free allowance. That's roughly ${formatMoney(intelligence.estimatedSavingsTax)} a year in tax. Moving about ${formatMoney(intelligence.cashToShelter)} into a cash ISA would avoid it.`}
+                    metric={`${formatMoney(intelligence.estimatedSavingsTax)}/yr`}
+                    tone="warning"
+                  />
+                ) : null}
+                {topRateOpportunities.filter((row) => row.annualGain >= 10).slice(0, 3).map((row) => (
+                  <OpportunityCard key={row.accountId} title={`${row.providerName}: better rate available`} body={`${row.accountName} pays ${row.currentRate.toFixed(2)}%. A similar account pays ${row.bestRate?.toFixed(2)}%, about ${formatMoney(row.annualGain)} more a year.`} metric={`+${formatMoney(row.annualGain)}/yr`} tone="action" />
                 ))}
                 {intelligence.opportunities.filter((item) => !["better-rate", "isa-shield"].includes(item.key)).slice(0, 2).map((item) => <OpportunityCard key={item.key} title={item.title} body={item.body} metric={item.metric} tone={item.tone} />)}
+                {intelligence.taxableInterest <= 0 && !topRateOpportunities.some((row) => row.annualGain >= 10) && !intelligence.opportunities.some((item) => !["better-rate", "isa-shield"].includes(item.key)) ? (
+                  <p className="text-sm text-[var(--muted)]">Nothing needs doing right now.</p>
+                ) : null}
               </div>
-            </SectionCard>
+            </section>
           </div>
         ) : null}
 
         {activeTab === "pots" ? (
           <div className="space-y-7">
-            <SavingsPotJourney
-              action={createSavingsPot}
-              people={ownerOptions.map((person) => ({ id: person.id, name: person.name, relationship: person.relationship }))}
-              accounts={accountRows.map((account) => ({ id: account.id, name: account.name, provider: account.provider }))}
-              essentialMonthlyOutgoings={Math.max(0, intelligence.essentialOutgoings.essential)}
-              essentialItemCount={essentialItemCount}
-            />
 
-            <SectionCard title="Your savings pots" description="The visual adapts to the goal. Custom images take priority; otherwise LOOP uses a holiday, emergency, home, car, education, gift or repairs visual. The top-right thread records monthly allocations.">
+            <SectionCard title="Your savings pots" description="Each pot works out what to put by each month. Add money as you go, or link part of an account's balance." headerAction={<NewPotButton action={createSavingsPot} accounts={accountRows.map((account) => ({ id: account.id, name: account.name, provider: account.provider }))} essentialMonthlyOutgoings={Math.max(0, intelligence.essentialOutgoings.essential)} />}>
               {attentionPotCount > 0 ? (
                 <p className="mb-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-black text-amber-800">
                   {attentionPotCount} pot{attentionPotCount === 1 ? "" : "s"} behind pace — shown first below.
@@ -1604,6 +1658,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                           <p className="mt-1 text-sm font-bold text-slate-500">{pot.notes || "A goal for your savings"}</p>
                         </div>
                         <div className="flex items-center gap-2">
+                          <PotMoneyButton potId={pot.id} potName={pot.name} action={addSavingsPotMovement} />
                           <SavingsPotThread potId={pot.id} potName={pot.name} movements={potMovements} action={addSavingsPotMovement} />
                           <form action={deleteSavingsPot}>
                             <input type="hidden" name="id" value={pot.id} />
@@ -1624,7 +1679,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                         <span>{linkedAccount ? `${linkedAccount.provider || "Provider"} · ${linkedAccount.name}` : "No linked account yet"}</span>
                         <span>{pot.target_date ? `Target ${new Date(`${pot.target_date}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : "No target date"}</span>
                       </div>
-                      <p className="mt-3 text-xs font-bold text-slate-500">On-track score {onTrackScore}/100. Red is materially behind, amber needs review and green is on track. The required monthly amount recalculates after every allocation.</p>
+                      
 
                       <details className="mt-4 rounded-2xl border border-slate-200 bg-white">
                         <summary className="cursor-pointer list-none px-4 py-3 text-sm font-black text-slate-700">Manage linked-account allocations</summary>
@@ -1654,7 +1709,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                   </article>
                 ))}
               </div>
-              {potRows.length === 0 ? <p className="mt-5 rounded-3xl bg-emerald-50 p-5 text-sm font-bold text-emerald-900">Choose a recommended starting point above. LOOP will turn the target and date into a monthly plan.</p> : null}
+              {potRows.length === 0 ? <p className="mt-5 rounded-3xl bg-[var(--pine-wash)] p-5 text-sm text-[var(--pine-strong)]">No pots yet. Press New pot to start one.</p> : null}
             </SectionCard>
 
             {savingsGoals.length > 0 ? (
@@ -1776,7 +1831,24 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
               </div>
               <BalanceHistoryChart data={savingsTrajectory} />
             </SectionCard>
-            <SectionCard title="Tracked savings accounts" description="Provider images, owner, rate and balance sit on each card. Open Thread for the month-by-month ledger or Update to record a change.">
+            <SectionCard title="ISA allowance this tax year" description="What each person has paid into ISAs since 6 April, from the accounts in LOOP.">
+              <div className="rounded-3xl border border-blue-100 bg-blue-50/70 p-4">
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  <div><p className="text-xs font-black uppercase tracking-[0.16em] text-blue-700">Central ISA allowance · {activeIsaRule.taxYear}</p><p className="mt-1 text-sm font-bold text-slate-600">Known current-year subscriptions across savings and investment accounts. Existing ISA balances and ISA-to-ISA transfers do not consume this year&apos;s allowance.</p></div>
+                  <a href={activeIsaRule.sourceUrl} target="_blank" rel="noreferrer" className="text-xs font-black text-blue-800 underline">UK rules ↗</a>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {isaPositions.map((position) => (
+                    <article key={position.person.id} className="rounded-2xl bg-white p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-3"><div><p className="font-black text-slate-950">{position.person.name}</p><p className="text-xs font-bold text-slate-500">{isJuniorIsaWrapper(position.wrapper) ? "Junior ISA" : "Adult ISA"} allowance</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${position.eligibility.eligible ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{position.eligibility.eligible ? "Eligible" : "Not eligible"}</span></div>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-400" style={{ width: `${Math.min(100, position.allowance > 0 ? position.used / position.allowance * 100 : 0)}%` }} /></div>
+                      <div className="mt-2 flex justify-between text-xs font-black"><span className="text-slate-500">Known used {formatMoney(position.used)}</span><span className="text-blue-800">{formatMoney(position.remaining)} left</span></div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </SectionCard>
+            <SectionCard title="Your savings accounts" description="Tap Thread for each account's history, or Update to record a new balance.">
               {accountCards}
             </SectionCard>
             <SectionCard title="Everyday accounts" description="Current/checking accounts don't earn a tracked rate, but adding them here means they show up as an option whenever you pick a 'paid into' or 'paid from' account across Money in & out — income, spending and childcare included.">
@@ -1821,11 +1893,6 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
           </div>
         ) : null}
 
-        {activeTab === "overview" && accountRows.length > 0 ? (
-          <SectionCard title="Tracked savings accounts" description="A quick account preview. Open Tracked accounts for balance logs and edits.">
-            {accountCards}
-          </SectionCard>
-        ) : null}
 
         {activeTab === "add" ? (
           <SectionCard title="Add account" description="Add any account your household uses — a savings pot to track a rate and goal, or an everyday current account so it's available as a 'paid into' / 'paid from' option across income, spending and childcare.">
