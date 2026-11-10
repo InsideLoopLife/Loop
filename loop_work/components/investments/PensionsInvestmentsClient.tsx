@@ -1,5 +1,6 @@
 "use client";
 
+import { FundValueButton, PaymentsToConfirm, type PaymentToConfirm } from "@/components/investments/PensionConfirm";
 import { useEffect, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import dynamic from "next/dynamic";
@@ -7510,6 +7511,27 @@ export function PensionsInvestmentsClient({
       )
     );
   }, 0);
+  // Payments that should have gone in but haven't been confirmed yet, one per pot per pay month.
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const paymentsToConfirmFor = (accountIds: string[]): PaymentToConfirm[] => {
+    const groups = new Map<string, PaymentToConfirm>();
+    for (const event of pensionContributionEvents) {
+      if (!event.pension_account_id || !accountIds.includes(event.pension_account_id)) continue;
+      if (!["awaiting_provider_confirmation", "pending_investment"].includes(String(event.event_status))) continue;
+      const due = String(event.investment_date || event.contribution_date || "").slice(0, 10);
+      if (!due || due > todayKey) continue;
+      const month = String((event as any).contribution_month || String(event.contribution_date || "").slice(0, 7));
+      const account = pensionAccounts.find((item) => item.id === event.pension_account_id);
+      if (!account) continue;
+      const key = `${account.id}:${month}`;
+      const current = groups.get(key) || { accountId: account.id, accountLabel: account.label, provider: account.provider, month, expectedTotal: 0, expectedDate: due, fundCount: 0 };
+      current.expectedTotal += Number(event.contribution_amount || 0);
+      current.fundCount += 1;
+      if (due > current.expectedDate) current.expectedDate = due;
+      groups.set(key, current);
+    }
+    return Array.from(groups.values()).sort((a, b) => a.expectedDate.localeCompare(b.expectedDate));
+  };
   const allInvestmentSnapshotPoints = aggregateSnapshots(
     investmentSnapshots,
     investmentHoldings,
@@ -8093,6 +8115,7 @@ export function PensionsInvestmentsClient({
                   </div>
                 </div>
 
+                <PaymentsToConfirm payments={paymentsToConfirmFor(potRows.map((row) => row.account.id))} />
                 <div className="rounded-[18px] border border-[var(--line)] bg-white p-6 md:p-8">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <h2 className="text-lg font-semibold text-[var(--ink)]">Your pots</h2>
@@ -8377,6 +8400,7 @@ export function PensionsInvestmentsClient({
                       </dl>
 
                       <div className="mt-5"><AllocationBar funds={funds} showKey={funds.length > 1} /></div>
+                      <div className="mt-4"><PaymentsToConfirm payments={paymentsToConfirmFor([account.id])} compact /></div>
 
                       <button
                         type="button"
@@ -8467,6 +8491,7 @@ export function PensionsInvestmentsClient({
                       </div>
                     </div>
                     <PensionContributionLogicCard account={account} payEvents={payEvents} />
+                    <div className="mt-4"><PaymentsToConfirm payments={paymentsToConfirmFor([account.id])} compact /></div>
                     <div className="mt-6">
                       <AllocationBar funds={funds} showKey={funds.length > 1} />
                     </div>
@@ -8514,24 +8539,24 @@ export function PensionsInvestmentsClient({
                                 const fundEvents = accountContributionEvents
                                   .filter((event) => event.pension_fund_id === fund.id && event.event_status !== "removed" && event.event_status !== "superseded")
                                   .sort((a, b) => String(b.investment_date || b.contribution_date || "").localeCompare(String(a.investment_date || a.contribution_date || "")));
-                                const confirmed = fundEvents.filter((event) => event.source === "provider_statement" || event.source === "manual_reconciliation" || event.event_status === "invested");
+                                const confirmed = fundEvents.filter((event) => event.event_status === "invested");
                                 const latestConfirmed = confirmed[0];
                                 const waiting = fundEvents.filter((event) => ["awaiting_provider_confirmation", "pending_investment"].includes(String(event.event_status)));
                                 const nextWaiting = waiting[waiting.length - 1];
-                                const providerName = account.provider || "the provider";
                                 return (
                                   <p className="mt-1 text-xs text-[var(--muted)]">
                                     {latestConfirmed
                                       ? `Last confirmed ${formatMoney(Number(latestConfirmed.contribution_amount || 0))} on ${formatThreadDate(latestConfirmed.investment_date || latestConfirmed.contribution_date)}`
                                       : "No confirmed purchases yet"}
                                     {waiting.length
-                                      ? ` · ${waiting.length} waiting for ${providerName} to confirm (next ${formatMoney(Number(nextWaiting.contribution_amount || 0))}, ${formatThreadDate(nextWaiting.investment_date || nextWaiting.contribution_date)})`
+                                      ? ` · next ${formatMoney(Number(nextWaiting.contribution_amount || 0))} due ${formatThreadDate(nextWaiting.investment_date || nextWaiting.contribution_date)}${String(nextWaiting.investment_date || "") <= new Date().toISOString().slice(0, 10) ? ", waiting for you to confirm" : ""}`
                                       : ""}
                                   </p>
                                 );
                               })()}
                             </div>
                             <div className="flex flex-wrap gap-2 lg:justify-end">
+                              <FundValueButton fundId={fund.id} fundName={fund.fund_name} currentValue={valueOfFund(fund)} />
                               <button
                                 onClick={() =>
                                   setModal({

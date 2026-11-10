@@ -2496,3 +2496,165 @@ export async function deleteDbPensionServiceEvent(formData: FormData) {
   revalidatePath("/investments");
   revalidatePath("/net-worth");
 }
+
+// ---------------------------------------------------------------------------
+// Confirming payments and resetting fund values
+//
+// Each fund has units "as of" a date (pension_funds.units_as_of_date). A
+// confirmed purchase after that date adds units; a value the person enters
+// resets the units at its date and re-adds any confirmed purchases after it.
+// Units for a confirmed purchase are estimated from the fund's own logged
+// daily price (pension_fund_value_snapshots) on or before the purchase date.
+
+async function loggedUnitPrice(supabase: any, userId: string, fundId: string, onDate: string, fallback: number) {
+  const { data } = await supabase
+    .from("pension_fund_value_snapshots")
+    .select("unit_price, snapshot_date")
+    .eq("user_id", userId)
+    .eq("pension_fund_id", fundId)
+    .lte("snapshot_date", onDate)
+    .gt("unit_price", 0)
+    .order("snapshot_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const price = Number(data?.unit_price || 0);
+  return price > 0 ? { price, date: String(data.snapshot_date) } : { price: fallback, date: null as string | null };
+}
+
+async function rollUpPensionAccount(supabase: any, userId: string, accountId: string) {
+  const { data: funds } = await supabase
+    .from("pension_funds")
+    .select("current_value, units, unit_price")
+    .eq("user_id", userId)
+    .eq("pension_account_id", accountId);
+  const total = (funds || []).reduce((sum: number, fund: any) => sum + (Number(fund.current_value) || Number(fund.units || 0) * Number(fund.unit_price || 0)), 0);
+  if (total > 0) {
+    await supabase.from("pension_accounts").update({ current_value: Math.round(total * 100) / 100, updated_at: new Date().toISOString() }).eq("id", accountId).eq("user_id", userId);
+  }
+}
+
+/** "Yes, that payment went in": amount (optional change) and the date it was invested. */
+export async function confirmPensionPayment(formData: FormData) {
+  const { supabase, user } = await currentUser();
+  const accountId = String(formData.get("pension_account_id") || "");
+  const month = String(formData.get("contribution_month") || "");
+  const investedOn = String(formData.get("invested_on") || "").slice(0, 10);
+  const enteredTotal = parseNumber(formData.get("amount"));
+  if (!accountId || !/^\d{4}-\d{2}$/.test(month) || !/^\d{4}-\d{2}-\d{2}$/.test(investedOn)) throw new Error("Choose the payment and the date it went in.");
+  if (investedOn > new Date().toISOString().slice(0, 10)) throw new Error("That date is in the future. Confirm it once the money has gone in.");
+
+  const { data: events, error } = await supabase
+    .from("pension_contribution_events")
+    .select("id, pension_fund_id, contribution_amount, notes")
+    .eq("user_id", user.id)
+    .eq("pension_account_id", accountId)
+    .eq("contribution_month", month)
+    .in("event_status", ["awaiting_provider_confirmation", "pending_investment"]);
+  if (error) throw new Error(error.message);
+  if (!events?.length) throw new Error("There's nothing waiting to confirm for that month.");
+
+  const expectedTotal = events.reduce((sum, event) => sum + Number(event.contribution_amount || 0), 0);
+  const total = enteredTotal != null && enteredTotal > 0 ? enteredTotal : expectedTotal;
+  const scale = expectedTotal > 0 ? total / expectedTotal : 1;
+
+  for (const event of events) {
+    if (!event.pension_fund_id) continue;
+    const { data: fund } = await supabase
+      .from("pension_funds")
+      .select("id, units, unit_price, units_as_of_date")
+      .eq("id", event.pension_fund_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!fund) continue;
+    const amount = Math.round(Number(event.contribution_amount || 0) * scale * 100) / 100;
+    const { price, date: priceDate } = await loggedUnitPrice(supabase, user.id, fund.id, investedOn, Number(fund.unit_price || 0));
+    const units = price > 0 ? amount / price : null;
+    const addsUnits = units != null && (!fund.units_as_of_date || investedOn > String(fund.units_as_of_date));
+    const note = `Confirmed by you on ${new Date().toISOString().slice(0, 10)}: ${amount.toFixed(2)} invested ${investedOn}.${units != null ? ` Units estimated at ${price} (fund price logged ${priceDate || "most recently"}).` : ""}`;
+    const { error: eventError } = await supabase
+      .from("pension_contribution_events")
+      .update({
+        event_status: "invested",
+        source: "user_confirmed",
+        investment_date: investedOn,
+        contribution_amount: amount,
+        unit_price: price > 0 ? price : null,
+        units_bought: units,
+        units_applied: addsUnits,
+        notes: [event.notes, note].filter(Boolean).join("\n"),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", event.id)
+      .eq("user_id", user.id);
+    if (eventError) throw new Error(eventError.message);
+    if (addsUnits) {
+      const newUnits = Number(fund.units || 0) + Number(units);
+      await supabase.from("pension_funds").update({
+        units: newUnits,
+        current_value: Math.round(newUnits * Number(fund.unit_price || price) * 100) / 100,
+        updated_at: new Date().toISOString(),
+      }).eq("id", fund.id).eq("user_id", user.id);
+    }
+  }
+  await rollUpPensionAccount(supabase, user.id, accountId);
+  revalidatePath("/investments");
+  revalidatePath("/net-worth");
+  revalidatePath("/dashboard");
+}
+
+/** "This fund was worth £X on date D": D becomes the fund's starting point. */
+export async function setPensionFundValue(formData: FormData) {
+  const { supabase, user } = await currentUser();
+  const fundId = String(formData.get("pension_fund_id") || "");
+  const value = parseNumber(formData.get("value"));
+  const asOf = String(formData.get("as_of") || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  if (!fundId || value == null || value < 0) throw new Error("Enter the fund's value.");
+  if (asOf > new Date().toISOString().slice(0, 10)) throw new Error("Use today or an earlier date.");
+
+  const { data: fund, error } = await supabase
+    .from("pension_funds")
+    .select("id, pension_account_id, unit_price")
+    .eq("id", fundId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (error || !fund) throw new Error("That fund wasn't found.");
+
+  const { price } = await loggedUnitPrice(supabase, user.id, fund.id, asOf, Number(fund.unit_price || 0));
+  const { data: later } = await supabase
+    .from("pension_contribution_events")
+    .select("units_bought")
+    .eq("user_id", user.id)
+    .eq("pension_fund_id", fund.id)
+    .eq("event_status", "invested")
+    .gt("investment_date", asOf);
+  const laterUnits = (later || []).reduce((sum, row) => sum + Number(row.units_bought || 0), 0);
+  const baseUnits = price > 0 ? value / price : 0;
+  const units = price > 0 ? baseUnits + laterUnits : null;
+  const currentPrice = Number(fund.unit_price || price || 0);
+  const currentValue = units != null && currentPrice > 0 ? units * currentPrice : value;
+
+  const { error: updateError } = await supabase.from("pension_funds").update({
+    units,
+    units_as_of_date: asOf,
+    current_value: Math.round(currentValue * 100) / 100,
+    updated_at: new Date().toISOString(),
+  }).eq("id", fund.id).eq("user_id", user.id);
+  if (updateError) throw new Error(updateError.message);
+
+  await supabase.from("pension_fund_value_snapshots").upsert({
+    user_id: user.id,
+    pension_fund_id: fund.id,
+    pension_account_id: fund.pension_account_id,
+    snapshot_date: asOf,
+    units: baseUnits || null,
+    unit_price: price || null,
+    value,
+    monthly_contribution_applied: 0,
+    source: "user_value",
+  }, { onConflict: "user_id,pension_fund_id,snapshot_date" });
+
+  await rollUpPensionAccount(supabase, user.id, fund.pension_account_id);
+  revalidatePath("/investments");
+  revalidatePath("/net-worth");
+  revalidatePath("/dashboard");
+}
