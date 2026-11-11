@@ -20,29 +20,32 @@ export type LenderSvr = {
   nextSvrPercent?: number;
   nextFrom?: string;
   note?: string;
+  /** Where the lender publishes its standard variable rate. */
   url: string;
+  /** The lender's current fixed and tracker deals: what you'd switch to. */
+  dealsUrl?: string;
 };
 
 export const LENDER_SVRS: LenderSvr[] = [
-  { lender: "Halifax", svrPercent: 7.24, nextSvrPercent: 7.49, nextFrom: "2026-12-01", note: "Homeowner Variable Rate is the same", url: "https://www.halifax.co.uk/mortgages/existing-customers/bank-rate-changes.html" },
-  { lender: "Lloyds Bank", svrPercent: null, nextSvrPercent: 6.0, nextFrom: "2026-12-01", note: "Homeowner Variable Rate rises to 7.49%", url: "https://www.lloydsbank.com/mortgages/existing-customers/base-rate-rise-mortgage-calculator.html" },
+  { lender: "Halifax", svrPercent: 7.24, nextSvrPercent: 7.49, nextFrom: "2026-12-01", note: "Homeowner Variable Rate is the same", url: "https://www.halifax.co.uk/mortgages/existing-customers/bank-rate-changes.html", dealsUrl: "https://www.halifax.co.uk/mortgages/mortgage-rates.html" },
+  { lender: "Lloyds Bank", svrPercent: null, nextSvrPercent: 6.0, nextFrom: "2026-12-01", note: "Homeowner Variable Rate rises to 7.49%", url: "https://www.lloydsbank.com/mortgages/existing-customers/base-rate-rise-mortgage-calculator.html", dealsUrl: "https://www.lloydsbank.com/mortgages/mortgage-rates.html" },
   { lender: "Nationwide", svrPercent: null, nextSvrPercent: 6.74, nextFrom: "2026-12-01", note: "Standard Mortgage Rate", url: "https://www.nationwide.co.uk/mortgages/existing-mortgage-members/standard-and-base-mortgage-rates" },
-  { lender: "Barclays", svrPercent: null, nextSvrPercent: 5.99, nextFrom: "2026-12-01", url: SVR_ROUNDUP_URL },
-  { lender: "Santander", svrPercent: null, nextSvrPercent: 6.75, nextFrom: "2026-12-03", note: "Follow-on rate rises to 7.25%", url: "https://www.santander.co.uk/personal/support/loans-and-mortgages/standard-variable-and-follow-on-rates" },
-  { lender: "Virgin Money", svrPercent: null, nextSvrPercent: 6.99, nextFrom: "2026-12-01", url: "https://uk.virginmoney.com/mortgages/bank-of-england-base-rate/" },
+  { lender: "Barclays", svrPercent: null, nextSvrPercent: 5.99, nextFrom: "2026-12-01", url: SVR_ROUNDUP_URL, dealsUrl: "https://www.barclays.co.uk/mortgages/" },
+  { lender: "Santander", svrPercent: null, nextSvrPercent: 6.75, nextFrom: "2026-12-03", note: "Follow-on rate rises to 7.25%", url: "https://www.santander.co.uk/personal/support/loans-and-mortgages/standard-variable-and-follow-on-rates", dealsUrl: "https://www.santander.co.uk/personal/mortgages/existing-customers" },
+  { lender: "Virgin Money", svrPercent: null, nextSvrPercent: 6.99, nextFrom: "2026-12-01", url: "https://uk.virginmoney.com/mortgages/bank-of-england-base-rate/", dealsUrl: "https://uk.virginmoney.com/mortgages/remortgage/" },
   { lender: "Co-op Bank", svrPercent: null, nextSvrPercent: 6.79, nextFrom: "2026-11-09", url: SVR_ROUNDUP_URL },
   { lender: "Clydesdale Bank", svrPercent: null, nextSvrPercent: 6.99, nextFrom: "2026-11-16", url: SVR_ROUNDUP_URL },
   { lender: "Principality BS", svrPercent: null, nextSvrPercent: 7.05, nextFrom: "2026-12-01", url: SVR_ROUNDUP_URL },
   { lender: "West Brom BS", svrPercent: null, nextSvrPercent: 6.49, nextFrom: "2026-12-01", url: SVR_ROUNDUP_URL },
-  { lender: "HSBC", svrPercent: 6.24, note: "New rate not announced yet", url: "https://www.hsbc.co.uk/mortgages/our-rates/" },
+  { lender: "HSBC", svrPercent: 6.24, note: "New rate not announced yet", url: "https://www.hsbc.co.uk/mortgages/our-rates/", dealsUrl: "https://www.hsbc.co.uk/mortgages/our-rates/" },
   { lender: "First Direct", svrPercent: 6.24, note: "New rate not announced yet", url: SVR_ROUNDUP_URL },
-  { lender: "Coventry BS", svrPercent: 6.54, note: "New rate not announced yet", url: "https://www.coventrybuildingsociety.co.uk/member/help/mortgages/standard-variable-rate-options.html" },
+  { lender: "Coventry BS", svrPercent: 6.54, note: "New rate not announced yet", url: "https://www.coventrybuildingsociety.co.uk/member/help/mortgages/standard-variable-rate-options.html", dealsUrl: "https://www.coventrybuildingsociety.co.uk/member/mortgages/homeowners/new-customers/remortgage.html" },
   { lender: "Skipton BS", svrPercent: 6.29, note: "New rate not announced yet", url: SVR_ROUNDUP_URL },
   { lender: "Yorkshire BS", svrPercent: 6.74, note: "Rising from 29 Nov; new rate not announced yet", url: SVR_ROUNDUP_URL },
   { lender: "Newcastle BS", svrPercent: 6.31, note: "New rate not announced yet", url: SVR_ROUNDUP_URL },
   { lender: "Metro Bank", svrPercent: 7.25, note: "New rate not announced yet", url: SVR_ROUNDUP_URL },
   { lender: "Leeds BS", svrPercent: 7.74, note: "New rate not announced yet", url: SVR_ROUNDUP_URL },
-  { lender: "NatWest", svrPercent: null, note: "Not announced yet", url: "https://personal.natwest.com/personal/mortgages/mortgage-types-and-rates/standard-variable-rate-mortgage.html" },
+  { lender: "NatWest", svrPercent: null, note: "Not announced yet", url: "https://personal.natwest.com/personal/mortgages/mortgage-types-and-rates/standard-variable-rate-mortgage.html", dealsUrl: "https://www.natwest.com/mortgages/mortgage-rates.html" },
 ];
 
 /** The rate that applies on a given day: the announced one once its date arrives. */

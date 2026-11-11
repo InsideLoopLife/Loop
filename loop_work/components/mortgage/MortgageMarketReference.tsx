@@ -15,10 +15,17 @@ const shortDate = (iso: string) =>
 
 export function MortgageMarketReference({
   bankRate,
+  fixedTwoYear,
+  fixedFiveYear,
+  ltv,
   liveDealCount,
   news,
 }: {
   bankRate: number | null;
+  /** Bank of England average quoted 2- and 5-year fixed rates for this LTV band. */
+  fixedTwoYear: number | null;
+  fixedFiveYear: number | null;
+  ltv: number | null;
   liveDealCount: number;
   news: MortgageNewsItem[];
 }) {
@@ -32,51 +39,61 @@ export function MortgageMarketReference({
   return (
     <section className="grid gap-4 lg:grid-cols-[1.1fr_.9fr]">
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <h2 className="text-lg font-bold">Where rates are</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          {liveDealCount < 10
+            ? "Some lenders' deal pages couldn't be read today, so here's the picture from the Bank of England and lenders' own pages."
+            : "The picture from the Bank of England and lenders' own pages."}
+        </p>
+
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <a href={BANK_RATE_URL} target="_blank" rel="noreferrer" className="rounded-xl bg-violet-50 px-3 py-3">
+            <span className="block text-xs font-semibold text-violet-700">Bank Rate</span>
+            <span className="block text-xl font-bold text-slate-950">{bankRate != null ? `${bankRate.toFixed(2)}%` : "—"}</span>
+          </a>
+          <div className="rounded-xl bg-emerald-50 px-3 py-3">
+            <span className="block text-xs font-semibold text-emerald-800">Typical 2-year fix</span>
+            <span className="block text-xl font-bold text-slate-950">{fixedTwoYear != null ? `${fixedTwoYear.toFixed(2)}%` : "—"}</span>
+          </div>
+          <div className="rounded-xl bg-emerald-50 px-3 py-3">
+            <span className="block text-xs font-semibold text-emerald-800">Typical 5-year fix</span>
+            <span className="block text-xl font-bold text-slate-950">{fixedFiveYear != null ? `${fixedFiveYear.toFixed(2)}%` : "—"}</span>
+          </div>
+        </div>
+        <p className="mt-1.5 text-xs text-slate-500">
+          Typical fixes are Bank of England averages{ltv != null ? ` for around ${Math.round(ltv)}% loan-to-value` : ""}. The best deals on lenders&apos; sites are often lower, so check their current deals below.
+        </p>
+
+        <div className="mt-5 flex items-end justify-between gap-3 border-b border-slate-100 pb-2">
           <div>
-            <h2 className="text-lg font-bold">Where rates are</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              {liveDealCount < 10
-                ? "Some lenders' deal pages couldn't be read today, so here are Bank Rate and lenders' standard variable rates as a guide."
-                : "Bank Rate and what each lender charges when a deal ends."}
+            <p className="text-sm font-semibold text-slate-700">Lenders</p>
+            <p className="text-xs text-slate-500">
+              Current deals are what you could switch to. The rate on the right is their standard variable rate: what you pay if a deal ends and you don&apos;t switch{low != null && high != null ? ` (${low.toFixed(2)}% to ${high.toFixed(2)}% at the moment)` : ""}.
             </p>
           </div>
-          <a href={BANK_RATE_URL} target="_blank" rel="noreferrer" className="rounded-xl bg-violet-50 px-4 py-3 text-right">
-            <span className="block text-xs font-semibold text-violet-700">Bank Rate</span>
-            <span className="block text-2xl font-bold text-slate-950">{bankRate != null ? `${bankRate.toFixed(2)}%` : "—"}</span>
-          </a>
+          <span className="shrink-0 text-xs font-semibold text-slate-500">If you don&apos;t switch</span>
         </div>
-
-        <p className="mt-5 text-sm font-semibold text-slate-700">
-          Standard variable rates{low != null && high != null ? ` · ${low.toFixed(2)}% to ${high.toFixed(2)}%` : ""}
-        </p>
-        <p className="mt-0.5 text-xs text-slate-500">
-          What you move onto if a fixed deal ends and you don&apos;t switch. You can&apos;t apply for these; they&apos;re the rate to avoid. → marks a new rate that hasn&apos;t started yet.
-        </p>
         <ul className="mt-3 divide-y divide-slate-100">
           {rows.map(({ entry, rate }) => (
             <li key={entry.lender} className="flex items-center justify-between gap-3 py-2">
-              <a href={entry.url} target="_blank" rel="noreferrer" className="min-w-0">
-                <span className="block truncate text-sm font-semibold text-slate-900 hover:underline">{entry.lender} ↗</span>
-                {entry.note || (entry.nextFrom && entry.nextSvrPercent != null && today < entry.nextFrom) ? (
-                  <span className="block truncate text-xs text-slate-500">
-                    {entry.nextFrom && entry.nextSvrPercent != null && today < entry.nextFrom
-                      ? `${entry.nextSvrPercent.toFixed(2)}% from ${shortDate(entry.nextFrom)}`
-                      : null}
-                    {entry.nextFrom && entry.nextSvrPercent != null && today < entry.nextFrom && entry.note ? " · " : null}
-                    {entry.note}
-                  </span>
-                ) : null}
-              </a>
-              <span className="shrink-0 text-right text-sm font-bold text-slate-950">
+              <div className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-slate-900">{entry.lender}</span>
+                <span className="block truncate text-xs text-slate-500">
+                  <a href={entry.dealsUrl || entry.url} target="_blank" rel="noreferrer" className="font-semibold text-emerald-700 hover:underline">
+                    {entry.dealsUrl ? "Current deals ↗" : "Rates ↗"}
+                  </a>
+                  {entry.nextFrom && entry.nextSvrPercent != null && today < entry.nextFrom ? ` · SVR ${entry.nextSvrPercent.toFixed(2)}% from ${shortDate(entry.nextFrom)}` : null}
+                  {entry.note ? ` · ${entry.note}` : null}
+                </span>
+              </div>
+              <a href={entry.url} target="_blank" rel="noreferrer" className="shrink-0 text-right text-sm font-bold text-slate-700 hover:underline">
                 {rate != null ? `${entry.svrPercent == null && entry.nextFrom && today < entry.nextFrom ? "→ " : ""}${rate.toFixed(2)}%` : "—"}
-              </span>
+              </a>
             </li>
           ))}
         </ul>
         <p className="mt-3 text-xs text-slate-500">
-          Checked {shortDate(SVR_REFERENCE_CHECKED_ON)} after Bank Rate rose to 4% on 5 Nov. Each name links to the lender&apos;s page;
-          where a lender doesn&apos;t publish it, the link goes to{" "}
+          Variable rates checked {shortDate(SVR_REFERENCE_CHECKED_ON)}, after Bank Rate rose to 4% on 5 Nov; → marks a new rate that hasn&apos;t started yet. Each rate links to the lender&apos;s page, or where a lender doesn&apos;t publish it, to{" "}
           <a href={SVR_ROUNDUP_URL} target="_blank" rel="noreferrer" className="underline">MoneySavingExpert&apos;s round-up</a>.
         </p>
       </div>
