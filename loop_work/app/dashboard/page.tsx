@@ -1,3 +1,5 @@
+import { PlainMonthPanel } from "@/components/dashboard/PlainMonthPanel";
+import { monthDrivers, outlook } from "@/lib/planning/plain-money";
 import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { createPageTimer } from "@/lib/perf/timing";
 import {
@@ -993,7 +995,19 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
           </dl>
         </section>
         ) : null}
-        {standoutPoints.length > 0 ? (
+        {hasDashboardData ? (
+          <PlainMonthPanel
+            monthLabel={selectedPlan.label}
+            previousLabel={previousMonthPlan.label}
+            change={surplusChange}
+            drivers={previousMonthPlan.income === 0 && previousMonthPlan.outgoings === 0 ? [] : monthDrivers(previousMonthPlan, selectedPlan, 3)}
+            ahead={outlook(forecastPlans, 6)}
+            savingsBalance={Number(insightEvidence.savingsBalance || 0)}
+            monthlyCost={essentialMonthlyOutgoings > 0 ? essentialMonthlyOutgoings : nonSavingsOutgoings}
+            essentialsOnly={essentialMonthlyOutgoings > 0}
+          />
+        ) : null}
+        {false && standoutPoints.length > 0 ? (
           <section className="grid gap-3 md:grid-cols-3">
             {standoutPoints.map((point, index) => (
               <div key={index} className="flex items-start gap-3 rounded-[14px] border border-[var(--line)] bg-white p-4">
