@@ -872,6 +872,7 @@ export async function saveHouseStyle(formData: FormData) {
     shrubs: style.shrubs !== false,
     driveway: ["none", "garage", "house", "full"].includes(style.driveway) ? style.driveway : "none",
     cars: [0, 1, 2].includes(Number(style.cars)) ? Number(style.cars) : 0,
+    scene: ["day", "night"].includes(style.scene) ? style.scene : "auto",
   };
   const { error } = await supabase.from("homes").update({ house_style: clean }).eq("id", homeId);
   if (error) throw new Error(error.message);
