@@ -336,7 +336,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
   }
 
   return (
-    <main className="mx-auto w-[95vw] max-w-none overflow-x-hidden px-4 pb-28 pt-4 font-sans md:px-8">
+    <main className="mx-auto w-[95vw] max-w-none overflow-x-clip px-4 pb-28 pt-4 font-sans md:px-8">
       {props.cacheMode === "stale" ? (
         <div className="pointer-events-none fixed right-5 top-20 z-30 rounded-full border border-violet-100 bg-white/95 px-3 py-2 text-[10px] font-bold text-violet-700 shadow-lg backdrop-blur">
           Refreshing live House data...
