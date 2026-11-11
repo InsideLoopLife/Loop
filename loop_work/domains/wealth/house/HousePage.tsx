@@ -255,6 +255,14 @@ async function MortgageContent() {
       .maybeSingle<MarketRateBenchmark>(),
   ]);
   const mortgageNews = await mortgageNewsPromise;
+  // Last weekly searches (RLS limits these to this household).
+  const { data: dealSearch } = await supabase
+    .from("mortgage_deal_search_results")
+    .select("id, home_id, searched_on, rank, lender_name, product_name, rate_type, rate_percent, fee_amount, ltv_max_percent, initial_term_months, monthly_payment, yearly_cost, is_current_lender, customer_type, source_name, source_url")
+    .gte("searched_on", new Date(Date.now() - 21 * 86400000).toISOString().slice(0, 10))
+    .order("searched_on", { ascending: false })
+    .order("rank", { ascending: true })
+    .limit(60);
 
   const allPeopleRows = (rawPeople ?? []) as (Person & {
     user_id?: string | null;
@@ -515,6 +523,7 @@ async function MortgageContent() {
         boeBenchmarks={[...(latestBankRate ? [latestBankRate] : []), ...(boeBenchmarks ?? []).filter((row) => row.term_type !== "bank_rate")]}
         svrKnowledge={svrKnowledge ?? []}
         mortgageNews={mortgageNews}
+        dealSearch={(dealSearch ?? []) as any}
         monthPlan={monthPlan}
         normalMonthPlan={normalMonthPlan}
         temporaryIncomeContext={temporaryIncomeContext}
