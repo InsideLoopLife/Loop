@@ -37,7 +37,7 @@ export function MortgageMarketReference({
   const high = known.length ? Math.max(...known) : null;
 
   return (
-    <section className="grid gap-4 lg:grid-cols-[1.1fr_.9fr]">
+    <section className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,.9fr)]">
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold">Where rates are</h2>
         <p className="mt-1 text-sm text-slate-500">

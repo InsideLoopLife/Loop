@@ -12,7 +12,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // Bump each April when MHCLG publishes the new year (URL from the gov.uk page).
 export const ENGLAND_TABLE = {
   chargeYear: "2026-27",
-  url: "https://assets.publishing.service.gov.uk/media/6a02eeeccd2e0e8b5b20b449/Table_10_2026-27.ods",
+  // Tables 1-9; Table 9 is the full area charge (council, county, police,
+  // fire and parish) for each billing area, by band.
+  url: "https://assets.publishing.service.gov.uk/media/69de1fa63e81003ae0422508/Tables_1-9_2026-27.ods",
   sourcePage: "https://www.gov.uk/government/statistics/council-tax-levels-set-by-local-authorities-in-england-2026-to-2027",
   averageBandD: 2392, // published England average, 2026-27 (incl. ASC and parish precepts)
 };
@@ -183,6 +185,30 @@ export function extractBandD(sheets: Array<{ name: string; rows: string[][] }>) 
     const width = Math.max(...codeRows.map((r) => r.length));
     const headerFor = (col: number) => headerRows.map((r) => r[col] || "").join(" ").replace(/\s+/g, " ").trim();
 
+    // Table 9 has a plain "Band D" column heading above the councils: use it.
+    const bandRow = sheet.rows.slice(Math.max(0, firstDataIndex - 6), firstDataIndex).find((r) => r.some((c) => /^band d$/i.test(String(c).trim())));
+    if (bandRow) {
+      const col = bandRow.findIndex((c) => /^band d$/i.test(String(c).trim()));
+      const nameCol = bandRow.findIndex((c) => /^(authority|billing authority|name)$/i.test(String(c).trim()));
+      const rows = codeRows.map((r) => ({ code: r[codeCol], name: nameCol >= 0 ? r[nameCol] : r[codeCol], bandD: Number(r[col]) }))
+        .filter((r) => Number.isFinite(r.bandD) && r.bandD >= 900 && r.bandD <= 4500);
+      if (rows.length >= 250 && (!best || rows.length > best.rows.length)) { best = { rows, header: `${sheet.name}: Band D` }; continue; }
+    }
+    // Most reliable: the England summary row above the councils carries the
+    // published national average, so the Band D column is the one where that
+    // row matches it.
+    const englandRow = sheet.rows.slice(0, firstDataIndex).find((r) => r.some((c) => /^england$/i.test(String(c).trim())));
+    if (englandRow) {
+      const diffs = englandRow.map((c, i) => (i === codeCol || !Number.isFinite(Number(c)) || String(c).trim() === "" ? Infinity : Math.abs(Number(c) - ENGLAND_TABLE.averageBandD)));
+      const closest = Math.min(...diffs);
+      const col = closest <= 30 ? diffs.indexOf(closest) : -1;
+      if (col >= 0) {
+        const nameCol = codeRows[0].findIndex((c, i) => i !== codeCol && /[a-z]{3,}/i.test(c) && !LA_CODE.test(c) && !Number.isFinite(Number(c)));
+        const rows = codeRows.map((r) => ({ code: r[codeCol], name: nameCol >= 0 ? r[nameCol] : r[codeCol], bandD: Number(r[col]) }))
+          .filter((r) => Number.isFinite(r.bandD) && r.bandD >= 900 && r.bandD <= 4500);
+        if (rows.length >= 250 && (!best || rows.length > best.rows.length)) { best = { rows, header: headerFor(col) || `column ${col + 1} (matches the England average)` }; continue; }
+      }
+    }
     const candidates: Array<{ col: number; header: string; score: number }> = [];
     for (let col = 0; col < width; col++) {
       if (col === codeCol) continue;
@@ -240,13 +266,13 @@ export async function refreshEnglandCouncilTax(db: SupabaseClient, opts: { force
     band,
     annual_charge_pence: Math.round(r.bandD * 100 * ratio),
     charge_year: ENGLAND_TABLE.chargeYear,
-    source_kind: "mhclg_table_10",
+    source_kind: "mhclg_table_9",
     source_url: ENGLAND_TABLE.sourcePage,
     confidence: 92,
     updated_at: now,
   })));
 
-  const { error: deleteError } = await db.from("loop_council_tax_rate_estimates").delete().eq("country_code", "ENG").eq("charge_year", ENGLAND_TABLE.chargeYear).eq("source_kind", "mhclg_table_10");
+  const { error: deleteError } = await db.from("loop_council_tax_rate_estimates").delete().eq("country_code", "ENG").eq("charge_year", ENGLAND_TABLE.chargeYear).eq("source_kind", "mhclg_table_9");
   if (deleteError) throw new Error(deleteError.message);
   for (let i = 0; i < rows.length; i += 500) {
     const { error } = await db.from("loop_council_tax_rate_estimates").insert(rows.slice(i, i + 500));
