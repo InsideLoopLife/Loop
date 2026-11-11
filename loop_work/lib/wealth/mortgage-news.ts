@@ -5,6 +5,8 @@
 
 export type MortgageNewsItem = { title: string; url: string; source: string; publishedAt: string | null };
 
+// Every headline must mention mortgages or rates: even the mortgage sections
+// carry general property stories.
 const FEEDS: Array<{ source: string; url: string; filter: boolean }> = [
   { source: "The Guardian", url: "https://www.theguardian.com/money/mortgages/rss", filter: false },
   { source: "This is Money", url: "https://www.thisismoney.co.uk/money/mortgageshome/index.rss", filter: false },
@@ -46,7 +48,7 @@ async function readFeed(feed: (typeof FEEDS)[number]): Promise<MortgageNewsItem[
         };
       })
       .filter((item) => item.title && /^https?:\/\//.test(item.url))
-      .filter((item) => !feed.filter || RELEVANT.test(item.title));
+      .filter((item) => RELEVANT.test(item.title));
   } catch {
     return [];
   }

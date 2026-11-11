@@ -51,7 +51,7 @@ export function MortgageMarketReference({
           Standard variable rates{low != null && high != null ? ` · ${low.toFixed(2)}% to ${high.toFixed(2)}%` : ""}
         </p>
         <p className="mt-0.5 text-xs text-slate-500">
-          What you move onto if a fixed deal ends and you don&apos;t switch. You can&apos;t apply for these; they&apos;re the rate to avoid.
+          What you move onto if a fixed deal ends and you don&apos;t switch. You can&apos;t apply for these; they&apos;re the rate to avoid. → marks a new rate that hasn&apos;t started yet.
         </p>
         <ul className="mt-3 divide-y divide-slate-100">
           {rows.map(({ entry, rate }) => (
@@ -68,7 +68,9 @@ export function MortgageMarketReference({
                   </span>
                 ) : null}
               </a>
-              <span className="shrink-0 text-sm font-bold text-slate-950">{rate != null ? `${rate.toFixed(2)}%` : "—"}</span>
+              <span className="shrink-0 text-right text-sm font-bold text-slate-950">
+                {rate != null ? `${entry.svrPercent == null && entry.nextFrom && today < entry.nextFrom ? "→ " : ""}${rate.toFixed(2)}%` : "—"}
+              </span>
             </li>
           ))}
         </ul>
