@@ -3,7 +3,12 @@
 import { calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
 import { effectiveMortgageStart, wholeMonthsBetween } from "@/lib/calculations/mortgage-term";
 import { WeeklyDealSearch, type MortgageDealSearchRow } from "@/components/mortgage/WeeklyDealSearch";
-import { AreaPriceCard, DealHistory, MortgageFacts, RenewalCountdown, RunningCosts, TermNote } from "@/components/mortgage/HouseOverviewExtras";
+import { AreaPriceCard, CouncilTaxCheck, MortgageFacts, RenewalCountdown, RunningCosts, TermNote, type CouncilTaxBandQuote } from "@/components/mortgage/HouseOverviewExtras";
+import { HomeJourney, type HomeJourneyEvent } from "@/components/mortgage/HomeJourney";
+import { HouseStyleCard } from "@/components/mortgage/HouseStyleCard";
+import type { HouseStyle } from "@/components/mortgage/HouseIllustration";
+import { saveCouncilTaxBand } from "@/app/mortgage/actions";
+import { useRouter } from "next/navigation";
 import type { AreaPrices } from "@/lib/property/house-price-index";
 import { MortgageMarketReference } from "@/components/mortgage/MortgageMarketReference";
 import type { MortgageNewsItem } from "@/lib/wealth/mortgage-news";
@@ -105,6 +110,8 @@ export type HouseUnifiedWorkspaceProps = {
   mortgageNews?: MortgageNewsItem[];
   dealSearch?: MortgageDealSearchRow[];
   areaPrices?: AreaPrices | null;
+  journeyEvents?: HomeJourneyEvent[];
+  councilTaxQuotes?: CouncilTaxBandQuote[];
   monthPlan: MonthPlan;
   normalMonthPlan: MonthPlan;
   temporaryIncomeContext: { label: string; endDate: string | null } | null;
@@ -185,6 +192,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
     TABS.some(([id]) => id === requested) ? requested : "overview",
   );
   const [modal, setModal] = useState<ModalState>(null);
+  const router = useRouter();
   const [showMaps, setShowMaps] = useState(false);
 
   useEffect(() => {
@@ -378,7 +386,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
               <TermNote deal={deal} onEdit={() => deal && setModal({ type: "edit_mortgage", deal })} />
 
               <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
-                <div className={showMaps && home?.latitude && home?.longitude ? "grid lg:grid-cols-[1fr_1fr]" : ""}>
+                <div className="grid lg:grid-cols-[1fr_1fr]">
                   <div className="p-5 sm:p-6">
                     <h2 className="text-xl font-bold">{home?.label || "Add your home"}</h2>
                     {home?.full_address || home?.address_line ? <p className="mt-1 text-sm text-slate-500">{home?.full_address || home?.address_line}</p> : null}
@@ -395,20 +403,26 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
                       <button onClick={() => choose("rates")} className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold">Compare rates</button>
                     </div>
                   </div>
-                  {showMaps && home?.latitude && home?.longitude ? (
-                    <div className="relative min-h-[260px] bg-slate-100">
-                      <iframe title={`${home.label} map`} src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(home.longitude)-0.006}%2C${Number(home.latitude)-0.006}%2C${Number(home.longitude)+0.006}%2C${Number(home.latitude)+0.006}&layer=mapnik&marker=${home.latitude}%2C${home.longitude}`} className="absolute inset-0 h-full w-full border-0" loading="lazy"/>
-                    </div>
-                  ) : null}
+                  <div className="border-t border-slate-100 bg-[#eef4f1] lg:border-l lg:border-t-0">
+                    <HouseStyleCard key={home?.id ?? "none"} homeId={home?.id ?? null} saved={((home as any)?.house_style as HouseStyle | null) ?? null} propertyType={(home as any)?.property_type ?? null} />
+                  </div>
                 </div>
               </section>
               <MortgageFacts deal={deal} />
               <section className="grid gap-4 lg:grid-cols-2">
-                <RunningCosts items={props.normalMonthPlan.outgoingItems.map((item) => ({ label: item.label, value: Number(item.value || 0) }))} />
+                <RunningCosts items={props.normalMonthPlan.outgoingItems.map((item) => ({ label: item.label, value: Number(item.value || 0) }))}>
+                  <CouncilTaxCheck
+                    homeId={home?.id ?? null}
+                    band={(home as any)?.council_tax_band ?? null}
+                    quotes={props.councilTaxQuotes ?? []}
+                    monthlyBill={(() => { const bill = props.normalMonthPlan.outgoingItems.filter((item) => /council tax/i.test(item.label)).reduce((sum, item) => sum + Number(item.value || 0), 0); return bill > 0 ? bill : null; })()}
+                    onSave={async (band) => { const fd = new FormData(); fd.set("home_id", home?.id ?? ""); fd.set("band", band); await saveCouncilTaxBand(fd); router.refresh(); }}
+                  />
+                </RunningCosts>
                 <AreaPriceCard data={props.areaPrices ?? null} homeValue={value.mid} valuationLabel={props.valuations.filter((v) => v.home_id === home?.id)[0]?.source_name ?? null} />
               </section>
               <section className="grid gap-4 lg:grid-cols-2">
-                <DealHistory deals={props.deals.filter((item) => item.home_id === home?.id)} onEdit={(item) => setModal({ type: "edit_mortgage", deal: item })} />
+                <HomeJourney homeId={home?.id ?? null} events={(props.journeyEvents ?? []).filter((event) => event.home_id === home?.id)} deals={props.deals.filter((item) => item.home_id === home?.id)} onEditDeal={(item) => setModal({ type: "edit_mortgage", deal: item })} />
                 <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">Valuation sources</h2><button onClick={() => setModal({ type: "add_valuation", homeId: home?.id })} className="text-xs font-bold text-violet-700">+ Add valuation</button></div><div className="mt-4 space-y-2">{props.valuations.filter(v => v.home_id === home?.id).map(v => <button key={v.id} onClick={() => setModal({ type: "edit_valuation", valuation: v })} className="flex w-full items-center justify-between rounded-xl bg-slate-50 p-3 text-left"><span><span className="block text-sm font-bold">{v.source_name}</span><span className="text-xs text-slate-500">{v.valuation_date}</span></span><span className="font-bold">{formatMoney(Number(v.valuation_mid ?? v.valuation_amount ?? 0))}</span></button>)}</div></section>
               </section>
             </div>

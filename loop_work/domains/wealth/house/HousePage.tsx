@@ -1,3 +1,4 @@
+import { quoteCouncilTax } from "@/lib/property/council-tax-rates";
 import { loadAreaPrices } from "@/lib/property/house-price-index";
 import { loadMortgageNews } from "@/lib/wealth/mortgage-news";
 import { Nav } from "@/components/Nav";
@@ -114,7 +115,7 @@ async function MortgageContent() {
     supabase
       .from("homes")
       .select(
-        "id, label, house_number, address_line, postcode, full_address, city, region, country, latitude, longitude, map_url, lookup_source, uprn, property_type, purchase_source_url, last_lookup_at, ownership_status, property_value, estimated_value_low, estimated_value_mid, estimated_value_high, estimated_value_date, purchase_price, purchase_date, target_purchase_price, target_extra_cash, target_interest_rate, target_term_years, notes",
+        "id, label, house_number, address_line, postcode, full_address, city, region, country, latitude, longitude, map_url, lookup_source, uprn, property_type, purchase_source_url, last_lookup_at, ownership_status, property_value, estimated_value_low, estimated_value_mid, estimated_value_high, estimated_value_date, purchase_price, purchase_date, target_purchase_price, target_extra_cash, target_interest_rate, target_term_years, notes, house_style, council_tax_band",
       )
       .or(householdVisibleFilter)
       .order("created_at", { ascending: false })
@@ -257,7 +258,17 @@ async function MortgageContent() {
   ]);
   const mortgageNews = await mortgageNewsPromise;
   const areaHome = (homes ?? []).find((home: any) => home.ownership_status === "current_home") ?? (homes ?? [])[0];
-  const areaPrices = areaHome ? await loadAreaPrices(areaHome as any) : null;
+  const [areaPrices, journeyResult, councilTaxQuotes] = await Promise.all([
+    areaHome ? loadAreaPrices(areaHome as any) : Promise.resolve(null),
+    supabase
+      .from("home_journey_events")
+      .select("id, home_id, event_date, kind, title, amount, rate_percent, lender, end_date, notes")
+      .order("event_date", { ascending: true }),
+    // What each band costs in this council area, to check the bill against.
+    areaHome?.city
+      ? Promise.all("ABCDEFGH".split("").map((band) => quoteCouncilTax(supabase as any, { band, authorityName: String(areaHome.city) }).catch(() => null)))
+      : Promise.resolve([]),
+  ]);
   // Last weekly searches (RLS limits these to this household).
   const { data: dealSearch } = await supabase
     .from("mortgage_deal_search_results")
@@ -527,6 +538,10 @@ async function MortgageContent() {
         svrKnowledge={svrKnowledge ?? []}
         mortgageNews={mortgageNews}
         areaPrices={areaPrices}
+        journeyEvents={(journeyResult?.data ?? []) as any}
+        councilTaxQuotes={(councilTaxQuotes as any[])
+          .filter(Boolean)
+          .map((quote: any) => ({ band: quote.band, annual: Math.round(quote.annualPence / 100), source: quote.source, authority: quote.authorityName, chargeYear: quote.chargeYear }))}
         dealSearch={(dealSearch ?? []) as any}
         monthPlan={monthPlan}
         normalMonthPlan={normalMonthPlan}

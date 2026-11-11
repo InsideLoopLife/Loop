@@ -3,6 +3,7 @@
 // Pieces of the House overview: when to lock in the next deal and what it
 // would cost, what the home costs to run, how prices in the area are moving,
 // and the mortgage's history.
+import { useState } from "react";
 import { calculateMonthlyMortgagePayment, calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
 import { effectiveMortgageStart, getMortgageTermPosition, wholeMonthsBetween } from "@/lib/calculations/mortgage-term";
 import { LENDER_SVRS, svrOn } from "@/lib/wealth/lender-svr-reference";
@@ -125,7 +126,7 @@ export function MortgageFacts({ deal }: { deal: HomeMortgageDeal | undefined }) 
 
 const RUNNING = /council tax|insurance|electric|gas\b|energy|water|broadband|internet|service charge|ground rent|tv licen|boiler|home emergency|maintenance|octopus|british gas|edf|e\.on|ovo|united utilities|severn trent|thames water/i;
 
-export function RunningCosts({ items }: { items: Array<{ label: string; value: number }> }) {
+export function RunningCosts({ items, children }: { items: Array<{ label: string; value: number }>; children?: React.ReactNode }) {
   const rows = items
     .filter((item) => RUNNING.test(item.label) && !/mortgage/i.test(item.label) && Number(item.value) > 0)
     .sort((a, b) => Number(b.value) - Number(a.value));
@@ -147,6 +148,7 @@ export function RunningCosts({ items }: { items: Array<{ label: string; value: n
         <p className="mt-3 text-sm text-slate-500">No council tax, energy, water or insurance bills found in Money in &amp; out yet.</p>
       )}
       {!rows.some((item) => /insurance/i.test(item.label)) ? <p className="mt-2 text-xs text-amber-700">No buildings or contents insurance found. Add it in Money in &amp; out if you pay it.</p> : null}
+      {children}
     </section>
   );
 }
@@ -203,5 +205,60 @@ export function DealHistory({ deals, onEdit }: { deals: HomeMortgageDeal[]; onEd
         })}
       </ul>
     </section>
+  );
+}
+
+export type CouncilTaxBandQuote = { band: string; annual: number; source: "council_table" | "national_average"; authority: string | null; chargeYear: string };
+
+/**
+ * Checks the council tax bill in Money in & out against what the band should
+ * cost in this council area (MHCLG Band D figures × the legal band ratios).
+ */
+export function CouncilTaxCheck({ homeId, band, quotes, monthlyBill, onSave }: {
+  homeId: string | null;
+  band: string | null;
+  quotes: CouncilTaxBandQuote[];
+  monthlyBill: number | null;
+  onSave: (band: string) => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  if (!homeId || !quotes.length) return null;
+  const yearlyBill = monthlyBill != null ? monthlyBill * 12 : null;
+  // Bills are often paid over 10 months; check against both.
+  const nearest = yearlyBill
+    ? [...quotes].sort((a, b) => Math.min(Math.abs(a.annual - yearlyBill), Math.abs(a.annual - yearlyBill * 10 / 12)) - Math.min(Math.abs(b.annual - yearlyBill), Math.abs(b.annual - yearlyBill * 10 / 12)))[0]
+    : null;
+  const chosen = band ? quotes.find((quote) => quote.band === band) : null;
+  const local = quotes[0]?.source === "council_table";
+  const area = quotes[0]?.authority;
+  return (
+    <div className="mt-4 rounded-xl bg-slate-50 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-800">Council tax band</p>
+        <select
+          value={band ?? ""}
+          disabled={saving}
+          onChange={async (event) => { setSaving(true); try { await onSave(event.target.value); } finally { setSaving(false); } }}
+          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm"
+        >
+          <option value="">Not set</option>
+          {quotes.map((quote) => <option key={quote.band} value={quote.band}>Band {quote.band}</option>)}
+        </select>
+      </div>
+      {chosen ? (
+        <p className="mt-1 text-xs text-slate-600">
+          Band {chosen.band} {local && area ? `in ${area}` : "(England average, as your council's figures aren't loaded)"} is about {pounds(chosen.annual)} a year for {chosen.chargeYear}.
+          {yearlyBill ? (Math.abs(chosen.annual - yearlyBill) / chosen.annual < 0.08 || Math.abs(chosen.annual - yearlyBill * 10 / 12) / chosen.annual < 0.08
+            ? " That matches your bill."
+            : ` Your bill comes to ${pounds(yearlyBill)} a year, which is ${yearlyBill > chosen.annual ? "more" : "less"} than that: worth checking your band or any discount.`) : null}
+        </p>
+      ) : (
+        <p className="mt-1 text-xs text-slate-600">
+          {nearest && local ? `Your bill of ${pounds(yearlyBill!)} a year looks like Band ${nearest.band} in ${area}. ` : ""}
+          Check your band on{" "}
+          <a href="https://www.gov.uk/council-tax-bands" target="_blank" rel="noreferrer" className="underline">GOV.UK</a> and set it here.
+        </p>
+      )}
+    </div>
   );
 }

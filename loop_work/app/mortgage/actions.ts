@@ -845,3 +845,88 @@ export async function reportMortgageRecommendationIssue(formData: FormData) {
   revalidatePath("/mortgage");
   revalidatePath("/admin/houses");
 }
+
+// ---------------------------------------------------------------------------
+// The drawing of the home, its council tax band, and its journey.
+
+const HOUSE_TYPES = new Set(["flat", "terraced", "end_terrace", "semi", "detached", "bungalow"]);
+
+export async function saveHouseStyle(formData: FormData) {
+  const { supabase } = await requireUser();
+  const homeId = String(formData.get("home_id") || "");
+  let style: any = null;
+  try { style = JSON.parse(String(formData.get("style") || "null")); } catch { style = null; }
+  if (!homeId || !style || !HOUSE_TYPES.has(style.type)) throw new Error("Choose a type of home.");
+  const clean = {
+    type: style.type,
+    storeys: [1, 2, 2.5, 3, 4, 5].includes(Number(style.storeys)) ? Number(style.storeys) : 2,
+    garage: ["none", "integral", "single", "double"].includes(style.garage) ? style.garage : "none",
+    garageSide: style.garageSide === "left" ? "left" : "right",
+    attachedSide: style.attachedSide === "right" ? "right" : "left",
+    door: /^#[0-9a-f]{6}$/i.test(String(style.door || "")) ? style.door : null,
+  };
+  const { error } = await supabase.from("homes").update({ house_style: clean }).eq("id", homeId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/mortgage");
+}
+
+export async function saveCouncilTaxBand(formData: FormData) {
+  const { supabase } = await requireUser();
+  const homeId = String(formData.get("home_id") || "");
+  const band = String(formData.get("band") || "").trim().toUpperCase();
+  if (!homeId) throw new Error("No home chosen.");
+  const { error } = await supabase.from("homes").update({ council_tax_band: /^[A-I]$/.test(band) ? band : null }).eq("id", homeId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/mortgage");
+}
+
+const JOURNEY_KINDS = new Set(["purchase", "mortgage_deal", "remortgage", "help_to_buy_loan", "help_to_buy_repaid", "shared_ownership", "further_borrowing", "overpayment", "improvement", "valuation", "sale", "other"]);
+
+function journeyFields(formData: FormData) {
+  const kind = String(formData.get("kind") || "other");
+  const eventDate = String(formData.get("event_date") || "");
+  const title = String(formData.get("title") || "").trim().slice(0, 160);
+  if (!JOURNEY_KINDS.has(kind)) throw new Error("Choose what happened.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) throw new Error("Add the date.");
+  if (!title) throw new Error("Give it a short title.");
+  return {
+    kind,
+    event_date: eventDate,
+    title,
+    amount: parseNumber(formData.get("amount")),
+    rate_percent: parseNumber(formData.get("rate_percent")),
+    lender: String(formData.get("lender") || "").trim().slice(0, 120) || null,
+    end_date: /^\d{4}-\d{2}-\d{2}$/.test(String(formData.get("end_date") || "")) ? String(formData.get("end_date")) : null,
+    notes: String(formData.get("notes") || "").trim().slice(0, 1000) || null,
+  };
+}
+
+export async function addHomeJourneyEvent(formData: FormData) {
+  const { supabase, user, householdContext } = await requireUser();
+  const homeId = String(formData.get("home_id") || "");
+  if (!homeId) throw new Error("No home chosen.");
+  const { error } = await supabase.from("home_journey_events").insert({
+    user_id: user.id,
+    household_id: (householdWriteFields(householdContext, user.id) as any).household_id ?? null,
+    home_id: homeId,
+    ...journeyFields(formData),
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath("/mortgage");
+}
+
+export async function updateHomeJourneyEvent(formData: FormData) {
+  const { supabase, user } = await requireUser();
+  const id = String(formData.get("id") || "");
+  const { error } = await supabase.from("home_journey_events").update({ ...journeyFields(formData), updated_at: new Date().toISOString() }).eq("id", id).eq("user_id", user.id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/mortgage");
+}
+
+export async function deleteHomeJourneyEvent(formData: FormData) {
+  const { supabase, user } = await requireUser();
+  const id = String(formData.get("id") || "");
+  const { error } = await supabase.from("home_journey_events").delete().eq("id", id).eq("user_id", user.id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/mortgage");
+}
