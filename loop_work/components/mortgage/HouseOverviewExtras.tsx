@@ -47,7 +47,9 @@ export function RenewalCountdown({ deal, searchRows, onCompare }: { deal: HomeMo
   const currentPayment = paymentAt(Number(deal.interest_rate || 0));
 
   const latest = searchRows.length ? searchRows.map((row) => row.searched_on).sort().reverse()[0] : null;
-  const rows = searchRows.filter((row) => row.searched_on === latest).sort((a, b) => a.rank - b.rank);
+  // Same ranking as the Renewal tab: yearly cost on this home's balance and term.
+  const yearly = (row: MortgageDealSearchRow) => paymentAt(Number(row.rate_percent)) * 12 + Number(row.fee_amount || 0) / Math.max(1, Number(row.initial_term_months || 24) / 12);
+  const rows = searchRows.filter((row) => row.searched_on === latest).sort((a, b) => yearly(a) - yearly(b));
   const best = rows[0];
   const own = deal.lender ? rows.find((row) => row.is_current_lender || sameLender(row.lender_name, deal.lender || "")) : undefined;
   const svrEntry = deal.lender ? LENDER_SVRS.find((entry) => sameLender(entry.lender, deal.lender || "")) : undefined;
