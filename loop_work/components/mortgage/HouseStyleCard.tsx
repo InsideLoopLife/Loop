@@ -6,7 +6,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveHouseStyle } from "@/app/mortgage/actions";
-import { DOOR_COLOURS, HouseIllustration, defaultHouseStyle, type HouseStyle } from "@/components/mortgage/HouseIllustration";
+import { BRICK_COLOURS, DOOR_COLOURS, HouseIllustration, RENDER_COLOURS, ROOF_COLOURS, defaultHouseStyle, type HouseStyle } from "@/components/mortgage/HouseIllustration";
 
 function Choice<T extends string | number>({ label, value, options, onPick }: { label: string; value: T | undefined; options: Array<[T, string]>; onPick: (value: T) => void }) {
   return (
@@ -16,6 +16,23 @@ function Choice<T extends string | number>({ label, value, options, onPick }: { 
         {options.map(([option, text]) => (
           <button key={String(option)} type="button" onClick={() => onPick(option)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${value === option ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
             {text}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Swatches({ label, value, options, onPick }: { label: string; value: string; options: Array<[string, string]>; onPick: (value: string) => void }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold text-slate-500">{label}</p>
+      <div className="mt-1 flex flex-wrap gap-2">
+        {options.map(([colour, name]) => (
+          <button key={colour} type="button" title={name} aria-label={`${label}: ${name}`} onClick={() => onPick(colour)}
+            className={`flex items-center gap-1.5 rounded-full py-1 pl-1 pr-2.5 text-xs font-semibold ${value === colour ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
+            <span className="h-5 w-5 rounded-full ring-1 ring-black/10" style={{ background: colour }} />
+            {name}
           </button>
         ))}
       </div>
@@ -60,6 +77,18 @@ export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string
           {isHouse && style.garage && style.garage !== "none" && style.type !== "semi" ? (
             <Choice label="Garage on the" value={style.garageSide} onPick={(garageSide) => set({ garageSide })} options={[["left", "Left"], ["right", "Right"]]} />
           ) : null}
+          <Swatches label="Brick" value={style.brick ?? BRICK_COLOURS[0][0]} options={BRICK_COLOURS} onPick={(brick) => set({ brick })} />
+          <Choice label="Render" value={style.render ?? "none"} onPick={(render) => set({ render })} options={[["none", "None"], ["upper", "Top half"], ["full", "Whole house"]]} />
+          {style.render && style.render !== "none" ? (
+            <Swatches label="Render colour" value={style.renderColour ?? RENDER_COLOURS[0][0]} options={RENDER_COLOURS} onPick={(renderColour) => set({ renderColour })} />
+          ) : null}
+          <Swatches label="Roof" value={style.roof ?? ROOF_COLOURS[0][0]} options={ROOF_COLOURS} onPick={(roof) => set({ roof })} />
+          <Choice label="Driveway" value={style.driveway ?? "none"} onPick={(driveway) => set({ driveway })}
+            options={style.garage && style.garage !== "none" ? [["none", "None"], ["garage", "In front of the garage"], ["house", "In front of the house"]] : [["none", "None"], ["house", "In front of the house"]]} />
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={style.grass !== false} onChange={(e) => set({ grass: e.target.checked })} /> Lawn at the front</label>
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={style.shrubs !== false} onChange={(e) => set({ shrubs: e.target.checked })} /> Shrubs</label>
+          </div>
           <div>
             <p className="text-xs font-semibold text-slate-500">Front door</p>
             <div className="mt-1 flex gap-2">

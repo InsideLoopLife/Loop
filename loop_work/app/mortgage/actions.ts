@@ -864,6 +864,13 @@ export async function saveHouseStyle(formData: FormData) {
     garageSide: style.garageSide === "left" ? "left" : "right",
     attachedSide: style.attachedSide === "right" ? "right" : "left",
     door: /^#[0-9a-f]{6}$/i.test(String(style.door || "")) ? style.door : null,
+    brick: /^#[0-9a-f]{6}$/i.test(String(style.brick || "")) ? style.brick : null,
+    render: ["none", "upper", "full"].includes(style.render) ? style.render : "none",
+    renderColour: /^#[0-9a-f]{6}$/i.test(String(style.renderColour || "")) ? style.renderColour : null,
+    roof: /^#[0-9a-f]{6}$/i.test(String(style.roof || "")) ? style.roof : null,
+    grass: style.grass !== false,
+    shrubs: style.shrubs !== false,
+    driveway: ["none", "garage", "house"].includes(style.driveway) ? style.driveway : "none",
   };
   const { error } = await supabase.from("homes").update({ house_style: clean }).eq("id", homeId);
   if (error) throw new Error(error.message);
