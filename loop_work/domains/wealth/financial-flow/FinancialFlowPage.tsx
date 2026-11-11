@@ -22,6 +22,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Nav } from "@/components/Nav";
+import { PriceWatchPanel } from "@/components/financial-flow/PriceWatchPanel";
+import { priceWatch } from "@/lib/bills/price-watch";
+import { createClient } from "@/lib/supabase/server";
 import { PageLandingExperience } from "@/components/landing/PageLandingExperience";
 import { SavingsFlowDetail, type SavingsFlowAccountRow, type SavingsFlowPotRow } from "@/components/financial-flow/SavingsFlowDetail";
 import { formatMoney } from "@/lib/format/money";
@@ -1305,6 +1308,12 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
 
         {!hasFlowData ? <PageLandingExperience kind="financial-flow" /> : null}
 
+        {activeTab === "flow" && hasFlowData ? (
+          <Suspense fallback={null}>
+            <PriceWatchSection visibleFilter={visibleFilter} />
+          </Suspense>
+        ) : null}
+
         {activeTab === "income" ? null : <div className="my-2 py-2"><ScopeSelector people={people} activeTab={activeTab} month={month.key} scopeIds={scopeIds} /></div>}
 
         {activeTab === "savings" ? (
@@ -1354,6 +1363,22 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
       </main>
     </>
   );
+}
+
+/** Heads-ups on bills about to change price; loads on its own so the page doesn't wait. */
+async function PriceWatchSection({ visibleFilter }: { visibleFilter: string }) {
+  const supabase = await createClient();
+  const [{ data: items }, { data: responses }, { data: homes }] = await Promise.all([
+    supabase.from("planned_items").select("id, label, brand_name, amount, recurrence, start_date, end_date, day_of_month, direction, spending_categories(name)").or(visibleFilter).eq("direction", "outgoing"),
+    supabase.from("bill_price_watch").select("watch_key, planned_item_id, response, value, fixed_until"),
+    supabase.from("homes").select("id").limit(1),
+  ]);
+  const alerts = priceWatch(
+    ((items ?? []) as any[]).map((item) => ({ ...item, amount: Number(item.amount || 0), category: item.spending_categories?.name ?? null })),
+    ((responses ?? []) as any[]),
+    { hasHome: Boolean(homes?.length) },
+  );
+  return <PriceWatchPanel alerts={alerts} />;
 }
 
 export default function FinancialFlowPage(props: { searchParams?: Promise<{ tab?: string; person?: string; people?: string; month?: string }> }) {
