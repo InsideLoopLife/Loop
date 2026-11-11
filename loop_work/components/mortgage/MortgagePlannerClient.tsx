@@ -1,5 +1,6 @@
 "use client";
 
+import { effectiveMortgageStart } from "@/lib/calculations/mortgage-term";
 import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SectionCard } from "@/components/SectionCard";
@@ -140,6 +141,8 @@ export type HomeMortgageDeal = {
   monthly_payment_override: number | null;
   payment_day_of_month?: number | null;
   start_date: string;
+  /** When repayments began; the term runs from here. */
+  first_payment_date?: string | null;
   end_date: string | null;
   notes: string | null;
 };
@@ -445,6 +448,7 @@ function projectedMortgageForDeal(
     asOfDate,
     monthlyPayment: deal.monthly_payment_override,
     repaymentType: deal.repayment_type ?? "repayment",
+  termStartDate: effectiveMortgageStart(deal as any).date,
   });
 }
 

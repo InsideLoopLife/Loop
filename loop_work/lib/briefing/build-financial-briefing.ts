@@ -1,3 +1,4 @@
+import { effectiveMortgageStart } from "@/lib/calculations/mortgage-term";
 import { calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
 
 export type BriefingContributor = { key: string; label: string; amount: number; href: string; tone: "positive" | "negative" | "neutral" };
@@ -78,7 +79,7 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
   const manualAssets = sum(assets, (r:any) => n(r.value));
   const manualLiabilities = sum(liabilities, (r:any) => n(r.balance));
   const propertyValue = sum(homes, (r:any) => n(r.estimated_value_mid) || n(r.property_value));
-  const mortgageValue = sum(mortgages, (r:any) => calculateProjectedMortgageBalance({ openingBalance:n(r.balance), annualInterestRate:n(r.interest_rate), termYears:n(r.term_years)||25, balanceAsOfDate:r.balance_as_of_date || r.start_date, monthlyPayment:r.monthly_payment_override, repaymentType:r.repayment_type || "repayment" }).projectedBalance);
+  const mortgageValue = sum(mortgages, (r:any) => calculateProjectedMortgageBalance({ openingBalance:n(r.balance), annualInterestRate:n(r.interest_rate), termYears:n(r.term_years)||25, balanceAsOfDate:r.balance_as_of_date || r.start_date, monthlyPayment:r.monthly_payment_override, repaymentType:r.repayment_type || "repayment", termStartDate: effectiveMortgageStart(r).date }).projectedBalance);
   const pensionValue = sum(pensionAccounts, (a:any) => { const funds = pensionFunds.filter((f:any) => f.pension_account_id === a.id); const fv = sum(funds, (f:any) => n(f.current_value) || n(f.units)*n(f.unit_price)); return fv || n(a.current_value); });
   const investmentValue = sum(holdings, (h:any) => n(h.units)*n(h.latest_price));
   const investmentWeeklyChange = sum(holdings, (h:any) => n(h.day_change_gbp));

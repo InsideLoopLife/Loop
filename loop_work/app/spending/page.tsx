@@ -95,7 +95,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
     Promise.resolve({ data: [] as any[] }),
     supabase
       .from("home_mortgage_deals")
-      .select("id, lender, balance, interest_rate, term_years, monthly_payment_override, start_date, end_date, payment_day_of_month")
+      .select("id, lender, product_name, balance, balance_as_of_date, interest_rate, term_years, monthly_payment_override, start_date, end_date, payment_day_of_month, first_payment_date, initial_period_end")
       .or(householdVisibleFilter),
     supabase
       .from("app_household_members")

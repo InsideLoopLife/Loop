@@ -1,3 +1,4 @@
+import { effectiveMortgageStart } from "@/lib/calculations/mortgage-term";
 import { calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
 import { getActiveHouseholdContext } from "@/lib/auth/household-context";
 import { getChildCostMonthlyAmount, getPayAmount, selectActivePayEventsForMonth } from "@/lib/planning/month-plan";
@@ -19,6 +20,7 @@ function mortgageProjectedBalance(deal: any) {
       balanceAsOfDate: deal.balance_as_of_date ?? deal.start_date,
       monthlyPayment: deal.monthly_payment_override,
       repaymentType: deal.repayment_type ?? "repayment",
+    termStartDate: effectiveMortgageStart(deal as any).date,
     }).projectedBalance;
   } catch { return n(deal.balance); }
 }
@@ -32,7 +34,7 @@ export async function buildWealthSummary(supabase: any, userId: string, month = 
     supabase.from("financial_accounts").select("account_type,current_balance,is_liability").in("user_id", userIds),
     supabase.from("homes").select("id,property_value,estimated_value_mid").in("user_id", userIds),
     supabase.from("home_valuation_sources").select("home_id,valuation_mid,valuation_amount").in("user_id", userIds),
-    supabase.from("home_mortgage_deals").select("balance,balance_as_of_date,interest_rate,term_years,monthly_payment_override,repayment_type,start_date,end_date").in("user_id", userIds),
+    supabase.from("home_mortgage_deals").select("balance,balance_as_of_date,interest_rate,term_years,monthly_payment_override,repayment_type,start_date,end_date,first_payment_date,initial_period_end,product_name").in("user_id", userIds),
     supabase.from("pension_accounts").select("id,current_value").in("user_id", userIds),
     supabase.from("pension_funds").select("pension_account_id,current_value,units,unit_price").in("user_id", userIds),
     supabase.from("investment_accounts").select("id").in("user_id", userIds),

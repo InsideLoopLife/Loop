@@ -651,7 +651,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
       .returns<PayEvent[]>(),
     dataClient
       .from("home_mortgage_deals")
-      .select("id, lender, balance, interest_rate, term_years, monthly_payment_override, payment_day_of_month, initial_period_end, start_date, end_date")
+      .select("id, lender, product_name, balance, balance_as_of_date, interest_rate, term_years, monthly_payment_override, payment_day_of_month, initial_period_end, start_date, end_date, first_payment_date")
       .or(householdVisibleFilter)
       .returns<HomeMortgageDeal[]>(),
     dataClient

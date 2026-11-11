@@ -119,7 +119,8 @@ export function MortgageWizard({
         <TextField label="Term years" name="term_years" type="number" step="1" defaultValue={numberValue(deal?.term_years ?? 25)} placeholder="e.g. 25 or 30" required />
         <TextField label="Payment override" name="monthly_payment_override" type="number" step="0.01" defaultValue={numberValue(deal?.monthly_payment_override)} placeholder="Actual monthly payment, e.g. 583" />
         <TextField label="Payment day" name="payment_day_of_month" type="number" step="1" defaultValue={numberValue((deal as any)?.payment_day_of_month)} placeholder="Day it leaves your account, e.g. 1" />
-        <TextField label="Start date" name="start_date" type="date" defaultValue={deal?.start_date ?? currentDate()} />
+        <TextField label="Mortgage taken out" name="start_date" type="date" defaultValue={deal?.start_date ?? ""} />
+        <TextField label="First payment" name="first_payment_date" type="date" defaultValue={(deal as any)?.first_payment_date ?? ""} />
         <TextField label="End date" name="end_date" type="date" defaultValue={deal?.end_date} />
       </div>
 

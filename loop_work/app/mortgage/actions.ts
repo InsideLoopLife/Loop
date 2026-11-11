@@ -284,10 +284,14 @@ export async function addHomeMortgageDeal(formData: FormData) {
         const day = parseNumber(formData.get("payment_day_of_month"));
         return day && day >= 1 && day <= 31 ? Math.round(day) : null;
       })(),
+      // Not "today": a mortgage added years in would look brand new.
       start_date:
         String(formData.get("start_date") || "") ||
+        String(formData.get("first_payment_date") || "") ||
+        String(formData.get("balance_as_of_date") || "") ||
         new Date().toISOString().slice(0, 10),
       end_date: String(formData.get("end_date") || "") || null,
+      first_payment_date: String(formData.get("first_payment_date") || "") || null,
       notes: String(formData.get("notes") || ""),
     })
     .select("id")
@@ -361,10 +365,14 @@ export async function updateHomeMortgageDeal(formData: FormData) {
             return day && day >= 1 && day <= 31 ? Math.round(day) : null;
           })() }
         : {}),
+      // Not "today": a mortgage added years in would look brand new.
       start_date:
         String(formData.get("start_date") || "") ||
+        String(formData.get("first_payment_date") || "") ||
+        String(formData.get("balance_as_of_date") || "") ||
         new Date().toISOString().slice(0, 10),
       end_date: String(formData.get("end_date") || "") || null,
+      first_payment_date: String(formData.get("first_payment_date") || "") || null,
       notes: String(formData.get("notes") || ""),
       updated_at: new Date().toISOString(),
     }),

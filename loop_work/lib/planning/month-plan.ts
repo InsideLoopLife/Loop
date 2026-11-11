@@ -9,7 +9,7 @@ import {
   type DaySession,
   type FundingMode,
 } from "@/lib/calculations/childcare";
-import { calculateMonthlyMortgagePayment } from "@/lib/calculations/mortgage";
+import { calculateMonthlyMortgagePayment, contractualMortgagePayment } from "@/lib/calculations/mortgage";
 import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
 
 export type FinancialProfile = {
@@ -389,11 +389,7 @@ export function mortgageDealMonthlyPayment(deal: HomeMortgageDealForPlan) {
     return Number(deal.monthly_payment_override);
   }
 
-  return calculateMonthlyMortgagePayment({
-    balance: Number(deal.balance ?? 0),
-    annualInterestRate: Number(deal.interest_rate ?? 0),
-    termYears: Number(deal.term_years ?? 25),
-  });
+  return contractualMortgagePayment(deal);
 }
 
 export function buildMonthPlan({

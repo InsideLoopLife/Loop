@@ -1,6 +1,8 @@
 "use client";
 
 import { WeeklyDealSearch, type MortgageDealSearchRow } from "@/components/mortgage/WeeklyDealSearch";
+import { AreaPriceCard, DealHistory, MortgageFacts, RenewalCountdown, RunningCosts, TermNote } from "@/components/mortgage/HouseOverviewExtras";
+import type { AreaPrices } from "@/lib/property/house-price-index";
 import { MortgageMarketReference } from "@/components/mortgage/MortgageMarketReference";
 import type { MortgageNewsItem } from "@/lib/wealth/mortgage-news";
 import { useEffect, useMemo, useState } from "react";
@@ -100,6 +102,7 @@ export type HouseUnifiedWorkspaceProps = {
   svrKnowledge: LenderSvrKnowledge[];
   mortgageNews?: MortgageNewsItem[];
   dealSearch?: MortgageDealSearchRow[];
+  areaPrices?: AreaPrices | null;
   monthPlan: MonthPlan;
   normalMonthPlan: MonthPlan;
   temporaryIncomeContext: { label: string; endDate: string | null } | null;
@@ -113,20 +116,20 @@ export type HouseUnifiedWorkspaceProps = {
 
 const TABS: [Tab, string][] = [
   ["overview", "Overview"],
-  ["property", "Property"],
-  ["rates", "Mortgage & rates"],
-  ["affordability", "Affordability"],
+  ["rates", "Renewal"],
   ["overpayments", "Overpayments"],
-  ["moving", "Moving home"],
+  ["moving", "Moving"],
 ];
+// Older links: Property now lives on Overview, Affordability on Moving.
+const TAB_ALIASES: Partial<Record<string, Tab>> = { property: "overview", affordability: "moving" };
 
 const TAB_META: Record<Tab, { eyebrow: string; title: string; description: string }> = {
   overview: { eyebrow: "House overview", title: "Your home, in one place", description: "Property, mortgage, affordability and market context in one live view." },
   property: { eyebrow: "Property", title: "Your property", description: "The home record, valuation evidence and equity in one place." },
-  rates: { eyebrow: "Mortgage & rates", title: "Mortgage rate scenarios", description: "Compare your current mortgage, LOOP market context and lender quotes." },
+  rates: { eyebrow: "Renewal", title: "Your next mortgage deal", description: "The cheapest deals for your home this week, the best from your own lender, and where rates are heading." },
   affordability: { eyebrow: "Affordability", title: "Household resilience & what-if planning", description: "Known values are pulled from LOOP and remain editable for each scenario." },
   overpayments: { eyebrow: "Mortgage planning", title: "Overpayments & opportunity cost", description: "See what extra payments change — and compare that use of cash with alternatives." },
-  moving: { eyebrow: "Moving home", title: "Saved move scenarios", description: "Keep potential moves and their household impact together." },
+  moving: { eyebrow: "Moving", title: "Moving and affordability", description: "What the household could take on, and the homes you're watching." },
 };
 
 function mortgageCategory(category: SpendingCategoryForPlan) {
@@ -174,7 +177,8 @@ function moveSourceLabel(url?: string | null) {
 
 export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
   const search = useSearchParams();
-  const requested = (search.get("tab") || "overview") as Tab;
+  const requestedRaw = search.get("tab") || "overview";
+  const requested = (TAB_ALIASES[requestedRaw] ?? requestedRaw) as Tab;
   const [tab, setTab] = useState<Tab>(
     TABS.some(([id]) => id === requested) ? requested : "overview",
   );
@@ -278,7 +282,9 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
   const pageMeta = TAB_META[tab];
   const latestBenchmarkDate = props.boeBenchmarks.map((row) => row.effective_month).filter(Boolean).sort().reverse()[0] || null;
   const marketProxy = props.marketDeals.filter((item) => Number(item.rate_percent || 0) > 0).filter((item) => item.ltv_max == null || Number(item.ltv_max) >= ltv).sort((a,b) => Number(a.rate_percent || 99) - Number(b.rate_percent || 99))[0];
-  const planningRate = Number(benchmark?.rate_percent || marketProxy?.rate_percent || 0);
+  // After the current deal: this week's cheapest real deal, else the Bank of England average.
+  const weeklyBest = [...(props.dealSearch ?? [])].filter((row) => row.home_id === home?.id).sort((a, b) => b.searched_on.localeCompare(a.searched_on) || a.rank - b.rank)[0];
+  const planningRate = Number(weeklyBest?.rate_percent || benchmark?.rate_percent || marketProxy?.rate_percent || 0);
 
   const selectedMoveScore =
     modal?.type === "move_score"
@@ -328,17 +334,6 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
               <button onClick={() => choose("rates")} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">⇄ Compare rates</button>
             </div>
 
-            {home ? (
-              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                <p className="px-2 pt-1 text-xs font-bold">Your properties</p>
-                <div className="mt-3 rounded-xl bg-slate-50 p-3">
-                  <div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-sky-100 to-violet-100">🏠</div><div className="min-w-0"><p className="truncate text-sm font-bold">{home.label}</p><p className="text-[10px] font-bold text-violet-600">● Primary residence</p></div></div>
-                  <p className="mt-3 text-[10px] font-bold text-slate-400">Estimated value</p><p className="text-sm font-bold">{formatMoney(value.mid)}</p>
-                  <p className="mt-2 text-[10px] font-bold text-slate-400">Equity</p><p className="text-sm font-bold">{formatMoney(equity)}</p>
-                  <button onClick={() => choose("property")} className="mt-3 w-full rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-bold text-violet-700">View property</button>
-                </div>
-              </div>
-            ) : null}
           </div>
         </aside>
 
@@ -346,9 +341,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
           <header data-house-shared-header className="mx-auto mb-6 flex min-h-[112px] w-full max-w-none items-start justify-between gap-4">
             <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-600">{pageMeta.eyebrow}</p><h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">{pageMeta.title}</h1><p className="mt-2 max-w-3xl text-sm text-slate-500">{pageMeta.description}</p></div>
             <div className="shrink-0 pt-1">
-              {tab === "property" ? <button onClick={() => setModal(home ? { type: "edit_home", home } : { type: "add_home" })} className="rounded-xl border border-violet-200 bg-white px-4 py-2.5 text-xs font-bold text-violet-700">Edit property</button> : null}
               {tab === "moving" ? <button onClick={() => setModal({ type: "add_move" })} className="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-bold text-white">+ Add move</button> : null}
-              {tab === "rates" ? <div className="text-right"><p className={`text-xs font-bold ${latestBenchmarkDate ? "text-emerald-700" : "text-amber-700"}`}>● Rate data {latestBenchmarkDate ? "loaded" : "incomplete"}</p><p className="mt-1 text-[11px] font-semibold text-slate-400">{latestBenchmarkDate || "No benchmark date returned"}</p></div> : null}
             </div>
           </header>
           {tab === "overview" ? (
@@ -356,8 +349,11 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
 
               <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
                 {[["Mortgage left",formatMoney(mortgage.balance),`${ltv.toFixed(1)}% of the home's value`],["Monthly payment",formatMoney(mortgage.payment),deal?`${Number(deal.interest_rate).toFixed(2)}% · ${deal.lender || ""}`:"No mortgage"],["Home value",formatMoney(value.mid),`${formatMoney(value.low)} – ${formatMoney(value.high)}`]].map(([label,main,helper]) => <article key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:min-h-[122px] lg:p-5"><p className="text-[10px] font-bold uppercase text-slate-400">{label}</p><p className="mt-2 text-2xl font-bold">{main}</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{helper}</p></article>)}
-                <button onClick={() => choose("affordability")} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md lg:min-h-[122px] lg:p-5"><p className="text-[10px] font-bold uppercase text-slate-400">Affordability</p><p className="mt-2 text-2xl font-bold">{currentAffordability.score}/100</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{currentAffordability.label}{hasTemporaryIncome ? ` · normal ${normalAffordability.score}/100` : ""} · <span className="text-[var(--pine)]">Details →</span></p></button>
+                <button onClick={() => choose("moving")} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md lg:min-h-[122px] lg:p-5"><p className="text-[10px] font-bold uppercase text-slate-400">Affordability</p><p className="mt-2 text-2xl font-bold">{currentAffordability.score}/100</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{currentAffordability.label}{hasTemporaryIncome ? ` · normal ${normalAffordability.score}/100` : ""} · <span className="text-[var(--pine)]">Details →</span></p></button>
               </section>
+
+              <RenewalCountdown deal={deal} searchRows={(props.dealSearch ?? []).filter((row) => row.home_id === home?.id)} onCompare={() => choose("rates")} />
+              <TermNote deal={deal} onEdit={() => deal && setModal({ type: "edit_mortgage", deal })} />
 
               <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
                 <div className={showMaps && home?.latitude && home?.longitude ? "grid lg:grid-cols-[1fr_1fr]" : ""}>
@@ -384,16 +380,22 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
                   ) : null}
                 </div>
               </section>
+              <MortgageFacts deal={deal} />
+              <section className="grid gap-4 lg:grid-cols-2">
+                <RunningCosts items={props.normalMonthPlan.outgoingItems.map((item) => ({ label: item.label, value: Number(item.value || 0) }))} />
+                <AreaPriceCard data={props.areaPrices ?? null} homeValue={value.mid} valuationLabel={props.valuations.filter((v) => v.home_id === home?.id)[0]?.source_name ?? null} />
+              </section>
+              <section className="grid gap-4 lg:grid-cols-2">
+                <DealHistory deals={props.deals.filter((item) => item.home_id === home?.id)} onEdit={(item) => setModal({ type: "edit_mortgage", deal: item })} />
+                <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">Valuation sources</h2><button onClick={() => setModal({ type: "add_valuation", homeId: home?.id })} className="text-xs font-bold text-violet-700">+ Add valuation</button></div><div className="mt-4 space-y-2">{props.valuations.filter(v => v.home_id === home?.id).map(v => <button key={v.id} onClick={() => setModal({ type: "edit_valuation", valuation: v })} className="flex w-full items-center justify-between rounded-xl bg-slate-50 p-3 text-left"><span><span className="block text-sm font-bold">{v.source_name}</span><span className="text-xs text-slate-500">{v.valuation_date}</span></span><span className="font-bold">{formatMoney(Number(v.valuation_mid ?? v.valuation_amount ?? 0))}</span></button>)}</div></section>
+              </section>
             </div>
           ) : null}
 
-          {tab === "property" ? (
-            <div className="mx-auto max-w-none space-y-5"><section className="grid gap-4 lg:grid-cols-[1fr_.8fr]"><div className="relative min-h-[420px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">{showMaps && home?.latitude && home?.longitude ? <iframe title="Property map" src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(home.longitude)-0.006}%2C${Number(home.latitude)-0.006}%2C${Number(home.longitude)+0.006}%2C${Number(home.latitude)+0.006}&layer=mapnik&marker=${home.latitude}%2C${home.longitude}`} className="absolute inset-0 h-full w-full border-0"/> : null}</div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-xl font-bold">{home?.label}</h2><p className="mt-1 text-sm text-slate-500">{home?.full_address}</p><dl className="mt-5 space-y-3">{[["Purchase",formatMoney(Number(home?.purchase_price || 0))],["Value",formatMoney(value.mid)],["Valuation range",`${formatMoney(value.low)} – ${formatMoney(value.high)}`],["Equity",formatMoney(equity)],["UPRN",home?.uprn || "—"]].map(([l,v]) => <div key={l} className="flex justify-between gap-4 border-b border-slate-100 pb-3"><dt className="text-sm text-slate-500">{l}</dt><dd className="text-sm font-bold">{v}</dd></div>)}</dl></div></section><section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">Valuation sources</h2><button onClick={() => setModal({ type: "add_valuation", homeId: home?.id })} className="text-xs font-bold text-violet-700">+ Add valuation</button></div><div className="mt-4 space-y-2">{props.valuations.filter(v => v.home_id === home?.id).map(v => <button key={v.id} onClick={() => setModal({ type: "edit_valuation", valuation: v })} className="flex w-full items-center justify-between rounded-xl bg-slate-50 p-3 text-left"><span><span className="block text-sm font-bold">{v.source_name}</span><span className="text-xs text-slate-500">{v.valuation_date}</span></span><span className="font-bold">{formatMoney(Number(v.valuation_mid ?? v.valuation_amount ?? 0))}</span></button>)}</div></section></div>
-          ) : null}
 
           {tab === "rates" ? <div className="mx-auto max-w-none space-y-5"><WeeklyDealSearch homeId={home?.id ?? null} rows={(props.dealSearch ?? []).filter((row) => row.home_id === home?.id)} currentLender={deal?.lender ?? null} /><MortgageMarketReference bankRate={bankRate > 0 ? bankRate : null} fixedTwoYear={benchmark ? Number(benchmark.rate_percent) : null} fixedFiveYear={fiveYearBenchmark ? Number(fiveYearBenchmark.rate_percent) : null} ltv={Number.isFinite(ltv) && ltv > 0 ? ltv : null} liveDealCount={props.marketDeals.filter((item) => Number(item.rate_percent || 0) > 0).length} news={props.mortgageNews ?? []} /><HouseWorkspaceOverview homes={props.homes} deals={props.deals} valuations={props.valuations} renewalRecommendations={props.renewalRecommendations} marketDeals={props.marketDeals} moveQueries={props.moveQueries} boeBenchmarks={props.boeBenchmarks}/></div> : null}
 
-          {tab === "affordability" ? (
+          {tab === "moving" ? (
             <div className="mx-auto max-w-none">
               <AffordabilityPlanningPanel
                 currentScore={currentAffordability}

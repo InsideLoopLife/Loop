@@ -1,3 +1,5 @@
+import { contractualMortgagePayment } from "@/lib/calculations/mortgage";
+import { effectiveMortgageStart } from "@/lib/calculations/mortgage-term";
 import { formatMoney } from "@/lib/format/money";
 import {
   calculateMonthlyMortgagePayment,
@@ -45,19 +47,14 @@ export function currentMortgageSnapshot(deal?: HomeMortgageDeal | null) {
     asOfDate: new Date(),
     monthlyPayment: deal.monthly_payment_override,
     repaymentType: deal.repayment_type ?? "repayment",
+  termStartDate: effectiveMortgageStart(deal as any).date,
   });
 
   const balance = Math.max(0, projected.projectedBalance);
   // The payment is fixed from the balance and term the deal was entered with
   // (the same figure Money in & out and the calendar use). Re-working it from
   // today's lower balance over the full term again would understate it.
-  const payment =
-    Number(deal.monthly_payment_override || 0) ||
-    calculateMonthlyMortgagePayment({
-      balance: Number(deal.balance || 0),
-      annualInterestRate: Number(deal.interest_rate || 0),
-      termYears: Number(deal.term_years || 25),
-    });
+  const payment = contractualMortgagePayment(deal as any);
 
   return { balance, payment };
 }

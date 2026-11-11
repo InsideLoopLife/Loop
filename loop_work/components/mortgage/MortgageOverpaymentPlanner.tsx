@@ -230,6 +230,18 @@ export function MortgageOverpaymentPlanner({
               <p className="mt-1 text-[11px] text-slate-400">
                 Extra: {formatMoney(result.extra)}/month
               </p>
+              {/* Fixed deals usually allow 10% of the balance a year without an early repayment charge. */}
+              {switchMonth && switchMonth > 0 ? (
+                result.extra * 12 > currentBalance * 0.1 ? (
+                  <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">
+                    That&apos;s {formatMoney(result.extra * 12)} a year, over the usual 10% allowance ({formatMoney(currentBalance * 0.1)}) while your fixed deal runs. Going over it can mean an early repayment charge, so check with your lender.
+                  </p>
+                ) : (
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    Within the usual 10% a year ({formatMoney(currentBalance * 0.1)}) you can overpay on a fixed deal without a charge.
+                  </p>
+                )
+              ) : null}
             </label>
 
             <label className="block">

@@ -1,5 +1,6 @@
 "use client";
 
+import { effectiveMortgageStart } from "@/lib/calculations/mortgage-term";
 import { currentMortgageSnapshot } from "@/lib/wealth/house-snapshot";
 import { useEffect, useMemo, useState } from "react";
 import { calculateMonthlyMortgagePayment, calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
@@ -196,6 +197,7 @@ export function HouseWorkspaceOverview({
           asOfDate: new Date(),
           monthlyPayment: currentDeal.monthly_payment_override,
           repaymentType: currentDeal.repayment_type ?? "repayment",
+        termStartDate: effectiveMortgageStart(currentDeal as any).date,
         }).projectedBalance
       : 0;
     const rate = Number(currentDeal?.interest_rate || 0);

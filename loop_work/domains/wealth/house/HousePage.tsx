@@ -1,3 +1,4 @@
+import { loadAreaPrices } from "@/lib/property/house-price-index";
 import { loadMortgageNews } from "@/lib/wealth/mortgage-news";
 import { Nav } from "@/components/Nav";
 import { Suspense } from "react";
@@ -126,7 +127,7 @@ async function MortgageContent() {
     supabase
       .from("home_mortgage_deals")
       .select(
-        "id, home_id, lender, product_name, balance, balance_as_of_date, interest_rate, rate_type, repayment_type, initial_period_end, term_years, monthly_payment_override, start_date, end_date, notes",
+        "id, home_id, lender, product_name, balance, balance_as_of_date, interest_rate, rate_type, repayment_type, initial_period_end, term_years, monthly_payment_override, start_date, end_date, notes, first_payment_date, payment_day_of_month",
       )
       .or(householdVisibleFilter)
       .order("created_at", { ascending: false })
@@ -255,6 +256,8 @@ async function MortgageContent() {
       .maybeSingle<MarketRateBenchmark>(),
   ]);
   const mortgageNews = await mortgageNewsPromise;
+  const areaHome = (homes ?? []).find((home: any) => home.ownership_status === "current_home") ?? (homes ?? [])[0];
+  const areaPrices = areaHome ? await loadAreaPrices(areaHome as any) : null;
   // Last weekly searches (RLS limits these to this household).
   const { data: dealSearch } = await supabase
     .from("mortgage_deal_search_results")
@@ -523,6 +526,7 @@ async function MortgageContent() {
         boeBenchmarks={[...(latestBankRate ? [latestBankRate] : []), ...(boeBenchmarks ?? []).filter((row) => row.term_type !== "bank_rate")]}
         svrKnowledge={svrKnowledge ?? []}
         mortgageNews={mortgageNews}
+        areaPrices={areaPrices}
         dealSearch={(dealSearch ?? []) as any}
         monthPlan={monthPlan}
         normalMonthPlan={normalMonthPlan}

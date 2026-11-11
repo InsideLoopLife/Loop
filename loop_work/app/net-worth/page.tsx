@@ -1,3 +1,4 @@
+import { effectiveMortgageStart } from "@/lib/calculations/mortgage-term";
 import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
@@ -35,6 +36,7 @@ function projectedBalance(deal: Deal) {
     balanceAsOfDate: deal.balance_as_of_date ?? deal.start_date,
     monthlyPayment: deal.monthly_payment_override,
     repaymentType: deal.repayment_type ?? "repayment",
+  termStartDate: effectiveMortgageStart(deal as any).date,
   }).projectedBalance;
 }
 
@@ -53,7 +55,7 @@ export default async function NetWorthPage() {
     supabase.from("homes").select("id, label, property_value, estimated_value_low, estimated_value_mid, estimated_value_high").or(householdVisibleFilter).returns<Home[]>(),
     supabase.from("home_owners").select("home_id, person_id").or(householdVisibleFilter).returns<Owner[]>(),
     supabase.from("home_valuation_sources").select("home_id, valuation_mid, valuation_amount, confidence").or(householdVisibleFilter).returns<Valuation[]>(),
-    supabase.from("home_mortgage_deals").select("id, home_id, lender, balance, balance_as_of_date, interest_rate, term_years, monthly_payment_override, repayment_type, start_date").or(householdVisibleFilter).returns<Deal[]>(),
+    supabase.from("home_mortgage_deals").select("id, home_id, lender, product_name, balance, balance_as_of_date, interest_rate, term_years, monthly_payment_override, repayment_type, start_date, first_payment_date, initial_period_end").or(householdVisibleFilter).returns<Deal[]>(),
     supabase.from("pension_accounts").select("id, person_id, label, provider, current_value").or(householdVisibleFilter).returns<PensionAccount[]>(),
     supabase.from("pension_funds").select("pension_account_id, current_value, units, unit_price").or(householdVisibleFilter).returns<PensionFund[]>(),
     supabase.from("investment_accounts").select("id, person_id, label, provider, account_type").or(householdVisibleFilter).returns<InvestmentAccount[]>(),
