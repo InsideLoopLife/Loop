@@ -18,7 +18,9 @@ export type HouseStyle = {
   roof?: string;
   grass?: boolean;
   shrubs?: boolean;
-  driveway?: "none" | "garage" | "house";
+  driveway?: "none" | "garage" | "house" | "full";
+  /** Cars parked on the drive. */
+  cars?: 0 | 1 | 2;
 };
 
 export const DOOR_COLOURS = ["#1f4f3d", "#24324a", "#7a2626", "#2f2f2f", "#5d6d7a", "#ffffff"];
@@ -55,7 +57,7 @@ const C = {
   grass: "#9cbf7f",
   grassDark: "#8ab06d",
   paving: "#cfc8bb",
-  drive: "#b8b2a8",
+  drive: "#5e6166",
   pavement: "#e4e1db",
   kerb: "#cdc9c1",
   shrub: "#5d8c4c",
@@ -72,18 +74,11 @@ const darker = (hex: string, amount = 0.14) => {
 };
 
 function Defs({ look }: { look: Look }) {
+  // Flat colours: the ids stay so walls and roofs can share one definition.
   return (
     <defs>
-      <pattern id={look.ids.brick} width="14" height="8" patternUnits="userSpaceOnUse">
-        <rect width="14" height="8" fill={look.brick} />
-        <path d="M0 4H14M0 8H14M7 0V4M0 4V8M14 4V8" stroke={C.mortar} strokeWidth="0.6" opacity="0.55" />
-        <rect x="1" y="0.6" width="5" height="2.8" fill={darker(look.brick, 0.06)} opacity="0.5" />
-        <rect x="8" y="4.6" width="5" height="2.8" fill={darker(look.brick, -0.04)} opacity="0.4" />
-      </pattern>
-      <pattern id={look.ids.tiles} width="10" height="6" patternUnits="userSpaceOnUse">
-        <rect width="10" height="6" fill={look.roof} />
-        <path d="M0 5.5H10M5 0V5.5" stroke={darker(look.roof, 0.25)} strokeWidth="0.6" opacity="0.7" />
-      </pattern>
+      <pattern id={look.ids.brick} width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill={look.brick} /></pattern>
+      <pattern id={look.ids.tiles} width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill={look.roof} /></pattern>
     </defs>
   );
 }
@@ -95,7 +90,6 @@ function Window({ cx, y, w = 24, h = 26, onBrick, lookBrick }: { cx: number; y: 
       <rect x={cx - w / 2} y={y} width={w} height={h} fill={C.frame} />
       <rect x={cx - w / 2 + 2.5} y={y + 2.5} width={w / 2 - 3.5} height={h - 5} fill={C.window} />
       <rect x={cx + 1} y={y + 2.5} width={w / 2 - 3.5} height={h - 5} fill={C.window} />
-      <path d={`M${cx - w / 2 + 3} ${y + h - 4} L${cx - 2} ${y + 4}`} stroke={C.glassShine} strokeWidth="1.5" opacity="0.7" />
       <rect x={cx - w / 2 - 2} y={y + h} width={w + 4} height={3} fill={C.sill} />
     </g>
   );
@@ -141,12 +135,12 @@ function Walls({ x, w, top, look }: { x: number; w: number; top: number; look: L
   );
 }
 
-function House({ x, w, storeys, look, door, integralGarageSide, noRoof }: {
-  x: number; w: number; storeys: number; look: Look; door: "left" | "right" | "centre"; integralGarageSide?: "left" | "right"; noRoof?: boolean;
+function House({ x, w, storeys, look, door, integralGarageSide, noRoof, shrubs, drive }: {
+  x: number; w: number; storeys: number; look: Look; door: "left" | "right" | "centre"; integralGarageSide?: "left" | "right"; noRoof?: boolean; shrubs?: boolean; drive?: [number, number] | null;
 }) {
   const floors = Math.max(1, Math.floor(storeys));
   const top = G - floors * FLOOR - 6;
-  const roofH = storeys === 1 ? 34 : storeys === 2.5 ? 60 : 46;
+  const roofH = storeys === 1 ? 28 : storeys === 2.5 ? 50 : 36;
   const columns = Math.max(1, Math.round(w / 50));
   const colX = (i: number) => x + (w / columns) * (i + 0.5);
   const onBrick = (y: number) => look.render === "none" || (look.render === "upper" && y > G - FLOOR);
@@ -161,7 +155,7 @@ function House({ x, w, storeys, look, door, integralGarageSide, noRoof }: {
 
   return (
     <g>
-      {!noRoof ? <polygon points={`${x - 7},${top} ${x + w / 2},${top - roofH} ${x + w + 7},${top}`} fill={`url(#${look.ids.tiles})`} /> : null}
+      {!noRoof ? <polygon points={`${x - 7},${top} ${x + 10},${top - roofH} ${x + w - 10},${top - roofH} ${x + w + 7},${top}`} fill={`url(#${look.ids.tiles})`} /> : null}
       <Walls x={x} w={w} top={top} look={look} />
       {!noRoof ? <rect x={x - 7} y={top - 1} width={w + 14} height={3} fill={darker(look.roof, 0.25)} /> : null}
       {/* Upper floors */}
@@ -174,7 +168,17 @@ function House({ x, w, storeys, look, door, integralGarageSide, noRoof }: {
         const span = b - a;
         if (span < 30) return null;
         const n = Math.max(1, Math.round(span / 56));
-        return Array.from({ length: n }, (_, j) => <Window key={`g${i}-${j}`} cx={a + (span / n) * (j + 0.5)} y={G - 34} w={Math.min(34, span / n - 8)} h={24} onBrick={onBrick(G - 20)} lookBrick={look.brick} />);
+        return Array.from({ length: n }, (_, j) => {
+          const cx = a + (span / n) * (j + 0.5);
+          const ww = Math.min(34, span / n - 8);
+          const onDrive = drive ? cx + ww / 2 > drive[0] && cx - ww / 2 < drive[1] : false;
+          return (
+            <g key={`g${i}-${j}`}>
+              <Window cx={cx} y={G - 34} w={ww} h={24} onBrick={onBrick(G - 20)} lookBrick={look.brick} />
+              {shrubs && !onDrive ? <Shrubs from={cx - ww / 2 - 2} to={cx + ww / 2 + 2} /> : null}
+            </g>
+          );
+        });
       })}
       {integralGarageSide ? <GarageDoor x={integralGarageSide === "left" ? x + 6 : x + w - 50} width={44} /> : null}
       <Door x={doorX} look={look} />
@@ -193,27 +197,40 @@ function House({ x, w, storeys, look, door, integralGarageSide, noRoof }: {
 
 function Shrubs({ from, to }: { from: number; to: number }) {
   const span = to - from;
-  if (span < 16) return null;
-  const n = Math.max(1, Math.round(span / 16));
+  if (span < 12) return null;
+  const n = Math.max(2, Math.round(span / 12));
   return (
     <g>
       {Array.from({ length: n }, (_, i) => {
         const cx = from + (span / n) * (i + 0.5);
-        const r = 7 + ((i * 7) % 3);
-        return (
-          <g key={i}>
-            <circle cx={cx - 4} cy={G + 2} r={r} fill={C.shrub} />
-            <circle cx={cx + 4} cy={G + 1} r={r - 1} fill={C.shrubLight} />
-          </g>
-        );
+        return <ellipse key={i} cx={cx} cy={G - 3} rx={span / n / 2 + 2} ry={7} fill={i % 2 ? C.shrubLight : C.shrub} />;
       })}
     </g>
   );
 }
 
+function Car({ cx, colour }: { cx: number; colour: string }) {
+  // Seen from the front, parked nose-in on the drive.
+  const y = G + 12;
+  return (
+    <g>
+      <rect x={cx - 24} y={y + 14} width={48} height={14} rx={4} fill={colour} />
+      <path d={`M${cx - 18} ${y + 15} L${cx - 13} ${y + 2} H${cx + 13} L${cx + 18} ${y + 15} Z`} fill={colour} />
+      <path d={`M${cx - 14} ${y + 14} L${cx - 10} ${y + 5} H${cx + 10} L${cx + 14} ${y + 14} Z`} fill="#c9dbe6" />
+      <rect x={cx - 21} y={y + 19} width={8} height={4} rx={1.5} fill="#f3eccf" />
+      <rect x={cx + 13} y={y + 19} width={8} height={4} rx={1.5} fill="#f3eccf" />
+      <rect x={cx - 8} y={y + 22} width={16} height={4} rx={1} fill="#f7f7f2" />
+      <rect x={cx - 22} y={y + 28} width={9} height={5} rx={1.5} fill="#2b2e33" />
+      <rect x={cx + 13} y={y + 28} width={9} height={5} rx={1.5} fill="#2b2e33" />
+    </g>
+  );
+}
+
+const CAR_COLOURS = ["#5d6d7a", "#e8e6e1"];
+
 export function HouseIllustration({ style, className }: { style: HouseStyle; className?: string }) {
   const uid = useId().replace(/[^a-z0-9]/gi, "");
-  const s = { storeys: 2, garage: "none" as const, garageSide: "right" as const, attachedSide: "left" as const, grass: true, shrubs: true, driveway: "none" as const, render: "none" as const, ...style };
+  const s = { storeys: 2, garage: "none" as const, garageSide: "right" as const, attachedSide: "left" as const, grass: true, shrubs: true, driveway: "none" as const, render: "none" as const, cars: 0 as const, ...style };
   const look: Look = {
     brick: s.brick || BRICK_COLOURS[0][0],
     render: s.render || "none",
@@ -223,29 +240,21 @@ export function HouseIllustration({ style, className }: { style: HouseStyle; cla
     ids: { brick: `b${uid}`, tiles: `t${uid}` },
   };
 
-  const front = (houseLeft: number, houseRight: number, doorX: number, driveFrom: number | null, driveTo: number | null) => (
-    <g>
-      <rect y={G} width={W} height={H - G} fill={s.grass ? C.grass : C.paving} />
-      {s.grass ? <rect y={G} width={W} height={4} fill={C.grassDark} /> : null}
-      {driveFrom != null && driveTo != null ? (
-        <g>
-          <rect x={driveFrom} y={G} width={driveTo - driveFrom} height={H - G - 12} fill={C.drive} />
-          {Array.from({ length: 6 }, (_, i) => <line key={i} x1={driveFrom} x2={driveTo} y1={G + 8 + i * 8} y2={G + 8 + i * 8} stroke="#a9a399" strokeWidth="0.7" />)}
-        </g>
-      ) : null}
-      <polygon points={`${doorX - 10},${G} ${doorX + 10},${G} ${doorX + 14},${H - 12} ${doorX - 14},${H - 12}`} fill={C.stone} />
-      {Array.from({ length: 5 }, (_, i) => <line key={i} x1={doorX - 12} x2={doorX + 12} y1={G + 10 + i * 10} y2={G + 10 + i * 10} stroke={C.paving} strokeWidth="1" />)}
-      <rect y={H - 12} width={W} height={12} fill={C.pavement} />
-      <rect y={H - 13} width={W} height={2} fill={C.kerb} />
-      {s.shrubs ? (
-        [[houseLeft + 4, doorX - 20], [doorX + 20, houseRight - 4]].flatMap(([a, b]) => {
-          // Not on the driveway.
-          if (driveFrom == null || driveTo == null || driveTo <= a || driveFrom >= b) return [[a, b]];
-          return [[a, Math.min(b, driveFrom - 4)], [Math.max(a, driveTo + 4), b]];
-        }).map(([a, b], i) => <Shrubs key={i} from={a} to={b} />)
-      ) : null}
-    </g>
-  );
+  const front = (_houseLeft: number, _houseRight: number, doorX: number, driveFrom: number | null, driveTo: number | null) => {
+    const cars = Math.min(2, Number(s.cars || 0));
+    const span = driveFrom != null && driveTo != null ? driveTo - driveFrom : 0;
+    const carSpots = cars && span >= 46 ? (cars === 2 && span >= 112 ? [driveFrom! + span * 0.27, driveFrom! + span * 0.73] : [driveFrom! + span / 2]) : [];
+    return (
+      <g>
+        <rect y={G} width={W} height={H - G} fill={s.grass ? C.grass : C.paving} />
+        {driveFrom != null && driveTo != null ? <rect x={driveFrom} y={G} width={driveTo - driveFrom} height={H - G - 12} fill={C.drive} /> : null}
+        {s.grass ? <rect x={doorX - 11} y={G} width={22} height={H - G - 12} fill={C.stone} /> : null}
+        <rect y={H - 12} width={W} height={12} fill={C.pavement} />
+        <rect y={H - 13} width={W} height={2} fill={C.kerb} />
+        {carSpots.map((cx, i) => <Car key={i} cx={cx} colour={CAR_COLOURS[i % CAR_COLOURS.length]} />)}
+      </g>
+    );
+  };
 
   if (s.type === "flat") {
     const floors = Math.max(3, Math.min(6, Math.round(Number(s.storeys) || 4)));
@@ -304,6 +313,9 @@ export function HouseIllustration({ style, className }: { style: HouseStyle; cla
   if (s.driveway === "garage" && (attachedGarage || integral)) {
     driveFrom = attachedGarage ? garageX + 4 : integral === "left" ? mainX + 2 : mainX + mainW - 54;
     driveTo = attachedGarage ? garageX + garageW - 4 : driveFrom + 52;
+  } else if (s.driveway === "full") {
+    driveFrom = Math.min(mainX, attachedGarage ? garageX : mainX) - 6;
+    driveTo = Math.max(mainX + mainW, attachedGarage ? garageX + garageW : mainX + mainW) + 6;
   } else if (s.driveway === "house" || s.driveway === "garage") {
     const away = doorSide === "left" ? "right" : "left";
     driveFrom = away === "right" ? doorX + 22 : mainX;
@@ -315,8 +327,8 @@ export function HouseIllustration({ style, className }: { style: HouseStyle; cla
   const shared = neighbours.length > 0;
   const rowLeft = neighbours.includes("left") ? mainX - mainW : mainX;
   const rowRight = neighbours.includes("right") ? mainX + 2 * mainW : mainX + mainW;
-  const ridge = storeys === 2.5 ? 60 : 46;
-  const hip = s.type === "semi" ? 40 : 0;
+  const ridge = storeys === 2.5 ? 50 : 36;
+  const hip = 10;
   const chimneyX = neighbours.includes("left") ? mainX - 7 : mainX + mainW - 7;
   const neighbourDoor = (side: "left" | "right") => (side === "left" ? "right" : "left");
 
@@ -339,15 +351,15 @@ export function HouseIllustration({ style, className }: { style: HouseStyle; cla
       ))}
       {attachedGarage ? (
         <g>
-          <polygon points={`${garageX - 4},${G - 46} ${garageX + garageW / 2},${G - 64} ${garageX + garageW + 4},${G - 46}`} fill={`url(#${look.ids.tiles})`} />
+          <polygon points={`${garageX - 4},${G - 46} ${garageX + 4},${G - 60} ${garageX + garageW - 4},${G - 60} ${garageX + garageW + 4},${G - 46}`} fill={`url(#${look.ids.tiles})`} />
           <rect x={garageX} y={G - 46} width={garageW} height={46} fill={`url(#${look.ids.brick})`} />
           <rect x={garageX - 4} y={G - 47} width={garageW + 8} height={2.5} fill={darker(look.roof, 0.25)} />
           <GarageDoor x={garageX + 7} width={garageW - 14} />
         </g>
       ) : null}
-      <House x={mainX} w={mainW} storeys={storeys} look={look} door={doorSide} integralGarageSide={integral} noRoof={shared} />
+      <House x={mainX} w={mainW} storeys={storeys} look={look} door={doorSide} integralGarageSide={integral} noRoof={shared} shrubs={s.shrubs} drive={driveFrom != null && driveTo != null ? [driveFrom, driveTo] : null} />
       {shared ? <rect x={rowLeft - 7} y={wallTop - 1} width={rowRight - rowLeft + 14} height={3} fill={darker(look.roof, 0.25)} /> : null}
-      {!shared ? <rect x={mainX + mainW * 0.7} y={wallTop - 40} width={14} height={30} fill={`url(#${look.ids.brick})`} /> : null}
+      {!shared ? <rect x={mainX + mainW - 26} y={wallTop - ridge - 10} width={14} height={14} fill={`url(#${look.ids.brick})`} /> : null}
     </svg>
   );
 }

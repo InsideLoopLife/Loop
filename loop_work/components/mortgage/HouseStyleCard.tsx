@@ -84,7 +84,10 @@ export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string
           ) : null}
           <Swatches label="Roof" value={style.roof ?? ROOF_COLOURS[0][0]} options={ROOF_COLOURS} onPick={(roof) => set({ roof })} />
           <Choice label="Driveway" value={style.driveway ?? "none"} onPick={(driveway) => set({ driveway })}
-            options={style.garage && style.garage !== "none" ? [["none", "None"], ["garage", "In front of the garage"], ["house", "In front of the house"]] : [["none", "None"], ["house", "In front of the house"]]} />
+            options={style.garage && style.garage !== "none" ? [["none", "None"], ["garage", "In front of the garage"], ["house", "Beside the path"], ["full", "Whole front"]] : [["none", "None"], ["house", "Beside the path"], ["full", "Whole front"]]} />
+          {style.driveway && style.driveway !== "none" ? (
+            <Choice label="Cars on the drive" value={Number(style.cars || 0) as 0 | 1 | 2} onPick={(cars) => set({ cars })} options={[[0, "None"], [1, "One"], [2, "Two"]]} />
+          ) : null}
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={style.grass !== false} onChange={(e) => set({ grass: e.target.checked })} /> Lawn at the front</label>
             <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={style.shrubs !== false} onChange={(e) => set({ shrubs: e.target.checked })} /> Shrubs</label>
