@@ -857,25 +857,37 @@ export async function saveHouseStyle(formData: FormData) {
   let style: any = null;
   try { style = JSON.parse(String(formData.get("style") || "null")); } catch { style = null; }
   if (!homeId || !style || !HOUSE_TYPES.has(style.type)) throw new Error("Choose a type of home.");
+  const colour = (c: unknown) => (/^#[0-9a-f]{6}$/i.test(String(c || "")) ? String(c) : null);
   const clean = {
     type: style.type,
-    storeys: [1, 2, 2.5, 3, 4, 5].includes(Number(style.storeys)) ? Number(style.storeys) : 2,
+    storeys: [1, 2, 2.5, 3, 3.5, 4, 5].includes(Number(style.storeys)) ? Number(style.storeys) : 2,
     garage: ["none", "integral", "single", "double"].includes(style.garage) ? style.garage : "none",
     garageSide: style.garageSide === "left" ? "left" : "right",
+    garageAttached: style.garageAttached !== false,
+    garageColour: colour(style.garageColour),
     attachedSide: style.attachedSide === "right" ? "right" : "left",
-    door: /^#[0-9a-f]{6}$/i.test(String(style.door || "")) ? style.door : null,
-    brick: /^#[0-9a-f]{6}$/i.test(String(style.brick || "")) ? style.brick : null,
-    render: ["none", "upper", "full"].includes(style.render) ? style.render : "none",
-    renderColour: /^#[0-9a-f]{6}$/i.test(String(style.renderColour || "")) ? style.renderColour : null,
-    roof: /^#[0-9a-f]{6}$/i.test(String(style.roof || "")) ? style.roof : null,
+    doorSide: ["left", "centre", "right"].includes(style.doorSide) ? style.doorSide : null,
+    door: colour(style.door),
+    brick: colour(style.brick),
+    render: ["none", "upper", "lower", "full"].includes(style.render) ? style.render : "none",
+    renderColour: colour(style.renderColour),
+    roof: colour(style.roof),
+    loftWindow: ["skylight", "dormer", "flat_dormer"].includes(style.loftWindow) ? style.loftWindow : "skylight",
     grass: style.grass !== false,
     shrubs: style.shrubs !== false,
     driveway: ["none", "garage", "house", "full"].includes(style.driveway) ? style.driveway : "none",
     cars: [0, 1, 2].includes(Number(style.cars)) ? Number(style.cars) : 0,
+    vehicles: (Array.isArray(style.vehicles) ? style.vehicles : []).slice(0, 2).map((vehicle: any) => ({
+      body: ["hatch", "saloon", "suv"].includes(vehicle?.body) ? vehicle.body : "hatch",
+      ev: vehicle?.ev !== false,
+      colour: colour(vehicle?.colour),
+    })),
     scene: ["day", "night"].includes(style.scene) ? style.scene : "auto",
     solar: style.solar === true,
     charger: style.charger === true,
+    chargerSide: style.chargerSide === "side" ? "side" : "front",
   };
+
   const { error } = await supabase.from("homes").update({ house_style: clean }).eq("id", homeId);
   if (error) throw new Error(error.message);
   revalidatePath("/mortgage");
