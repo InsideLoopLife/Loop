@@ -6,6 +6,7 @@
 // attached only decides the layout (which side shows, where the chimney is).
 // Day or night follows the clock unless chosen.
 import { useEffect, useId, useState, type ReactElement } from "react";
+import { CAR_ASSET_FRAMES, carAssetPath, type CarAssetBody } from "./carAssets";
 
 export type Vehicle = {
   /** Body style; "suv" is the older name for "crossover". */
@@ -39,6 +40,8 @@ export type HouseStyle = {
   /** Cars parked on the drive. */
   cars?: 0 | 1 | 2;
   vehicles?: Vehicle[];
+  /** Modern rounded cars (default) or original low-poly retro cars. */
+  carStyle?: "modern" | "retro";
   /** Day, night, or follow the clock. */
   scene?: "auto" | "day" | "night";
   solar?: boolean;
@@ -788,8 +791,37 @@ function Car({ v, x, z, vehicle, pal }: { v: V; x: number; z: number; vehicle: V
       {items.map((it, i) => (
         <polygon key={i} points={it.pts.map(P2).join(" ")} fill={it.fill} stroke={it.opacity ? "none" : it.fill} strokeWidth={0.15} strokeLinejoin="round" opacity={it.opacity} />
       ))}
-      {night ? <ellipse cx={v.P(cx, 0, z)[0]} cy={v.P(cx, b.lights[1], z)[1]} rx={v.k * 14} ry={v.k * 4} fill="#ff4d45" opacity={0.12} /> : null}
     </g>
+  );
+}
+
+/**
+ * Display the transparent, pixel-registered 2.5D car asset. When a deployment
+ * does not yet have the matching PNG (or it fails to load), retain the original
+ * parametric SVG car rather than leaving a blank driveway.
+ */
+function CarSprite({ v, x, z, vehicle, pal, carStyle }: { v: V; x: number; z: number; vehicle: Vehicle; pal: Pal; carStyle: "modern" | "retro" }) {
+  const source = carAssetPath(vehicle, pal.night, carStyle);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  if (failedSource === source) return <Car v={v} x={x} z={z} vehicle={vehicle} pal={pal} />;
+
+  const requestedBody = vehicle.body === "suv" ? "crossover" : vehicle.body;
+  const body: CarAssetBody = requestedBody && Object.prototype.hasOwnProperty.call(CAR_ASSET_FRAMES, requestedBody)
+    ? requestedBody as CarAssetBody
+    : "hatch";
+  const frame = CAR_ASSET_FRAMES[body];
+  const [ax, ay] = v.P(x, 0, z);
+  return (
+    <image
+      href={source}
+      x={ax + frame.x * v.k}
+      y={ay + frame.y * v.k}
+      width={frame.width * v.k}
+      height={frame.height * v.k}
+      preserveAspectRatio="none"
+      onError={() => setFailedSource(source)}
+      style={{ pointerEvents: "none" }}
+    />
   );
 }
 
@@ -1239,7 +1271,7 @@ export function HouseIllustration({ style, className, hotspots }: { style: House
         {s.shrubs !== false && !isFlat ? layout.wins.filter((win) => win.h1 < FH).map((win, i) => <Shrub key={i} v={v} x0={win.x - 1} x1={win.x + win.w + 1} pal={pal} />) : null}
         {s.shrubs !== false && isFlat ? <Shrub v={v} x0={8} x1={34} pal={pal} /> : null}
 
-        {carSpots.map((c, i) => <Car key={i} v={v} x={c.x} z={c.z} vehicle={c.vehicle} pal={pal} />)}
+        {carSpots.map((c, i) => <CarSprite key={i} v={v} x={c.x} z={c.z} vehicle={c.vehicle} pal={pal} carStyle={s.carStyle === "retro" ? "retro" : "modern"} />)}
         {charger ? (() => {
           const [ax, ay] = charger.front ? v.P(charger.x + 1.6, 11.8, charger.z) : v.P(w + 0.3, 11.4, charger.z);
           if (!chargedCar) {

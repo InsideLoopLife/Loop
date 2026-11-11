@@ -3,8 +3,9 @@
 // The drawing of the person's home, with choices to make it look like theirs:
 // the kind of house, floors and loft, the front door, walls and roof, the
 // garage, the drive and cars, and extras like solar panels and a charger.
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { carAssetPath } from "@/components/mortgage/carAssets";
 import { saveHouseStyle } from "@/app/mortgage/actions";
 import {
   BRICK_COLOURS, CAR_BODIES, CAR_COLOURS, DEFAULT_VEHICLES, DOOR_COLOURS, GARAGE_COLOURS, HouseIllustration, RENDER_COLOURS, ROOF_COLOURS,
@@ -58,6 +59,10 @@ const Tick = ({ checked, onChange, children }: { checked: boolean; onChange: (ch
 
 export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string | null; saved: HouseStyle | null; propertyType: string | null }) {
   const router = useRouter();
+  // Keep the individual asset previews in sync with the house illustration.
+  const [previewHour, setPreviewHour] = useState<number | null>(null);
+  useEffect(() => setPreviewHour(new Date().getHours()), []);
+
   const initial = saved ?? defaultHouseStyle(propertyType);
   const [style, setStyle] = useState<HouseStyle>(initial);
   const [editing, setEditing] = useState(false);
@@ -73,6 +78,7 @@ export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string
   const setVehicle = (i: number, patch: Partial<Vehicle>) =>
     set({ vehicles: [0, 1].map((n) => (n === i ? { ...vehicle(n), ...patch } : vehicle(n))) });
   const doorDefault = style.type === "detached" || style.type === "bungalow" ? "centre" : "left";
+  const previewNight = style.scene === "night" || (style.scene !== "day" && previewHour !== null && (previewHour >= 18 || previewHour < 7));
 
   return (
     <div className="relative">
@@ -142,6 +148,8 @@ export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string
           ) : null}
 
           <Group title="Front, drive and cars">
+            <Choice label="Car appearance" value={style.carStyle ?? "modern"} onPick={(carStyle) => set({ carStyle })}
+              options={[["modern", "Modern (default)"], ["retro", "Retro / low-poly"]]} />
             {isHouse ? (
               <Choice label="Driveway" value={style.driveway ?? "none"} onPick={(driveway) => set({ driveway })}
                 options={style.garage && style.garage !== "none" ? [["none", "None"], ["garage", style.garageAttached === false && outsideGarage ? "Down the side to the garage" : "In front of the garage"], ["house", "Beside the path"], ["full", "Whole front"]] : [["none", "None"], ["house", "Beside the path"], ["full", "Whole front"]]} />
@@ -152,11 +160,19 @@ export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string
             {style.driveway && style.driveway !== "none"
               ? Array.from({ length: cars }, (_, i) => (
                 <div key={i} className="space-y-2 rounded-lg bg-slate-50 p-2.5">
-                  <div className="flex flex-wrap items-end gap-3">
-                    <Choice label={cars === 2 ? `Car ${i + 1}` : "Car"} value={vehicle(i).body} onPick={(body) => setVehicle(i, { body })} options={CAR_BODIES} />
-                    <Tick checked={vehicle(i).ev !== false} onChange={(ev) => setVehicle(i, { ev })}>Electric</Tick>
+                  <div className="flex flex-wrap gap-3 sm:flex-nowrap">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-end gap-3">
+                        <Choice label={cars === 2 ? `Car ${i + 1}` : "Car"} value={vehicle(i).body === "suv" ? "crossover" : vehicle(i).body} onPick={(body) => setVehicle(i, { body })} options={CAR_BODIES} />
+                        <Tick checked={vehicle(i).ev !== false} onChange={(ev) => setVehicle(i, { ev })}>Electric (EV)</Tick>
+                      </div>
+                      <Swatches label="Colour" value={vehicle(i).colour ?? CAR_COLOURS[0][0]} options={CAR_COLOURS} onPick={(colour) => setVehicle(i, { colour })} />
+                    </div>
+                    <div className="flex w-full shrink-0 flex-col items-center justify-center rounded-lg bg-slate-200/50 p-2 sm:w-32">
+                      <img src={carAssetPath(vehicle(i), previewNight, style.carStyle === "retro" ? "retro" : "modern")} alt={`${CAR_BODIES.find(([body]) => body === (vehicle(i).body === "suv" ? "crossover" : vehicle(i).body))?.[1] || "Car"} preview`} width={160} height={128} className="h-24 w-full object-contain" />
+                      <span className="text-[10px] font-medium text-slate-500">{previewNight ? "Night" : "Day"} preview</span>
+                    </div>
                   </div>
-                  <Swatches label="Colour" value={vehicle(i).colour ?? CAR_COLOURS[0][0]} options={CAR_COLOURS} onPick={(colour) => setVehicle(i, { colour })} />
                 </div>
               ))
               : null}

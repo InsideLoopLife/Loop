@@ -883,6 +883,7 @@ export async function saveHouseStyle(formData: FormData) {
       colour: colour(vehicle?.colour),
     })),
     scene: ["day", "night"].includes(style.scene) ? style.scene : "auto",
+    carStyle: style.carStyle === "retro" ? "retro" : "modern",
     solar: style.solar === true,
     charger: style.charger === true,
     chargerSide: style.chargerSide === "side" ? "side" : "front",
