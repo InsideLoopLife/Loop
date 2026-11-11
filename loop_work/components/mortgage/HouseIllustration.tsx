@@ -4,7 +4,7 @@
 // house on a patch of ground, seen from above at an angle, with its drive,
 // cars and garden. Neighbours show as plain white blocks so a semi or terrace
 // reads as one building. Day or night follows the clock unless chosen.
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactElement } from "react";
 
 export type HouseStyle = {
   type: "flat" | "terraced" | "end_terrace" | "semi" | "detached" | "bungalow";
@@ -25,6 +25,17 @@ export type HouseStyle = {
   cars?: 0 | 1 | 2;
   /** Day, night, or follow the clock. */
   scene?: "auto" | "day" | "night";
+  solar?: boolean;
+  /** An EV charger on the front wall. */
+  charger?: boolean;
+};
+
+/** Something to point at on the drawing, for an infographic: a cost, a reading. */
+export type HouseHotspot = {
+  id: "electricity" | "gas" | "water" | "solar" | "charger" | "home" | "car";
+  label: string;
+  value: string;
+  onClick?: () => void;
 };
 
 export const DOOR_COLOURS = ["#1f4f3d", "#24324a", "#7a2626", "#2f2f2f", "#5d6d7a", "#ffffff"];
@@ -141,12 +152,14 @@ function Window({ win, pal, ids, lit }: { win: Win; pal: Pal; ids: Ids; lit: boo
   const top = -(h1 + h);
   return (
     <g>
+      <rect x={x - 1.8} y={top - 4} width={w + 3.6} height={2.6} fill="#000" opacity={0.14} />
       <rect x={x - 1.2} y={top - 1.2} width={w + 2.4} height={h + 2.4} fill={pal.frame} />
       <rect x={x} y={top} width={w} height={h} fill={pal.night ? (lit ? `url(#${ids.lit})` : pal.darkGlass) : `url(#${ids.glass})`} />
       {!pal.night ? <polygon points={`${x + w * 0.15},${top + h} ${x + w * 0.45},${top} ${x + w * 0.62},${top} ${x + w * 0.32},${top + h}`} fill="#ffffff" opacity={0.22} /> : null}
       <rect x={x} y={top} width={1.1} height={h} fill="#000" opacity={0.16} />
       <rect x={x} y={top} width={w} height={1.1} fill="#000" opacity={0.16} />
       <rect x={x + w / 2 - 0.5} y={top} width={1} height={h} fill={pal.frame} />
+      <rect x={x} y={top + h * 0.3} width={w} height={0.9} fill={pal.frame} />
       <rect x={x - 2} y={-h1} width={w + 4} height={1.8} fill={pal.sill} />
     </g>
   );
@@ -188,6 +201,7 @@ type HouseSpec = {
   wins: Win[];
   door: { x: number; w: number } | null;
   integralDoor: { x: number; w: number } | null;
+  solar?: boolean;
 };
 
 function roofGeometry(spec: HouseSpec) {
@@ -267,13 +281,34 @@ function House({ v, spec, pal, ids, s, clay, ext, upperExt, roof, seed = 0 }: { 
         <g transform={v.slope(-ov, eave, halfZ, ridge)}>
           {Array.from({ length: 9 }, (_, i) => <line key={i} x1={xl} x2={xr} y1={(i + 1) / 10} y2={(i + 1) / 10} stroke="#000" strokeOpacity={0.14} strokeWidth={0.7} vectorEffect="non-scaling-stroke" />)}
           <rect x={xl} y={0} width={xr - xl} height={0.5} fill="#000" opacity={0.06} />
+          {spec.solar ? (() => {
+            const rows = spec.loft ? [[0.08, 0.36]] : [[0.12, 0.43], [0.46, 0.77]];
+            const n = Math.max(2, Math.floor((xr - xl - 14) / 11));
+            const start = (xl + xr) / 2 - (n * 11 - 1) / 2;
+            return rows.flatMap(([t0, t1], r) => Array.from({ length: n }, (_, i) => (
+              <g key={`${r}-${i}`}>
+                <rect x={start + i * 11} y={t0} width={10} height={t1 - t0} fill={pal.night ? "#121a2b" : "#1e2c48"} stroke={pal.night ? "#59636f" : "#cdd5de"} strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
+                <line x1={start + i * 11 + 5} x2={start + i * 11 + 5} y1={t0} y2={t1} stroke="#3c5178" strokeWidth={0.5} vectorEffect="non-scaling-stroke" />
+                <line x1={start + i * 11} x2={start + i * 11 + 10} y1={(t0 + t1) / 2} y2={(t0 + t1) / 2} stroke="#3c5178" strokeWidth={0.5} vectorEffect="non-scaling-stroke" />
+                {!pal.night ? <polygon points={`${start + i * 11 + 1},${t1} ${start + i * 11 + 4},${t0} ${start + i * 11 + 5.5},${t0} ${start + i * 11 + 2.5},${t1}`} fill="#ffffff" opacity={0.12} /> : null}
+              </g>
+            )));
+          })() : null}
           {spec.loft ? [0.3, 0.7].map((f) => (
             <rect key={f} x={x0 + w * f - 6} y={0.42} width={12} height={0.3} fill={pal.night ? `url(#${ids.lit})` : `url(#${ids.glass})`} stroke={shade(roofC, 0.35)} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
           )) : null}
         </g>
       ) : null}
       {/* Fascia under the eaves */}
-      {!clay ? <polygon points={v.pts([[xl, eave, -ov], [xr, eave, -ov], [xr, eave - 2.2, -ov], [xl, eave - 2.2, -ov]])} fill={pal.fascia} /> : null}
+      {!clay ? (
+        <g>
+          <polygon points={v.pts([[xl, eave, -ov], [xr, eave, -ov], [xr, eave - 2.2, -ov], [xl, eave - 2.2, -ov]])} fill={pal.fascia} />
+          <polygon points={v.pts([[xl, eave - 2.2, -ov - 1.4], [xr, eave - 2.2, -ov - 1.4], [xr, eave - 3.8, -ov - 1.4], [xl, eave - 3.8, -ov - 1.4]])} fill={pal.night ? "#2a2e35" : "#4a4f57"} />
+          <g transform={v.front(-1)}>
+            <rect x={spec.openRight ? xR - 3 : x0 + 1.5} y={-(eave - 3.8)} width={1.5} height={eave - 3.8} fill={pal.night ? "#2a2e35" : "#4a4f57"} />
+          </g>
+        </g>
+      ) : null}
       {/* Gable verge on the open end */}
       {spec.openRight ? (
         <g transform={v.side(xr)}>
@@ -325,49 +360,135 @@ function Garage({ v, x0, w, d, setback, openRight, pal, ids, ext }: { v: V; x0: 
   );
 }
 
-/** A modern hatchback, parked nose-in, seen from behind and to the right. */
+/** A sleek electric car, parked nose-in, seen from behind and to the right. */
 function Car({ v, x, z, colour, pal }: { v: V; x: number; z: number; colour: string; pal: Pal }) {
-  const cw = 18;
-  const L = 42;
+  const cw = 18.5;
+  const L = 44;
   const body = pal.dim(colour);
-  const top = shade(body, -0.12);
-  const side = shade(body, 0.16);
-  const glass = pal.night ? "#1b222d" : "#3b4654";
-  const glassTop = pal.night ? "#232c39" : "#56677a";
-  // Side profile (z from the back, height).
-  const profile: Array<[number, number]> = [[0, 3.5], [0, 10.5], [5, 15.5], [26, 15.8], [33, 11], [42, 9.6], [42, 3.5]];
+  const top = shade(body, -0.14);
+  const side = shade(body, 0.14);
+  const glass = pal.night ? "#141a23" : "#28313d";
+  const glassTop = pal.night ? "#1a212c" : "#3a4757";
   const xr = x + cw;
+  // Side profile (z from the back, height): a low fastback.
+  const profile: Array<[number, number]> = [[0, 4.6], [0, 10.2], [2, 11.6], [14, 15.1], [27, 15.3], [35, 11.6], [43, 9.6], [44, 8.4], [44, 4.6]];
   return (
     <g>
       <polygon points={v.pts([[x - 1.5, 0, z - 1.5], [xr + 4, 0, z - 1.5], [xr + 4, 0, z + L + 1], [x - 1.5, 0, z + L + 1]])} fill={pal.shadow} />
-      {/* Bonnet, windscreen, roof, rear screen */}
-      <polygon points={v.pts([[x + 0.6, 11, z + 33], [xr, 11, z + 33], [xr, 9.6, z + L], [x + 0.6, 9.6, z + L]])} fill={top} />
-      <polygon points={v.pts([[x + 1.2, 15.8, z + 26], [xr - 0.6, 15.8, z + 26], [xr, 11, z + 33], [x + 0.6, 11, z + 33]])} fill={glassTop} />
-      <polygon points={v.pts([[x + 1.2, 15.5, z + 5], [xr - 0.6, 15.5, z + 5], [xr - 0.6, 15.8, z + 26], [x + 1.2, 15.8, z + 26]])} fill={top} />
-      <polygon points={v.pts([[x + 0.6, 10.5, z], [xr, 10.5, z], [xr - 0.6, 15.5, z + 5], [x + 1.2, 15.5, z + 5]])} fill={glass} />
+      {/* Bonnet, then one sweep of glass from windscreen to tailgate */}
+      <polygon points={v.pts([[x + 0.8, 11.6, z + 35], [xr - 0.2, 11.6, z + 35], [xr, 9.6, z + 43], [x + 0.6, 9.6, z + 43]])} fill={top} />
+      <polygon points={v.pts([[x + 1.4, 15.3, z + 27], [xr - 0.8, 15.3, z + 27], [xr - 0.2, 11.6, z + 35], [x + 0.8, 11.6, z + 35]])} fill={glassTop} />
+      <polygon points={v.pts([[x + 1.4, 15.1, z + 14], [xr - 0.8, 15.1, z + 14], [xr - 0.8, 15.3, z + 27], [x + 1.4, 15.3, z + 27]])} fill={top} />
+      <polygon points={v.pts([[x + 2.6, 15.15, z + 14.5], [xr - 2, 15.15, z + 14.5], [xr - 2, 15.3, z + 26.5], [x + 2.6, 15.3, z + 26.5]])} fill={glassTop} />
+      <polygon points={v.pts([[x + 0.6, 11.6, z + 2], [xr - 0.2, 11.6, z + 2], [xr - 0.8, 15.1, z + 14], [x + 1.4, 15.1, z + 14]])} fill={glass} />
+      <polygon points={v.pts([[x, 10.2, z], [xr, 10.2, z], [xr - 0.2, 11.6, z + 2], [x + 0.6, 11.6, z + 2]])} fill={top} />
       {/* Right side */}
       <g transform={v.side(xr)}>
         <polygon points={profile.map(([pz, ph]) => `${z + pz},${-ph}`).join(" ")} fill={side} />
-        <polygon points={`${z + 3},${-11} ${z + 6.5},${-14.6} ${z + 25.5},${-14.8} ${z + 31.5},${-11.2}`} fill={glass} />
-        <rect x={z + 18} y={-14.8} width={1.2} height={3.8} fill={side} />
-        <rect x={z} y={-6} width={L} height={0.6} fill="#000" opacity={0.15} />
-        {[8, 34].map((wz) => (
+        <polygon points={`${z + 4},${-11.4} ${z + 14.5},${-14.5} ${z + 27},${-14.7} ${z + 33.6},${-11.6}`} fill={glass} />
+        <rect x={z + 4} y={-11.6} width={29.6} height={0.6} fill={shade(side, 0.25)} />
+        <rect x={z} y={-6.2} width={L} height={1.6} fill={pal.night ? "#14171b" : "#23272d"} />
+        <rect x={z + 12} y={-10.3} width={3} height={0.7} rx={0.3} fill={shade(side, -0.3)} />
+        <rect x={z + 24} y={-10.3} width={3} height={0.7} rx={0.3} fill={shade(side, -0.3)} />
+        <line x1={z + 20.5} x2={z + 20.5} y1={-14.7} y2={-5} stroke={shade(side, 0.2)} strokeWidth={0.35} />
+        <rect x={z + 38} y={-9.6} width={2.4} height={1.6} rx={0.4} fill={shade(side, 0.25)} />
+        {[8.5, 35].map((wz) => (
           <g key={wz}>
-            <circle cx={z + wz} cy={-3.9} r={4.3} fill="#1c1f24" />
-            <circle cx={z + wz} cy={-3.9} r={2.5} fill={pal.night ? "#6c727a" : "#b9bec4"} />
+            <circle cx={z + wz} cy={-4.2} r={4.7} fill="#15181c" />
+            <circle cx={z + wz} cy={-4.2} r={3.5} fill={pal.night ? "#3a4048" : "#3f464f"} />
+            <circle cx={z + wz} cy={-4.2} r={2.6} fill="none" stroke={pal.night ? "#6b727b" : "#a9b0b8"} strokeWidth={0.5} />
+            <circle cx={z + wz} cy={-4.2} r={0.9} fill={pal.night ? "#6b727b" : "#a9b0b8"} />
           </g>
         ))}
       </g>
-      {/* Back */}
+      {/* Back: a full-width light bar */}
       <g transform={v.front(z)}>
-        <rect x={x + 1} y={-3.5} width={3.4} height={3.5} fill="#1c1f24" />
-        <rect x={xr - 4.4} y={-3.5} width={3.4} height={3.5} fill="#1c1f24" />
-        <rect x={x} y={-10.5} width={cw} height={7} rx={1} fill={body} />
-        <rect x={x + 0.6} y={-9.6} width={cw - 1.2} height={1.3} rx={0.5} fill={pal.night ? "#ff5a4f" : "#b3282b"} />
-        <rect x={x + cw / 2 - 3.5} y={-6.4} width={7} height={2} fill="#f2d23c" />
-        <rect x={x} y={-4} width={cw} height={0.8} fill="#000" opacity={0.25} />
+        <rect x={x + 1} y={-4.6} width={3.4} height={4.6} fill="#15181c" />
+        <rect x={xr - 4.4} y={-4.6} width={3.4} height={4.6} fill="#15181c" />
+        <rect x={x} y={-10.2} width={cw} height={5.6} rx={1.4} fill={body} />
+        <rect x={x + 0.4} y={-9.3} width={cw - 0.8} height={0.9} rx={0.45} fill={pal.night ? "#ff4d45" : "#c0262c"} />
+        {pal.night ? <rect x={x + 0.4} y={-9.5} width={cw - 0.8} height={1.3} rx={0.6} fill="#ff4d45" opacity={0.35} /> : null}
+        <rect x={x + cw / 2 - 3.5} y={-7.6} width={7} height={1.8} rx={0.3} fill="#f2d23c" />
+        <rect x={x + 0.6} y={-5.4} width={cw - 1.2} height={0.9} fill={pal.night ? "#14171b" : "#23272d"} />
       </g>
-      {pal.night ? <ellipse cx={v.P(x + cw / 2, 0, z)[0]} cy={v.P(x + cw / 2, 9, z)[1]} rx={v.k * 13} ry={v.k * 5} fill="#ff5a4f" opacity={0.12} /> : null}
+      {pal.night ? <ellipse cx={v.P(x + cw / 2, 0, z)[0]} cy={v.P(x + cw / 2, 9, z)[1]} rx={v.k * 14} ry={v.k * 4} fill="#ff4d45" opacity={0.14} /> : null}
+    </g>
+  );
+}
+
+const CAR_W = 18.5;
+const CAR_L = 44;
+
+/* ---------- infographic markers ---------- */
+
+const HOTSPOT_COLOURS: Record<HouseHotspot["id"], string> = {
+  electricity: "#f2a900", gas: "#f26b1d", water: "#1597d6", solar: "#d9a400", charger: "#16a34a", home: "#7c5cff", car: "#475569",
+};
+
+function HotspotIcon({ id, x, y, size }: { id: HouseHotspot["id"]; x: number; y: number; size: number }) {
+  const sc = size / 24;
+  const stroke = { fill: "none", stroke: "#fff", strokeWidth: 2.2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  const icon: Record<HouseHotspot["id"], ReactElement> = {
+    electricity: <path d="M13 2 5 13.5h5.5L10 22l8-11.5h-5.5L13 2z" fill="#fff" />,
+    gas: <path d="M12 2.5c.8 3.6 5 5.6 5 10.5a5 5 0 0 1-10 0c0-2 .9-3.4 2-4.4.1 1.9 1 2.8 2 2.9-.2-3.1-.6-6 1-9z" fill="#fff" />,
+    water: <path d="M12 3c-3 4-6 7.4-6 11a6 6 0 0 0 12 0c0-3.6-3-7-6-11z" fill="#fff" />,
+    solar: <g><circle cx="12" cy="12" r="4.2" fill="#fff" /><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" {...stroke} /></g>,
+    charger: <path d="M9 3v4.5M15 3v4.5M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0zM12 16.5V21" {...stroke} />,
+    home: <path d="M3.5 11 12 4l8.5 7v9h-5.5v-5.5h-6V20H3.5z" fill="#fff" />,
+    car: <path d="M5 16.5V12l2-4.5h10l2 4.5v4.5M4.5 12h15M7.5 19v-2.5M16.5 19v-2.5" {...stroke} />,
+  };
+  return <g transform={`translate(${x - size / 2} ${y - size / 2}) scale(${sc})`}>{icon[id]}</g>;
+}
+
+function Hotspots({ items, anchors }: { items: HouseHotspot[]; anchors: Partial<Record<HouseHotspot["id"], [number, number]>> }) {
+  const bw = 88;
+  const bh = 27;
+  const placed = items
+    .map((item) => ({ item, a: anchors[item.id] ?? anchors.home }))
+    .filter((p): p is { item: HouseHotspot; a: [number, number] } => Boolean(p.a));
+  const sides: Record<"left" | "right", typeof placed> = { left: [], right: [] };
+  placed.forEach((p) => sides[p.a[0] < W / 2 ? "left" : "right"].push(p));
+  // Even the columns out if one side is crowded.
+  while (Math.abs(sides.left.length - sides.right.length) > 1) {
+    const [from, to] = sides.left.length > sides.right.length ? (["left", "right"] as const) : (["right", "left"] as const);
+    sides[from].sort((a, b) => (from === "left" ? b.a[0] - a.a[0] : a.a[0] - b.a[0]));
+    sides[to].push(sides[from].shift()!);
+  }
+  const out: Array<{ item: HouseHotspot; a: [number, number]; bx: number; by: number; side: "left" | "right" }> = [];
+  (["left", "right"] as const).forEach((side) => {
+    const list = sides[side].sort((a, b) => a.a[1] - b.a[1]);
+    let y = 6;
+    const ys = list.map((p) => { const want = Math.max(y, Math.min(H - bh - 6, p.a[1] - bh / 2)); y = want + bh + 5; return want; });
+    for (let i = ys.length - 1, limit = H - 6; i >= 0; i--) { if (ys[i] + bh > limit) ys[i] = limit - bh; limit = ys[i] - 5; }
+    list.forEach((p, i) => out.push({ ...p, bx: side === "left" ? 6 : W - 6 - bw, by: ys[i], side }));
+  });
+  return (
+    <g fontFamily="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+      {out.map(({ item, a, bx, by, side }) => {
+        const colour = HOTSPOT_COLOURS[item.id];
+        const ex = side === "left" ? bx + bw : bx;
+        const clickable = Boolean(item.onClick);
+        return (
+          <g key={item.id + item.label}
+            role={clickable ? "button" : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            aria-label={`${item.label}: ${item.value}`}
+            onClick={item.onClick}
+            onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); item.onClick!(); } } : undefined}
+            style={clickable ? { cursor: "pointer" } : undefined}>
+            <path d={`M${a[0]} ${a[1]} L${ex} ${by + bh / 2}`} stroke="#ffffff" strokeWidth={1.6} opacity={0.9} />
+            <path d={`M${a[0]} ${a[1]} L${ex} ${by + bh / 2}`} stroke={colour} strokeWidth={0.8} />
+            <circle cx={a[0]} cy={a[1]} r={3.6} fill="#ffffff" />
+            <circle cx={a[0]} cy={a[1]} r={2.2} fill={colour} />
+            <rect x={bx} y={by + 1} width={bw} height={bh} rx={9} fill="#0f172a" opacity={0.18} />
+            <rect x={bx} y={by} width={bw} height={bh} rx={9} fill="#ffffff" />
+            <circle cx={bx + 13} cy={by + bh / 2} r={9} fill={colour} />
+            <HotspotIcon id={item.id} x={bx + 13} y={by + bh / 2} size={11} />
+            <text x={bx + 26} y={by + 10.5} fontSize={6.6} fill="#64748b">{item.label}</text>
+            <text x={bx + 26} y={by + 21} fontSize={9.6} fontWeight={700} fill="#0f172a">{item.value}</text>
+          </g>
+        );
+      })}
     </g>
   );
 }
@@ -419,7 +540,7 @@ function frontLayout(w: number, floors: number, doorSide: "left" | "right" | "ce
     if (free[1] - free[0] >= 12) wins.push({ x: free[0] + 1, h1: 7, w: Math.min(26, free[1] - free[0] - 2), h: 13 });
   } else if (doorSide === "centre") {
     door = { x: w / 2 - dw / 2, w: dw };
-    const ww = Math.min(28, w / 2 - dw / 2 - 14);
+    const ww = Math.min(26, w / 2 - dw / 2 - 18);
     wins.push({ x: (w / 2 - dw / 2 - ww) / 2, h1: 7, w: ww, h: 13 });
     wins.push({ x: w / 2 + dw / 2 + (w / 2 - dw / 2 - ww) / 2, h1: 7, w: ww, h: 13 });
   } else {
@@ -475,7 +596,7 @@ function Flats({ v, s, pal, ids, ext, roof }: { v: V; s: HouseStyle; pal: Pal; i
 
 /* ---------- the drawing ---------- */
 
-export function HouseIllustration({ style, className }: { style: HouseStyle; className?: string }) {
+export function HouseIllustration({ style, className, hotspots }: { style: HouseStyle; className?: string; hotspots?: HouseHotspot[] }) {
   const uid = useId().replace(/[^a-z0-9]/gi, "");
   const ids: Ids = { sky: `s${uid}`, glass: `g${uid}`, lit: `l${uid}`, brick: `b${uid}`, glow: `w${uid}` };
   const s: HouseStyle = { storeys: 2, garage: "none", garageSide: "right", attachedSide: "left", grass: true, shrubs: true, driveway: "none", render: "none", cars: 0, scene: "auto", ...style };
@@ -520,6 +641,7 @@ export function HouseIllustration({ style, className }: { style: HouseStyle; cla
     openRight: !neighbours.includes("right"),
     chimney: s.type === "detached" || s.type === "bungalow" ? "left" : neighbours.includes("left") ? "left" : "right",
     ...layout,
+    solar: Boolean(s.solar),
   };
   const geo = roofGeometry(spec);
 
@@ -550,14 +672,43 @@ export function HouseIllustration({ style, className }: { style: HouseStyle; cla
     }
   }
   const span = drive ? drive[1] - drive[0] : 0;
-  const carXs = drive && cars ? (cars === 2 && span >= 44 ? [drive[0] + span * 0.27 - 9, drive[0] + span * 0.73 - 9] : span >= 20 ? [drive[0] + span / 2 - 9] : []) : [];
-  const carColours = ["#7c8896", "#e8e8e4"];
+  const carXs = drive && cars ? (cars === 2 && span >= 45 ? [drive[0] + span * 0.27 - CAR_W / 2, drive[0] + span * 0.73 - CAR_W / 2] : span >= 21 ? [drive[0] + span / 2 - CAR_W / 2] : []) : [];
+  const carColours = ["#34404f", "#eceeef"];
+  const carZ = PLOT + 5;
+
+  /* Things on the front wall: meter box, outside tap, EV charger. */
+  const door = layout.door;
+  const meterX = door ? mainX + (doorSide === "right" || (integral === "left") ? door.x + door.w + 2.4 : door.x - 7.4) : mainX + w / 2;
+  const groundWin = layout.wins.find((win) => win.h1 < FH);
+  const tapX = groundWin ? mainX + (groundWin.x > (door?.x ?? 0) ? groundWin.x + groundWin.w + 2.5 : groundWin.x - 4) : mainX + 4;
+  let charger: { x: number; onGarage: boolean } | null = null;
+  if (s.charger && !isFlat) {
+    if (attachedGarage && drive && drive[0] >= garageX - 1 && drive[1] <= garageX + gw + 1) charger = { x: garageSide === "right" ? garageX + gw - 3.4 : garageX + 0.4, onGarage: true };
+    else if (drive && drive[0] <= mainX + 2) charger = { x: mainX + 2.2, onGarage: false };
+    else charger = { x: mainX + w - 5.4, onGarage: false };
+  }
+  const chargedCar = charger && carXs.length ? carXs.reduce((best, cx) => (Math.abs(cx + CAR_W - charger!.x) < Math.abs(best + CAR_W - charger!.x) ? cx : best)) : null;
 
   /* Path to the door when there's a lawn and the drive doesn't reach it. */
   const doorX = layout.door ? mainX + layout.door.x : null;
   const path = !isFlat && s.grass !== false && doorX != null && !(drive && doorX >= drive[0] - 2 && doorX + 10 <= drive[1] + 2) ? [doorX - 2, doorX + 12] : isFlat ? [w / 2 - 10, w / 2 + 10] : null;
 
   const ground = s.grass !== false ? pal.lawn : pal.paving;
+
+  /* Where each infographic marker points. */
+  const slopeAt = (t: number) => [geo.eave + (geo.ridge - geo.eave) * t, -geo.ov + (d / 2 + geo.ov) * t] as const;
+  const [roofY, roofZ] = slopeAt(0.4);
+  const anchors: Partial<Record<HouseHotspot["id"], [number, number]>> = isFlat
+    ? { home: v.P(w / 2, Math.max(3, Math.min(6, Math.round(Number(s.storeys) || 4))) * 24, d / 2), electricity: v.P(w / 2 - 14, 12, 0), gas: v.P(w / 2 - 14, 6, 0), water: v.P(w / 2 + 14, 6, 0) }
+    : {
+        home: v.P(mainX + w / 2, geo.ridge, d / 2),
+        solar: v.P(mainX + w / 2, roofY, roofZ),
+        electricity: v.P(meterX + 2.5, 9.4, -0.4),
+        gas: v.P(meterX + 2.5, 3.4, -0.4),
+        water: v.P(tapX + 0.8, 6, -0.4),
+        ...(charger ? { charger: v.P(charger.x + 1.6, 14.4, -0.6) } : {}),
+        ...(carXs.length ? { car: v.P(carXs[0] + CAR_W / 2, 15.3, carZ + 20) } : {}),
+      };
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className={className} role="img" aria-label={`Drawing of a ${s.type.replace("_", " ")} ${isFlat ? "" : "house"}`}>
@@ -607,6 +758,13 @@ export function HouseIllustration({ style, className }: { style: HouseStyle; cla
       <polygon points={v.pts([[slabL, 0, slabF], [slabR, 0, slabF], [slabR, 0, slabB], [slabL, 0, slabB]])} fill={pal.lawn} />
       {/* Our plot */}
       <polygon points={v.pts([[groupL - (neighbours.includes("left") ? 0 : 16), 0, PLOT], [groupR + (neighbours.includes("right") ? 0 : 16), 0, PLOT], [groupR + (neighbours.includes("right") ? 0 : 16), 0, 0], [groupL - (neighbours.includes("left") ? 0 : 16), 0, 0]])} fill={isFlat ? pal.lawn : ground} />
+      {!isFlat && s.grass !== false ? (
+        <g transform={v.flat(0)}>
+          {Array.from({ length: Math.ceil((groupR - groupL + 32) / 16) }, (_, i) => (
+            <rect key={i} x={groupL - 16 + i * 16} y={PLOT} width={8} height={-PLOT} fill="#ffffff" opacity={0.06} />
+          ))}
+        </g>
+      ) : null}
       {!isFlat && s.grass === false ? (
         <g transform={v.flat(0)}>
           {Array.from({ length: 12 }, (_, i) => <line key={i} x1={groupL - 16} x2={groupR + 16} y1={PLOT + i * 5} y2={PLOT + i * 5} stroke="#000" strokeOpacity={0.05} strokeWidth={0.5} vectorEffect="non-scaling-stroke" />)}
@@ -650,7 +808,36 @@ export function HouseIllustration({ style, className }: { style: HouseStyle; cla
         : null}
       {s.shrubs !== false && isFlat ? <Shrub v={v} x0={8} x1={34} pal={pal} /> : null}
 
-      {carXs.map((cx, i) => <Car key={i} v={v} x={cx} z={PLOT + 6} colour={carColours[i]} pal={pal} />)}
+      {/* Meter box, outside tap and charger */}
+      {!isFlat ? (
+        <g transform={v.front(-0.4)}>
+          <rect x={meterX} y={-12} width={5} height={5.2} rx={0.6} fill={pal.night ? "#9aa0a8" : "#f2f1ec"} />
+          <rect x={meterX} y={-6} width={5} height={5.2} rx={0.6} fill={pal.night ? "#8b9198" : "#e6e4dd"} />
+          <rect x={tapX} y={-7} width={1.6} height={2.6} fill="#9aa3ad" />
+          <rect x={tapX - 0.6} y={-7.4} width={2.8} height={1} rx={0.4} fill="#3f6fb5" />
+        </g>
+      ) : null}
+      {charger ? (
+        <g transform={v.front(-0.6)}>
+          <rect x={charger.x} y={-17} width={3.2} height={5.2} rx={0.8} fill={pal.night ? "#c9ced4" : "#f6f7f8"} />
+          <rect x={charger.x + 0.6} y={-16.2} width={2} height={1.8} rx={0.3} fill="#20262e" />
+          <circle cx={charger.x + 1.6} cy={-13} r={0.45} fill="#34d399" />
+        </g>
+      ) : null}
+
+      {carXs.map((cx, i) => <Car key={i} v={v} x={cx} z={carZ} colour={carColours[i]} pal={pal} />)}
+      {charger ? (() => {
+        const [ax, ay] = v.P(charger.x + 1.6, 11.8, -0.6);
+        if (chargedCar == null) {
+          const [hx, hy] = v.P(charger.x + 1.6, 9.5, -0.8);
+          return <path d={`M${ax} ${ay} Q${ax + v.k * 2} ${hy + v.k * 2} ${hx} ${hy}`} fill="none" stroke="#1f242b" strokeWidth={v.k * 0.8} />;
+        }
+        const [px, py] = v.P(chargedCar + CAR_W, 8.8, carZ + 39);
+        const [cx, cy] = v.P((charger.x + chargedCar + CAR_W) / 2 + 4, 0.4, (carZ + 39) / 2);
+        return <path d={`M${ax} ${ay} Q${cx} ${cy} ${px} ${py}`} fill="none" stroke="#1f242b" strokeWidth={v.k * 0.8} strokeLinecap="round" />;
+      })() : null}
+
+      {hotspots?.length ? <Hotspots items={hotspots} anchors={anchors} /> : null}
     </svg>
   );
 }

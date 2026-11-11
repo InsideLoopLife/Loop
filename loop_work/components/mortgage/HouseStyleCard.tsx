@@ -92,6 +92,8 @@ export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={style.grass !== false} onChange={(e) => set({ grass: e.target.checked })} /> Lawn at the front</label>
             <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={style.shrubs !== false} onChange={(e) => set({ shrubs: e.target.checked })} /> Shrubs</label>
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={Boolean(style.solar)} onChange={(e) => set({ solar: e.target.checked })} /> Solar panels</label>
+            {isHouse ? <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={Boolean(style.charger)} onChange={(e) => set({ charger: e.target.checked })} /> EV charger</label> : null}
           </div>
           <div>
             <p className="text-xs font-semibold text-slate-500">Front door</p>
