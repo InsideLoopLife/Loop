@@ -75,12 +75,12 @@ export function defaultHouseStyle(propertyType?: string | null): HouseStyle {
   return { ...base, type: "semi", storeys: 2, attachedSide: "left", garage: "none", driveway: "house" };
 }
 
-const W = 360;
-const H = 250;
+export const W = 360;
+export const H = 250;
 /** World units are tenths of a metre. x runs along the front, y is up, z goes back from the front wall. */
-const FH = 27; // storey height
-const PLOT = -58; // front of the plot
-const PAVE = 10; // pavement in front of it
+export const FH = 27; // storey height
+export const PLOT = -58; // front of the plot
+export const PAVE = 10; // pavement in front of it
 
 /* ---------- colour helpers ---------- */
 
@@ -160,7 +160,7 @@ type Ids = { sky: string; glass: string; lit: string; brick: string; glow: strin
 
 /* ---------- small parts ---------- */
 
-type Win = { x: number; h1: number; w: number; h: number };
+export type Win = { x: number; h1: number; w: number; h: number };
 
 function Window({ win, pal, ids, lit, lintel = true }: { win: Win; pal: Pal; ids: Ids; lit: boolean; lintel?: boolean }) {
   const { x, h1, w, h } = win;
@@ -220,7 +220,7 @@ function Canopy({ v, x, w, h, pal, roof }: { v: V; x: number; w: number; h: numb
 
 type Walls = { ground: string; upper: string; groundBrick: boolean; upperBrick: boolean };
 
-type HouseSpec = {
+export type HouseSpec = {
   w: number;
   d: number;
   floors: number;
@@ -237,7 +237,7 @@ type HouseSpec = {
   sideCharger: boolean;
 };
 
-function roofGeometry(spec: HouseSpec) {
+export function roofGeometry(spec: HouseSpec) {
   const wallH = spec.floors * FH;
   const rise = (spec.d / 2) * (spec.floors === 1 ? 0.62 : 0.72);
   const ov = 3;
@@ -249,7 +249,7 @@ function roofGeometry(spec: HouseSpec) {
   return { wallH, rise, ov, eave, ridge, halfZ, xl: -ov, xr: spec.w + ov, slopeY, slopeZ };
 }
 
-function dormerGeometry(spec: HouseSpec) {
+export function dormerGeometry(spec: HouseSpec) {
   const g = roofGeometry(spec);
   const dw = Math.min(22, spec.w * 0.3);
   const dx = spec.w / 2 - dw / 2;
@@ -260,8 +260,8 @@ function dormerGeometry(spec: HouseSpec) {
 }
 
 /** Meter boxes on the side wall, near the front. */
-const SIDE_METER_Z = 7;
-const SIDE_CHARGER_Z = 16;
+export const SIDE_METER_Z = 7;
+export const SIDE_CHARGER_Z = 16;
 
 function House({ v, spec, pal, ids, s, walls, roof }: { v: V; spec: HouseSpec; pal: Pal; ids: Ids; s: HouseStyle; walls: Walls; roof: string }) {
   const { w, d } = spec;
@@ -467,7 +467,7 @@ function Garage({ v, x0, z0, w, d, pitched, pal, ids, walls, colour }: { v: V; x
 
 type BodyKey = "hatch" | "saloon" | "fastback" | "crossover" | "coupe_suv" | "large_suv";
 
-type BodySpec = {
+export type BodySpec = {
   L: number;
   cw: number;
   /** Side profile from the bottom of the back bumper, over the roof, to the front: (z, height). */
@@ -540,11 +540,11 @@ const BODIES: Record<BodyKey, BodySpec> = {
     wheels: [10, 40], r: 5.6, lights: [10.4, 11.4], plate: [7.4, 9.2], port: [44, 13.4], rails: true,
   },
 };
-const bodyOf = (vehicle: Vehicle): BodySpec => BODIES[(vehicle.body === "suv" ? "crossover" : vehicle.body) as BodyKey] ?? BODIES.hatch;
+export const bodyOf = (vehicle: Vehicle): BodySpec => BODIES[(vehicle.body === "suv" ? "crossover" : vehicle.body) as BodyKey] ?? BODIES.hatch;
 const CAR_SLOT = 21.5;
 
 /** A smooth curve through the points (Catmull-Rom), sampled. */
-function smooth(pts: Array<[number, number]>, per = 5, closed = false): Array<[number, number]> {
+export function smooth(pts: Array<[number, number]>, per = 5, closed = false): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   const n = pts.length;
   const at = (i: number) => pts[closed ? (i + n) % n : Math.max(0, Math.min(n - 1, i))];
@@ -848,7 +848,7 @@ function HotspotIcon({ id, x, y, size }: { id: HouseHotspot["id"]; x: number; y:
   return <g transform={`translate(${x - size / 2} ${y - size / 2}) scale(${sc})`}>{icon[id]}</g>;
 }
 
-function Hotspots({ items, anchors }: { items: HouseHotspot[]; anchors: Partial<Record<HouseHotspot["id"], [number, number]>> }) {
+export function Hotspots({ items, anchors }: { items: HouseHotspot[]; anchors: Partial<Record<HouseHotspot["id"], [number, number]>> }) {
   const bw = 88;
   const bh = 27;
   const placed = items
@@ -969,15 +969,9 @@ function Flats({ v, s, pal, ids, walls, roof }: { v: V; s: HouseStyle; pal: Pal;
 
 /* ---------- the drawing ---------- */
 
-export function HouseIllustration({ style, className, hotspots }: { style: HouseStyle; className?: string; hotspots?: HouseHotspot[] }) {
-  const uid = useId().replace(/[^a-z0-9]/gi, "");
-  const ids: Ids = { sky: `s${uid}`, glass: `g${uid}`, lit: `l${uid}`, brick: `b${uid}`, glow: `w${uid}`, sheen: `h${uid}` };
+/** Everything about the layout of the home and its plot, in world units, before drawing. */
+export function planHome(style: HouseStyle) {
   const s: HouseStyle = { storeys: 2, garage: "none", garageSide: "right", attachedSide: "left", grass: true, shrubs: true, driveway: "none", render: "none", cars: 0, scene: "auto", loftWindow: "skylight", garageAttached: true, chargerSide: "front", ...style };
-  const [hour, setHour] = useState<number | null>(null);
-  useEffect(() => setHour(new Date().getHours()), []);
-  const night = s.scene === "night" || (s.scene !== "day" && hour != null && (hour >= 18 || hour < 7));
-  const pal = palette(night);
-
   const brick = s.brick || BRICK_COLOURS[0][0];
   const render = s.renderColour || RENDER_COLOURS[0][0];
   const walls: Walls = {
@@ -1037,19 +1031,7 @@ export function HouseIllustration({ style, className, hotspots }: { style: House
   const slabB = Math.max(d + 22, outsideGarage ? garageZ + garageD + 14 : 0);
   const slabF = PLOT - PAVE;
 
-  /* Fit the plot to the picture. */
   const top = isFlat ? Math.max(3, Math.min(6, Math.round(storeys || 4))) * 24 : geo.ridge + 12;
-  const fitPts: Array<[number, number, number]> = [
-    [slabL, 0, slabF], [slabR, 0, slabF], [slabR, -6, slabF], [slabR, 0, slabB], [slabL, 0, slabB],
-    [0, top, d / 2], [w, top, d / 2], [0, top, isFlat ? d : d / 2], [slabL + 10, 34, slabB - 10],
-  ];
-  const unit = makeView(1, 0, 0);
-  const pr = fitPts.map(([x, y, z]) => unit.P(x, y, z));
-  const minX = Math.min(...pr.map((p) => p[0])); const maxX = Math.max(...pr.map((p) => p[0]));
-  const minY = Math.min(...pr.map((p) => p[1])); const maxY = Math.max(...pr.map((p) => p[1]));
-  const k = Math.min((W - 20) / (maxX - minX), (H - 22) / (maxY - minY), 2.1);
-  const v = makeView(k, W / 2 - k * (minX + maxX) / 2, H / 2 - k * (minY + maxY) / 2 + 4);
-
   /* Driveway and cars. */
   const cars = Math.min(2, Number(s.cars || 0));
   let drive: [number, number] | null = null;
@@ -1097,12 +1079,38 @@ export function HouseIllustration({ style, className, hotspots }: { style: House
     ? carSpots.reduce((best, c) => (Math.hypot(c.x + bodyOf(c.vehicle).cw - charger!.x, c.z - charger!.z) < Math.hypot(best.x + bodyOf(best.vehicle).cw - charger!.x, best.z - charger!.z) ? c : best))
     : null;
 
-  const ground = s.grass !== false ? pal.lawn : pal.paving;
-
-  /* Where each infographic marker points (before mirroring). */
   const roofZ = -geo.ov + 0.45 * (geo.halfZ + geo.ov);
   const roofY = geo.slopeY(roofZ);
   const solarX = loft ? w * 0.86 : w / 2;
+  return { s, walls, roof, garageColour, isFlat, outsideGarage, flip, w, d, storeys, floors, loft, gw, garageAttached, garageX, garageZ, garageD, doorSide, integral, layout, partyRight, spec, geo, groupL, groupR, slabL, slabR, slabB, slabF, top, drive, driveBack, carSpots, path, tapX, frontMeterX, charger, chargedCar, roofZ, roofY, solarX };
+}
+export type HomePlan = ReturnType<typeof planHome>;
+
+export function HouseIllustration({ style, className, hotspots }: { style: HouseStyle; className?: string; hotspots?: HouseHotspot[] }) {
+  const uid = useId().replace(/[^a-z0-9]/gi, "");
+  const ids: Ids = { sky: `s${uid}`, glass: `g${uid}`, lit: `l${uid}`, brick: `b${uid}`, glow: `w${uid}`, sheen: `h${uid}` };
+  const plan = planHome(style);
+  const { s, walls, roof, garageColour, isFlat, outsideGarage, flip, w, d, storeys, floors, loft, gw, garageAttached, garageX, garageZ, garageD, doorSide, integral, layout, partyRight, spec, geo, groupL, groupR, slabL, slabR, slabB, slabF, top, drive, driveBack, carSpots, path, tapX, frontMeterX, charger, chargedCar, roofZ, roofY, solarX } = plan;
+  const [hour, setHour] = useState<number | null>(null);
+  useEffect(() => setHour(new Date().getHours()), []);
+  const night = s.scene === "night" || (s.scene !== "day" && hour != null && (hour >= 18 || hour < 7));
+  const pal = palette(night);
+
+  /* Fit the plot to the picture. */
+  const fitPts: Array<[number, number, number]> = [
+    [slabL, 0, slabF], [slabR, 0, slabF], [slabR, -6, slabF], [slabR, 0, slabB], [slabL, 0, slabB],
+    [0, top, d / 2], [w, top, d / 2], [0, top, isFlat ? d : d / 2], [slabL + 10, 34, slabB - 10],
+  ];
+  const unit = makeView(1, 0, 0);
+  const pr = fitPts.map(([x, y, z]) => unit.P(x, y, z));
+  const minX = Math.min(...pr.map((p) => p[0])); const maxX = Math.max(...pr.map((p) => p[0]));
+  const minY = Math.min(...pr.map((p) => p[1])); const maxY = Math.max(...pr.map((p) => p[1]));
+  const k = Math.min((W - 20) / (maxX - minX), (H - 22) / (maxY - minY), 2.1);
+  const v = makeView(k, W / 2 - k * (minX + maxX) / 2, H / 2 - k * (minY + maxY) / 2 + 4);
+
+  const ground = s.grass !== false ? pal.lawn : pal.paving;
+
+  /* Where each infographic marker points (before mirroring). */
   const meterAt = (y: number): [number, number] => (spec.meters ? v.P(w + 0.3, y, SIDE_METER_Z + 2.7) : v.P(frontMeterX + 2.5, y, -0.4));
   const rawAnchors: Partial<Record<HouseHotspot["id"], [number, number]>> = isFlat
     ? { home: v.P(w / 2, top, d / 2), electricity: v.P(w / 2 - 14, 12, 0), gas: v.P(w / 2 - 14, 6, 0), water: v.P(w / 2 + 14, 6, 0) }

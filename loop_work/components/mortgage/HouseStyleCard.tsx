@@ -6,8 +6,9 @@
 import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { saveHouseStyle } from "@/app/mortgage/actions";
+import { HouseScene } from "@/components/mortgage/HouseScene";
 import {
-  BRICK_COLOURS, CAR_BODIES, CAR_COLOURS, DEFAULT_VEHICLES, DOOR_COLOURS, GARAGE_COLOURS, HouseIllustration, RENDER_COLOURS, ROOF_COLOURS,
+  BRICK_COLOURS, CAR_BODIES, CAR_COLOURS, DEFAULT_VEHICLES, DOOR_COLOURS, GARAGE_COLOURS, RENDER_COLOURS, ROOF_COLOURS,
   defaultHouseStyle, type HouseStyle, type Vehicle,
 } from "@/components/mortgage/HouseIllustration";
 
@@ -77,7 +78,7 @@ export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string
   return (
     <div className="relative">
       <div className={editing ? "sticky top-0 z-20 border-b border-slate-200 bg-[#eef4f1] shadow-sm" : undefined}>
-        <HouseIllustration style={style} className="block h-auto w-full" />
+        <HouseScene style={style} className="block w-full" />
       </div>
       {!editing ? (
         <button type="button" onClick={() => setEditing(true)} className="absolute bottom-3 right-3 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-white">
