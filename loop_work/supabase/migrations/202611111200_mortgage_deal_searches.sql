@@ -26,3 +26,4 @@ create index if not exists mortgage_deal_search_results_home_idx on public.mortg
 alter table public.mortgage_deal_search_results enable row level security;
 create policy mortgage_deal_search_results_select on public.mortgage_deal_search_results
   for select using (user_id = (select auth.uid()) or app_same_active_household(user_id));
+grant select on public.mortgage_deal_search_results to authenticated;
