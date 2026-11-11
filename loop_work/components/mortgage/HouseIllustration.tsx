@@ -789,15 +789,15 @@ export function HouseIllustration({ style, className, hotspots }: { style: House
       ) : (
         <g>
           {neighbours.includes("left") ? (
-            <House v={v} pal={pal} ids={ids} s={s} clay ext={ext} upperExt={ext} roof={roof}
-              spec={{ x0: mainX - nW, w: nW, d, floors, loft: false, openLeft: true, openRight: false, chimney: null, wins: [], door: null, integralDoor: null }} />
+            <g opacity={0.1}><House v={v} pal={pal} ids={ids} s={s} clay ext={ext} upperExt={ext} roof={roof}
+              spec={{ x0: mainX - nW, w: nW, d, floors, loft: false, openLeft: true, openRight: false, chimney: null, wins: [], door: null, integralDoor: null }} /></g>
           ) : null}
           {attachedGarage && garageSide === "left" ? <Garage v={v} x0={garageX} w={gw} d={d - 18} setback={6} openRight={false} pal={pal} ids={ids} ext={ext} /> : null}
           <House v={v} spec={spec} pal={pal} ids={ids} s={s} ext={ext} upperExt={upperExt} roof={roof} />
           {attachedGarage && garageSide === "right" ? <Garage v={v} x0={garageX} w={gw} d={d - 18} setback={6} openRight pal={pal} ids={ids} ext={ext} /> : null}
           {neighbours.includes("right") ? (
-            <House v={v} pal={pal} ids={ids} s={s} clay ext={ext} upperExt={ext} roof={roof}
-              spec={{ x0: mainX + w, w: nW, d, floors, loft: false, openLeft: false, openRight: true, chimney: null, wins: [], door: null, integralDoor: null }} />
+            <g opacity={0.1}><House v={v} pal={pal} ids={ids} s={s} clay ext={ext} upperExt={ext} roof={roof}
+              spec={{ x0: mainX + w, w: nW, d, floors, loft: false, openLeft: false, openRight: true, chimney: null, wins: [], door: null, integralDoor: null }} /></g>
           ) : null}
         </g>
       )}
