@@ -41,7 +41,14 @@ const pounds = (value: number) => `£${Math.round(value).toLocaleString("en-GB")
 const longDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 const term = (months: number | null) => (months ? `${Math.round(months / 12)}-year` : "");
 
-export function WeeklyDealSearch({ homeId, rows, currentLender }: { homeId: string | null; rows: MortgageDealSearchRow[]; currentLender: string | null }) {
+export function WeeklyDealSearch({ homeId, rows, currentLender, balance, monthsLeft }: {
+  homeId: string | null;
+  rows: MortgageDealSearchRow[];
+  currentLender: string | null;
+  /** Balance and months left when the next deal starts, so payments match the rest of the page. */
+  balance?: number;
+  monthsLeft?: number;
+}) {
   const router = useRouter();
   const [saved, setSaved] = useState<SavedQuote | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -56,7 +63,22 @@ export function WeeklyDealSearch({ homeId, rows, currentLender }: { homeId: stri
   }, [homeId]);
 
   const latest = rows.length ? rows.map((row) => row.searched_on).sort().reverse()[0] : null;
-  const list = rows.filter((row) => row.searched_on === latest).sort((a, b) => a.rank - b.rank);
+  const monthlyAt = (rate: number) => {
+    if (!balance || !monthsLeft) return null;
+    const i = rate / 1200;
+    return i === 0 ? balance / monthsLeft : (balance * i) / (1 - Math.pow(1 + i, -monthsLeft));
+  };
+  // Re-rank on this home's own balance and term rather than the search's estimate.
+  const list = rows
+    .filter((row) => row.searched_on === latest)
+    .map((row) => {
+      const monthly = monthlyAt(Number(row.rate_percent));
+      if (monthly == null) return row;
+      const years = Math.max(1, Number(row.initial_term_months || 24) / 12);
+      return { ...row, monthly_payment: monthly, yearly_cost: monthly * 12 + Number(row.fee_amount || 0) / years };
+    })
+    .sort((a, b) => Number(a.yearly_cost ?? 0) - Number(b.yearly_cost ?? 0) || a.rank - b.rank)
+    .map((row, index) => ({ ...row, rank: index + 1 }));
   if (!homeId || !list.length) return null;
 
   const ownLender = currentLender ? list.find((row) => row.is_current_lender || sameLender(row.lender_name, currentLender)) : undefined;

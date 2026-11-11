@@ -138,7 +138,7 @@ export function RunningCosts({ items }: { items: Array<{ label: string; value: n
       {rows.length ? (
         <ul className="mt-3 divide-y divide-slate-100">
           {rows.map((item) => (
-            <li key={item.label} className="flex justify-between py-2 text-sm"><span className="text-slate-700">{item.label}</span><span className="font-semibold">{pounds(Number(item.value))}/mo</span></li>
+            <li key={item.label} className="flex justify-between py-2 text-sm"><span className="text-slate-700">{item.label.replace(/^unassigned\s*·\s*/i, "")}</span><span className="font-semibold">{pounds(Number(item.value))}/mo</span></li>
           ))}
         </ul>
       ) : (
@@ -166,7 +166,7 @@ export function AreaPriceCard({ data, homeValue, valuationLabel }: { data: AreaP
       </div>
       {data.indexValue && homeValue > 0 ? (
         <p className="mt-2 text-xs text-slate-500">
-          Your purchase price grown in line with {data.typeLabel ?? "home"} prices in {data.region}. {valuationLabel ? `${valuationLabel} says ${pounds(homeValue)}` : `LOOP uses ${pounds(homeValue)}`}, {Math.abs(Math.round(((homeValue - data.indexValue) / data.indexValue) * 100))}% {homeValue >= data.indexValue ? "above" : "below"} the index figure. Extensions or work you&apos;ve done aren&apos;t in the index.
+          Your purchase price grown in line with {data.typeLabel ?? "home"} prices in {data.region}. {valuationLabel ? `${valuationLabel} says ${pounds(homeValue)}` : `LOOP uses ${pounds(homeValue)}`}, {`${Math.abs(Math.round(((homeValue - data.indexValue) / data.indexValue) * 100))}% ${homeValue >= data.indexValue ? "above" : "below"} the index figure.`} Extensions or work you&apos;ve done aren&apos;t in the index.
         </p>
       ) : null}
       <a href={data.sourceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-violet-700 underline">Land Registry figures ↗</a>

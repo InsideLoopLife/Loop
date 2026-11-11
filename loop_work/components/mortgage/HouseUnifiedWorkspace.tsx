@@ -1,5 +1,7 @@
 "use client";
 
+import { calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
+import { effectiveMortgageStart, wholeMonthsBetween } from "@/lib/calculations/mortgage-term";
 import { WeeklyDealSearch, type MortgageDealSearchRow } from "@/components/mortgage/WeeklyDealSearch";
 import { AreaPriceCard, DealHistory, MortgageFacts, RenewalCountdown, RunningCosts, TermNote } from "@/components/mortgage/HouseOverviewExtras";
 import type { AreaPrices } from "@/lib/property/house-price-index";
@@ -282,6 +284,26 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
   const pageMeta = TAB_META[tab];
   const latestBenchmarkDate = props.boeBenchmarks.map((row) => row.effective_month).filter(Boolean).sort().reverse()[0] || null;
   const marketProxy = props.marketDeals.filter((item) => Number(item.rate_percent || 0) > 0).filter((item) => item.ltv_max == null || Number(item.ltv_max) >= ltv).sort((a,b) => Number(a.rate_percent || 99) - Number(b.rate_percent || 99))[0];
+  // Balance and term left when the current deal ends (or today, if it has).
+  const renewalPoint = useMemo(() => {
+    if (!deal) return { balance: 0, monthsLeft: 0 };
+    const endIso = deal.initial_period_end && new Date(`${deal.initial_period_end}T00:00:00`) > new Date() ? deal.initial_period_end : null;
+    const at = endIso ? new Date(`${endIso}T00:00:00`) : new Date();
+    const start = effectiveMortgageStart(deal as any).date;
+    const balance = calculateProjectedMortgageBalance({
+      openingBalance: Number(deal.balance || 0),
+      annualInterestRate: Number(deal.interest_rate || 0),
+      termYears: Number(deal.term_years || 25),
+      balanceAsOfDate: deal.balance_as_of_date ?? deal.start_date,
+      asOfDate: at,
+      monthlyPayment: deal.monthly_payment_override,
+      repaymentType: deal.repayment_type ?? "repayment",
+      termStartDate: start,
+    }).projectedBalance;
+    const monthsLeft = Math.max(12, Math.round(Number(deal.term_years || 25) * 12) - (start ? wholeMonthsBetween(start, at) : 0));
+    return { balance, monthsLeft };
+  }, [deal]);
+
   // After the current deal: this week's cheapest real deal, else the Bank of England average.
   const weeklyBest = [...(props.dealSearch ?? [])].filter((row) => row.home_id === home?.id).sort((a, b) => b.searched_on.localeCompare(a.searched_on) || a.rank - b.rank)[0];
   const planningRate = Number(weeklyBest?.rate_percent || benchmark?.rate_percent || marketProxy?.rate_percent || 0);
@@ -393,7 +415,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
           ) : null}
 
 
-          {tab === "rates" ? <div className="mx-auto max-w-none space-y-5"><WeeklyDealSearch homeId={home?.id ?? null} rows={(props.dealSearch ?? []).filter((row) => row.home_id === home?.id)} currentLender={deal?.lender ?? null} /><MortgageMarketReference bankRate={bankRate > 0 ? bankRate : null} fixedTwoYear={benchmark ? Number(benchmark.rate_percent) : null} fixedFiveYear={fiveYearBenchmark ? Number(fiveYearBenchmark.rate_percent) : null} ltv={Number.isFinite(ltv) && ltv > 0 ? ltv : null} liveDealCount={props.marketDeals.filter((item) => Number(item.rate_percent || 0) > 0).length} news={props.mortgageNews ?? []} /><HouseWorkspaceOverview homes={props.homes} deals={props.deals} valuations={props.valuations} renewalRecommendations={props.renewalRecommendations} marketDeals={props.marketDeals} moveQueries={props.moveQueries} boeBenchmarks={props.boeBenchmarks}/></div> : null}
+          {tab === "rates" ? <div className="mx-auto max-w-none space-y-5"><WeeklyDealSearch homeId={home?.id ?? null} rows={(props.dealSearch ?? []).filter((row) => row.home_id === home?.id)} currentLender={deal?.lender ?? null} balance={renewalPoint.balance} monthsLeft={renewalPoint.monthsLeft} /><MortgageMarketReference bankRate={bankRate > 0 ? bankRate : null} fixedTwoYear={benchmark ? Number(benchmark.rate_percent) : null} fixedFiveYear={fiveYearBenchmark ? Number(fiveYearBenchmark.rate_percent) : null} ltv={Number.isFinite(ltv) && ltv > 0 ? ltv : null} liveDealCount={props.marketDeals.filter((item) => Number(item.rate_percent || 0) > 0).length} news={props.mortgageNews ?? []} /><HouseWorkspaceOverview homes={props.homes} deals={props.deals} valuations={props.valuations} renewalRecommendations={props.renewalRecommendations} marketDeals={props.marketDeals} moveQueries={props.moveQueries} boeBenchmarks={props.boeBenchmarks}/></div> : null}
 
           {tab === "moving" ? (
             <div className="mx-auto max-w-none">
