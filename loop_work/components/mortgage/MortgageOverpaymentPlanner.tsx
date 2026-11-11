@@ -43,6 +43,7 @@ function simulate(
   let paid = 0;
   let month = 0;
   let contractual = currentPayment;
+  const extraPerMonth = Math.max(0, targetPayment - currentPayment);
 
   while (balance > 0.01 && month < termMonths + 120) {
     const switched = switchMonth !== null && month >= switchMonth;
@@ -59,7 +60,13 @@ function simulate(
     const monthInterest = balance * Math.max(0, rate);
     interest += monthInterest;
 
-    const payment = Math.max(contractual, targetPayment);
+    // The overpayment is an amount on top of whatever the lender asks for.
+    // When the deal ends the lender resets the contractual payment (lower,
+    // because the balance is lower), and the extra carries on. Before, the
+    // target was a fixed total, so once the new rate pushed the contractual
+    // payment above it the overpayment silently stopped (£200/month showed
+    // just £1,143 saved and "0m earlier").
+    const payment = contractual + extraPerMonth;
     const actual = Math.min(balance + monthInterest, payment);
 
     balance = Math.max(0, balance + monthInterest - actual);

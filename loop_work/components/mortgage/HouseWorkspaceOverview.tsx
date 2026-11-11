@@ -1,5 +1,6 @@
 "use client";
 
+import { currentMortgageSnapshot } from "@/lib/wealth/house-snapshot";
 import { useEffect, useMemo, useState } from "react";
 import { calculateMonthlyMortgagePayment, calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
 import { getMortgageTermPosition } from "@/lib/calculations/mortgage-term";
@@ -203,8 +204,10 @@ export function HouseWorkspaceOverview({
     const remainingMonths = termPosition.remainingMonths;
     const remainingTermYears = Math.max(1 / 12, remainingMonths / 12);
 
+    // Same figure as the Overview tab, so the two cards agree.
     const currentPayment =
       Number(currentDeal?.monthly_payment_override || 0) ||
+      currentMortgageSnapshot(currentDeal).payment ||
       monthlyPayment(balance, rate, remainingTermYears);
 
     const ltv = homeValue > 0 ? (balance / homeValue) * 100 : 0;
