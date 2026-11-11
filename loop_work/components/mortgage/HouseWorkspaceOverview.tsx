@@ -286,6 +286,7 @@ export function HouseWorkspaceOverview({
       quoteLender,
       quoteProduct,
       benchmarkDate: effectiveDates[0] || null,
+      hasLtvBenchmark: Boolean(eligibleBenchmark),
     };
   }, [
     boeBenchmarks,
@@ -512,9 +513,9 @@ export function HouseWorkspaceOverview({
               rate={summary.loopRate}
               payment={summary.loopPayment}
               helper={
-                summary.benchmarkDate
+                summary.hasLtvBenchmark
                   ? `Indicative for your ${summary.ltv.toFixed(0)}% LTV band`
-                  : "BoE July 2026 fallback · 75% LTV benchmark"
+                  : "Bank of England July 2026 figure for 75% LTV; newer averages not loaded"
               }
               delta={loopDelta}
               tone="loop"

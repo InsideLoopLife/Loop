@@ -46,22 +46,34 @@ export function MortgageMarketReference({
             : "The picture from the Bank of England and lenders' own pages."}
         </p>
 
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          <a href={BANK_RATE_URL} target="_blank" rel="noreferrer" className="rounded-xl bg-violet-50 px-3 py-3">
-            <span className="block text-xs font-semibold text-violet-700">Bank Rate</span>
-            <span className="block text-xl font-bold text-slate-950">{bankRate != null ? `${bankRate.toFixed(2)}%` : "—"}</span>
-          </a>
-          <div className="rounded-xl bg-emerald-50 px-3 py-3">
-            <span className="block text-xs font-semibold text-emerald-800">Typical 2-year fix</span>
-            <span className="block text-xl font-bold text-slate-950">{fixedTwoYear != null ? `${fixedTwoYear.toFixed(2)}%` : "—"}</span>
-          </div>
-          <div className="rounded-xl bg-emerald-50 px-3 py-3">
-            <span className="block text-xs font-semibold text-emerald-800">Typical 5-year fix</span>
-            <span className="block text-xl font-bold text-slate-950">{fixedFiveYear != null ? `${fixedFiveYear.toFixed(2)}%` : "—"}</span>
-          </div>
-        </div>
+        {(() => {
+          const tiles = [
+            { label: "Bank Rate", value: bankRate, href: BANK_RATE_URL, tone: "bg-violet-50 text-violet-700" },
+            { label: "Typical 2-year fix", value: fixedTwoYear, tone: "bg-emerald-50 text-emerald-800" },
+            { label: "Typical 5-year fix", value: fixedFiveYear, tone: "bg-emerald-50 text-emerald-800" },
+          ].filter((tile) => tile.value != null);
+          return (
+            <div className={`mt-4 grid gap-2 ${tiles.length === 3 ? "grid-cols-3" : tiles.length === 2 ? "grid-cols-2" : "grid-cols-1 sm:max-w-[12rem]"}`}>
+              {tiles.map((tile) => {
+                const body = (
+                  <>
+                    <span className={`block text-xs font-semibold ${tile.tone.split(" ")[1]}`}>{tile.label}</span>
+                    <span className="block text-xl font-bold text-slate-950">{Number(tile.value).toFixed(2)}%</span>
+                  </>
+                );
+                return tile.href ? (
+                  <a key={tile.label} href={tile.href} target="_blank" rel="noreferrer" className={`rounded-xl px-3 py-3 ${tile.tone.split(" ")[0]}`}>{body}</a>
+                ) : (
+                  <div key={tile.label} className={`rounded-xl px-3 py-3 ${tile.tone.split(" ")[0]}`}>{body}</div>
+                );
+              })}
+            </div>
+          );
+        })()}
         <p className="mt-1.5 text-xs text-slate-500">
-          Typical fixes are Bank of England averages{ltv != null ? ` for around ${Math.round(ltv)}% loan-to-value` : ""}. The best deals on lenders&apos; sites are often lower, so check their current deals below.
+          {fixedTwoYear != null || fixedFiveYear != null
+            ? `Typical fixes are Bank of England averages${ltv != null ? ` for around ${Math.round(ltv)}% loan-to-value` : ""}. The best deals on lenders' sites are often lower.`
+            : "New fixed and tracker deals are priced by each lender and are usually well below their variable rates. Check each lender's current deals below."}
         </p>
 
         <div className="mt-5 flex items-end justify-between gap-3 border-b border-slate-100 pb-2">
