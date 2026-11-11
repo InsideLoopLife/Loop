@@ -1,3 +1,4 @@
+import { loadMortgageNews } from "@/lib/wealth/mortgage-news";
 import { Nav } from "@/components/Nav";
 import { Suspense } from "react";
 import { PageLandingExperience } from "@/components/landing/PageLandingExperience";
@@ -57,6 +58,8 @@ async function MortgageContent() {
     ? householdContext.memberUserIds
     : [dataOwnerUserId];
 
+  // Headlines load alongside the database reads (cached for three hours).
+  const mortgageNewsPromise = loadMortgageNews();
   const [
     { data: scenarios },
     { data: rawPeople },
@@ -251,6 +254,7 @@ async function MortgageContent() {
       .limit(1)
       .maybeSingle<MarketRateBenchmark>(),
   ]);
+  const mortgageNews = await mortgageNewsPromise;
 
   const allPeopleRows = (rawPeople ?? []) as (Person & {
     user_id?: string | null;
@@ -510,6 +514,7 @@ async function MortgageContent() {
         marketDeals={marketDeals ?? []}
         boeBenchmarks={[...(latestBankRate ? [latestBankRate] : []), ...(boeBenchmarks ?? []).filter((row) => row.term_type !== "bank_rate")]}
         svrKnowledge={svrKnowledge ?? []}
+        mortgageNews={mortgageNews}
         monthPlan={monthPlan}
         normalMonthPlan={normalMonthPlan}
         temporaryIncomeContext={temporaryIncomeContext}

@@ -170,7 +170,16 @@ export function extractBandD(sheets: Array<{ name: string; rows: string[][] }>) 
     if (codeRows.length < 100) continue;
     const codeCol = codeRows[0].findIndex((c) => LA_CODE.test(c));
     const firstDataIndex = sheet.rows.indexOf(codeRows[0]);
-    const headerRows = sheet.rows.slice(Math.max(0, firstDataIndex - 6), firstDataIndex);
+    // The column titles sit above the councils, but in the 2026-27 file
+    // there are six summary rows in between (England, Inner London, Outer
+    // London, ...). Use the wordiest row above the data as the title row,
+    // plus the row above it for any group heading.
+    const wordy = (row: string[]) => row.filter((c) => /[a-z]{3,}/i.test(c) && c.length > 12).length;
+    let titleIndex = -1;
+    for (let i = firstDataIndex - 1; i >= Math.max(0, firstDataIndex - 40); i--) {
+      if (titleIndex < 0 || wordy(sheet.rows[i]) > wordy(sheet.rows[titleIndex])) titleIndex = i;
+    }
+    const headerRows = titleIndex >= 0 ? sheet.rows.slice(Math.max(0, titleIndex - 1), titleIndex + 1) : [];
     const width = Math.max(...codeRows.map((r) => r.length));
     const headerFor = (col: number) => headerRows.map((r) => r[col] || "").join(" ").replace(/\s+/g, " ").trim();
 
