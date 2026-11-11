@@ -8,7 +8,8 @@
 import { useEffect, useId, useState, type ReactElement } from "react";
 
 export type Vehicle = {
-  body?: "hatch" | "saloon" | "suv";
+  /** Body style; "suv" is the older name for "crossover". */
+  body?: "hatch" | "saloon" | "fastback" | "crossover" | "coupe_suv" | "large_suv" | "suv";
   ev?: boolean;
   colour?: string;
 };
@@ -59,7 +60,7 @@ export const RENDER_COLOURS: Array<[string, string]> = [["#f3f1ea", "White"], ["
 export const ROOF_COLOURS: Array<[string, string]> = [["#4a505a", "Slate grey"], ["#8a4632", "Red tile"], ["#5e4537", "Brown tile"], ["#33373d", "Charcoal"]];
 export const GARAGE_COLOURS: Array<[string, string]> = [["#ecebe7", "White"], ["#3c4148", "Anthracite"], ["#1f2329", "Black"], ["#7a5a3c", "Oak"], ["#2f4f3f", "Green"]];
 export const CAR_COLOURS: Array<[string, string]> = [["#34404f", "Midnight"], ["#eceeef", "White"], ["#9aa3ad", "Silver"], ["#1d1f22", "Black"], ["#8c2b2b", "Red"], ["#2f5a7a", "Blue"]];
-export const DEFAULT_VEHICLES: Vehicle[] = [{ body: "hatch", ev: true, colour: CAR_COLOURS[0][0] }, { body: "suv", ev: true, colour: CAR_COLOURS[1][0] }];
+export const DEFAULT_VEHICLES: Vehicle[] = [{ body: "fastback", ev: true, colour: CAR_COLOURS[0][0] }, { body: "crossover", ev: true, colour: CAR_COLOURS[1][0] }];
 
 /** A sensible starting drawing from the property type LOOP already has. */
 export function defaultHouseStyle(propertyType?: string | null): HouseStyle {
@@ -155,7 +156,7 @@ function palette(night: boolean) {
   };
 }
 
-type Ids = { sky: string; glass: string; lit: string; brick: string; glow: string };
+type Ids = { sky: string; glass: string; lit: string; brick: string; glow: string; sheen: string };
 
 /* ---------- small parts ---------- */
 
@@ -373,7 +374,8 @@ function House({ v, spec, pal, ids, s, walls, roof }: { v: V; spec: HouseSpec; p
             {spec.loftWindow === "dormer" ? (
               <g>
                 <polygon points={v.pts([[dx - 1.4, yt - 0.6, zf - 1.4], [dx + dw / 2, yr, zf - 1.4], [dx + dw / 2, yr, zr], [dx - 1.4, yt - 0.6, ze]])} fill={roofC} />
-                <polygon points={v.pts([[dx + dw + 1.4, yt - 0.6, zf - 1.4], [dx + dw / 2, yr, zf - 1.4], [dx + dw / 2, yr, zr], [dx + dw + 1.4, yt - 0.6, ze]])} fill={shade(roofC, -0.06)} />
+                <polygon points={v.pts([[dx + dw + 1.4, yt - 0.6, zf - 1.4], [dx + dw / 2, yr, zf - 1.4], [dx + dw / 2, yr, zr], [dx + dw + 1.4, yt - 0.6, ze]])} fill={shade(roofC, -0.1)} />
+                {(() => { const [p1, p2] = [v.P(dx + dw / 2, yr, zf - 1.4), v.P(dx + dw / 2, yr, zr)]; return <line x1={p1[0]} y1={p1[1]} x2={p2[0]} y2={p2[1]} stroke={shade(roofC, 0.25)} strokeWidth={v.k * 1.2} strokeLinecap="round" />; })()}
               </g>
             ) : (
               <g>
@@ -463,10 +465,14 @@ function Garage({ v, x0, z0, w, d, pitched, pal, ids, walls, colour }: { v: V; x
 
 /* ---------- cars ---------- */
 
+type BodyKey = "hatch" | "saloon" | "fastback" | "crossover" | "coupe_suv" | "large_suv";
+
 type BodySpec = {
   L: number;
   cw: number;
+  /** Side profile from the bottom of the back bumper, over the roof, to the front: (z, height). */
   pts: Array<[number, number]>;
+  /** Stretches of the top that are glass (rear screen, windscreen). */
   glass: Array<[number, number]>;
   roof: [number, number];
   win: Array<[number, number]>;
@@ -475,9 +481,17 @@ type BodySpec = {
   lights: [number, number];
   plate: [number, number];
   port: [number, number];
+  rails?: boolean;
+  /** A three-box saloon's separate boot, for twin tail-pipes and a boot lip. */
+  boot?: boolean;
 };
 
-const BODIES: Record<NonNullable<Vehicle["body"]>, BodySpec> = {
+export const CAR_BODIES: Array<[BodyKey, string]> = [
+  ["hatch", "Hatchback"], ["saloon", "Saloon"], ["fastback", "Sleek saloon"], ["crossover", "SUV"], ["coupe_suv", "Coupé SUV"], ["large_suv", "Large SUV"],
+];
+
+const BODIES: Record<BodyKey, BodySpec> = {
+  // Golf, Polo, 1 Series
   hatch: {
     L: 42, cw: 18.5,
     pts: [[0, 4.4], [0, 9.6], [1.2, 11.4], [4.6, 14.6], [11, 15.6], [24, 15.7], [31, 12.4], [36.5, 10.8], [41.6, 9.6], [42.4, 7], [42, 4.4]],
@@ -485,22 +499,49 @@ const BODIES: Record<NonNullable<Vehicle["body"]>, BodySpec> = {
     win: [[3.2, 11.6], [6.6, 14.3], [11.6, 14.9], [23.6, 15], [29.8, 12]],
     wheels: [8, 34], r: 4.6, lights: [8.1, 9.0], plate: [5.6, 7.4], port: [36, 9.4],
   },
+  // 3 Series, A4
   saloon: {
     L: 47, cw: 18.8,
     pts: [[0, 4.4], [0, 9.4], [1.2, 10.7], [6.6, 11.2], [13, 14.6], [19.5, 15.3], [29, 15.2], [36, 11.6], [41.5, 10.5], [46.4, 9.5], [47.3, 7], [47, 4.4]],
     glass: [[7, 13.3], [29.2, 36]], roof: [13.4, 29],
     win: [[8.2, 11.6], [13.6, 14.4], [19.5, 15], [28.6, 14.9], [34.6, 11.8]],
-    wheels: [9, 38.5], r: 4.6, lights: [7.9, 8.8], plate: [5.4, 7.2], port: [41, 9.6],
+    wheels: [9, 38.5], r: 4.6, lights: [7.9, 8.8], plate: [5.4, 7.2], port: [41, 9.6], boot: true,
   },
-  suv: {
-    L: 46, cw: 20,
-    pts: [[0, 5.2], [0, 12], [1, 13.8], [3.2, 17.6], [9, 18.7], [29, 18.8], [35.5, 14.8], [40.5, 13.3], [45.4, 12.4], [46.4, 9], [46, 5.2]],
-    glass: [[1.2, 8.8], [29.4, 35.6]], roof: [8.9, 29.3],
-    win: [[3.4, 13.9], [5.4, 17.3], [9.2, 17.9], [28.6, 18], [34.4, 14.3]],
-    wheels: [9, 36.5], r: 5.4, lights: [10.1, 11.0], plate: [7.0, 8.8], port: [39, 12.2],
+  // A low fastback: Model 3, Polestar 2
+  fastback: {
+    L: 47, cw: 19,
+    pts: [[0, 4.4], [0, 9.4], [0.9, 10.6], [4.2, 11.4], [12, 14.2], [19, 14.9], [28, 14.8], [35, 11.3], [41, 10.1], [46.3, 9.2], [47.3, 6.8], [46.9, 4.4]],
+    glass: [[4.4, 13.4], [28.2, 35.2]], roof: [13.6, 28],
+    win: [[5.8, 11.3], [12.4, 14], [19.2, 14.5], [27.6, 14.4], [33.6, 11.5]],
+    wheels: [8.5, 38.5], r: 4.8, lights: [8.2, 9.0], plate: [5.4, 7.2], port: [3.4, 9.2],
+  },
+  // Mid-size SUV: Model Y, XC60, Tiguan, Kuga
+  crossover: {
+    L: 46, cw: 19.6,
+    pts: [[0, 5], [0, 11.4], [1, 13], [3.6, 16.2], [9.5, 17.2], [28, 17.3], [35.2, 13.6], [40.5, 12.4], [45.4, 11.6], [46.4, 8.6], [46, 5]],
+    glass: [[1.2, 9.2], [28.4, 35.4]], roof: [9.6, 28],
+    win: [[3.2, 13.1], [6, 16], [10, 16.5], [27.6, 16.6], [33.6, 13.4]],
+    wheels: [9, 36.5], r: 5.1, lights: [9.6, 10.5], plate: [6.6, 8.4], port: [3, 10.6], rails: true,
+  },
+  // Sloping-roof SUV: Q8, Q6 Sportback
+  coupe_suv: {
+    L: 48, cw: 20,
+    pts: [[0, 5], [0, 11], [1.4, 12.4], [6, 15.4], [14, 17.1], [28, 17.2], [35.6, 13.4], [41, 12.4], [47.3, 11.4], [48.4, 8.4], [48, 5]],
+    glass: [[1.6, 13.6], [28.4, 35.8]], roof: [14, 28],
+    win: [[6.6, 12.8], [13.4, 16.1], [20, 16.5], [27.6, 16.4], [34, 13.2]],
+    wheels: [9.5, 38.5], r: 5.4, lights: [9.4, 10.3], plate: [6.4, 8.2], port: [40, 12],
+  },
+  // Big seven-seat SUV: XC90, G9
+  large_suv: {
+    L: 50, cw: 20.4,
+    pts: [[0, 5.4], [0, 12.6], [0.8, 14.6], [2.2, 18], [7, 19], [32, 19], [38.4, 15], [43.6, 13.8], [49.4, 13], [50.4, 9.4], [50, 5.4]],
+    glass: [[0.9, 6.8], [32.3, 38.3]], roof: [7.4, 32],
+    win: [[2.6, 14.6], [3.8, 17.9], [7.4, 18.3], [31.6, 18.3], [37.4, 14.8]],
+    wheels: [10, 40], r: 5.6, lights: [10.4, 11.4], plate: [7.4, 9.2], port: [44, 13.4], rails: true,
   },
 };
-const CAR_SLOT = 20.5;
+const bodyOf = (vehicle: Vehicle): BodySpec => BODIES[(vehicle.body === "suv" ? "crossover" : vehicle.body) as BodyKey] ?? BODIES.hatch;
+const CAR_SLOT = 21.5;
 
 /** A smooth curve through the points (Catmull-Rom), sampled. */
 function smooth(pts: Array<[number, number]>, per = 5, closed = false): Array<[number, number]> {
@@ -522,95 +563,124 @@ function smooth(pts: Array<[number, number]>, per = 5, closed = false): Array<[n
   return out;
 }
 
-function Car({ v, x, z, vehicle, pal }: { v: V; x: number; z: number; vehicle: Vehicle; pal: Pal }) {
-  const b = BODIES[vehicle.body || "hatch"];
+const pathOf = (pts: Array<[number, number]>, z: number) => pts.map(([pz, ph], i) => `${i ? "L" : "M"}${(z + pz).toFixed(2)} ${(-ph).toFixed(2)}`).join(" ") + " Z";
+
+function Car({ v, x, z, vehicle, pal, ids }: { v: V; x: number; z: number; vehicle: Vehicle; pal: Pal; ids: Ids }) {
+  const b = bodyOf(vehicle);
   const ev = vehicle.ev !== false;
   const { L, cw } = b;
   const body = pal.dim(vehicle.colour || CAR_COLOURS[0][0]);
-  const glass = pal.night ? "#141a23" : "#2a333f";
-  const side = shade(body, 0.12);
+  const glass = pal.night ? "#141a23" : "#28313c";
+  const glassTop = pal.night ? "#1a212c" : "#3d4a5a";
+  const side = shade(body, 0.1);
+  const trim = pal.night ? "#14171b" : "#22262c";
   const xr = x + cw;
-  const curve = smooth(b.pts, 6);
+  const curve = smooth(b.pts, 7);
   const inGlass = (zm: number) => b.glass.some(([a, c]) => zm > a && zm < c);
+  const roofH = Math.max(...b.pts.map((p) => p[1]));
+  const belt = b.win[0][1];
   const strips = curve.slice(0, -1).map((p, i) => {
     const q = curve[i + 1];
     const dz = q[0] - p[0];
     const dh = q[1] - p[1];
     const len = Math.hypot(dz, dh) || 1;
-    const vertical = Math.abs(dz) / len < 0.5 ? 1 - Math.abs(dz) / len : 0;
-    const zm = (p[0] + q[0]) / 2;
-    return { p, q, zm, vertical, facingBack: dh > 0 };
-  }).sort((a, b2) => b2.zm - a.zm);
-  const sidePath = curve.map(([pz, ph], i) => `${i ? "L" : "M"}${(z + pz).toFixed(2)} ${(-ph).toFixed(2)}`).join(" ") + " Z";
-  const winPath = smooth(b.win, 4, true).map(([pz, ph], i) => `${i ? "L" : "M"}${(z + pz).toFixed(2)} ${(-ph).toFixed(2)}`).join(" ") + " Z";
+    return { p, q, zm: (p[0] + q[0]) / 2, up: dz / len };
+  }).sort((a, c) => c.zm - a.zm);
   const wheelH = b.r - 0.2;
+  const winPts = smooth(b.win, 4, true);
+  const ws = b.glass[b.glass.length - 1];
   return (
     <g>
-      <polygon points={v.pts([[x - 1.5, 0, z - 1.5], [xr + 4, 0, z - 1.5], [xr + 4, 0, z + L + 1], [x - 1.5, 0, z + L + 1]])} fill={pal.shadow} />
-      {/* Rear tyres peeking under the bumper */}
+      <polygon points={v.pts([[x - 1.5, 0, z - 1.5], [xr + 4.5, 0, z - 1.5], [xr + 4.5, 0, z + L + 1], [x - 1.5, 0, z + L + 1]])} fill={pal.shadow} />
+      {/* Back tyres under the bumper */}
       <g transform={v.front(z + 1.5)}>
-        <rect x={x + 1} y={-wheelH} width={3.4} height={wheelH} rx={0.8} fill="#15181c" />
-        <rect x={xr - 4.4} y={-wheelH} width={3.4} height={wheelH} rx={0.8} fill="#15181c" />
+        <rect x={x + 0.6} y={-b.pts[0][1]} width={cw - 1.2} height={b.pts[0][1] - 1.2} fill="#1a1d21" />
+        <rect x={x + 1} y={-wheelH} width={3.6} height={wheelH} rx={0.9} fill="#15181c" />
+        <rect x={xr - 4.6} y={-wheelH} width={3.6} height={wheelH} rx={0.9} fill="#15181c" />
       </g>
       {/* The body, front to back, as thin strips so it curves */}
-      {strips.map(({ p, q, zm, vertical, facingBack }, i) => {
+      {strips.map(({ p, q, zm, up }, i) => {
         const glassy = inGlass(zm);
         const panoramic = ev && zm > b.roof[0] && zm < b.roof[1];
-        const base = glassy ? glass : body;
-        const tone = glassy ? base : shade(base, facingBack || vertical > 0.5 ? (vertical > 0.5 ? 0.02 : -0.08) : -0.16);
+        const lift = Math.max(0, up);
+        const tone = glassy ? shade(glassTop, -0.1 * lift) : shade(body, 0.05 - 0.22 * lift);
         return (
           <g key={i}>
             <polygon points={v.pts([[x + 0.4, p[1], z + p[0]], [xr, p[1], z + p[0]], [xr, q[1], z + q[0]], [x + 0.4, q[1], z + q[0]]])} fill={tone} stroke={tone} strokeWidth={0.25} />
-            {panoramic ? <polygon points={v.pts([[x + 2.4, p[1] + 0.02, z + p[0]], [xr - 2, p[1] + 0.02, z + p[0]], [xr - 2, q[1] + 0.02, z + q[0]], [x + 2.4, q[1] + 0.02, z + q[0]]])} fill={pal.night ? "#1a212c" : "#3a4757"} stroke={pal.night ? "#1a212c" : "#3a4757"} strokeWidth={0.2} /> : null}
+            {panoramic ? <polygon points={v.pts([[x + 2.4, p[1] + 0.02, z + p[0]], [xr - 2, p[1] + 0.02, z + p[0]], [xr - 2, q[1] + 0.02, z + q[0]], [x + 2.4, q[1] + 0.02, z + q[0]]])} fill={glassTop} stroke={glassTop} strokeWidth={0.2} /> : null}
           </g>
         );
       })}
+      {/* Roof rails or a shark-fin aerial */}
+      {b.rails && !ev ? [x + 2.2, xr - 2.6].map((rx) => {
+        const [a1, a2] = [v.P(rx, roofH + 0.7, z + b.roof[0] + 1), v.P(rx, roofH + 0.7, z + b.roof[1] - 1)];
+        return <line key={rx} x1={a1[0]} y1={a1[1]} x2={a2[0]} y2={a2[1]} stroke={pal.night ? "#59606a" : "#9aa1aa"} strokeWidth={v.k * 0.9} strokeLinecap="round" />;
+      }) : (
+        <polygon points={v.pts([[x + cw / 2 - 0.8, roofH, z + b.roof[0] + 0.5], [x + cw / 2 + 0.8, roofH, z + b.roof[0] + 0.5], [x + cw / 2, roofH + 1.4, z + b.roof[0] + 2.4]])} fill={trim} />
+      )}
       {/* Right side */}
       <g transform={v.side(xr)}>
-        <path d={sidePath} fill={side} />
-        <path d={winPath} fill={glass} />
-        <line x1={z + (b.win[2][0] + b.win[3][0]) / 2} x2={z + (b.win[2][0] + b.win[3][0]) / 2} y1={-b.win[3][1]} y2={-b.win[0][1]} stroke={side} strokeWidth={1.1} />
-        <path d={`M${z + 1.5} ${-(b.win[0][1] - 1.6)} L${z + L - 4} ${-(b.win[0][1] - 2.2)}`} stroke={shade(side, -0.18)} strokeWidth={0.4} fill="none" />
-        <rect x={z + 1} y={-(b.r + 1.6)} width={L - 2} height={1.6} rx={0.8} fill={pal.night ? "#14171b" : "#23272d"} opacity={vehicle.body === "suv" ? 1 : 0.7} />
-        {[0.32, 0.62].map((f) => <rect key={f} x={z + L * f} y={-(b.win[0][1] - 1.2)} width={3} height={0.7} rx={0.35} fill={shade(side, -0.3)} />)}
-        {ev ? <rect x={z + b.port[0]} y={-b.port[1]} width={2.4} height={1.6} rx={0.4} fill={shade(side, 0.25)} /> : <circle cx={z + 5} cy={-(b.win[0][1] - 2.8)} r={1.1} fill={shade(side, 0.2)} />}
+        <path d={pathOf(curve, z)} fill={side} />
+        <path d={pathOf(curve, z)} fill={`url(#${ids.sheen})`} />
+        <path d={pathOf(winPts, z)} fill={glass} />
+        <path d={`M${z + b.win[1][0] + 2} ${-(belt + 0.3)} L${z + b.win[1][0] + 6} ${-(b.win[2][1] - 0.4)} L${z + b.win[1][0] + 9} ${-(b.win[2][1] - 0.4)} L${z + b.win[1][0] + 5} ${-(belt + 0.3)} Z`} fill="#ffffff" opacity={pal.night ? 0.05 : 0.14} />
+        <line x1={z + (b.win[2][0] + b.win[3][0]) / 2} x2={z + (b.win[2][0] + b.win[3][0]) / 2} y1={-b.win[3][1]} y2={-belt} stroke={trim} strokeWidth={1} />
+        <path d={`M${z + 1.4} ${-(belt - 1.7)} Q${z + L / 2} ${-(belt - 2.3)} ${z + L - 3} ${-(belt - 2.1)}`} stroke={shade(side, -0.25)} strokeWidth={0.45} fill="none" />
+        <line x1={z + L * 0.47} x2={z + L * 0.47} y1={-belt} y2={-(b.r + 1.8)} stroke={shade(side, 0.25)} strokeWidth={0.3} />
+        <rect x={z + 1} y={-(b.r + 1.4)} width={L - 2} height={1.4} rx={0.7} fill={trim} opacity={b.rails ? 0.9 : 0.5} />
+        {[0.32, 0.62].map((f) => <rect key={f} x={z + L * f} y={-(belt - 1.1)} width={3} height={0.7} rx={0.35} fill={ev ? shade(side, -0.25) : shade(side, 0.3)} />)}
+        {ev ? <rect x={z + b.port[0]} y={-b.port[1]} width={2.4} height={1.6} rx={0.4} fill={shade(side, 0.22)} /> : <circle cx={z + 5.5} cy={-(belt - 2.8)} r={1.1} fill={shade(side, 0.2)} />}
+        {/* Door mirror */}
+        <path d={`M${z + ws[0] + 0.4} ${-(belt + 0.2)} q0.4 -2.2 2.8 -2.2 l0.8 0 l0 2.6 Z`} fill={body} />
         {b.wheels.map((wz) => (
           <g key={wz}>
-            <circle cx={z + wz} cy={-wheelH} r={b.r + 0.8} fill={shade(side, 0.45)} />
+            <circle cx={z + wz} cy={-wheelH} r={b.r + 0.9} fill={b.rails ? trim : shade(side, 0.45)} />
             <circle cx={z + wz} cy={-wheelH} r={b.r} fill="#15181c" />
             {ev ? (
               <g>
-                <circle cx={z + wz} cy={-wheelH} r={b.r * 0.74} fill={pal.night ? "#3a4048" : "#3f464f"} />
-                <circle cx={z + wz} cy={-wheelH} r={b.r * 0.55} fill="none" stroke={pal.night ? "#6b727b" : "#a9b0b8"} strokeWidth={0.5} />
-                <circle cx={z + wz} cy={-wheelH} r={0.9} fill={pal.night ? "#6b727b" : "#a9b0b8"} />
+                <circle cx={z + wz} cy={-wheelH} r={b.r * 0.76} fill={pal.night ? "#3a4048" : "#4a515b"} />
+                <circle cx={z + wz} cy={-wheelH} r={b.r * 0.76} fill="none" stroke={pal.night ? "#6b727b" : "#b6bcc3"} strokeWidth={0.45} />
+                {[0, 120, 240].map((a) => (
+                  <path key={a} d={`M${z + wz} ${-wheelH} l${Math.cos((a * Math.PI) / 180) * b.r * 0.7} ${Math.sin((a * Math.PI) / 180) * b.r * 0.7}`} stroke={pal.night ? "#5b626b" : "#8d949d"} strokeWidth={1.4} strokeLinecap="round" />
+                ))}
+                <circle cx={z + wz} cy={-wheelH} r={1} fill={pal.night ? "#6b727b" : "#b6bcc3"} />
               </g>
             ) : (
               <g>
-                <circle cx={z + wz} cy={-wheelH} r={b.r * 0.72} fill={pal.night ? "#6b727b" : "#c3c8ce"} />
-                <circle cx={z + wz} cy={-wheelH} r={b.r * 0.6} fill="#2b3036" />
-                {[0, 72, 144, 216, 288].map((a) => (
-                  <line key={a} x1={z + wz} y1={-wheelH} x2={z + wz + Math.cos((a * Math.PI) / 180) * b.r * 0.62} y2={-wheelH + Math.sin((a * Math.PI) / 180) * b.r * 0.62} stroke={pal.night ? "#6b727b" : "#c3c8ce"} strokeWidth={0.9} />
+                <circle cx={z + wz} cy={-wheelH} r={b.r * 0.74} fill={pal.night ? "#6b727b" : "#c8cdd3"} />
+                <circle cx={z + wz} cy={-wheelH} r={b.r * 0.62} fill="#2b3036" />
+                {[0, 36, 72, 108, 144, 180, 216, 252, 288, 324].map((a) => (
+                  <line key={a} x1={z + wz} y1={-wheelH} x2={z + wz + Math.cos((a * Math.PI) / 180) * b.r * 0.64} y2={-wheelH + Math.sin((a * Math.PI) / 180) * b.r * 0.64} stroke={pal.night ? "#6b727b" : "#c8cdd3"} strokeWidth={a % 72 ? 0.45 : 0.9} />
                 ))}
-                <circle cx={z + wz} cy={-wheelH} r={0.8} fill={pal.night ? "#6b727b" : "#c3c8ce"} />
+                <circle cx={z + wz} cy={-wheelH} r={0.9} fill={pal.night ? "#6b727b" : "#c8cdd3"} />
               </g>
             )}
           </g>
         ))}
       </g>
-      {/* Back: lights, plate, and an exhaust if it isn't electric */}
+      {/* Back: lights, plate, bumper; a wiper and tail-pipes if it burns fuel */}
       <g transform={v.front(z - 0.05)}>
         {ev ? (
-          <rect x={x + 0.6} y={-b.lights[1]} width={cw - 1.2} height={b.lights[1] - b.lights[0]} rx={0.45} fill={pal.night ? "#ff4d45" : "#c0262c"} />
+          <g>
+            <rect x={x + 0.5} y={-b.lights[1]} width={cw - 1} height={b.lights[1] - b.lights[0]} rx={0.45} fill={pal.night ? "#ff4d45" : "#c0262c"} />
+            {pal.night ? <rect x={x + 0.5} y={-(b.lights[1] + 0.3)} width={cw - 1} height={b.lights[1] - b.lights[0] + 0.6} rx={0.6} fill="#ff4d45" opacity={0.35} /> : null}
+          </g>
         ) : (
           <g>
-            <rect x={x + 0.6} y={-(b.lights[1] + 0.6)} width={4.2} height={b.lights[1] - b.lights[0] + 1.2} rx={0.6} fill={pal.night ? "#ff4d45" : "#b3262a"} />
-            <rect x={xr - 4.8} y={-(b.lights[1] + 0.6)} width={4.2} height={b.lights[1] - b.lights[0] + 1.2} rx={0.6} fill={pal.night ? "#ff4d45" : "#b3262a"} />
-            <ellipse cx={x + 3.6} cy={-3.6} rx={1.2} ry={0.7} fill="#15181c" />
+            {[x + 0.5, xr - 5.3].map((lx) => <rect key={lx} x={lx} y={-(b.lights[1] + 0.7)} width={4.8} height={b.lights[1] - b.lights[0] + 1.4} rx={0.7} fill={pal.night ? "#ff4d45" : "#b3262a"} />)}
+            <rect x={x + 5.6} y={-(b.lights[1] - 0.2)} width={cw - 11.2} height={0.5} fill={shade(body, 0.3)} />
+            {(b.boot ? [x + 3.4, xr - 3.4] : [x + 3.6]).map((ex) => <ellipse key={ex} cx={ex} cy={-3.4} rx={1.3} ry={0.75} fill="#121417" stroke="#8d949d" strokeWidth={0.25} />)}
           </g>
         )}
-        <rect x={x + cw / 2 - 3.5} y={-b.plate[1]} width={7} height={b.plate[1] - b.plate[0]} rx={0.3} fill="#f2d23c" />
-        <rect x={x + 0.8} y={-(b.plate[0] - 0.4)} width={cw - 1.6} height={0.9} fill={pal.night ? "#14171b" : "#23272d"} opacity={0.8} />
+        <rect x={x + cw / 2 - 3.6} y={-b.plate[1]} width={7.2} height={b.plate[1] - b.plate[0]} rx={0.3} fill="#f2d23c" />
+        <rect x={x + 0.8} y={-(b.plate[0] - 0.4)} width={cw - 1.6} height={1.1} rx={0.4} fill={trim} opacity={0.85} />
       </g>
+      {!ev && !b.boot ? (() => {
+        const [g0, g1] = b.glass[0];
+        const a = v.P(x + cw / 2, b.pts[2][1] + 0.4, z + g0 + 0.5);
+        const c = v.P(x + cw / 2 - 5, b.pts[2][1] + (b.pts[3][1] - b.pts[2][1]) * 0.5, z + (g0 + g1) * 0.38);
+        return <line x1={a[0]} y1={a[1]} x2={c[0]} y2={c[1]} stroke={trim} strokeWidth={v.k * 0.5} strokeLinecap="round" />;
+      })() : null}
       {pal.night ? <ellipse cx={v.P(x + cw / 2, 0, z)[0]} cy={v.P(x + cw / 2, b.lights[1], z)[1]} rx={v.k * 14} ry={v.k * 4} fill="#ff4d45" opacity={0.14} /> : null}
     </g>
   );
@@ -794,7 +864,7 @@ function Flats({ v, s, pal, ids, walls, roof }: { v: V; s: HouseStyle; pal: Pal;
 
 export function HouseIllustration({ style, className, hotspots }: { style: HouseStyle; className?: string; hotspots?: HouseHotspot[] }) {
   const uid = useId().replace(/[^a-z0-9]/gi, "");
-  const ids: Ids = { sky: `s${uid}`, glass: `g${uid}`, lit: `l${uid}`, brick: `b${uid}`, glow: `w${uid}` };
+  const ids: Ids = { sky: `s${uid}`, glass: `g${uid}`, lit: `l${uid}`, brick: `b${uid}`, glow: `w${uid}`, sheen: `h${uid}` };
   const s: HouseStyle = { storeys: 2, garage: "none", garageSide: "right", attachedSide: "left", grass: true, shrubs: true, driveway: "none", render: "none", cars: 0, scene: "auto", loftWindow: "skylight", garageAttached: true, chargerSide: "front", ...style };
   const [hour, setHour] = useState<number | null>(null);
   useEffect(() => setHour(new Date().getHours()), []);
@@ -917,7 +987,7 @@ export function HouseIllustration({ style, className, hotspots }: { style: House
     else charger = { x: w - 6, y: 14, z: -0.6, front: true };
   }
   const chargedCar = charger && carSpots.length
-    ? carSpots.reduce((best, c) => (Math.hypot(c.x + BODIES[c.vehicle.body || "hatch"].cw - charger!.x, c.z - charger!.z) < Math.hypot(best.x + BODIES[best.vehicle.body || "hatch"].cw - charger!.x, best.z - charger!.z) ? c : best))
+    ? carSpots.reduce((best, c) => (Math.hypot(c.x + bodyOf(c.vehicle).cw - charger!.x, c.z - charger!.z) < Math.hypot(best.x + bodyOf(best.vehicle).cw - charger!.x, best.z - charger!.z) ? c : best))
     : null;
 
   const ground = s.grass !== false ? pal.lawn : pal.paving;
@@ -960,6 +1030,11 @@ export function HouseIllustration({ style, className, hotspots }: { style: House
           <stop offset="0" stopColor="#ffd98f" stopOpacity="0.45" />
           <stop offset="1" stopColor="#ffd98f" stopOpacity="0" />
         </radialGradient>
+        <linearGradient id={ids.sheen} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#ffffff" stopOpacity={night ? 0.06 : 0.28} />
+          <stop offset="0.45" stopColor="#ffffff" stopOpacity="0" />
+          <stop offset="1" stopColor="#000000" stopOpacity="0.18" />
+        </linearGradient>
         <pattern id={ids.brick} width={8} height={4} patternUnits="userSpaceOnUse">
           <path d="M0 2H8M0 4H8M2 0V2M6 2V4" stroke="#000" strokeOpacity={0.13} strokeWidth={0.45} fill="none" />
         </pattern>
@@ -1049,14 +1124,14 @@ export function HouseIllustration({ style, className, hotspots }: { style: House
         {s.shrubs !== false && !isFlat ? layout.wins.filter((win) => win.h1 < FH).map((win, i) => <Shrub key={i} v={v} x0={win.x - 1} x1={win.x + win.w + 1} pal={pal} />) : null}
         {s.shrubs !== false && isFlat ? <Shrub v={v} x0={8} x1={34} pal={pal} /> : null}
 
-        {carSpots.map((c, i) => <Car key={i} v={v} x={c.x} z={c.z} vehicle={c.vehicle} pal={pal} />)}
+        {carSpots.map((c, i) => <Car key={i} v={v} x={c.x} z={c.z} vehicle={c.vehicle} pal={pal} ids={ids} />)}
         {charger ? (() => {
           const [ax, ay] = charger.front ? v.P(charger.x + 1.6, 11.8, charger.z) : v.P(w + 0.3, 11.4, charger.z);
           if (!chargedCar) {
             const [hx, hy] = charger.front ? v.P(charger.x + 1.6, 9.5, charger.z - 0.2) : v.P(w + 0.5, 9.5, charger.z);
             return <path d={`M${ax} ${ay} Q${ax + v.k * 2} ${hy + v.k * 2} ${hx} ${hy}`} fill="none" stroke="#1f242b" strokeWidth={v.k * 0.8} />;
           }
-          const b = BODIES[chargedCar.vehicle.body || "hatch"];
+          const b = bodyOf(chargedCar.vehicle);
           const portX = chargedCar.x + b.cw;
           const [px, py] = v.P(portX, b.port[1], chargedCar.z + b.port[0] + 1.2);
           const [cx, cy] = v.P((charger.x + portX) / 2 + 4, 0.4, (charger.z + chargedCar.z + b.port[0]) / 2);

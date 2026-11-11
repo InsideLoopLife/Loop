@@ -7,7 +7,7 @@ import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { saveHouseStyle } from "@/app/mortgage/actions";
 import {
-  BRICK_COLOURS, CAR_COLOURS, DEFAULT_VEHICLES, DOOR_COLOURS, GARAGE_COLOURS, HouseIllustration, RENDER_COLOURS, ROOF_COLOURS,
+  BRICK_COLOURS, CAR_BODIES, CAR_COLOURS, DEFAULT_VEHICLES, DOOR_COLOURS, GARAGE_COLOURS, HouseIllustration, RENDER_COLOURS, ROOF_COLOURS,
   defaultHouseStyle, type HouseStyle, type Vehicle,
 } from "@/components/mortgage/HouseIllustration";
 
@@ -76,7 +76,9 @@ export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string
 
   return (
     <div className="relative">
-      <HouseIllustration style={style} className="block h-auto w-full" />
+      <div className={editing ? "sticky top-0 z-20 border-b border-slate-200 bg-[#eef4f1] shadow-sm" : undefined}>
+        <HouseIllustration style={style} className="block h-auto w-full" />
+      </div>
       {!editing ? (
         <button type="button" onClick={() => setEditing(true)} className="absolute bottom-3 right-3 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-white">
           {saved ? "Change the drawing" : "Make it look like your home"}
@@ -151,7 +153,7 @@ export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string
               ? Array.from({ length: cars }, (_, i) => (
                 <div key={i} className="space-y-2 rounded-lg bg-slate-50 p-2.5">
                   <div className="flex flex-wrap items-end gap-3">
-                    <Choice label={cars === 2 ? `Car ${i + 1}` : "Car"} value={vehicle(i).body} onPick={(body) => setVehicle(i, { body })} options={[["hatch", "Hatchback"], ["saloon", "Saloon"], ["suv", "SUV"]]} />
+                    <Choice label={cars === 2 ? `Car ${i + 1}` : "Car"} value={vehicle(i).body} onPick={(body) => setVehicle(i, { body })} options={CAR_BODIES} />
                     <Tick checked={vehicle(i).ev !== false} onChange={(ev) => setVehicle(i, { ev })}>Electric</Tick>
                   </div>
                   <Swatches label="Colour" value={vehicle(i).colour ?? CAR_COLOURS[0][0]} options={CAR_COLOURS} onPick={(colour) => setVehicle(i, { colour })} />

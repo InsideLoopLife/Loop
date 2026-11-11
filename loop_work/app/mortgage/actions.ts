@@ -878,7 +878,7 @@ export async function saveHouseStyle(formData: FormData) {
     driveway: ["none", "garage", "house", "full"].includes(style.driveway) ? style.driveway : "none",
     cars: [0, 1, 2].includes(Number(style.cars)) ? Number(style.cars) : 0,
     vehicles: (Array.isArray(style.vehicles) ? style.vehicles : []).slice(0, 2).map((vehicle: any) => ({
-      body: ["hatch", "saloon", "suv"].includes(vehicle?.body) ? vehicle.body : "hatch",
+      body: ["hatch", "saloon", "fastback", "crossover", "coupe_suv", "large_suv"].includes(vehicle?.body) ? vehicle.body : vehicle?.body === "suv" ? "crossover" : "hatch",
       ev: vehicle?.ev !== false,
       colour: colour(vehicle?.colour),
     })),

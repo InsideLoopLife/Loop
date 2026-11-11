@@ -385,7 +385,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
               <RenewalCountdown deal={deal} searchRows={(props.dealSearch ?? []).filter((row) => row.home_id === home?.id)} onCompare={() => choose("rates")} />
               <TermNote deal={deal} onEdit={() => deal && setModal({ type: "edit_mortgage", deal })} />
 
-              <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
+              <section className="overflow-clip rounded-[18px] border border-slate-200 bg-white">
                 <div className="grid lg:grid-cols-[1fr_1fr]">
                   <div className="p-5 sm:p-6">
                     <h2 className="text-xl font-bold">{home?.label || "Add your home"}</h2>
