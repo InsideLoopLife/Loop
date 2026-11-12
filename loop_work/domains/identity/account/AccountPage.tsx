@@ -67,6 +67,7 @@ const tabs = [
   // there was no way to reach them except by typing the exact URL
   // directly. Same root cause as the missing /integrations nav link fixed
   // separately.
+  ["notifications", "Notifications"],
   ["plan", "Plan"],
   ["integrations", "Integrations"],
 ] as const;
