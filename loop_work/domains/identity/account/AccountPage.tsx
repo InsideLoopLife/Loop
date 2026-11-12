@@ -1,3 +1,4 @@
+import { EmailDigestButton } from "@/components/notifications/EmailDigestButton";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import {
@@ -1496,6 +1497,11 @@ export default async function AccountPage({
                 <SubmitButton>Save notification preferences</SubmitButton>
               </div>
             </form>
+            <div className="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-4">
+              <p className="text-sm font-semibold text-[var(--ink)]">The weekly email</p>
+              <p className="mt-1 mb-3 text-sm text-[var(--muted)]">Every Monday morning: what you&apos;re on track to have left over this month and why, money changes in the next few months, and anything that needs a look.</p>
+              <EmailDigestButton />
+            </div>
           </SectionCard>
         ) : null}
 

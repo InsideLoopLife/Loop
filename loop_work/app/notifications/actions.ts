@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { buildNotifications } from "@/lib/notifications/insights";
 import { areaOf, needsDecision } from "@/lib/notifications/areas";
+import { buildWeeklyDigest } from "@/lib/notifications/weekly-digest";
+import { sendTransactionalEmail } from "@/lib/notifications/send";
 import { WRITE_OFF_NOTIFICATION_TYPE, writeOffHolding } from "@/lib/investments/write-off";
 
 async function requireUser() {
@@ -170,4 +172,23 @@ export async function dismissById(id: string) {
   const { error } = await supabase.from("app_notifications").update({ status: "dismissed", read_at: new Date().toISOString() }).eq("id", id).eq("user_id", user.id);
   if (error) throw new Error(error.message);
   revalidatePath("/notifications");
+}
+
+/** Send this week's digest to yourself now, to see what it looks like. */
+export async function emailMyDigest(): Promise<{ ok: boolean; message: string }> {
+  const { supabase, user } = await requireUser();
+  if (!user.email) return { ok: false, message: "Your account has no email address." };
+  const [{ data: membership }, { data: profile }, { data: prefs }] = await Promise.all([
+    supabase.from("app_household_members").select("household_id").eq("user_id", user.id).eq("status", "active").maybeSingle(),
+    supabase.from("app_user_profiles").select("display_name").eq("user_id", user.id).maybeSingle(),
+    supabase.from("app_notification_preferences").select("finance_digest_enabled, health_digest_enabled").eq("user_id", user.id).maybeSingle(),
+  ]);
+  const appUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "https://loop-web-jf7p.onrender.com";
+  const digest = await buildWeeklyDigest(supabase, { user_id: user.id, household_id: membership?.household_id || null, name: profile?.display_name }, {
+    appUrl, finance: prefs?.finance_digest_enabled !== false, health: prefs?.health_digest_enabled !== false,
+  });
+  const sent = await sendTransactionalEmail({ to: user.email, subject: digest.subject, html: digest.html, text: digest.text }).catch((e: any) => ({ sent: false, skipped: e?.message || "Send failed" }));
+  return sent.sent
+    ? { ok: true, message: `Sent to ${user.email}. It can take a minute to arrive.` }
+    : { ok: false, message: `Couldn't send it: ${sent.skipped || "email isn't set up"}.` };
 }
