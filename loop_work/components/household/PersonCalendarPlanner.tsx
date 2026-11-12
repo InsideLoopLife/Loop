@@ -7,7 +7,7 @@ import { SectionCard } from "@/components/SectionCard";
 import { formatMoneyExact } from "@/lib/format/money";
 import { estimateAnnualTakeHome, PensionMethod, StudentLoanPlan } from "@/lib/calculations/tax";
 import { MaternityPayMode, calculateNhsMaternityMonthlyAmount } from "@/lib/calculations/maternity";
-import { ActivityBillingMode, BillingSchedule, DaySession, FundingMode, calculateActivityMonthlyCost, calculateNurseryMonthlyCost } from "@/lib/calculations/childcare";
+import { ActivityBillingMode, BillingSchedule, DaySession, FundingMode, calculateActivityMonthlyCost, calculateNurseryMonthlyCost, savedBillingSchedule } from "@/lib/calculations/childcare";
 import { addChildCost, addPayEvent, addPayEventMonthlyOverride, deleteChildCost, deletePayEvent, updateChildCost, updatePayEvent } from "@/app/household/actions";
 import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
 import { deductionsForMonth } from "@/lib/planning/month-plan";
@@ -245,7 +245,7 @@ function getChildCostMonthlyAmount(cost: ChildCost, billingMonth: string) {
     fundingMode: cost.funding_mode ?? "none",
     hourlyFundingCredit: Number(cost.hourly_funding_credit ?? 0),
     termWeeksPerYear: Number(cost.term_weeks_per_year ?? 38),
-    billingSchedule: cost.billing_schedule ?? "all_year",
+    billingSchedule: savedBillingSchedule(cost as any),
     bankHolidaysAreFree: Boolean(cost.bank_holidays_are_free),
     taxFreeChildcareEnabled: Boolean(cost.tax_free_childcare_enabled),
     taxFreeChildcareCapPerQuarter: Number(cost.tax_free_childcare_cap_per_quarter ?? 500),

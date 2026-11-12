@@ -1,5 +1,12 @@
+import { easterSunday, isDateInHolidayPeriod } from "@/lib/calculations/childcareCalendar";
+
 export type FundingMode = "none" | "stretched" | "term_time";
-export type BillingSchedule = "all_year" | "term_time";
+/**
+ * all_year: charged for every weekday in the month.
+ * term_time: charged only for days in school term time, in the months they fall.
+ * term_time_spread: term-time days, with the year's total spread evenly over 12 months.
+ */
+export type BillingSchedule = "all_year" | "term_time" | "term_time_spread";
 export type DaySession = "off" | "full" | "part";
 export type ActivityBillingMode = "calendar" | "averaged_term";
 
@@ -120,8 +127,37 @@ function toIsoDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+/** England & Wales bank holidays for any year (with weekend substitutes). */
+function bankHolidaysForYear(year: number) {
+  const days: string[] = [];
+  const add = (d: Date) => days.push(toIsoDate(d));
+  const shift = (d: Date) => (d.getDay() === 6 ? new Date(d.getFullYear(), d.getMonth(), d.getDate() + 2) : d.getDay() === 0 ? new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1) : d);
+  add(shift(new Date(year, 0, 1)));
+  const easter = easterSunday(year);
+  add(new Date(year, easter.getMonth(), easter.getDate() - 2));
+  add(new Date(year, easter.getMonth(), easter.getDate() + 1));
+  const firstMonday = (m: number) => { const d = new Date(year, m, 1); return new Date(year, m, 1 + ((8 - d.getDay()) % 7)); };
+  const lastMonday = (m: number) => { const d = new Date(year, m + 1, 0); return new Date(year, m, d.getDate() - ((d.getDay() + 6) % 7)); };
+  add(firstMonday(4));
+  add(lastMonday(4));
+  add(lastMonday(7));
+  const christmas = new Date(year, 11, 25);
+  const boxing = new Date(year, 11, 26);
+  if (christmas.getDay() === 6) { add(new Date(year, 11, 27)); add(new Date(year, 11, 28)); }
+  else if (christmas.getDay() === 0) { add(new Date(year, 11, 26)); add(new Date(year, 11, 27)); }
+  else if (christmas.getDay() === 5) { add(christmas); add(new Date(year, 11, 28)); }
+  else { add(christmas); add(boxing); }
+  return days;
+}
+const computedBankHolidays = new Map<number, Set<string>>();
+
 export function isEnglandWalesBankHoliday(date: Date) {
-  return ENGLAND_WALES_BANK_HOLIDAYS.has(toIsoDate(date));
+  const key = toIsoDate(date);
+  if (ENGLAND_WALES_BANK_HOLIDAYS.has(key)) return true;
+  const year = date.getFullYear();
+  if (year === 2026 || year === 2027) return false; // listed above from GOV.UK
+  if (!computedBankHolidays.has(year)) computedBankHolidays.set(year, new Set(bankHolidaysForYear(year)));
+  return computedBankHolidays.get(year)!.has(key);
 }
 
 function getMonthDateRange(billingMonth: string) {
@@ -193,6 +229,8 @@ export function countAttendanceInMonth(input: NurseryCostInput) {
   let attendedHours = 0;
   let chargeUnits = 0;
   let bankHolidayDaysRemoved = 0;
+  let holidayDaysRemoved = 0;
+  const termOnly = input.billingSchedule === "term_time";
 
   for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
     const key = dayKeys[date.getDay()];
@@ -200,6 +238,10 @@ export function countAttendanceInMonth(input: NurseryCostInput) {
     const chargeMultiplier = chargeMultiplierByDay[key] ?? 0;
 
     if (hours > 0 || chargeMultiplier > 0) {
+      if (termOnly && isDateInHolidayPeriod(date)) {
+        holidayDaysRemoved += 1;
+        continue;
+      }
       if (input.bankHolidaysAreFree && isEnglandWalesBankHoliday(date)) {
         bankHolidayDaysRemoved += 1;
         continue;
@@ -211,7 +253,28 @@ export function countAttendanceInMonth(input: NurseryCostInput) {
     }
   }
 
-  return { attendanceDays, attendedHours, chargeUnits, bankHolidayDaysRemoved };
+  return { attendanceDays, attendedHours, chargeUnits, bankHolidayDaysRemoved, holidayDaysRemoved };
+}
+
+/** Weekdays in a month that fall in school term time. */
+function termWeekdaysInMonth(billingMonth: string) {
+  const { start, end } = getMonthDateRange(billingMonth);
+  let count = 0;
+  for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+    if (date.getDay() === 0 || date.getDay() === 6) continue;
+    if (!isDateInHolidayPeriod(date)) count += 1;
+  }
+  return count;
+}
+
+/** The school year (September to August) a month belongs to, as its 12 months. */
+function schoolYearMonths(billingMonth: string) {
+  const [y, m] = billingMonth.split("-").map(Number);
+  const startYear = m >= 9 ? y : y - 1;
+  return Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(startYear, 8 + i, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
 }
 
 export function calculateNurseryMonthlyCost(input: NurseryCostInput): NurseryCostResult {
@@ -221,13 +284,30 @@ export function calculateNurseryMonthlyCost(input: NurseryCostInput): NurseryCos
   const hourlyFundingCredit = safeNumber(input.hourlyFundingCredit);
   const termWeeksPerYear = safeNumber(input.termWeeksPerYear) || 38;
   const billingSchedule = input.billingSchedule ?? "all_year";
-  const { attendanceDays, attendedHours, chargeUnits, bankHolidayDaysRemoved } = countAttendanceInMonth(input);
 
-  let grossCost = chargeUnits * (dailyRate + extraDailyCost);
-
-  if (billingSchedule === "term_time") {
-    grossCost *= termWeeksPerYear / 52;
+  // Spread: work out the whole school year's term-time cost, then a twelfth.
+  if (billingSchedule === "term_time_spread") {
+    const months = schoolYearMonths(input.billingMonth);
+    const results = months.map((month) => calculateNurseryMonthlyCost({ ...input, billingMonth: month, billingSchedule: "term_time" }));
+    const avg = (pick: (r: NurseryCostResult) => number) => results.reduce((sum, r) => sum + pick(r), 0) / 12;
+    const thisMonth = countAttendanceInMonth({ ...input, billingSchedule: "term_time" });
+    const yearTotal = results.reduce((sum, r) => sum + r.estimatedMonthlyCost, 0);
+    return {
+      attendanceDays: thisMonth.attendanceDays,
+      attendedHours: thisMonth.attendedHours,
+      grossCost: avg((r) => r.grossCost),
+      fundingCredit: avg((r) => r.fundingCredit),
+      taxFreeChildcareTopUp: avg((r) => r.taxFreeChildcareTopUp),
+      estimatedMonthlyCost: yearTotal / 12,
+      parentCostBeforeTaxFreeChildcare: avg((r) => r.parentCostBeforeTaxFreeChildcare),
+      bankHolidayDaysRemoved: thisMonth.bankHolidayDaysRemoved,
+      explanation: `Term-time only, spread evenly: ${Math.round(yearTotal)} for the school year ÷ 12.`,
+    };
   }
+
+  const { attendanceDays, attendedHours, chargeUnits, bankHolidayDaysRemoved, holidayDaysRemoved } = countAttendanceInMonth(input);
+
+  const grossCost = chargeUnits * (dailyRate + extraDailyCost);
 
   let fundedHoursThisMonth = 0;
   if (input.fundingMode === "stretched") {
@@ -235,7 +315,8 @@ export function calculateNurseryMonthlyCost(input: NurseryCostInput): NurseryCos
   }
 
   if (input.fundingMode === "term_time") {
-    fundedHoursThisMonth = (fundedHoursPerWeek * termWeeksPerYear) / 12;
+    // Funded hours only run in term weeks, so use this month's actual term weeks.
+    fundedHoursThisMonth = fundedHoursPerWeek * (termWeekdaysInMonth(input.billingMonth) / 5);
   }
 
   const maxUsableFundedHours = Math.min(fundedHoursThisMonth, attendedHours);
@@ -255,8 +336,8 @@ export function calculateNurseryMonthlyCost(input: NurseryCostInput): NurseryCos
     explanationParts.push(`${bankHolidayDaysRemoved} bank holiday${bankHolidayDaysRemoved === 1 ? "" : "s"} removed`);
   }
 
-  if (billingSchedule === "term_time") {
-    explanationParts.push(`term-time averaged at ${termWeeksPerYear} weeks/year`);
+  if (billingSchedule === "term_time" && holidayDaysRemoved > 0) {
+    explanationParts.push(`${holidayDaysRemoved} school holiday day${holidayDaysRemoved === 1 ? "" : "s"} not charged`);
   }
 
   if (input.fundingMode !== "none") {
@@ -360,4 +441,10 @@ export function activityForecast(input: ActivityCostInput, months = 12): MonthFo
       explanation: result.explanation,
     };
   });
+}
+
+/** How a saved nursery cost is billed. The spread option is kept in care_details. */
+export function savedBillingSchedule(cost: { billing_schedule?: string | null; care_details?: Record<string, any> | null }): BillingSchedule {
+  if (cost.billing_schedule === "term_time") return cost.care_details?.termTimeSpread ? "term_time_spread" : "term_time";
+  return "all_year";
 }

@@ -11,6 +11,7 @@ import {
   calculateActivityMonthlyCost,
   calculateNurseryMonthlyCost,
   nurseryForecast,
+  savedBillingSchedule,
 } from "@/lib/calculations/childcare";
 import { formatMoney } from "@/lib/format/money";
 
@@ -106,7 +107,7 @@ export function NurseryCostForm({ childrenOptions, billPersonOptions = childrenO
   const [fundingMode, setFundingMode] = useState<FundingMode>(initialValues?.funding_mode ?? "stretched");
   const [hourlyFundingCredit, setHourlyFundingCredit] = useState(String(initialValues?.hourly_funding_credit ?? 0));
   const [termWeeksPerYear, setTermWeeksPerYear] = useState(String(initialValues?.term_weeks_per_year ?? 38));
-  const [billingSchedule, setBillingSchedule] = useState<BillingSchedule>(initialValues?.billing_schedule ?? "all_year");
+  const [billingSchedule, setBillingSchedule] = useState<BillingSchedule>(initialValues ? savedBillingSchedule(initialValues as any) : "all_year");
   const [bankHolidaysAreFree, setBankHolidaysAreFree] = useState(initialValues?.bank_holidays_are_free ?? true);
   const [taxFreeChildcareEnabled, setTaxFreeChildcareEnabled] = useState(initialValues?.tax_free_childcare_enabled ?? true);
   const [taxFreeChildcareCapPerQuarter, setTaxFreeChildcareCapPerQuarter] = useState(String(initialValues?.tax_free_childcare_cap_per_quarter ?? 500));
@@ -319,8 +320,9 @@ export function NurseryCostForm({ childrenOptions, billPersonOptions = childrenO
             <label className="block">
               <span className="text-sm font-medium text-slate-700">Billing schedule</span>
               <select name="billing_schedule" value={billingSchedule} onChange={(event) => setBillingSchedule(event.target.value as BillingSchedule)} className={inputClass}>
-                <option value="all_year">Full-time / all year</option>
-                <option value="term_time">Term-time averaged</option>
+                <option value="all_year">All year</option>
+                <option value="term_time">Term time only – charged in the months they go</option>
+                <option value="term_time_spread">Term time only – spread evenly over 12 months</option>
               </select>
             </label>
             <label className="block">

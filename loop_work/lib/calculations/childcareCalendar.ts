@@ -30,9 +30,9 @@ export const HOLIDAY_PERIOD_LABELS: Record<HolidayPeriodKey, string> = {
   summer: "Summer holidays",
 };
 
-// Two academic years of placeholder dates. Extend this list as years roll on,
-// or (better) replace with rows parsed from an uploaded term-dates PDF/ICS.
-export const UK_HOLIDAY_PERIODS: HolidayPeriod[] = [
+// Known dates for recent years; other years use the usual England pattern
+// (typicalHolidayPeriods below), so estimates never run off the end.
+const KNOWN_HOLIDAY_PERIODS: HolidayPeriod[] = [
   { key: "autumn_half_term", label: HOLIDAY_PERIOD_LABELS.autumn_half_term, start: "2025-10-27", end: "2025-10-31" },
   { key: "christmas", label: HOLIDAY_PERIOD_LABELS.christmas, start: "2025-12-22", end: "2026-01-02" },
   { key: "spring_half_term", label: HOLIDAY_PERIOD_LABELS.spring_half_term, start: "2026-02-16", end: "2026-02-20" },
@@ -47,6 +47,52 @@ export const UK_HOLIDAY_PERIODS: HolidayPeriod[] = [
   { key: "summer_half_term", label: HOLIDAY_PERIOD_LABELS.summer_half_term, start: "2027-05-31", end: "2027-06-04" },
   { key: "summer", label: HOLIDAY_PERIOD_LABELS.summer, start: "2027-07-21", end: "2027-08-31" },
 ];
+
+const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+/** First Monday on or after a date. */
+const mondayOnOrAfter = (d: Date) => addDays(d, (8 - d.getDay()) % 7);
+/** Last Monday of a month (month is 0-based). */
+const lastMonday = (year: number, month: number) => {
+  const last = new Date(year, month + 1, 0);
+  return addDays(last, -((last.getDay() + 6) % 7));
+};
+
+/** Easter Sunday (Gregorian). */
+export function easterSunday(year: number) {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100, d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+
+/** Usual England state-school holidays for the school year starting September `year`. */
+export function typicalHolidayPeriods(year: number): HolidayPeriod[] {
+  const next = year + 1;
+  const period = (key: HolidayPeriodKey, start: Date, end: Date) => ({ key, label: HOLIDAY_PERIOD_LABELS[key], start: iso(start), end: iso(end) });
+  const autumn = lastMonday(year, 9);
+  const christmas = mondayOnOrAfter(new Date(year, 11, 18));
+  const february = mondayOnOrAfter(new Date(next, 1, 12));
+  const easter = easterSunday(next);
+  const may = lastMonday(next, 4);
+  let summer = new Date(next, 6, 22);
+  if (summer.getDay() === 0 || summer.getDay() === 6) summer = mondayOnOrAfter(summer);
+  return [
+    period("autumn_half_term", autumn, addDays(autumn, 4)),
+    period("christmas", christmas, addDays(christmas, 11)),
+    period("spring_half_term", february, addDays(february, 4)),
+    period("easter", addDays(easter, -6), addDays(easter, 5)),
+    period("summer_half_term", may, addDays(may, 4)),
+    period("summer", summer, new Date(next, 7, 31)),
+  ];
+}
+
+const knownYears = new Set(KNOWN_HOLIDAY_PERIODS.filter((p) => p.key === "autumn_half_term").map((p) => Number(p.start.slice(0, 4))));
+export const UK_HOLIDAY_PERIODS: HolidayPeriod[] = [
+  ...KNOWN_HOLIDAY_PERIODS,
+  ...Array.from({ length: 21 }, (_, i) => 2020 + i).filter((year) => !knownYears.has(year)).flatMap(typicalHolidayPeriods),
+].sort((a, b) => a.start.localeCompare(b.start));
 
 function parseIsoDate(iso: string) {
   const [y, m, d] = iso.split("-").map(Number);

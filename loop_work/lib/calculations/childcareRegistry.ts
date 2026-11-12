@@ -110,8 +110,7 @@ export const COST_TYPE_REGISTRY: CostTypeDefinition[] = [
         { id: "extraDailyCost", title: "Any extra daily charges — meals, nappies? (£/day, leave blank if none)", type: "currency", optional: true },
         { id: "fundingEligible", title: `Is ${child?.name ?? "your child"} currently using government-funded early years hours?`, type: "boolean", hint: fh.note },
         { id: "fundedHoursPerWeek", title: "How many funded hours per week?", type: "number", min: 0, max: 30, suffix: "hrs/week", default: fh.suggested, condition: (ans) => ans.fundingEligible === true },
-        { id: "billingSchedule", title: "Is this billed all year, or averaged over term time?", type: "select", options: [{ value: "all_year", label: "Full-time / all year" }, { value: "term_time", label: "Term-time averaged" }] },
-        { id: "termWeeksPerYear", title: "How many term weeks a year?", type: "number", min: 30, max: 52, default: 38, condition: (ans) => ans.billingSchedule === "term_time" },
+        { id: "billingSchedule", title: "When do they go, and how are you charged?", type: "select", options: [{ value: "all_year", label: "All year" }, { value: "term_time", label: "Term time only – charged in the months they go" }, { value: "term_time_spread", label: "Term time only – spread evenly over 12 months" }] },
       ];
     },
   },

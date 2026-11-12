@@ -477,6 +477,24 @@ function buildChildCostPayload(userId: string, formData: FormData) {
 
   const costKind = String(formData.get("cost_kind") || "fixed") as "fixed" | "nursery" | "activity";
 
+  // The step-by-step wizard sends its nursery answers as JSON; turn them into
+  // the same fields the full form sends, so the cost isn't saved as £0.
+  if (rawCareType === "nursery" && !formData.get("daily_rate")) {
+    let a: Record<string, any> = {};
+    try { a = JSON.parse(String(formData.get("care_details") || "{}")); } catch { a = {}; }
+    const days = Math.max(1, Math.min(5, Number(a.daysPerWeek) || 5));
+    const set = (key: string, value: unknown) => { if (value !== undefined && value !== null && value !== "") formData.set(key, String(value)); };
+    set("daily_rate", a.dailyRate);
+    set("extra_daily_cost", a.extraDailyCost);
+    if (a.fundingEligible) {
+      set("funded_hours_per_week", a.fundedHoursPerWeek);
+      set("funding_mode", a.billingSchedule === "all_year" ? "stretched" : "term_time");
+      set("hourly_funding_credit", (Number(a.dailyRate) || 0) / 10);
+    }
+    set("billing_schedule", a.billingSchedule || "all_year");
+    ["monday", "tuesday", "wednesday", "thursday", "friday"].forEach((day, i) => formData.set(`${day}_session`, i < days ? "full" : "off"));
+  }
+
   const nurseryInput = {
     billingMonth,
     dailyRate: parseNumber(formData.get("daily_rate")) ?? 0,
@@ -528,7 +546,7 @@ function buildChildCostPayload(userId: string, formData: FormData) {
     label: String(formData.get("label") || "Child cost"),
     cost_kind: costKind,
     care_type: costKind,
-    care_details: {},
+    care_details: nurseryInput.billingSchedule === "term_time_spread" ? { termTimeSpread: true } : {},
     monthly_cost: monthlyCost,
     billing_month: `${billingMonth}-01`,
     daily_rate: nurseryInput.dailyRate,
@@ -537,7 +555,7 @@ function buildChildCostPayload(userId: string, formData: FormData) {
     funding_mode: nurseryInput.fundingMode,
     hourly_funding_credit: nurseryInput.hourlyFundingCredit,
     term_weeks_per_year: nurseryInput.termWeeksPerYear,
-    billing_schedule: nurseryInput.billingSchedule,
+    billing_schedule: nurseryInput.billingSchedule === "all_year" ? "all_year" : "term_time",
     bank_holidays_are_free: nurseryInput.bankHolidaysAreFree,
     tax_free_childcare_enabled: nurseryInput.taxFreeChildcareEnabled,
     tax_free_childcare_cap_per_quarter: nurseryInput.taxFreeChildcareCapPerQuarter,

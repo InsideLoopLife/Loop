@@ -4,6 +4,7 @@ import { calculateNhsMaternityMonthlyAmount, maternityInputFromPayEvent, pension
 import {
   calculateActivityMonthlyCost,
   calculateNurseryMonthlyCost,
+  savedBillingSchedule,
   type ActivityBillingMode,
   type BillingSchedule,
   type DaySession,
@@ -364,7 +365,7 @@ export function getChildCostMonthlyAmount(cost: ChildCostForPlan, month: string)
     fundingMode: cost.funding_mode ?? "none",
     hourlyFundingCredit: Number(cost.hourly_funding_credit ?? 0),
     termWeeksPerYear: Number(cost.term_weeks_per_year ?? 38),
-    billingSchedule: cost.billing_schedule ?? "all_year",
+    billingSchedule: savedBillingSchedule(cost as any),
     bankHolidaysAreFree: Boolean(cost.bank_holidays_are_free),
     taxFreeChildcareEnabled: Boolean(cost.tax_free_childcare_enabled),
     taxFreeChildcareCapPerQuarter: Number(cost.tax_free_childcare_cap_per_quarter ?? 500),
