@@ -435,7 +435,7 @@ export default async function AccountPage({
           </div>
         </section>
 
-        <nav aria-label="Account sections" className="-mx-4 flex gap-1 overflow-x-auto border-b border-[var(--line)] px-4 md:mx-0 md:px-0">
+        <nav aria-label="Account sections" className="-mx-4 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-[var(--line)] px-4 [scrollbar-width:none] md:mx-0 md:px-0">
           {visibleTabs.map(([key, label]) => (
             <Link
               key={key}
@@ -1130,7 +1130,7 @@ export default async function AccountPage({
           <div className="grid gap-6 lg:grid-cols-[.9fr_1.1fr]">
             <SectionCard
               title="Password reset"
-              description="Send a branded 8 digit reset code when the server admin key is configured. Without that key, this falls back to Supabase's normal recovery link so reset still works."
+              description="We'll email you a code to set a new password."
             >
               <form
                 action={sendPasswordResetEmail}
@@ -1157,8 +1157,8 @@ export default async function AccountPage({
               <MfaManager />
             </SectionCard>
             <SectionCard
-              title="Recent security/account events"
-              description="A lightweight log of account and notification changes."
+              title="Recent account changes"
+              description="The last few changes made to your account settings."
             >
               <div className="space-y-3">
                 {events.length === 0 ? (
