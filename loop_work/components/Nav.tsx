@@ -837,10 +837,11 @@ function NavInner() {
     return (
       <>
         {overlays}
-        <header className="loop-mobile-navigation sticky top-0 z-40 border-b border-[var(--line)] bg-white px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <Brand />
-            <div className="flex items-center gap-2">
+        <header className="loop-mobile-navigation sticky top-0 z-40 border-b border-[var(--line)] bg-white px-3 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="min-[420px]:hidden"><Brand compact /></span>
+            <span className="hidden min-[420px]:block"><Brand /></span>
+            <div className="flex items-center gap-1.5">
               <Link href={domain === "wealth" ? "/nutrition" : wealthHome} className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">{domain === "wealth" ? "Health" : "Wealth"}</Link>
               <CalendarQuickAccessButton />
               <NotificationBell count={unreadCount} onCountChange={setUnreadCount} />

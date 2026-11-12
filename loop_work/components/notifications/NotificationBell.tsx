@@ -111,6 +111,7 @@ export function NotificationBell({ count, onCountChange, compact = false }: { co
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        onPointerEnter={() => { if (!items) load(); }}
         aria-label={count ? `Notifications, ${count} unread` : "Notifications"}
         aria-expanded={open}
         className={`relative grid place-items-center rounded-full border text-slate-700 transition ${open ? "border-[var(--pine)] bg-[var(--pine-wash)] text-[var(--pine-strong)]" : "border-slate-200 bg-white hover:bg-slate-50"} ${compact ? "h-9 w-9" : "h-10 w-10"}`}
