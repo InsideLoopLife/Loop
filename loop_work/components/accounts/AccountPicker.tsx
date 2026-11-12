@@ -251,7 +251,7 @@ function QuickAddAccount({ people, defaultOwnerId, onCancel, onAdded }: { people
           {people.map((p) => (
             <button key={p.id} type="button" className={pill(owner === p.id)} onClick={() => setOwner(p.id)}>{p.name}</button>
           ))}
-          <button type="button" className={`${pill(owner === "joint")} inline-flex items-center gap-1.5`} onClick={() => setOwner("joint")}><JointMark className="h-4 w-4" /> Joint</button>
+          <button type="button" className={`${pill(owner === "joint")} inline-flex items-center gap-1.5`} onClick={() => setOwner("joint")}><span aria-hidden><JointMark className="h-4 w-4" /></span> Joint</button>
         </div>
       </div>
       {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-800">{error}</p> : null}
