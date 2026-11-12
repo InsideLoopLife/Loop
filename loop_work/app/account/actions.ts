@@ -425,12 +425,9 @@ export async function savePersonalIdentityProfile(formData: FormData) {
     spending_bill_logo_mode: String(formData.get("spending_bill_logo_mode") || "auto"),
     money_display_precision: String(formData.get("money_display_precision") || "exact"),
     dashboard_home_view: String(formData.get("dashboard_home_view") || "breakdown"),
-    health_height_cm: Number(formData.get("health_height_cm") || 0) || null,
-    health_weight_kg: Number(formData.get("health_weight_kg") || 0) || null,
-    health_sex: String(formData.get("health_sex") || "not_set"),
-    health_activity_level: String(formData.get("health_activity_level") || "not_set"),
-    health_goal: String(formData.get("health_goal") || "general"),
-    health_training_load: String(formData.get("health_training_load") || "").trim() || null,
+    // Health details are saved from the Health tab; names on/off follows the person marker.
+    child_profile_avatar_mode: String(formData.get("child_profile_avatar_mode") || "safe_characters"),
+    financial_flow_show_person_names: String(formData.get("spending_person_display_mode") || "both") !== "image",
     identity_verification_status: user.email_confirmed_at ? "email_verified" : "unverified",
     updated_at: new Date().toISOString(),
   }, { onConflict: "user_id" });
@@ -440,7 +437,7 @@ export async function savePersonalIdentityProfile(formData: FormData) {
     household_id: householdId,
     event_type: "identity_profile_updated",
     status: "success",
-    metadata: { changed: ["full_name", "display_name", "avatar_url", "phone_number", "financial_flow_settings", "health_baseline"] },
+    metadata: { changed: ["full_name", "display_name", "avatar_url", "phone_number", "display_settings"] },
   });
   revalidatePath("/account");
 }
@@ -1100,9 +1097,6 @@ export async function saveWealthAccountSettings(formData: FormData) {
     wealth_has_childcare_costs: formData.get("wealth_has_childcare_costs") === "on",
     wealth_has_car_finance: formData.get("wealth_has_car_finance") === "on",
     wealth_has_business_income: formData.get("wealth_has_business_income") === "on",
-    financial_flow_show_person_names: formData.get("financial_flow_show_person_names") === "on",
-    child_profile_avatar_mode: String(formData.get("child_profile_avatar_mode") || "safe_characters"),
-    spending_person_display_mode: formData.get("financial_flow_show_person_names") === "on" ? "both" : "image",
     updated_at: new Date().toISOString(),
   }, { onConflict: "user_id" });
   if (error) throw new Error(error.message);

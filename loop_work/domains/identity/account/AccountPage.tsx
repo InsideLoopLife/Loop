@@ -58,16 +58,12 @@ const inputClass =
   "mt-1 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 placeholder:text-slate-400 outline-none ring-orange-500 transition focus:border-orange-400 focus:ring-2";
 const checkboxClass = "h-4 w-4 rounded border-slate-300 text-slate-950";
 const tabs = [
-  ["info", "Personal"],
+  ["info", "You"],
+  ["household", "Household"],
+  ["wealth", "Money"],
   ["health", "Health"],
-  ["wealth", "Wealth"],
-  // BUGFIX (missing tabs): "plan" and "integrations" already had fully
-  // working content sections further down this file (activeTab === "plan"
-  // / "integrations") — they were just never in this clickable list, so
-  // there was no way to reach them except by typing the exact URL
-  // directly. Same root cause as the missing /integrations nav link fixed
-  // separately.
   ["notifications", "Notifications"],
+  ["security", "Security"],
   ["plan", "Plan"],
   ["integrations", "Integrations"],
 ] as const;
@@ -135,7 +131,7 @@ function WealthFeatureToggle({
           />
           <label
             htmlFor={inputId}
-            className="relative block h-7 w-12 cursor-pointer rounded-full bg-slate-200 outline-none ring-indigo-500 transition after:absolute after:left-1 after:top-1 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition peer-checked:bg-indigo-600 peer-checked:after:translate-x-5 peer-focus-visible:ring-2"
+            className="relative block h-7 w-12 cursor-pointer rounded-full bg-slate-200 outline-none ring-indigo-500 transition after:absolute after:left-1 after:top-1 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition peer-checked:bg-[var(--pine)] peer-checked:after:translate-x-5 peer-focus-visible:ring-2"
           >
             <span className="sr-only">Turn {label} on or off</span>
           </label>
@@ -143,7 +139,7 @@ function WealthFeatureToggle({
       </div>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
         <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-slate-500">Setup lives in {location}</span>
-        {setupHref ? <Link href={setupHref} className="text-xs font-black text-indigo-700 hover:text-indigo-900">{setupLabel} →</Link> : null}
+        {setupHref ? <Link href={setupHref} className="text-xs font-black text-[var(--pine-strong)] hover:underline">{setupLabel} →</Link> : null}
       </div>
     </div>
   );
@@ -416,70 +412,42 @@ export default async function AccountPage({
     <>
       <Nav />
       <main className="mx-auto max-w-7xl space-y-8 px-4 py-8 md:px-6">
-        <section className="relative overflow-hidden rounded-[2rem] bg-slate-950 p-7 text-white shadow-[0_30px_120px_-70px_rgba(15,23,42,.9)]">
-          <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-orange-500/30 blur-3xl" />
-          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex items-center gap-4">
-              <LiveAvatar
-                initialUrl={profile?.avatar_url}
-                name={profile?.display_name || profile?.full_name || user.email}
-                className="h-16 w-16 rounded-3xl ring-2 ring-white/20"
-                fallbackClassName="bg-white/10 text-2xl text-white"
-              />
-              <div>
-                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-white/80">
-                  <ShieldCheck className="h-4 w-4" /> Account centre
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <h1 className="text-4xl font-black tracking-tight">
-                    {profile?.full_name ||
-                      profile?.display_name ||
-                      "Your account"}
-                  </h1>
-                  <Link
-                    href="/account?tab=info#profile-identity"
-                    className="rounded-full bg-white/10 px-3 py-1 text-xs font-black text-white/80 hover:bg-white/20"
-                  >
-                    Edit name/photo
-                  </Link>
-                </div>
-                <p className="mt-1 text-sm font-medium text-white/70">
-                  {user.email} · {household?.name || "Personal household"}
-                </p>
-              </div>
+        <section className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <LiveAvatar
+              initialUrl={profile?.avatar_url}
+              name={profile?.display_name || profile?.full_name || user.email}
+              className="h-14 w-14 rounded-2xl"
+              fallbackClassName="bg-[var(--pine-wash)] text-xl text-[var(--pine-strong)]"
+            />
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-bold tracking-tight text-[var(--ink)] sm:text-3xl">
+                {profile?.full_name || profile?.display_name || "Your account"}
+              </h1>
+              <p className="mt-0.5 truncate text-sm text-[var(--muted)]">
+                {user.email} · {household?.name || "Personal household"}
+              </p>
             </div>
-            <div className="grid gap-2 rounded-3xl border border-white/15 bg-white/10 p-5 text-sm font-bold text-white/80 sm:min-w-72">
-              <div className="flex justify-between gap-3">
-                <span>Household role</span>
-                <span className="text-white">
-                  {activeMembership?.role || "owner"}
-                </span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span>Permission tier</span>
-                <span className="text-white">
-                  {activeMembership?.permission_tier || "owner"}
-                </span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span>Verification</span>
-                <span className="text-white">{verificationStatus}</span>
-              </div>
-            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs font-semibold">
+            <span className="rounded-full border border-[var(--line)] bg-white px-3 py-1.5 capitalize text-[var(--ink)]">{String(activeMembership?.permission_tier || "owner").replace(/_/g, " ")}</span>
+            <span className={`rounded-full px-3 py-1.5 ${user.email_confirmed_at ? "bg-[var(--pine-wash)] text-[var(--pine-strong)]" : "bg-amber-50 text-amber-800"}`}>{user.email_confirmed_at ? "Email verified" : "Email not verified"}</span>
           </div>
         </section>
 
-        <div className="flex flex-wrap gap-2 rounded-[1.5rem] border border-slate-200 bg-white/80 p-2 shadow-sm">
+        <nav aria-label="Account sections" className="-mx-4 flex gap-1 overflow-x-auto border-b border-[var(--line)] px-4 md:mx-0 md:px-0">
           {visibleTabs.map(([key, label]) => (
             <Link
               key={key}
               href={tabHref(key)}
-              className={`rounded-full px-4 py-2 text-sm font-black transition ${activeTab === key ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+              scroll={false}
+              aria-current={activeTab === key ? "page" : undefined}
+              className={`-mb-px shrink-0 border-b-2 px-3 py-2.5 text-sm font-semibold transition ${activeTab === key ? "border-[var(--pine)] text-[var(--ink)]" : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"}`}
             >
               {label}
             </Link>
           ))}
-        </div>
+        </nav>
 
         {activeTab === "info" ? (
           <div className="grid gap-6 lg:grid-cols-[1fr_.9fr]">
@@ -582,117 +550,12 @@ export default async function AccountPage({
                         <option value="initials">Initials only</option>
                       </select>
                     </label>
-                    <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-4 md:col-span-2">
-                      <p className="text-sm font-black text-emerald-950">
-                        Health baseline
-                      </p>
-                      <p className="mt-1 text-xs font-bold text-emerald-800">
-                        Used later to make energy, protein, hydration and
-                        micronutrient targets more personal. Keep it optional
-                        for beta.
-                      </p>
-                      <div className="mt-4 grid gap-4 md:grid-cols-3">
-                        <label>
-                          <span className="text-sm font-black text-slate-700">
-                            Height (cm)
-                          </span>
-                          <input
-                            name="health_height_cm"
-                            type="number"
-                            step="0.1"
-                            defaultValue={profile?.health_height_cm || ""}
-                            className={inputClass}
-                            placeholder="185"
-                          />
-                        </label>
-                        <label>
-                          <span className="text-sm font-black text-slate-700">
-                            Weight (kg)
-                          </span>
-                          <input
-                            name="health_weight_kg"
-                            type="number"
-                            step="0.1"
-                            defaultValue={profile?.health_weight_kg || ""}
-                            className={inputClass}
-                            placeholder="82"
-                          />
-                        </label>
-                        <label>
-                          <span className="text-sm font-black text-slate-700">
-                            Sex for targets
-                          </span>
-                          <select
-                            name="health_sex"
-                            defaultValue={profile?.health_sex || "not_set"}
-                            className={inputClass}
-                          >
-                            <option value="not_set">
-                              Prefer not to say / later
-                            </option>
-                            <option value="male">Male</option>
-                            <option value="female">Female</option>
-                            <option value="other">Other</option>
-                          </select>
-                        </label>
-                        <label>
-                          <span className="text-sm font-black text-slate-700">
-                            Activity level
-                          </span>
-                          <select
-                            name="health_activity_level"
-                            defaultValue={
-                              profile?.health_activity_level || "not_set"
-                            }
-                            className={inputClass}
-                          >
-                            <option value="not_set">Not set</option>
-                            <option value="low">Low</option>
-                            <option value="moderate">Moderate</option>
-                            <option value="high">High</option>
-                            <option value="athlete">
-                              Athlete/high training
-                            </option>
-                          </select>
-                        </label>
-                        <label>
-                          <span className="text-sm font-black text-slate-700">
-                            Goal
-                          </span>
-                          <select
-                            name="health_goal"
-                            defaultValue={profile?.health_goal || "general"}
-                            className={inputClass}
-                          >
-                            <option value="general">General health</option>
-                            <option value="fat_loss">Fat loss</option>
-                            <option value="muscle_gain">Muscle gain</option>
-                            <option value="maintenance">Maintenance</option>
-                            <option value="pregnancy_breastfeeding_context">
-                              Pregnancy/breastfeeding context
-                            </option>
-                          </select>
-                        </label>
-                        <label>
-                          <span className="text-sm font-black text-slate-700">
-                            Training load
-                          </span>
-                          <input
-                            name="health_training_load"
-                            defaultValue={profile?.health_training_load || ""}
-                            className={inputClass}
-                            placeholder="e.g. 3 gym sessions/week"
-                          />
-                        </label>
-                      </div>
-                    </div>
                     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
                       <p className="text-sm font-black text-slate-950">
-                        Financial Flow display
+                        How things look
                       </p>
                       <p className="mt-1 text-xs font-bold text-slate-500">
-                        Controls how the Spending / Financial Flow timeline
-                        shows people, dates and recurring bill images.
+                        How Money in &amp; out and the Summary show people, dates, bill logos and amounts.
                       </p>
                       <div className="mt-4 grid gap-4 md:grid-cols-3">
                         <label>
@@ -709,6 +572,20 @@ export default async function AccountPage({
                             <option value="both">Image + name</option>
                             <option value="image">Image only</option>
                             <option value="name">Name only</option>
+                          </select>
+                        </label>
+                        <label>
+                          <span className="text-sm font-black text-slate-700">
+                            Children shown as
+                          </span>
+                          <select
+                            name="child_profile_avatar_mode"
+                            defaultValue={profile?.child_profile_avatar_mode || "safe_characters"}
+                            className={inputClass}
+                          >
+                            <option value="safe_characters">Characters / icons</option>
+                            <option value="uploaded_images">Their photo, if added</option>
+                            <option value="anonymous_tokens">Initials only</option>
                           </select>
                         </label>
                         <label>
@@ -790,7 +667,66 @@ export default async function AccountPage({
                 </form>
               </SectionCard>
             </div>
+            <div className="space-y-6">
+              <div id="navigation-layout" className="scroll-mt-28">
+              <SectionCard
+              title="Navigation layout"
+              description="Choose Top or Side on desktop, and Cards or Navigation bar on mobile. LOOP saves the two preferences independently so each screen gets the layout designed for it."
+            >
+              <NavigationLayoutSettings
+                initialLayout={profile?.ui_navigation_layout === "top" ? "top" : "side"}
+                initialChosen={Boolean(profile?.ui_navigation_layout_chosen_at)}
+              />
+            </SectionCard>
+              </div>
+              <SectionCard title="Privacy mode" description="Hide real numbers when you're using Loop somewhere someone else could see your screen — a train, an office, over someone's shoulder.">
+                <form action={savePrivacyModeSettings} className="space-y-4">
+                  <div className="space-y-2">
+                    {[
+                      { value: "off", label: "Off", description: "Show real numbers everywhere, as normal." },
+                      { value: "blur", label: "Blur amounts", description: "Pound amounts are blurred out. Percentages and progress against goals (e.g. \"73% of income\") stay fully visible, since those don't reveal an absolute figure." },
+                      { value: "fake_currency", label: "Made-up currency", description: "Real amounts are shown as a made-up currency instead. Bigger and smaller numbers still look bigger and smaller relative to each other, so it still means something to you — just not to anyone glancing at your screen." },
+                    ].map((option) => (
+                      <label key={option.value} className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 p-3 hover:bg-slate-50">
+                        <input
+                          type="radio"
+                          name="privacy_mode"
+                          value={option.value}
+                          defaultChecked={(profile?.privacy_mode || "off") === option.value}
+                          className="mt-1"
+                        />
+                        <span>
+                          <span className="block font-black text-slate-950">{option.label}</span>
+                          <span className="block text-sm font-medium text-slate-500">{option.description}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <label className="block">
+                    <span className="text-sm font-bold text-slate-700">Made-up currency name</span>
+                    <input
+                      name="privacy_fake_currency_name"
+                      defaultValue={profile?.privacy_fake_currency_name || "Credits"}
+                      maxLength={24}
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-orange-500 focus:ring-2"
+                      placeholder="Credits"
+                    />
+                  </label>
+                  <SubmitButton>Save privacy mode</SubmitButton>
+                </form>
+              </SectionCard>
+            </div>
+          </div>
+        ) : null}
 
+
+
+        {activeTab === "household" ? (
+          <div className="space-y-6" id="households">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-white px-5 py-4">
+              <p className="text-sm text-[var(--muted)]">Add people, children and invites from the Household page.</p>
+              <Link href="/household" className="rounded-xl bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white">Open Household</Link>
+            </div>
             {canManagePermissions ? (
               <SectionCard
                 title="Household identity"
@@ -869,26 +805,7 @@ export default async function AccountPage({
                 </p>
               </SectionCard>
             )}
-          </div>
-        ) : null}
 
-
-        {activeTab === "info" ? (
-          <div id="navigation-layout" className="scroll-mt-28">
-            <SectionCard
-              title="Navigation layout"
-              description="Choose Top or Side on desktop, and Cards or Navigation bar on mobile. LOOP saves the two preferences independently so each screen gets the layout designed for it."
-            >
-              <NavigationLayoutSettings
-                initialLayout={profile?.ui_navigation_layout === "top" ? "top" : "side"}
-                initialChosen={Boolean(profile?.ui_navigation_layout_chosen_at)}
-              />
-            </SectionCard>
-          </div>
-        ) : null}
-
-        {activeTab === "info" ? (
-          <div className="space-y-6" id="households">
             <SectionCard
               title="Households"
               description="A household lets selected people plan together while keeping private records under their own control. You can be in more than one household, but each shared dashboard has one active context."
@@ -991,7 +908,7 @@ export default async function AccountPage({
                               </div>
                             ) : null}
                           </div>
-                          <button className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white">{isSelfMember ? "Save sharing" : "Save access"}</button>
+                          <SubmitButton>{isSelfMember ? "Save sharing" : "Save access"}</SubmitButton>
                         </div>
                       </form>
                     );
@@ -1024,8 +941,8 @@ export default async function AccountPage({
         {activeTab === "wealth" ? (
           <div className="grid gap-6 lg:grid-cols-[1fr_.9fr]">
             <SectionCard
-              title="Wealth settings"
-              description="Switch on the wealth modules that genuinely apply to you. Loop then shows the relevant trackers, calculations and prompts without cluttering the app for everyone else."
+              title="What applies to you"
+              description="Switch on what you have. LOOP then includes it in your numbers and shows the right setup prompts. Remember to save."
             >
               <form action={saveWealthAccountSettings} className="space-y-5">
                 <div className="grid gap-3 md:grid-cols-2">
@@ -1052,7 +969,7 @@ export default async function AccountPage({
                     label="Pensions"
                     description="Adds pension pots, contribution threads and retirement projection logic to Pensions & Investments."
                     checked={Boolean(profile?.wealth_has_pension)}
-                    setupHref="/investments?tab=pensions"
+                    setupHref="/investments"
                     setupLabel="Add pension details"
                     location="Pensions & Investments"
                   />
@@ -1070,7 +987,7 @@ export default async function AccountPage({
                     label="Savings and pots"
                     description="Adds tracked savers, goals, pots, interest and rate checks to Financial Flow."
                     checked={Boolean(profile?.wealth_has_savings)}
-                    setupHref="/financial-flow?view=savings"
+                    setupHref="/financial-flow?tab=savings"
                     setupLabel="Open savings flow"
                     location="Financial Flow"
                   />
@@ -1079,7 +996,7 @@ export default async function AccountPage({
                     label="Credit cards / loans"
                     description="Includes debt repayments, affordability pressure and payoff tracking without creating a separate navigation tab."
                     checked={Boolean(profile?.wealth_has_credit_cards_or_loans)}
-                    setupHref="/financial-flow?view=spending"
+                    setupHref="/spending"
                     setupLabel="Add repayment lines"
                     location="Financial Flow"
                   />
@@ -1111,23 +1028,6 @@ export default async function AccountPage({
                     location="Income"
                   />
                 </div>
-                <div className="rounded-3xl border border-slate-200 bg-white p-5">
-                  <label className="flex items-start justify-between gap-4">
-                    <span>
-                      <span className="block text-sm font-black text-slate-950">Show names in finance pages</span>
-                      <span className="mt-1 block text-xs font-bold leading-5 text-slate-500">Off by default. Financial Flow uses photos or safe child characters instead of names.</span>
-                    </span>
-                    <input name="financial_flow_show_person_names" type="checkbox" defaultChecked={Boolean(profile?.financial_flow_show_person_names)} className={checkboxClass} />
-                  </label>
-                  <label className="mt-5 block">
-                    <span className="text-sm font-black text-slate-700">Child profile display</span>
-                    <select name="child_profile_avatar_mode" defaultValue={profile?.child_profile_avatar_mode || "safe_characters"} className={inputClass}>
-                      <option value="safe_characters">Safe characters / icons</option>
-                      <option value="uploaded_images">Uploaded images where supplied</option>
-                      <option value="anonymous_tokens">Anonymous tokens only</option>
-                    </select>
-                  </label>
-                </div>
                 <div className={`rounded-3xl border p-5 ${householdLivingProfile?.id ? "border-emerald-200 bg-emerald-50/80" : "border-orange-200 bg-orange-50/70"}`}>
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                     <div>
@@ -1147,7 +1047,7 @@ export default async function AccountPage({
                     <label><span className="text-sm font-black text-slate-700">EPC rating</span><input name="home_epc_rating" defaultValue={householdLivingProfile?.epc_rating || ""} className={inputClass} placeholder="C" /></label>
                   </div>
                 </div>
-                <SubmitButton>Save wealth settings</SubmitButton>
+                <SubmitButton>Save money settings</SubmitButton>
               </form>
 
               {profile?.financial_flow_student_loan_enabled ? (
@@ -1211,50 +1111,6 @@ export default async function AccountPage({
               ) : null}
             </SectionCard>
             <div className="space-y-6">
-              <SectionCard title="Privacy mode" description="Hide real numbers when you're using Loop somewhere someone else could see your screen — a train, an office, over someone's shoulder.">
-                <form action={savePrivacyModeSettings} className="space-y-4">
-                  <div className="space-y-2">
-                    {[
-                      { value: "off", label: "Off", description: "Show real numbers everywhere, as normal." },
-                      { value: "blur", label: "Blur amounts", description: "Pound amounts are blurred out. Percentages and progress against goals (e.g. \"73% of income\") stay fully visible, since those don't reveal an absolute figure." },
-                      { value: "fake_currency", label: "Made-up currency", description: "Real amounts are shown as a made-up currency instead. Bigger and smaller numbers still look bigger and smaller relative to each other, so it still means something to you — just not to anyone glancing at your screen." },
-                    ].map((option) => (
-                      <label key={option.value} className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 p-3 hover:bg-slate-50">
-                        <input
-                          type="radio"
-                          name="privacy_mode"
-                          value={option.value}
-                          defaultChecked={(profile?.privacy_mode || "off") === option.value}
-                          className="mt-1"
-                        />
-                        <span>
-                          <span className="block font-black text-slate-950">{option.label}</span>
-                          <span className="block text-sm font-medium text-slate-500">{option.description}</span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                  <label className="block">
-                    <span className="text-sm font-bold text-slate-700">Made-up currency name</span>
-                    <input
-                      name="privacy_fake_currency_name"
-                      defaultValue={profile?.privacy_fake_currency_name || "Credits"}
-                      maxLength={24}
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-orange-500 focus:ring-2"
-                      placeholder="Credits"
-                    />
-                  </label>
-                  <button className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white">Save privacy mode</button>
-                </form>
-              </SectionCard>
-              <SectionCard title="What this changes" description="These toggles control whether specialist UI, calculations and background checks appear anywhere else in Loop.">
-                <div className="space-y-4 text-sm font-bold text-slate-600">
-                  <p><strong className="text-slate-950">Toggles, not navigation tabs.</strong> Switching something on enables its calculations and setup prompts. Student loans, cars, childcare and debt remain inside Account, Financial Flow or LoopWatch rather than creating extra top-level pages.</p>
-                  <p><strong className="text-slate-950">Cleaner household sharing.</strong> Admins can manage access, but only the person who owns a record decides whether to share or hide it.</p>
-                  <p><strong className="text-slate-950">Core navigation stays simple.</strong> Savings and pots live in Financial Flow. Pension and investment data share one Pensions & Investments workspace.</p>
-                  <p><strong className="text-slate-950">More data means better guidance.</strong> The more relevant modules you enable and fill in, the better LOOP can model affordability, savings capacity, pension pressure and wealth growth.</p>
-                </div>
-              </SectionCard>
               <SectionCard title="Bank and provider relationships" description="Tell Loop where you already bank so savings-rate, ISA and eligibility logic can make better recommendations. Tracked savings accounts add providers automatically; this is the manual admin area.">
                 <SavingsProviderRelationships
                   institutions={FINANCIAL_INSTITUTIONS}
@@ -1291,9 +1147,7 @@ export default async function AccountPage({
                     </p>
                   </div>
                 </div>
-                <button className="mt-4 rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white">
-                  Send password reset code
-                </button>
+                <div className="mt-4"><SubmitButton pendingLabel="Sending…" savedLabel="Sent – check your email">Send password reset code</SubmitButton></div>
               </form>
             </SectionCard>
             <SectionCard
@@ -1301,35 +1155,6 @@ export default async function AccountPage({
               description="Use a TOTP authenticator app for this user account."
             >
               <MfaManager />
-            </SectionCard>
-            <SectionCard
-              title="Local email test"
-              description="Uses SMTP/Gmail settings when EMAIL_PROVIDER=smtp. This is for testing digests/invites while running on localhost."
-            >
-              <form
-                action={sendAccountTestEmail}
-                className="rounded-3xl border border-slate-200/80 bg-white/80 p-5"
-              >
-                <label>
-                  <span className="text-sm font-black text-slate-700">
-                    Send test to
-                  </span>
-                  <input
-                    name="to"
-                    type="email"
-                    defaultValue={user.email || ""}
-                    className={inputClass}
-                  />
-                </label>
-                <button className="mt-4 rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white">
-                  Send test email
-                </button>
-                <p className="mt-3 text-xs font-bold text-slate-500">
-                  This tests your local SMTP/Resend sender. Password resets use
-                  the custom 8 digit code flow when a Supabase admin key is set,
-                  otherwise they use the native Supabase recovery email.
-                </p>
-              </form>
             </SectionCard>
             <SectionCard
               title="Recent security/account events"
@@ -1371,49 +1196,19 @@ export default async function AccountPage({
 
         {activeTab === "notifications" ? (
           <SectionCard
-            title="Email and notification settings"
-            description="Choose how often the app should nudge you with useful financial, renewal and health insights."
+            title="What LOOP tells you about"
+            description="Turn off anything you don't want. Decisions (like household invites) always show."
           >
             <form
               action={saveNotificationPreferences}
               className="grid gap-5 lg:grid-cols-3"
             >
               {[
-                [
-                  "finance_digest_enabled",
-                  "Finance insights",
-                  "Spending patterns, savings forecasts and affordability nudges.",
-                ],
-                [
-                  "health_digest_enabled",
-                  "Food & health insights",
-                  "Meal planning, shopping lists and macro/micro reminders.",
-                ],
-                [
-                  "renewal_reminders_enabled",
-                  "Bill renewal reminders",
-                  "Broadband, insurance, mobile and subscription deal checks.",
-                ],
-                [
-                  "weekly_email_enabled",
-                  "Weekly email",
-                  "A short progress email.",
-                ],
-                [
-                  "monthly_email_enabled",
-                  "Monthly email",
-                  "A deeper household forecast.",
-                ],
-                [
-                  "in_app_enabled",
-                  "In-app notifications",
-                  "Show insights in the Notifications page.",
-                ],
-                [
-                  "push_notifications_enabled",
-                  "Push notifications later",
-                  "Placeholder for PWA/native-app push after deployment.",
-                ],
+                ["in_app_enabled", "Alerts in LOOP", "Bill rises, deals ending and weekly updates in the bell and notification centre."],
+                ["weekly_email_enabled", "Weekly email", "A short summary every Monday morning."],
+                ["finance_digest_enabled", "Money updates", "Your weekly investment update, and the money sections of the weekly email."],
+                ["renewal_reminders_enabled", "Deal reminders", "When your mortgage deal or a savings rate is about to end."],
+                ["health_digest_enabled", "Food updates", "Your weekly food summary."],
               ].map(([name, title, description]) => (
                 <label
                   key={name}
@@ -1437,63 +1232,7 @@ export default async function AccountPage({
                   </span>
                 </label>
               ))}
-              <div className="grid gap-4 rounded-3xl border border-slate-200/80 bg-slate-50/80 p-4 lg:col-span-3 md:grid-cols-4">
-                <label>
-                  <span className="text-sm font-black text-slate-700">
-                    Preferred day
-                  </span>
-                  <select
-                    name="preferred_send_day"
-                    defaultValue={preferences?.preferred_send_day || "Monday"}
-                    className={inputClass}
-                  >
-                    {[
-                      "Monday",
-                      "Tuesday",
-                      "Wednesday",
-                      "Thursday",
-                      "Friday",
-                      "Saturday",
-                      "Sunday",
-                    ].map((day) => (
-                      <option key={day}>{day}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span className="text-sm font-black text-slate-700">
-                    Preferred time
-                  </span>
-                  <input
-                    name="preferred_send_time"
-                    type="time"
-                    defaultValue={preferences?.preferred_send_time || "08:00"}
-                    className={inputClass}
-                  />
-                </label>
-                <label>
-                  <span className="text-sm font-black text-slate-700">
-                    Quiet from
-                  </span>
-                  <input
-                    name="quiet_hours_start"
-                    type="time"
-                    defaultValue={preferences?.quiet_hours_start || "21:00"}
-                    className={inputClass}
-                  />
-                </label>
-                <label>
-                  <span className="text-sm font-black text-slate-700">
-                    Quiet until
-                  </span>
-                  <input
-                    name="quiet_hours_end"
-                    type="time"
-                    defaultValue={preferences?.quiet_hours_end || "07:00"}
-                    className={inputClass}
-                  />
-                </label>
-              </div>
+
               <div className="lg:col-span-3">
                 <SubmitButton>Save notification preferences</SubmitButton>
               </div>
