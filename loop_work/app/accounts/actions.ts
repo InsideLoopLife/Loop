@@ -346,6 +346,7 @@ async function addFinancialAccount__save(formData: FormData) {
   revalidatePath("/accounts");
   revalidatePath("/spending");
   revalidatePath("/financial-flow");
+  return { id: data?.id as string };
 }
 
 async function updateFinancialAccount__save(formData: FormData) {
@@ -1019,7 +1020,9 @@ async function saveSavingsDealEligibility__save(formData: FormData) {
 }
 
 // Every save hands a clear message back if it fails (see lib/actions/friendly).
-export async function addFinancialAccount(...args: Parameters<typeof addFinancialAccount__save>): ReturnType<typeof addFinancialAccount__save> { return runFriendly(() => addFinancialAccount__save(...args)); }
+// Plain forms use addFinancialAccount; the account picker needs the new id back.
+export async function addFinancialAccount(formData: FormData): Promise<void> { return runFriendly(() => addFinancialAccount__save(formData)) as unknown as Promise<void>; }
+export async function quickAddFinancialAccount(formData: FormData) { return runFriendly(() => addFinancialAccount__save(formData)); }
 export async function updateFinancialAccount(...args: Parameters<typeof updateFinancialAccount__save>): ReturnType<typeof updateFinancialAccount__save> { return runFriendly(() => updateFinancialAccount__save(...args)); }
 export async function assignSavingsAccountOwner(...args: Parameters<typeof assignSavingsAccountOwner__save>): ReturnType<typeof assignSavingsAccountOwner__save> { return runFriendly(() => assignSavingsAccountOwner__save(...args)); }
 export async function deleteFinancialAccount(...args: Parameters<typeof deleteFinancialAccount__save>): ReturnType<typeof deleteFinancialAccount__save> { return runFriendly(() => deleteFinancialAccount__save(...args)); }
