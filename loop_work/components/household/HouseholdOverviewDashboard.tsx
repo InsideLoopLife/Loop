@@ -286,8 +286,8 @@ export function HouseholdOverviewDashboard({ household, people, pets = [], vehic
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Income" value={formatMoney(model.monthlyIncome)} helper={`${model.monthKey} visible household inflow`} icon={Coins} />
-        <StatTile label="Outgoings" value={formatMoney(model.monthlyOutgoings)} helper={`${model.costToIncomeRatio}% of visible income`} icon={WalletCards} />
+        <StatTile label="Money in" value={formatMoney(model.monthlyIncome)} helper={`${new Date(`${model.monthKey}-01T12:00:00`).toLocaleDateString("en-GB", { month: "long" })}, after tax`} icon={Coins} />
+        <StatTile label="Bills and spending" value={formatMoney(model.monthlyOutgoings)} helper={`${model.costToIncomeRatio}% of money in`} icon={WalletCards} />
         <StatTile label="Average cost/head" value={formatMoney(model.averageCostPerHead)} helper={`${model.peopleCount || 1} household profile(s)`} icon={UsersRound} />
         <article className="rounded-[1.7rem] border border-white/80 bg-white/90 p-5 shadow-[0_24px_80px_-55px_rgba(15,23,42,.8)]"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Carbon footprint</p><p className="mt-2 text-3xl font-black tracking-tight text-slate-950">{formatKg(model.annualCarbonKg)}</p><p className="mt-1 text-sm font-semibold text-slate-500">{model.carbonConfidence} confidence · {carbonProfile?.annual_offset_kg ? `${formatKg(Number(carbonProfile.annual_offset_kg))} offset recorded` : "no offset recorded"}</p></div><button type="button" onClick={() => setModal("carbon")} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-emerald-600 text-white" title="Improve carbon data"><ArrowRight className="h-5 w-5" /></button></div></article>
       </section>

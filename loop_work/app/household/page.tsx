@@ -245,7 +245,7 @@ export default async function HouseholdPage({ searchParams }: { searchParams?: P
       .order("name"),
     dataClient.from("app_household_members").select("*").eq("household_id", householdId).eq("status", "active").order("created_at", { ascending: true }),
     dataClient.from("person_guardians").select("child_person_id, guardian_person_id").in("user_id", householdContext.memberUserIds),
-    dataClient.from("household_join_invites").select("id, invited_email, role, permission_tier, short_code, status, expires_at").eq("household_id", householdId).order("created_at", { ascending: false }).limit(10),
+    dataClient.from("household_join_invites").select("id, invited_email, role, permission_tier, short_code, status, expires_at").eq("household_id", householdId).eq("status", "pending").gt("expires_at", new Date().toISOString()).order("created_at", { ascending: false }).limit(10),
     dataClient.from("pay_events").select("id, person_id, label, pay_kind, monthly_take_home_override, gross_annual_salary, effective_from, effective_until").or(memberFilter),
     dataClient.from("income_entries").select("id, person_id, label, gross_amount, net_amount, frequency, entry_date").or(memberFilter),
     dataClient.from("planned_items").select("id, person_id, category_id, direction, label, amount, recurrence, start_date, end_date, item_type, notes").or(visibleFilter),
@@ -444,13 +444,13 @@ export default async function HouseholdPage({ searchParams }: { searchParams?: P
                 const link = `${baseUrl}/household/join?token=${invite.short_code}`;
                 return (
                   <div key={invite.id} className="rounded-3xl border border-slate-200 bg-white p-4">
-                    <div className="flex items-center gap-4">
+                    <div className="flex min-w-0 items-center gap-4">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={`/api/qr?data=${encodeURIComponent(link)}`} alt="Household invite QR" className="h-24 w-24 rounded-2xl border border-slate-200 bg-white p-2" />
                       <div className="min-w-0">
-                        <p className="font-black text-slate-950">{invite.invited_email || "QR code for anyone"}</p>
+                        <p className="break-all font-black text-slate-950">{invite.invited_email || "QR code for anyone"}</p>
                         <p className="text-xs font-bold text-slate-500">{({ admin: "Partner", parent: "Parent", member: "Family member", viewer: "View only" } as Record<string, string>)[invite.permission_tier || "member"] || "Family member"} · {invite.status === "pending" ? `waiting${invite.expires_at ? ` until ${new Date(invite.expires_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}` : invite.status}</p>
-                        <p className="mt-2 break-all text-xs font-bold text-slate-500">{link}</p>
+                        <p className="mt-2 break-all text-xs text-slate-500">{link}</p>
                       </div>
                     </div>
                   </div>
