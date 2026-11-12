@@ -20,6 +20,8 @@ export type NotificationInput = {
   metadata?: Record<string, unknown>;
   /** When it stops being relevant; hidden after this. */
   expires_at?: string | null;
+  /** Progress updates (an import finishing): show it again even if it was read. */
+  reopen?: boolean;
 };
 
 export async function notify(supabase: any, input: NotificationInput): Promise<"created" | "updated" | "skipped"> {
@@ -44,8 +46,8 @@ export async function notify(supabase: any, input: NotificationInput): Promise<"
     expires_at: input.expires_at ?? null,
   };
   if (existing) {
-    if (existing.status !== "unread") return "skipped";
-    const { error } = await supabase.from("app_notifications").update(row).eq("id", existing.id);
+    if (existing.status !== "unread" && !input.reopen) return "skipped";
+    const { error } = await supabase.from("app_notifications").update(input.reopen ? { ...row, status: "unread", read_at: null } : row).eq("id", existing.id);
     return error ? "skipped" : "updated";
   }
   const { error } = await supabase.from("app_notifications").insert({

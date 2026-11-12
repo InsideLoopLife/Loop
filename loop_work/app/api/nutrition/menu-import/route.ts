@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { notify } from "@/lib/notifications/notify";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
@@ -45,22 +46,24 @@ function uniqueItems(items: any[]) {
   return output;
 }
 
-async function notifyImportStatus(supabase: any, userId: string, title: string, body: string, status: "unread" | "read" = "unread", severity: "info" | "success" | "warning" = "info") {
+// One notification per import, updated as it goes (queued, then ready or failed).
+async function notifyImportStatus(supabase: any, userId: string, importId: string, title: string, body: string, severity: "info" | "success" | "warning" = "info") {
   try {
-    await supabase.from("app_notifications").insert({
+    await notify(supabase, {
       user_id: userId,
       notification_type: "nutrition_menu_import",
+      key: importId,
       category: "lifestyle",
-      channel: "in_app",
       severity,
       title,
       body,
       cta_label: "Open nutrition",
       cta_href: "/nutrition",
-      status,
+      reopen: severity !== "info",
+      expires_at: new Date(Date.now() + 14 * 86400000).toISOString(),
     });
   } catch {
-    // Do not block menu import if notification insert is unavailable.
+    // A notification failing must never stop the import.
   }
 }
 
@@ -249,15 +252,18 @@ export async function POST(request: Request) {
   const exhaustive = Boolean(body.exhaustive || importKind === "menu");
   if (!url) return NextResponse.json({ error: "Paste a valid public HTTPS menu URL." }, { status: 400 });
 
-  await notifyImportStatus(supabase, user.id, "Menu import acknowledged", `${sourceName} has been queued and is now reading the public page. This usually takes 10–40 seconds, longer for JavaScript menus.`);
+  const importId = crypto.randomUUID();
+  await notifyImportStatus(supabase, user.id, importId, "Menu import acknowledged", `${sourceName} has been queued and is now reading the public page. This usually takes 10–40 seconds, longer for JavaScript menus.`);
 
   const secret = await getActiveIntegrationSecret(supabase, user.id, "openai");
   if (!secret?.value) {
+    await notifyImportStatus(supabase, user.id, importId, "Menu import needs setting up", "Menu import needs a saved OpenAI token before it can read menus.", "warning");
     return NextResponse.json({ items: [], usedOpenAi: false, note: "Menu import needs the saved OpenAI token so it can read and structure public menu data." });
   }
 
   const budget = await checkAiRouteAllowed(supabase, user.id, "nutrition_recommendation");
   if (!budget.allowed) {
+    await notifyImportStatus(supabase, user.id, importId, "Menu import paused for today", `${budget.reason} Resets at midnight.`, "warning");
     return NextResponse.json({ items: [], usedOpenAi: false, note: `${budget.reason} Resets at midnight.` });
   }
 
@@ -266,15 +272,15 @@ export async function POST(request: Request) {
     await notifyImportStatus(
       supabase,
       user.id,
+      importId,
       "Dynamic menu detected",
       evidence.headlessAttempted
         ? "LoopHealth detected a JavaScript-rendered menu and tried browser rendering, but this deployment could not render it. It will continue with AI/web extraction."
         : "LoopHealth detected a JavaScript-rendered menu. It will continue with AI/web extraction; enable headless imports for fuller TenKites/viewthe.menu style pages.",
-      "unread",
       "info",
     );
   } else if (evidence.headlessSucceeded) {
-    await notifyImportStatus(supabase, user.id, "Dynamic menu rendered", "LoopHealth used browser rendering and captured the loaded menu/page evidence before AI structuring.", "unread", "info");
+    await notifyImportStatus(supabase, user.id, importId, "Dynamic menu rendered", "LoopHealth used browser rendering and captured the loaded menu/page evidence before AI structuring.", "info");
   }
 
   try {
@@ -306,7 +312,7 @@ export async function POST(request: Request) {
     }
 
     const items = uniqueItems(rawItems).slice(0, 150).map((item: any) => normaliseItem(item, url, firstParsed.source_name || sourceName, evidence.images, importKind));
-    await notifyImportStatus(supabase, user.id, "Menu import ready", `${items.length} item(s) from ${firstParsed.source_name || sourceName} are ready to review and save.`, "unread", "success");
+    await notifyImportStatus(supabase, user.id, importId, "Menu import ready", `${items.length} item(s) from ${firstParsed.source_name || sourceName} are ready to review and save.`, "success");
     await recordAiRouteUsage({ supabase, userId: user.id, tierKey: budget.tierKey, routeKey: "nutrition_recommendation", provider: "openai", model: process.env.OPENAI_RESEARCH_MODEL || "gpt-4.1-mini" });
     return NextResponse.json({
       items,
@@ -327,7 +333,7 @@ export async function POST(request: Request) {
       note: firstParsed.note || (importKind === "menu" ? "Menu items imported as nutrition estimates. Review allergens and portion sizes before relying on them." : "Ingredient/product imported as a nutrition estimate. Review serving size and label details before relying on it."),
     });
   } catch (error) {
-    await notifyImportStatus(supabase, user.id, "Menu import could not complete", error instanceof Error ? error.message : "Menu import failed", "unread", "warning");
+    await notifyImportStatus(supabase, user.id, importId, "Menu import could not complete", error instanceof Error ? error.message : "Menu import failed", "warning");
     return NextResponse.json({ items: [], usedOpenAi: false, error: error instanceof Error ? error.message : "Menu import failed" }, { status: 500 });
   }
 }
