@@ -17,6 +17,8 @@ export async function GET(req: NextRequest) {
   try {
     const decoded = JSON.parse(Buffer.from(state, 'base64url').toString('utf-8'));
     userId = decoded.userId;
+    const expected = req.cookies.get('loop_gcal_state')?.value;
+    if (!expected || typeof decoded.nonce !== 'string' || decoded.nonce !== expected) throw new Error('state mismatch');
   } catch {
     return NextResponse.redirect(new URL('/lifestyle?calendar_error=bad_state', appUrl));
   }
@@ -52,7 +54,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(new URL('/lifestyle?calendar_error=storage_failed', appUrl));
     }
 
-    return NextResponse.redirect(new URL('/lifestyle?calendar_connected=1', appUrl));
+    const done = NextResponse.redirect(new URL('/lifestyle?calendar_connected=1', appUrl));
+    done.cookies.delete({ name: 'loop_gcal_state', path: '/api/calendar/google' });
+    return done;
   } catch (err) {
     console.error('[google-callback] OAuth exchange failed:', err);
     return NextResponse.redirect(new URL('/lifestyle?calendar_error=oauth_failed', appUrl));

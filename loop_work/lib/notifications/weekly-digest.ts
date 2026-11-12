@@ -2,7 +2,8 @@
 // coming up, and anything that needs you. Built from the same month plans as
 // the dashboard and the same alerts as the notification centre, so the email
 // never says something the app doesn't.
-import { buildMonthPlan, type MonthPlan } from "@/lib/planning/month-plan";
+import { type MonthPlan } from "@/lib/planning/summary-plan";
+import { loadMonthPlans, monthsFrom } from "@/lib/planning/load-month-plans";
 import { monthDrivers, outlook } from "@/lib/planning/plain-money";
 import { visibleDataOrFilter } from "@/domains/identity/household/household-context";
 import { weekKey } from "./notify";
@@ -12,46 +13,13 @@ const pounds = (n: number) => `£${Math.round(Math.abs(n)).toLocaleString("en-GB
 const longMonth = (month: string) => new Date(`${month}-01T12:00:00`).toLocaleDateString("en-GB", { month: "long" });
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-function months(start: string, count: number) {
-  const [y, m] = start.split("-").map(Number);
-  return Array.from({ length: count }, (_, i) => {
-    const d = new Date(y, m - 1 + i, 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-  });
-}
-
 /** The person's month plans from last month to five months ahead. */
 async function loadPlans(supabase: any, userId: string, householdId: string | null, today: Date): Promise<MonthPlan[]> {
   const filter = visibleDataOrFilter({ userId, dataOwnerUserId: userId, householdId } as any);
-  const [profile, categories, childCosts, people, payEvents, overrides, deals, items, incomeEntries] = await Promise.all([
-    supabase.from("financial_profiles").select("name, annual_salary, monthly_take_home, monthly_dividends, pension_percent, student_loan_plan, monthly_mortgage, monthly_savings_target").eq("user_id", userId).maybeSingle(),
-    supabase.from("spending_categories").select("id, name, type, monthly_budget").or(filter),
-    supabase.from("child_costs").select("*").or(filter),
-    supabase.from("people").select("id, name, relationship").or(filter).or("account_status.is.null,account_status.neq.duplicate_merged"),
-    supabase.from("pay_events").select("*").or(filter),
-    supabase.from("pay_event_monthly_overrides").select("id, pay_event_id, person_id, month, statutory_pay, occupational_pay, gross_pay, net_pay_override").eq("user_id", userId),
-    supabase.from("home_mortgage_deals").select("id, lender, product_name, balance, balance_as_of_date, interest_rate, term_years, monthly_payment_override, payment_day_of_month, initial_period_end, start_date, end_date, first_payment_date").or(filter),
-    supabase.from("planned_items").select("id, person_id, category_id, direction, item_type, label, amount, recurrence, recurrence_interval_days, start_date, end_date, day_of_month, payment_timing, payment_adjustment, end_behavior, renewal_notice_days, early_upgrade_date, expected_refund_amount").or(filter),
-    supabase.from("income_entries").select("id, person_id, label, gross_amount, net_amount, frequency, entry_date").or(filter),
-  ]);
-  const byEvent = new Map<string, any[]>();
-  for (const o of (overrides.data ?? []) as any[]) if (o.pay_event_id) byEvent.set(o.pay_event_id, [...(byEvent.get(o.pay_event_id) || []), o]);
-  const peopleById = new Map(((people.data ?? []) as any[]).map((p) => [p.id, p]));
-  const thisMonth = today.toISOString().slice(0, 7);
-  const [y, m] = thisMonth.split("-").map(Number);
-  const last = new Date(y, m - 2, 1);
+  const last = new Date(today.getFullYear(), today.getMonth() - 1, 1);
   const start = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}`;
-  return months(start, 7).map((month) => buildMonthPlan({
-    month,
-    profile: profile.data ?? null,
-    categories: (categories.data ?? []) as any,
-    childCosts: (childCosts.data ?? []) as any,
-    payEvents: ((payEvents.data ?? []) as any[]).map((e) => ({ ...e, overrides: byEvent.get(e.id) || [] })),
-    mortgageDeals: (deals.data ?? []) as any,
-    plannedItems: (items.data ?? []) as any,
-    incomeEntries: (incomeEntries.data ?? []) as any,
-    peopleById,
-  }));
+  const { plans } = await loadMonthPlans(supabase, { userId, filter, months: monthsFrom(start, 7) });
+  return plans;
 }
 
 export type Digest = { subject: string; html: string; text: string; summary: string; empty: boolean };

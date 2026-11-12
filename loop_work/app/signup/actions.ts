@@ -1,4 +1,5 @@
 "use server";
+import { APP_FALLBACK_URL } from "@/lib/app-url";
 
 import crypto from "crypto";
 import { redirect } from "next/navigation";
@@ -22,7 +23,7 @@ function randomCode() {
 }
 
 function baseUrl() {
-  return (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+  return (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || APP_FALLBACK_URL).replace(/\/$/, "");
 }
 
 function authCallbackUrl(next: string) {

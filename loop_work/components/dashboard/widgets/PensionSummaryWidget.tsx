@@ -2,8 +2,6 @@
 "use client";
 
 // Same pattern as NetWorthWidget.tsx — fetch scoped by config.scope, render.
-// TODO: replace the placeholder fetch below with the existing pensions
-// summary logic/hook used on the current overview page.
 
 import { useEffect, useState } from "react";
 import type { WidgetProps } from "@/lib/dashboard/types";

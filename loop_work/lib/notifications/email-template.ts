@@ -1,3 +1,4 @@
+import { APP_FALLBACK_URL } from "@/lib/app-url";
 // Shared visual shell for transactional emails, so a sign-up code or a
 // password-reset code looks like it came from the same product as the
 // welcome email — not a plain unstyled system message.
@@ -17,7 +18,7 @@ function escapeHtml(value: string) {
 }
 
 function baseUrl() {
-  return (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+  return (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || APP_FALLBACK_URL).replace(/\/$/, "");
 }
 
 const buttonStyle = "display:inline-block;text-decoration:none;border-radius:999px;padding:14px 22px;font-size:14px;font-weight:900;";

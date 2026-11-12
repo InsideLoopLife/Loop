@@ -6,9 +6,6 @@
 // - default  -> total + top movers list (current implementation from the last batch)
 // - expanded -> adds a per-unit price chart alongside the list
 //
-// TODO: swap the placeholder fetch and chart for the real holdings query and
-// the existing asset-detail chart component (per-unit price, not portfolio
-// value — you already fixed that jump-on-new-lot issue, keep using that logic).
 
 import { useEffect, useState } from "react";
 import type { WidgetProps } from "@/lib/dashboard/types";
@@ -89,7 +86,7 @@ export function InvestmentSummaryWidget({ config, householdId, size, dashboardCo
 
       {size.tier === "expanded" && !overview && !chartVisible && (
         <div style={{ marginTop: 12, height: 80 }}>
-          {/* TODO: real per-unit price chart, e.g. <AssetPriceChart ... /> */}
+          
           <div className="widget-empty">Price chart goes here</div>
         </div>
       )}

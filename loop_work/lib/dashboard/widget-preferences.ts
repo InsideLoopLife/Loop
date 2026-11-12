@@ -15,10 +15,8 @@ export function sanitizeWidgetConfig(input: unknown): WidgetConfig {
 
   if (source.scope && typeof source.scope === "object") {
     const scope = source.scope as Record<string, unknown>;
-    if (scope.kind === "household") result.scope = { kind: "household" };
-    if (scope.kind === "member" && typeof scope.memberId === "string" && scope.memberId.length <= 100) {
-      result.scope = { kind: "member", memberId: scope.memberId };
-    }
+    // Only household-wide widgets are supported for now (see ScopeBadge).
+    if (scope.kind === "household" || scope.kind === "member") result.scope = { kind: "household" };
   }
   if (typeof source.period === "string" && PERIODS.has(source.period)) result.period = source.period as WidgetConfig["period"];
 

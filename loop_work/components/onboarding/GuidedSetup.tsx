@@ -477,9 +477,14 @@ export function GuidedSetup({ defaults }: { defaults: GuidedSetupDefaults }) {
                 <span className={labelClass}>Do you share money with a partner?</span>
                 <Choice name="has_partner" value={hasPartner} onChange={setHasPartner} />
                 {hasPartner === "yes" ? (
-                  <Field label="Their first name">
-                    <input name="partner_name" placeholder="e.g. Sam" className={inputClass} />
-                  </Field>
+                  <>
+                    <Field label="Their first name">
+                      <input name="partner_name" placeholder="e.g. Sam" className={inputClass} />
+                    </Field>
+                    <Field label="Their email (optional)" hint="We'll invite them to join you in LOOP with their own login. Nothing is shared until they accept.">
+                      <input name="partner_email" type="email" placeholder="sam@example.com" className={inputClass} />
+                    </Field>
+                  </>
                 ) : null}
               </div>
               <div className="space-y-3">

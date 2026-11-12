@@ -26,7 +26,7 @@ export function IntroductionPage() {
           <a href="#pensions" className="hover:text-white">Pensions</a>
           <a href="#home" className="hover:text-white">Home</a>
           <a href="#household" className="hover:text-white">Household</a>
-          <a href="#coming" className="hover:text-white">Coming soon</a>
+          <a href="#coming" className="hover:text-white">Health &amp; family</a>
         </nav>
         <div className="flex items-center gap-2">
           <Link href="/login" className="hidden rounded-full px-4 py-2.5 text-sm font-bold text-slate-200 hover:bg-white/5 sm:block">Sign in</Link>
@@ -187,20 +187,20 @@ export function IntroductionPage() {
       <section id="coming" className="bg-[#e9efec] py-24 text-[#10201c] lg:py-32">
         <div className="mx-auto grid w-[min(1180px,calc(100%-28px))] gap-10 lg:grid-cols-[0.75fr_1.25fr]">
           <div>
-            <span className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">What’s growing next</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Beyond money</span>
             <h2 className="mt-4 text-[clamp(2.5rem,5vw,4.3rem)] font-black leading-[1.03] tracking-[-0.055em]">
               Health and family.<br /><span className="font-semibold text-[#6c7b75]">Growing into the same Loop.</span>
             </h2>
             <p className="mt-5 max-w-xl text-sm font-medium leading-7 text-[#5d6d67]">
-              These areas are still developing. They can stay aspirational on the public page without suggesting they are as mature as the financial product today.
+              Food tracking and your household now live alongside your money, and they’re getting richer all the time.
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            <ComingCard label="HEALTH" status="COMING SOON" title="Health that makes sense in context.">
-              Nutrition, activity, recovery and longer-term trends, designed to become part of the same personal picture.
+            <ComingCard label="HEALTH" status="AVAILABLE NOW" title="Health that makes sense in context.">
+              Log meals, scan menus and see a weekly food summary next to your money. Activity and longer-term trends are next.
             </ComingCard>
-            <ComingCard label="FAMILY" status="IN DEVELOPMENT" title="A household layer that does more.">
-              Shared calendar and richer family organisation, building on profiles, assigned costs and existing nutrition logging.
+            <ComingCard label="FAMILY" status="AVAILABLE NOW" title="A household that plans together.">
+              Invite your partner, add children and pets, and see shared bills and pots, with everyone’s own money kept private.
             </ComingCard>
           </div>
         </div>

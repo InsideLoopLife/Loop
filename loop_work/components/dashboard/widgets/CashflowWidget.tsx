@@ -6,8 +6,6 @@
 // - default  -> bar chart (matches the current overview Sankey-lite view)
 // - expanded -> full Sankey (swap in the real component)
 //
-// TODO: import the real Sankey component for the expanded tier, e.g.:
-// import { CashflowSankey } from "@/components/investments/CashflowSankey";
 
 import type { WidgetProps } from "@/lib/dashboard/types";
 

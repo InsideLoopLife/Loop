@@ -11,7 +11,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parseNumber } from "@/lib/format/money";
 import { saveAccountProfile } from "@/app/account/actions";
-import { addPerson } from "@/app/household/actions";
+import { addPerson, inviteExistingUserToHousehold } from "@/app/household/actions";
 import { addRecurringPayEvent, upsertStudentLoanAccount } from "@/app/income/actions";
 import { addPlannedItem } from "@/app/spending/actions";
 import { addHome, addHomeMortgageDeal } from "@/app/mortgage/actions";
@@ -257,10 +257,16 @@ export async function completeGuidedSetup(formData: FormData) {
   const partnerName = text(formData, "partner_name");
   let partnerId: string | null = null;
   if (text(formData, "has_partner") === "yes" && partnerName) {
+    const givenEmail = text(formData, "partner_email").toLowerCase();
     partnerId = await findPersonId(supabase, user.id, "partner", partnerName);
     if (!partnerId) {
-      await attempt("your partner", () => addPerson(form({ name: partnerName, relationship: "partner" })));
+      await attempt("your partner", () => addPerson(form({ name: partnerName, relationship: "partner", email: givenEmail || null })));
       partnerId = await findPersonId(supabase, user.id, "partner", partnerName);
+    }
+    // Invite them to join with their own login, as a partner, if an email was given.
+    const partnerEmail = givenEmail;
+    if (partnerEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(partnerEmail) && partnerEmail !== String(user.email || "").toLowerCase()) {
+      await attempt("the invite to your partner", () => inviteExistingUserToHousehold(form({ invite_to: partnerEmail, permission_tier: "admin", expires_days: 14 })));
     }
   }
   if (text(formData, "has_children") === "yes") {

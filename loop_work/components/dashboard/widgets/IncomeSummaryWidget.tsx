@@ -6,7 +6,6 @@
 // - default  -> total
 // - expanded -> total + source breakdown (salary / dividends / other, etc.)
 //
-// TODO: swap the placeholder fetch for the real income summary query/hook.
 
 import { useEffect, useState } from "react";
 import type { WidgetProps } from "@/lib/dashboard/types";

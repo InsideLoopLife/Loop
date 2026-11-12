@@ -281,6 +281,10 @@ export function buildHouseholdOverviewModel(input: {
   livingProfiles?: HouseholdLivingProfile[];
   vehicles?: HouseholdVehicle[];
   carbonProfile?: HouseholdCarbonProfile | null;
+  /** The month plan the Summary and Money in & out use. When given, the
+   * totals and breakdowns come from it, so all three pages agree. */
+  plan?: { incomeItems: Array<{ label: string; value: number; personId?: string | null; helper?: string }>; outgoingItems: Array<{ label: string; value: number; personId?: string | null; helper?: string; categoryLabel?: string | null }> } | null;
+  savingNames?: Set<string>;
 }): HouseholdOverviewModel {
   const people = input.people || [];
   const { start, end } = monthBounds(input.monthKey);
@@ -289,43 +293,58 @@ export function buildHouseholdOverviewModel(input: {
   const outgoingMap = new Map<string, HouseholdOverviewBreakdown>();
   const savingsMap = new Map<string, HouseholdOverviewBreakdown>();
 
-  for (const event of input.payEvents.filter((row) => isActiveInMonth(row.effective_from, row.effective_until, start, end))) {
-    const amount = n(event.monthly_take_home_override) || (n(event.gross_annual_salary) / 12) * 0.68;
-    pushGrouped(incomeMap, `person:${event.person_id || "household"}`, event.label || "Salary", amount, "Pay event", event.person_id);
-  }
+  if (input.plan) {
+    const categoriesByName = new Map(input.categories.map((category) => [category.name, category]));
+    for (const line of input.plan.incomeItems) {
+      pushGrouped(incomeMap, `income:${line.personId || "household"}:${line.label}`, line.label, n(line.value), line.helper || "Income", line.personId);
+    }
+    for (const line of input.plan.outgoingItems) {
+      const category = line.categoryLabel ? categoriesByName.get(line.categoryLabel) : undefined;
+      const isSaving = Boolean(line.categoryLabel && input.savingNames?.has(line.categoryLabel));
+      let key = categoryKey(line.label, category);
+      if (isSaving && !["savings", "investments", "pension"].includes(key)) key = /pension/i.test(line.label) ? "pension" : /invest|isa|share/i.test(line.label) ? "investments" : "savings";
+      if (!isSaving && ["savings", "investments", "pension"].includes(key)) key = "Other";
+      pushGrouped(isSaving ? savingsMap : outgoingMap, key, categoryLabel(key), n(line.value), line.label, line.personId);
+    }
+  } else {
+    for (const event of input.payEvents.filter((row) => isActiveInMonth(row.effective_from, row.effective_until, start, end))) {
+      const amount = n(event.monthly_take_home_override) || (n(event.gross_annual_salary) / 12) * 0.68;
+      pushGrouped(incomeMap, `person:${event.person_id || "household"}`, event.label || "Salary", amount, "Pay event", event.person_id);
+    }
 
-  for (const entry of input.incomeEntries.filter((row) => isInMonth(row.entry_date, input.monthKey))) {
-    const amount = monthlyise(n(entry.net_amount ?? entry.gross_amount), entry.frequency);
-    pushGrouped(incomeMap, `income:${entry.id}`, entry.label || "Income", amount, "Logged income", entry.person_id);
-  }
+    for (const entry of input.incomeEntries.filter((row) => isInMonth(row.entry_date, input.monthKey))) {
+      const amount = monthlyise(n(entry.net_amount ?? entry.gross_amount), entry.frequency);
+      pushGrouped(incomeMap, `income:${entry.id}`, entry.label || "Income", amount, "Logged income", entry.person_id);
+    }
 
-  for (const item of input.plannedItems.filter((row) => row.direction === "income" && isActiveInMonth(row.start_date, row.end_date, start, end))) {
-    pushGrouped(incomeMap, `planned-income:${item.id}`, item.label || "Planned income", monthlyise(n(item.amount), item.recurrence), "Planned income", item.person_id);
-  }
+    for (const item of input.plannedItems.filter((row) => row.direction === "income" && isActiveInMonth(row.start_date, row.end_date, start, end))) {
+      pushGrouped(incomeMap, `planned-income:${item.id}`, item.label || "Planned income", monthlyise(n(item.amount), item.recurrence), "Planned income", item.person_id);
+    }
 
-  for (const item of input.plannedItems.filter((row) => row.direction !== "income" && !isLinkedSavingsTransfer(row) && isActiveInMonth(row.start_date, row.end_date, start, end))) {
-    const category = categoriesById.get(String(item.category_id || ""));
-    const key = categoryKey(item.label, category, item.item_type);
-    const amount = monthlyise(n(item.amount), item.recurrence);
-    const targetMap = ["savings", "investments", "pension"].includes(key) ? savingsMap : outgoingMap;
-    pushGrouped(targetMap, key, categoryLabel(key), amount, item.label || "Planned item", item.person_id);
-  }
+    for (const item of input.plannedItems.filter((row) => row.direction !== "income" && !isLinkedSavingsTransfer(row) && isActiveInMonth(row.start_date, row.end_date, start, end))) {
+      const category = categoriesById.get(String(item.category_id || ""));
+      const key = categoryKey(item.label, category, item.item_type);
+      const amount = monthlyise(n(item.amount), item.recurrence);
+      const targetMap = ["savings", "investments", "pension"].includes(key) ? savingsMap : outgoingMap;
+      pushGrouped(targetMap, key, categoryLabel(key), amount, item.label || "Planned item", item.person_id);
+    }
 
-  for (const entry of input.spendingEntries.filter((row) => isInMonth(row.spent_at, input.monthKey))) {
-    const category = categoriesById.get(String(entry.category_id || ""));
-    const key = categoryKey(entry.label || entry.notes, category);
-    const targetMap = ["savings", "investments", "pension"].includes(key) ? savingsMap : outgoingMap;
-    pushGrouped(targetMap, key, categoryLabel(key), n(entry.amount), entry.label || "Logged spend", entry.person_id);
-  }
+    for (const entry of input.spendingEntries.filter((row) => isInMonth(row.spent_at, input.monthKey))) {
+      const category = categoriesById.get(String(entry.category_id || ""));
+      const key = categoryKey(entry.label || entry.notes, category);
+      const targetMap = ["savings", "investments", "pension"].includes(key) ? savingsMap : outgoingMap;
+      pushGrouped(targetMap, key, categoryLabel(key), n(entry.amount), entry.label || "Logged spend", entry.person_id);
+    }
 
-  for (const account of input.financialAccounts.filter((row) => !row.is_liability && n(row.monthly_top_up_amount) > 0)) {
-    const type = String(account.account_type || "").toLowerCase();
-    const key = type.includes("invest") || type.includes("share") || type.includes("gia") || type.includes("isa stocks") ? "investments" : "savings";
-    pushGrouped(savingsMap, key, categoryLabel(key), n(account.monthly_top_up_amount), account.name || account.provider || "Account top-up", account.owner_person_id || account.person_id);
-  }
+    for (const account of input.financialAccounts.filter((row) => !row.is_liability && n(row.monthly_top_up_amount) > 0)) {
+      const type = String(account.account_type || "").toLowerCase();
+      const key = type.includes("invest") || type.includes("share") || type.includes("gia") || type.includes("isa stocks") ? "investments" : "savings";
+      pushGrouped(savingsMap, key, categoryLabel(key), n(account.monthly_top_up_amount), account.name || account.provider || "Account top-up", account.owner_person_id || account.person_id);
+    }
 
-  for (const pension of input.pensionAccounts.filter((row) => n(row.fixed_monthly_contribution) > 0)) {
-    pushGrouped(savingsMap, "pension", "Pension", n(pension.fixed_monthly_contribution), pension.label || pension.provider || "Pension contribution", pension.person_id);
+    for (const pension of input.pensionAccounts.filter((row) => n(row.fixed_monthly_contribution) > 0)) {
+      pushGrouped(savingsMap, "pension", "Pension", n(pension.fixed_monthly_contribution), pension.label || pension.provider || "Pension contribution", pension.person_id);
+    }
   }
 
   const incomeBreakdown = buildBreakdowns(incomeMap, Array.from(incomeMap.values()).reduce((sum, row) => sum + row.amount, 0));

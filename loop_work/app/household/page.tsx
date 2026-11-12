@@ -1,3 +1,5 @@
+import { APP_FALLBACK_URL } from "@/lib/app-url";
+import { loadMonthPlans } from "@/lib/planning/load-month-plans";
 import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -181,7 +183,9 @@ function CreateHouseholdEmptyState({ profile }: { profile: any }) {
   );
 }
 
-export default async function HouseholdPage() {
+export default async function HouseholdPage({ searchParams }: { searchParams?: Promise<{ view?: string; add?: string }> }) {
+  const params = searchParams ? await searchParams : {};
+  const view = params.view === "access" ? "access" : "overview";
   const supabase = await createClient();
   const { data: { user } } = await getVerifiedUser(supabase);
   if (!user) redirect("/login");
@@ -192,7 +196,7 @@ export default async function HouseholdPage() {
   const memberFilter = householdMemberDataOrFilter(householdContext);
   const visibleFilter = visibleDataOrFilter(householdContext);
   const dataClient = supabase;
-  const baseUrl = (process.env.APP_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+  const baseUrl = (process.env.APP_BASE_URL || APP_FALLBACK_URL).replace(/\/$/, "");
 
   const { data: profile } = await supabase
     .from("app_user_profiles")
@@ -340,7 +344,11 @@ export default async function HouseholdPage() {
   const adults = people.filter((person) => person.relationship !== "child");
   const children = people.filter((person) => person.relationship === "child");
   const selectedGuardianIds = new Set(guardianLinks.map((link) => link.guardian_person_id));
+  // Same month plan as the Summary and Money in & out, so the figures match.
+  const { plans: [monthPlan], savingNames } = await loadMonthPlans(dataClient, { userId: householdContext.dataOwnerUserId, filter: visibleFilter, months: [monthKey] }).catch(() => ({ plans: [null], savingNames: new Set<string>() }) as any);
   const householdOverviewModel = buildHouseholdOverviewModel({
+    plan: monthPlan,
+    savingNames,
     monthKey,
     people,
     payEvents: (payResult.data || []) as any,
@@ -361,6 +369,14 @@ export default async function HouseholdPage() {
     <>
       <Nav />
       <main className="mx-auto max-w-7xl space-y-7 px-4 py-6 sm:px-6 lg:px-8">
+        <nav aria-label="Household sections" className="flex gap-1 border-b border-[var(--line)]">
+          {([["overview", "Overview"], ["access", "People & access"]] as const).map(([key, label]) => (
+            <Link key={key} href={key === "overview" ? "/household" : "/household?view=access"} scroll={false} aria-current={view === key ? "page" : undefined}
+              className={`-mb-px border-b-2 px-3 py-2.5 text-sm font-semibold ${view === key ? "border-[var(--pine)] text-[var(--ink)]" : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"}`}>{label}</Link>
+          ))}
+        </nav>
+
+        {view === "overview" ? (
         <HouseholdOverviewDashboard
           household={{ name: household?.name || householdContext.householdName || "Household", image_url: household?.image_url || null }}
           people={people}
@@ -369,51 +385,50 @@ export default async function HouseholdPage() {
           carbonProfile={carbonProfileResult.data as any}
           model={householdOverviewModel}
           canManage={canManage}
+          openAdd={params.add === "1"}
         />
-
-        {canManage ? (
-          <section id="invite" className="grid gap-6">
-            <SectionCard title="Invite an adult/account" description="Add an email or username. Existing users receive an in-app notification and email; new users receive a branded account setup invite. Everyone must accept before joining.">
-              <form action={inviteExistingUserToHousehold} className="space-y-4">
-                <FormInput label="Email or username" name="invite_to" placeholder="bethany@example.com or @bethany" required />
-                <div className="grid gap-4 md:grid-cols-2">
-                  <label className="block"><span className="text-sm font-black text-slate-700">Role</span><select name="role" defaultValue="member" className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold"><option value="member">Individual/member</option><option value="parent">Parent/guardian</option><option value="admin">Household admin</option><option value="viewer">Viewer</option></select></label>
-                  <label className="block"><span className="text-sm font-black text-slate-700">Permission tier</span><select name="permission_tier" defaultValue="member" className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold"><option value="member">Member</option><option value="parent">Parent</option><option value="admin">Admin</option><option value="viewer">Viewer</option></select></label>
-                </div>
-                <FormInput label="Expires after days" name="expires_days" type="number" defaultValue={14} />
-                <SubmitButton>Send invite</SubmitButton>
-              </form>
-            </SectionCard>
-          </section>
         ) : null}
 
+        {view === "access" ? (
+        <>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-white px-5 py-4">
+          <div><p className="font-semibold text-[var(--ink)]">Who can see and change what</p><p className="text-sm text-[var(--muted)]">Everyone keeps their own money private unless they choose to share it.</p></div>
+          {canManage ? <Link href="/household?add=1" className="rounded-xl bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white">+ Add someone</Link> : null}
+        </div>
         <section className="grid gap-6 lg:grid-cols-[1fr_.8fr]">
-          <SectionCard title="Members, roles and permission tiers" description="Roles decide household access. Financial and health visibility are controlled by the person/profile and the household sharing toggles.">
-            <details className="mb-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
-              <summary className="cursor-pointer font-black">What do roles and tiers mean?</summary>
-              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                {['owner','admin','parent','member','viewer'].map((tier) => <p key={tier}><strong className="capitalize">{tier}:</strong> {roleDescription(tier)}</p>)}
-              </div>
-            </details>
-            <div className="space-y-4">
+          <SectionCard title="People with a login" description="Choose what each person can do. Their own money stays private unless they share it.">
+            <div className="divide-y divide-[var(--line)]">
               {members.map((member) => {
                 const isCurrentUser = member.user_id === user.id;
                 const isOwner = member.permission_tier === "owner" || member.role === "owner";
+                const memberProfile = memberProfileMap.get(member.user_id) || {};
+                const name = memberProfile.display_name || memberProfile.full_name || member.email || "Household member";
                 return (
-                  <div key={member.id} className="rounded-3xl border border-slate-200 bg-white p-5">
-                    <form action={updateHouseholdMemberRole} className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_145px_145px_auto] xl:items-end">
-                      <input type="hidden" name="member_id" value={member.id} />
-                      <div>
-                        <p className="break-all font-black text-slate-950">{member.email || member.user_id}</p>
-                        <p className="mt-1 text-xs font-bold text-slate-500">{isCurrentUser ? "This is you" : "Household member"} · {member.status || "active"}</p>
+                  <div key={member.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <SafeAvatar src={memberProfile.avatar_url} name={name} className="h-10 w-10 rounded-full" fallbackClassName="bg-[var(--pine-wash)] text-sm text-[var(--pine-strong)]" />
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-[var(--ink)]">{name}{isCurrentUser ? <span className="ml-1.5 text-xs font-medium text-[var(--muted)]">(you)</span> : null}</p>
+                        <p className="truncate text-xs text-[var(--muted)]">{memberProfile.email || member.email || ""}</p>
                       </div>
-                      <label><span className="text-xs font-black uppercase text-slate-500">Role</span><select name="role" defaultValue={member.role || "member"} disabled={!canManage || isOwner} className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-60"><option value="owner">Owner</option><option value="admin">Admin</option><option value="parent">Parent/guardian</option><option value="member">Member</option><option value="viewer">Viewer</option></select></label>
-                      <label><span className="text-xs font-black uppercase text-slate-500">Tier</span><select name="permission_tier" defaultValue={member.permission_tier || "member"} disabled={!canManage || isOwner} className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-60"><option value="owner">Owner</option><option value="admin">Admin</option><option value="parent">Parent</option><option value="member">Member</option><option value="viewer">Viewer</option></select></label>
-                      <button disabled={!canManage || isOwner} className="rounded-full bg-slate-950 px-4 py-3 text-sm font-black text-white disabled:opacity-40">Save</button>
-                    </form>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {canManage && !isOwner && !isCurrentUser ? <form action={removeHouseholdMember}><input type="hidden" name="member_id" value={member.id} /><button className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700">Remove from household</button></form> : null}
-                      {isCurrentUser && !isOwner ? <form action={leaveHousehold}><input type="hidden" name="household_id" value={householdId} /><button className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700">Leave household</button></form> : null}
+                    </div>
+                    {isOwner ? (
+                      <span className="rounded-full bg-[var(--pine-wash)] px-3 py-1.5 text-xs font-semibold text-[var(--pine-strong)]">Owner · full control</span>
+                    ) : (
+                      <form action={updateHouseholdMemberRole} className="flex items-center gap-2">
+                        <input type="hidden" name="member_id" value={member.id} />
+                        <select name="permission_tier" aria-label={`What ${name} can do`} defaultValue={member.permission_tier || "member"} disabled={!canManage} className="rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-sm disabled:opacity-60">
+                          <option value="admin">Partner – manages shared money</option>
+                          <option value="parent">Parent – manages the children</option>
+                          <option value="member">Family member – shares what they choose</option>
+                          <option value="viewer">View only</option>
+                        </select>
+                        {canManage ? <SubmitButton className="rounded-xl bg-[var(--ink)] px-3 py-2 text-sm font-semibold text-white">Save</SubmitButton> : null}
+                      </form>
+                    )}
+                    <div className="flex gap-2">
+                      {canManage && !isOwner && !isCurrentUser ? <form action={removeHouseholdMember}><input type="hidden" name="member_id" value={member.id} /><button className="rounded-xl px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50">Remove</button></form> : null}
+                      {isCurrentUser && !isOwner ? <form action={leaveHousehold}><input type="hidden" name="household_id" value={householdId} /><button className="rounded-xl px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50">Leave household</button></form> : null}
                     </div>
                   </div>
                 );
@@ -421,10 +436,10 @@ export default async function HouseholdPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="QR / share link" description="A QR invite can be scanned by a new or existing user, but it still lands on a review screen and must be accepted.">
-            {canManage ? <form action={createOpenHouseholdQrInvite} className="mb-4"><SubmitButton>Create / refresh QR invite</SubmitButton></form> : null}
+          <SectionCard title="Invites waiting" description="Invites not yet accepted, plus a QR code anyone in the room can scan to ask to join. They always have to accept, and you can see who joined above.">
+            {canManage ? <form action={createOpenHouseholdQrInvite} className="mb-4"><SubmitButton>Make a QR code</SubmitButton></form> : null}
             <div className="space-y-3">
-              {invites.length === 0 ? <p className="text-sm font-bold text-slate-500">No pending invite links yet.</p> : null}
+              {invites.length === 0 ? <p className="text-sm text-[var(--muted)]">No invites waiting.</p> : null}
               {invites.map((invite) => {
                 const link = `${baseUrl}/household/join?token=${invite.short_code}`;
                 return (
@@ -433,8 +448,8 @@ export default async function HouseholdPage() {
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={`/api/qr?data=${encodeURIComponent(link)}`} alt="Household invite QR" className="h-24 w-24 rounded-2xl border border-slate-200 bg-white p-2" />
                       <div className="min-w-0">
-                        <p className="font-black text-slate-950">{invite.invited_email || "Reusable QR invite"}</p>
-                        <p className="text-xs font-bold text-slate-500">{invite.role || "member"} · {invite.permission_tier || "member"} · {invite.status}</p>
+                        <p className="font-black text-slate-950">{invite.invited_email || "QR code for anyone"}</p>
+                        <p className="text-xs font-bold text-slate-500">{({ admin: "Partner", parent: "Parent", member: "Family member", viewer: "View only" } as Record<string, string>)[invite.permission_tier || "member"] || "Family member"} · {invite.status === "pending" ? `waiting${invite.expires_at ? ` until ${new Date(invite.expires_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}` : invite.status}</p>
                         <p className="mt-2 break-all text-xs font-bold text-slate-500">{link}</p>
                       </div>
                     </div>
@@ -456,6 +471,8 @@ export default async function HouseholdPage() {
               <button className="rounded-full bg-red-600 px-5 py-3 text-sm font-black text-white">Delete household</button>
             </form>
           </SectionCard>
+        ) : null}
+        </>
         ) : null}
       </main>
     </>

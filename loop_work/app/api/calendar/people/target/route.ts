@@ -1,16 +1,12 @@
 // app/api/calendar/people/target/route.ts
 //
-// PATCH { person_id, daily_calorie_target } — lets any household member
-// with edit rights set a per-person calorie target (new `people` column
+// PATCH { person_id, daily_calorie_target } — sets a per-person calorie target (new `people` column
 // added in the migration; previously only the hardcoded 2200 default
 // existed anywhere in the app).
 //
-// TODO: this only checks that the caller is an active member of the
-// same household as the target person — it doesn't check
-// canManagePeople/permission tiers the way app/household/actions.ts
-// does for other people-table edits. Decide whether calorie targets
-// should be self-edit-only or follow the same admin-gated pattern as
-// the rest of the people table, and tighten this before shipping.
+// You can set your own target. Setting someone else's needs the same
+// "manage people" permission as other edits to household people (owners,
+// admins, or members given that permission).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerDatabaseClient } from '@/platform/database/server-client';
@@ -36,15 +32,16 @@ export async function PATCH(req: NextRequest) {
 
   const { data: person, error: personError } = await db
     .from('people')
-    .select('id, user_id, household_id')
+    .select('id, user_id, household_id, relationship')
     .eq('id', personId)
     .single();
 
   if (personError || !person) return NextResponse.json({ error: 'person not found' }, { status: 404 });
 
-  const sameHousehold = household.householdId && person.household_id === household.householdId;
-  const isSelf = person.user_id === user.id;
-  if (!sameHousehold && !isSelf) {
+  const sameHousehold = Boolean(household.householdId && person.household_id === household.householdId);
+  const { data: selfPerson } = await db.from('people').select('id').eq('id', personId).eq('linked_user_id', user.id).maybeSingle();
+  const isSelf = Boolean(selfPerson) || (person.user_id === user.id && (person.relationship === 'self' || !person.household_id));
+  if (!isSelf && !(sameHousehold && household.canManagePeople)) {
     return NextResponse.json({ error: 'not authorized for this person' }, { status: 403 });
   }
 

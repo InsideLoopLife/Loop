@@ -1,4 +1,5 @@
 "use server";
+import { APP_FALLBACK_URL } from "@/lib/app-url";
 
 import crypto from "crypto";
 import { revalidatePath } from "next/cache";
@@ -10,6 +11,27 @@ import { parseNumber } from "@/lib/format/money";
 import { maternityExtrasFormPatch } from "@/lib/calculations/maternity";
 import { ActivityBillingMode, BillingSchedule, DaySession, FundingMode, calculateActivityMonthlyCost, calculateNurseryMonthlyCost } from "@/lib/calculations/childcare";
 import { CareType, mapCareTypeToCostKind, calculateNewCareTypeMonthlyCost } from "@/lib/calculations/childcareRegistry";
+
+
+/** Turn a database error into something a person can act on. */
+function friendlyHouseholdError(message: string) {
+  if (/permission|not allowed|denied|rls|policy/i.test(message)) return "You don't have permission to do that in this household.";
+  if (/does not exist|schema cache|function/i.test(message)) return "That part of LOOP isn't set up yet. Please try again later.";
+  if (/duplicate|already/i.test(message)) return "That's already been done.";
+  return message;
+}
+
+/** A birth date from a form: blank, or a real date between 1900 and today. */
+function birthDateFrom(formData: FormData, field = "birth_date") {
+  const value = String(formData.get(field) || "").trim();
+  if (!value) return null;
+  const year = Number(value.slice(0, 4));
+  const today = new Date().toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || year < 1900 || value > today || Number.isNaN(new Date(`${value}T12:00:00`).getTime())) {
+    throw new Error("That birth date doesn't look right. Use the full year, like 2018.");
+  }
+  return value;
+}
 
 const NEW_CARE_TYPES: CareType[] = ["childminder", "breakfast_club", "after_school_club", "holiday_camp", "nanny"];
 import { getLatestAssumptionValue, recordAssumptionCheck } from "@/lib/assumptions/server";
@@ -53,7 +75,7 @@ async function getOrCreateHouseholdIdForUser(supabase: Awaited<ReturnType<typeof
     p_currency: "GBP",
     p_image_url: null,
   });
-  if (error) throw new Error(`${error.message}. Run db/v27_51_household_digest_safe_rebuild.sql in Supabase.`);
+  if (error) throw new Error(friendlyHouseholdError(error.message));
   if (!householdId) throw new Error("Could not create household.");
   return householdId as string;
 }
@@ -179,7 +201,7 @@ export async function addPerson(formData: FormData) {
     ...householdWriteFields(householdContext, user.id),
     name: String(formData.get("name") || "Person"),
     relationship: String(formData.get("relationship") || "other"),
-    birth_date: String(formData.get("birth_date") || "") || null,
+    birth_date: birthDateFrom(formData),
     email: String(formData.get("email") || "") || null,
     invite_email: String(formData.get("email") || "") || null,
     account_status: String(formData.get("account_status") || "managed_by_household"),
@@ -210,7 +232,7 @@ export async function updatePersonProfile(formData: FormData) {
     supabase.from("people").update({
       name: String(formData.get("name") || "Person"),
       relationship: String(formData.get("relationship") || "other"),
-      birth_date: String(formData.get("birth_date") || "") || null,
+      birth_date: birthDateFrom(formData),
       email: String(formData.get("email") || "") || null,
       invite_email: String(formData.get("invite_email") || formData.get("email") || "") || null,
       account_status: String(formData.get("account_status") || "managed_by_household"),
@@ -266,7 +288,7 @@ export async function createPersonAccountPrompt(formData: FormData) {
     : "Add an email before sending an account setup prompt.";
 
   if (email) {
-    const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
+    const baseUrl = process.env.APP_BASE_URL || APP_FALLBACK_URL;
     const recipientName = person?.name || "there";
     const rawToken = crypto.randomBytes(32).toString("base64url");
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
@@ -807,7 +829,7 @@ export async function createHouseholdFromHouseholdPage(formData: FormData) {
     p_currency: currency,
     p_image_url: imageUrl || null,
   });
-  if (error) throw new Error(`${error.message}. Run db/v27_51_household_digest_safe_rebuild.sql in Supabase.`);
+  if (error) throw new Error(friendlyHouseholdError(error.message));
 
   await syncCurrentUserSelfPerson(supabase, user);
   revalidatePath("/household");
@@ -821,7 +843,7 @@ export async function createManagedChildProfile(formData: FormData) {
   const context = await ensureCanManageHousehold(supabase, user);
   const householdOwnerUserId = context.household!.owner_user_id || user.id;
   const name = String(formData.get("name") || "Child").trim();
-  const birthDate = String(formData.get("birth_date") || "").trim();
+  const birthDate = birthDateFrom(formData) || "";
   if (!birthDate) throw new Error("Birth date is required for managed child profiles.");
   const dob = new Date(`${birthDate}T00:00:00`);
   if (Number.isNaN(dob.getTime())) throw new Error("Enter a valid birth date.");
@@ -869,10 +891,11 @@ export async function inviteExistingUserToHousehold(formData: FormData) {
   if (!inviteTo) throw new Error("Add an email or username to invite.");
 
   const email = inviteTo.includes("@") ? inviteTo : null;
-  const role = String(formData.get("role") || "member");
-  const permissionTier = String(formData.get("permission_tier") || "member");
+  const TIERS = ["admin", "parent", "member", "viewer"];
+  const permissionTier = TIERS.includes(String(formData.get("permission_tier"))) ? String(formData.get("permission_tier")) : "member";
+  const role = TIERS.includes(String(formData.get("role"))) ? String(formData.get("role")) : permissionTier;
   const days = Math.max(1, Math.min(60, Number(formData.get("expires_days") || 14)));
-  const baseUrl = (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+  const baseUrl = (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || APP_FALLBACK_URL).replace(/\/$/, "");
 
   const { data, error } = await supabase.rpc("app_create_household_invite", {
     p_household_id: context.household!.id,
@@ -882,7 +905,7 @@ export async function inviteExistingUserToHousehold(formData: FormData) {
     p_expires_days: days,
     p_base_url: baseUrl,
   });
-  if (error) throw new Error(`${error.message}. Run db/v27_51_household_digest_safe_rebuild.sql in Supabase.`);
+  if (error) throw new Error(friendlyHouseholdError(error.message));
 
   const invite = Array.isArray(data) ? data[0] : data;
   const link = invite?.join_link || `${baseUrl}/household/join?token=${encodeURIComponent(invite?.raw_token || invite?.short_code || "")}`;
@@ -913,7 +936,7 @@ export async function inviteExistingUserToHousehold(formData: FormData) {
 export async function createOpenHouseholdQrInvite() {
   const { supabase, user } = await requireUser();
   const context = await ensureCanManageHousehold(supabase, user);
-  const baseUrl = (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+  const baseUrl = (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || APP_FALLBACK_URL).replace(/\/$/, "");
   const { error } = await supabase.rpc("app_create_household_invite", {
     p_household_id: context.household!.id,
     p_invited_email: null,
@@ -922,7 +945,7 @@ export async function createOpenHouseholdQrInvite() {
     p_expires_days: 14,
     p_base_url: baseUrl,
   });
-  if (error) throw new Error(`${error.message}. Run db/v27_51_household_digest_safe_rebuild.sql in Supabase.`);
+  if (error) throw new Error(friendlyHouseholdError(error.message));
   revalidatePath("/household");
 }
 
@@ -930,8 +953,8 @@ export async function createOpenHouseholdQrInvite() {
 export async function updateHouseholdMemberRole(formData: FormData) {
   const { supabase } = await requireUser();
   const memberId = String(formData.get("member_id") || "");
-  const role = String(formData.get("role") || "member");
-  const permissionTier = String(formData.get("permission_tier") || "member");
+  const permissionTier = ["admin", "parent", "member", "viewer"].includes(String(formData.get("permission_tier"))) ? String(formData.get("permission_tier")) : "member";
+  const role = String(formData.get("role") || permissionTier);
   if (!memberId) throw new Error("Missing member id.");
   if (permissionTier === "owner" || role === "owner") throw new Error("Owner transfer is not available here yet.");
 
@@ -940,7 +963,7 @@ export async function updateHouseholdMemberRole(formData: FormData) {
     p_role: role,
     p_permission_tier: permissionTier,
   });
-  if (error) throw new Error(`${error.message}. Run db/v27_51_household_digest_safe_rebuild.sql in Supabase.`);
+  if (error) throw new Error(friendlyHouseholdError(error.message));
   revalidatePath("/household");
   revalidatePath("/account");
 }
@@ -954,7 +977,7 @@ export async function removeHouseholdMember(formData: FormData) {
   const { error } = await supabase.rpc("app_remove_household_member", {
     p_member_id: memberId,
   });
-  if (error) throw new Error(`${error.message}. Run db/v27_51_household_digest_safe_rebuild.sql in Supabase.`);
+  if (error) throw new Error(friendlyHouseholdError(error.message));
   revalidatePath("/household");
   revalidatePath("/account");
 }
@@ -970,7 +993,7 @@ export async function requestProfileDataHandover(formData: FormData) {
     p_person_id: personId,
     p_message: message || null,
   });
-  if (error) throw new Error(`${error.message}. Run db/v27_53_household_data_handover_delete.sql in Supabase.`);
+  if (error) throw new Error(friendlyHouseholdError(error.message));
 
   revalidatePath("/household");
   revalidatePath(`/household/${personId}`);
@@ -987,7 +1010,7 @@ export async function deleteHousehold(formData: FormData) {
     p_household_id: householdId,
     p_confirmation: confirmation,
   });
-  if (error) throw new Error(`${error.message}. Run db/v27_53_household_data_handover_delete.sql in Supabase.`);
+  if (error) throw new Error(friendlyHouseholdError(error.message));
 
   revalidatePath("/household");
   revalidatePath("/account");
@@ -1004,7 +1027,7 @@ export async function leaveHousehold(formData: FormData) {
   const { error } = await supabase.rpc("app_leave_household", {
     p_household_id: householdId,
   });
-  if (error) throw new Error(`${error.message}. Run db/v27_51_household_digest_safe_rebuild.sql in Supabase.`);
+  if (error) throw new Error(friendlyHouseholdError(error.message));
   revalidatePath("/household");
   revalidatePath("/account");
   redirect("/account?tab=sharing&left=1");
@@ -1021,7 +1044,7 @@ export async function addHouseholdPet(formData: FormData) {
     name,
     species: String(formData.get("species") || "dog"),
     breed: String(formData.get("breed") || "").trim() || null,
-    birth_date: String(formData.get("birth_date") || "") || null,
+    birth_date: birthDateFrom(formData),
     insurer: String(formData.get("insurer") || "").trim() || null,
     vet_name: String(formData.get("vet_name") || "").trim() || null,
     notes: String(formData.get("notes") || "").trim() || null,

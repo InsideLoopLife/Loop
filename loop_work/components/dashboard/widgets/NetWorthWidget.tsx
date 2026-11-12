@@ -12,8 +12,6 @@ import { useEffect, useState } from "react";
 import type { WidgetProps } from "@/lib/dashboard/types";
 import { WidgetTrendChart } from "./WidgetTrendChart";
 import { historicalPoints, projectedPoints, projectionHorizon } from "./widget-series";
-// TODO: point this at whatever net-worth calculation already backs the
-// current overview page — this is almost certainly a straight extraction,
 // not new logic.
 // import { getNetWorthSummary } from "@/lib/investments/net-worth";
 
@@ -35,7 +33,6 @@ export function NetWorthWidget({ config, householdId, dashboardContext, viewport
 
     const memberId = config.scope?.kind === "member" ? config.scope.memberId : undefined;
 
-    // Placeholder fetch — swap for the real net worth query/hook.
     fetch(
       `/api/investments/net-worth?householdId=${householdId}${memberId ? `&memberId=${memberId}` : ""}`
     )

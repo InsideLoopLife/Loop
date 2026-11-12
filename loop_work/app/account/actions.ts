@@ -1,4 +1,5 @@
 "use server";
+import { APP_FALLBACK_URL } from "@/lib/app-url";
 
 import crypto from "crypto";
 import { createAdminClient, hasSupabaseAdminKey } from "@/lib/supabase/admin";
@@ -238,7 +239,7 @@ function eightDigitCode() {
 }
 
 function baseUrl() {
-  return (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+  return (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || APP_FALLBACK_URL).replace(/\/$/, "");
 }
 
 function recoveryRedirectUrl() {
@@ -284,7 +285,7 @@ export async function sendPasswordResetEmail() {
   });
   if (codeError) throw new Error(codeError.message);
 
-  const verifyUrl = `${process.env.APP_BASE_URL || "http://localhost:3000"}/reset-password/verify?email=${encodeURIComponent(email)}`;
+  const verifyUrl = `${process.env.APP_BASE_URL || APP_FALLBACK_URL}/reset-password/verify?email=${encodeURIComponent(email)}`;
   const result = await sendTransactionalEmail({
     to: email,
     subject: "Your Loop password reset code",
@@ -641,7 +642,7 @@ export async function createHouseholdShareInvite(formData: FormData) {
   const role = String(formData.get("role") || "member");
   const permissionTier = String(formData.get("permission_tier") || "member");
   const days = Math.max(1, Math.min(60, Number(formData.get("expires_days") || 14)));
-  const baseUrl = (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
+  const baseUrl = (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || APP_FALLBACK_URL).replace(/\/$/, "");
 
   const { data, error } = await supabase.rpc("app_create_household_invite", {
     p_household_id: householdId,
