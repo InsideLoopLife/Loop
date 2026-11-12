@@ -1,3 +1,4 @@
+import { loadShareContext } from "@/lib/household/permissions";
 import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
@@ -167,7 +168,7 @@ export default async function IncomePage() {
     supabase
       .from("income_entries")
       .select(
-        "id, user_id, owner_user_id, person_id, label, gross_amount, net_amount, frequency, entry_date",
+        "id, user_id, owner_user_id, person_id, label, gross_amount, net_amount, frequency, entry_date, household_id, visibility_scope",
       )
       .or(householdVisibleFilter)
       .order("entry_date", { ascending: false })
@@ -184,7 +185,7 @@ export default async function IncomePage() {
     supabase
       .from("pay_events")
       .select(
-        "id, user_id, owner_user_id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, employer_pension_percent, employer_pension_monthly_amount, employer_ni_topup_enabled, employer_ni_rate_percent, employer_ni_topup_share_percent, student_loan_plan, effective_from, effective_until, pay_timing, pay_day_of_month, pay_adjustment, maternity_scheme, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, tax_region",
+        "id, user_id, owner_user_id, household_id, visibility_scope, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, employer_pension_percent, employer_pension_monthly_amount, employer_ni_topup_enabled, employer_ni_rate_percent, employer_ni_topup_share_percent, student_loan_plan, effective_from, effective_until, pay_timing, pay_day_of_month, pay_adjustment, maternity_scheme, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, tax_region",
       )
       .or(householdVisibleFilter)
       .order("effective_from", { ascending: false })
@@ -221,7 +222,7 @@ export default async function IncomePage() {
     payEventsSchemaWarning = payEventsResult.error.message;
     const fallback = await supabase
       .from("pay_events")
-      .select("id, user_id, owner_user_id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, tax_region")
+      .select("id, user_id, owner_user_id, household_id, visibility_scope, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, tax_region")
       .or(householdVisibleFilter)
       .order("effective_from", { ascending: false })
       .returns<PayEvent[]>();
@@ -281,6 +282,7 @@ export default async function IncomePage() {
         </main>
       ) : null}
       <IncomeTrackerClient
+        shareContext={await loadShareContext(supabase, householdContext)}
         entries={canonicalEntries}
         people={canonicalPeople}
         payEvents={canonicalPayEvents as any}

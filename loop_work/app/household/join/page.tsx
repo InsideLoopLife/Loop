@@ -17,15 +17,6 @@ type Preview = {
   expires_at?: string | null;
 };
 
-const shareCategories = [
-  ["people", "People & children"],
-  ["income", "Income and pay history"],
-  ["spending", "Spending, bills and budgets"],
-  ["accounts", "Accounts and balances"],
-  ["property", "Homes, mortgages and valuations"],
-  ["net_worth", "Assets, liabilities, pensions and investments"],
-  ["lifestyle", "Lifestyle bills, meals and groceries"],
-];
 
 async function lookupInvite(supabase: Awaited<ReturnType<typeof createClient>>, token?: string, inviteId?: string) {
   if (!token && !inviteId) return null;
@@ -58,40 +49,34 @@ export default async function JoinHouseholdPage({ searchParams }: { searchParams
           <p className="text-xs font-black uppercase tracking-[0.25em] text-white/50">Household invite</p>
           <h1 className="mt-3 text-4xl font-black tracking-tight">Join {preview?.household_name || "this household"}</h1>
           <p className="mt-2 text-sm font-medium text-white/70">
-            Accept the invite, then choose what existing history becomes visible to the household. Anything you do not select stays private.
+            Your bills, pay and accounts stay yours. Choose how much the household can see before you join – you can change it any time.
           </p>
         </section>
 
         {!preview ? (
           <SectionCard title="Invite not found" description="The invite may have expired or already been used.">
-            <Link href="/account?tab=sharing" className="text-sm font-black text-orange-600">Back to account sharing</Link>
+            <Link href="/household" className="text-sm font-black text-orange-600">Go to Household</Link>
           </SectionCard>
         ) : (
-          <SectionCard title="Sharing choice" description={`Role: ${preview.role || "member"}. Permission: ${preview.permission_tier || "member"}.`}>
+          <SectionCard title="How do you want to share your money?" description={`You're joining as ${({ admin: "a Partner", parent: "a Parent", member: "a Family member", viewer: "View only" } as Record<string, string>)[String(preview.permission_tier || "member")] || "a Family member"}.`}>
             <form action={acceptHouseholdJoinInvite} className="space-y-5">
               <input type="hidden" name="token" value={token} />
               <input type="hidden" name="invite_id" value={inviteId} />
-
-              <div className="grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-slate-700">
-                <label className="flex items-center gap-3"><input type="radio" name="share_mode" value="none" defaultChecked /> Join but share nothing yet</label>
-                <label className="flex items-center gap-3"><input type="radio" name="share_mode" value="today" /> Share selected categories from today</label>
-                <label className="flex items-center gap-3"><input type="radio" name="share_mode" value="all" /> Share all selected category history</label>
-                <label className="grid gap-1 sm:grid-cols-[auto_1fr] sm:items-center">
-                  <span className="flex items-center gap-3"><input type="radio" name="share_mode" value="from_date" /> Share selected categories from</span>
-                  <input name="from_date" type="date" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-orange-500 focus:ring-2" />
-                </label>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                {shareCategories.map(([value, label]) => (
-                  <label key={value} className="flex items-center gap-3 rounded-2xl border border-slate-200 p-3 text-sm font-bold text-slate-700">
-                    <input type="checkbox" name="share_categories" value={value} className="h-4 w-4" />
-                    {label}
+              <fieldset className="grid gap-2">
+                <legend className="sr-only">How you share your money</legend>
+                {[
+                  ["view", "Shared, view only", "Your bills and pay count in the household figures. Only you can change them."],
+                  ["edit", "Shared, others can edit", "Partners can also update or remove your bills and pay."],
+                  ["private", "Private for now", "Nobody else sees your money. You can share later in Account → Household."],
+                ].map(([value, label, help]) => (
+                  <label key={value} className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 has-[:checked]:border-slate-950 has-[:checked]:bg-slate-50">
+                    <input type="radio" name="share_level" value={value} defaultChecked={value === "view"} className="mt-1" />
+                    <span><span className="block font-black text-slate-950">{label}</span><span className="block text-sm font-semibold text-slate-500">{help}</span></span>
                   </label>
                 ))}
-              </div>
-
-              <SubmitButton>Accept household invite</SubmitButton>
+              </fieldset>
+              <p className="text-xs font-semibold text-slate-500">Anything already in your LOOP comes with you and stays yours. If you leave the household, it leaves with you.</p>
+              <SubmitButton>Join household</SubmitButton>
             </form>
           </SectionCard>
         )}

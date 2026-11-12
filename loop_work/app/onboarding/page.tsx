@@ -23,13 +23,37 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
   if (!again && (profile?.onboarding_completed_at || profile?.onboarding_skipped_at)) redirect("/dashboard");
 
   const today = new Date().toISOString().slice(0, 10);
+  // Your own card: the one linked to your login (a partner may have made it).
   const { data: self } = await supabase
     .from("people")
     .select("id")
-    .eq("relationship", "self")
-    .or(`linked_user_id.eq.${user.id},user_id.eq.${user.id}`)
+    .or(`linked_user_id.eq.${user.id},and(user_id.eq.${user.id},relationship.eq.self)`)
+    .order("relationship", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  // Joined someone else's household? Then setup skips the household and home
+  // steps and just asks for your own money.
+  const { data: membership } = await supabase
+    .from("app_household_members")
+    .select("household_id, permission_tier, role, app_households(name, owner_user_id)")
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+  const joinedHousehold: any = membership && (membership as any).app_households?.owner_user_id && (membership as any).app_households.owner_user_id !== user.id ? membership : null;
+  let joining: { householdName: string; people: string[]; sharedBills: string[] } | null = null;
+  if (joinedHousehold) {
+    const [{ data: people }, { data: shared }] = await Promise.all([
+      supabase.from("people").select("name, linked_user_id").eq("household_id", joinedHousehold.household_id).is("active_until", null),
+      supabase.from("planned_items").select("label").eq("household_id", joinedHousehold.household_id).eq("direction", "outgoing").limit(500),
+    ]);
+    joining = {
+      householdName: joinedHousehold.app_households?.name || "your household",
+      people: ((people || []) as any[]).filter((p) => p.linked_user_id !== user.id).map((p) => String(p.name)),
+      sharedBills: ((shared || []) as any[]).map((row) => String(row.label || "")),
+    };
+  }
 
   const [{ data: payRows }, { data: billRows }, { data: homeRows }] = await Promise.all([
     self?.id
@@ -55,7 +79,8 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
           name,
           hasSelfPay: Boolean(payRows?.length),
           existingBills: (billRows || []).map((row: any) => String(row.label || "")),
-          hasHome: Boolean(homeRows?.length),
+          hasHome: Boolean(homeRows?.length) || Boolean(joining),
+          joining,
         }}
       />
 

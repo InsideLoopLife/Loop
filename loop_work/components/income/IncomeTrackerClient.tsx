@@ -1,5 +1,8 @@
 "use client";
 
+import { canChange, lockNote, type ShareContext } from "@/lib/household/permissions";
+import { Lock } from "lucide-react";
+
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { SectionCard } from "@/components/SectionCard";
@@ -118,6 +121,7 @@ type IncomeDeduction = {
 };
 
 export type IncomeTrackerClientProps = {
+  shareContext?: ShareContext | null;
   pensionAccounts?: PensionAccountLike[];
   entries: IncomeEntry[];
   people: Person[];
@@ -777,6 +781,7 @@ const DEDUCTION_TYPE_OPTIONS: { type: IncomeDeduction["deduction_type"]; label: 
 ];
 
 export function IncomeTrackerClient({
+  shareContext = null,
   entries,
   people,
   payEvents: rawPayEvents,
@@ -1144,6 +1149,8 @@ export function IncomeTrackerClient({
                 </div>
                 <div className="flex items-center justify-end gap-3">
                   {line.source !== "pay_event" ? <button type="button" onClick={() => setModal({ type: "viewLine", line })} className="rounded-full bg-emerald-100 px-3 py-2 text-xs font-black text-emerald-800">View split</button> : null}
+                  {canChange(shareContext, (line.incomeEntry || line.payEvent || {}) as any) ? (
+                  <>
                   {line.source === "manual" && line.incomeEntry ? (
                     <button
                       type="button"
@@ -1195,6 +1202,10 @@ export function IncomeTrackerClient({
                         Delete
                       </button>
                     </form>
+                  )}
+                  </>
+                  ) : (
+                    <span title={lockNote(shareContext, (line.incomeEntry || line.payEvent || {}) as any) || undefined} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400"><Lock className="h-3.5 w-3.5" /> View only</span>
                   )}
                 </div>
               </div>

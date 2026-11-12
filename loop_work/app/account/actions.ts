@@ -82,6 +82,7 @@ async function syncSelfPersonWithAccount(
   const name = profile.full_name || profile.display_name || (user.email ? user.email.split("@")[0] : "Me");
   const householdId = await getHouseholdId(supabase, user.id);
 
+
   const { data: existingSelf } = await supabase
     .from("people")
     .select("id, avatar_url, email, name")
@@ -110,6 +111,18 @@ async function syncSelfPersonWithAccount(
       .eq("user_id", user.id);
     return;
   }
+
+  // Already on someone else's household card (e.g. a partner added you before
+  // you joined)? That card is you – don't make a second one.
+  const { data: linkedElsewhere } = await supabase
+    .from("people")
+    .select("id")
+    .eq("linked_user_id", user.id)
+    .neq("user_id", user.id)
+    .or("account_status.is.null,account_status.neq.duplicate_merged")
+    .limit(1)
+    .maybeSingle();
+  if (linkedElsewhere?.id) return;
 
   await supabase.from("people").insert({
     user_id: user.id,

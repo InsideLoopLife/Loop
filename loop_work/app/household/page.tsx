@@ -1,3 +1,4 @@
+import { SharingChoice, shareLabel } from "@/components/household/SharingChoice";
 import { APP_FALLBACK_URL } from "@/lib/app-url";
 import { loadMonthPlans } from "@/lib/planning/load-month-plans";
 import { getVerifiedUser } from "@/lib/supabase/verified-user";
@@ -54,6 +55,7 @@ type Member = {
   can_view_household_income: boolean | null;
   can_manage_household_costs: boolean | null;
   can_manage_integrations: boolean | null;
+  share_level?: string | null;
 };
 
 type GuardianLink = { child_person_id: string; guardian_person_id: string };
@@ -391,6 +393,9 @@ export default async function HouseholdPage({ searchParams }: { searchParams?: P
 
         {view === "access" ? (
         <>
+        <SectionCard title="How you share your money" description="Your bills, pay and accounts belong to you. Choose who else can see or change them.">
+          <SharingChoice current={members.find((m) => m.user_id === user.id)?.share_level} />
+        </SectionCard>
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-white px-5 py-4">
           <div><p className="font-semibold text-[var(--ink)]">Who can see and change what</p><p className="text-sm text-[var(--muted)]">Everyone keeps their own money private unless they choose to share it.</p></div>
           {canManage ? <Link href="/household?add=1" className="rounded-xl bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white">+ Add someone</Link> : null}
@@ -410,6 +415,7 @@ export default async function HouseholdPage({ searchParams }: { searchParams?: P
                       <div className="min-w-0">
                         <p className="truncate font-semibold text-[var(--ink)]">{name}{isCurrentUser ? <span className="ml-1.5 text-xs font-medium text-[var(--muted)]">(you)</span> : null}</p>
                         <p className="truncate text-xs text-[var(--muted)]">{memberProfile.email || member.email || ""}</p>
+                        <p className="mt-0.5 text-xs font-medium text-[var(--pine-strong)]">Their money: {shareLabel(member.share_level).toLowerCase()}</p>
                       </div>
                     </div>
                     {isOwner ? (

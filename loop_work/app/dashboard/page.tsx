@@ -171,8 +171,8 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
       .returns<DealBill[]>(),
     dataClient
       .from("pay_event_monthly_overrides")
+      // Everyone's visible pay overrides (the database applies sharing rules).
       .select("id, pay_event_id, person_id, month, statutory_pay, occupational_pay, gross_pay, net_pay_override")
-      .eq("user_id", dataOwnerUserId)
       .returns<PayEventOverride[]>(),
     timer.time("wealthSummary", buildWealthSummary(dataClient, dataOwnerUserId, selectedMonth, householdContext).catch(() => null)),
     timer.time("perf", buildMonthlyInvestmentPensionPerformance(dataClient, wealthUserIds, selectedMonth).catch(() => null)),

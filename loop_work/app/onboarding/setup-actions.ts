@@ -45,6 +45,11 @@ async function findPersonId(supabase: any, userId: string, relationship: string,
     .order("created_at", { ascending: false })
     .limit(1);
   query = relationship === "self" ? query.or(`linked_user_id.eq.${userId},user_id.eq.${userId}`) : query.eq("user_id", userId);
+  if (relationship === "self") {
+    // Your card may have been made by a partner before you joined.
+    const { data: linked } = await supabase.from("people").select("id").eq("linked_user_id", userId).is("active_until", null).limit(1).maybeSingle();
+    if (linked?.id) return linked.id as string;
+  }
   if (name) query = query.ilike("name", name);
   const { data } = await query.maybeSingle();
   return (data?.id as string | undefined) || null;

@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parseNumber } from "@/lib/format/money";
 import { maternityExtrasFormPatch } from "@/lib/calculations/maternity";
-import { ActiveHouseholdContext, applyMutableRecordFilter, getActiveHouseholdContext, householdWriteFields } from "@/lib/auth/household-context";
+import { ActiveHouseholdContext, applyMutableRecordFilter, changeRecord, getActiveHouseholdContext, householdWriteFields } from "@/lib/auth/household-context";
 
 async function requireIncomeUser() {
   const supabase = await createClient();
@@ -110,7 +110,7 @@ export async function updateIncomeEntry(formData: FormData) {
   if (!id) throw new Error("Missing income id");
   const personId = await resolveIncomePersonId(supabase, user.id, householdContext, formData.get("person_id"));
 
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("income_entries").update({
       person_id: personId,
       label: String(formData.get("label") || "Income"),
@@ -130,7 +130,7 @@ export async function updateIncomeEntry(formData: FormData) {
 export async function deleteIncomeEntry(formData: FormData) {
   const { supabase, householdContext } = await requireIncomeUser();
   const id = String(formData.get("id"));
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("income_entries").delete(),
     id,
     householdContext,
@@ -174,7 +174,7 @@ export async function updateRecurringPayEvent(formData: FormData) {
   if (!id) throw new Error("Missing pay event id");
   const personId = await resolveIncomePersonId(supabase, user.id, householdContext, formData.get("person_id"));
 
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("pay_events").update(payEventPayload(formData, personId) as any),
     id,
     householdContext,
@@ -186,7 +186,7 @@ export async function updateRecurringPayEvent(formData: FormData) {
 export async function deleteIncomePayEvent(formData: FormData) {
   const { supabase, householdContext } = await requireIncomeUser();
   const id = String(formData.get("id") || "");
-  const { error } = await applyMutableRecordFilter(supabase.from("pay_events").delete(), id, householdContext);
+  const { error } = await changeRecord(supabase.from("pay_events").delete(), id, householdContext);
   if (error) throw new Error(error.message);
   revalidateIncomeSurfaces();
 }
@@ -325,7 +325,7 @@ export async function updatePaySettings(formData: FormData) {
   }
   if (formData.has("tax_region")) patch.tax_region = String(formData.get("tax_region")) === "scotland" ? "scotland" : "rUK";
   if (!Object.keys(patch).length) return;
-  const { error } = await applyMutableRecordFilter(supabase.from("pay_events").update(patch as any), id, householdContext);
+  const { error } = await changeRecord(supabase.from("pay_events").update(patch as any), id, householdContext);
   if (error) throw new Error(error.message);
   revalidateIncomeSurfaces(String(formData.get("person_id") || "") || null);
 }

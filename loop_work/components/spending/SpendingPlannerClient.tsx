@@ -1,5 +1,8 @@
 "use client";
 
+import { canChange, lockNote, type ShareContext } from "@/lib/household/permissions";
+import { Lock } from "lucide-react";
+
 import { getChildCostMonthlyAmount as sharedChildCostMonthlyAmount } from "@/lib/planning/month-plan";
 import { useEffect, useMemo, useState, useTransition, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import Link from "next/link";
@@ -67,6 +70,9 @@ type HouseholdPet = { id: string; name: string; species: string; breed?: string 
 type HomeProfile = { property_kind?: string | null; tenure?: string | null; heating_type?: string | null };
 
 export type SpendingEntry = {
+  user_id?: string | null;
+  household_id?: string | null;
+  visibility_scope?: string | null;
   id: string;
   person_id: string | null;
   label: string;
@@ -79,6 +85,9 @@ export type SpendingEntry = {
 };
 
 export type PlannedItem = {
+  user_id?: string | null;
+  household_id?: string | null;
+  visibility_scope?: string | null;
   id: string;
   person_id: string | null;
   category_id: string | null;
@@ -135,6 +144,9 @@ export type PayEvent = {
 };
 
 export type ChildCost = {
+  user_id?: string | null;
+  household_id?: string | null;
+  visibility_scope?: string | null;
   id: string;
   child_id: string | null;
   bill_person_id?: string | null;
@@ -235,6 +247,8 @@ type FlowSettings = {
 };
 
 type Props = {
+  /** Who can change what in the household (lock instead of Edit when not yours). */
+  shareContext?: ShareContext | null;
   people: Person[];
   categories: SpendingCategory[];
   entries: SpendingEntry[];
@@ -1388,7 +1402,7 @@ function inferSpendingQuickCapture(
   };
 }
 
-export function SpendingPlannerClient({ people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], mortgageDeals = [], initialAddMode, initialAddTemplate }: Props) {
+export function SpendingPlannerClient({ shareContext = null, people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], mortgageDeals = [], initialAddMode, initialAddTemplate }: Props) {
   const initialMonthValue = initialMonth && /^\d{4}-\d{2}$/.test(initialMonth) ? initialMonth : currentMonth();
   const [selectedPersonId, setSelectedPersonId] = useState(initialPersonId || "");
   const [directionFilter, setDirectionFilter] = useState<"all" | "income" | "outgoing">(initialDirectionFilter);
@@ -1972,16 +1986,19 @@ export function SpendingPlannerClient({ people, categories, entries, plannedItem
                       dependentEmoji={"pet" in item && item.pet ? "🐾" : null}
                     />
                     {editingEnabled && "href" in item && item.href ? <Link href={item.href} className="text-sm font-bold text-slate-500 hover:text-slate-950">Open</Link> : null}
-                    {editingEnabled && "item" in item && item.item ? (
+                    {editingEnabled && "item" in item && item.item && !canChange(shareContext, item.item) ? (
+                      <span title={lockNote(shareContext, item.item) || undefined} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400"><Lock className="h-3.5 w-3.5" /> View only</span>
+                    ) : null}
+                    {editingEnabled && "item" in item && item.item && canChange(shareContext, item.item) ? (
                       <>
                         <button type="button" onClick={() => setModal({ type: "edit_planned", item: item.item })} className="text-sm font-bold text-slate-700 hover:text-slate-950">Edit</button>
                         <button type="button" disabled={deletePending} onClick={() => deleteLinesOptimistically([`planned:${item.item.id}`])} className="text-sm font-medium text-red-600 disabled:opacity-40">Delete</button>
                       </>
                     ) : null}
-                    {editingEnabled && "entry" in item && item.entry ? (
+                    {editingEnabled && "entry" in item && item.entry && canChange(shareContext, item.entry) ? (
                       <button type="button" disabled={deletePending} onClick={() => deleteLinesOptimistically([`entry:${item.entry.id}`])} className="text-sm font-medium text-red-600 disabled:opacity-40">Delete</button>
                     ) : null}
-                    {editingEnabled && "childCost" in item && item.childCost ? (
+                    {editingEnabled && "childCost" in item && item.childCost && canChange(shareContext, item.childCost as any, "child_id") ? (
                       <>
                         <button type="button" onClick={() => setModal({ type: "edit_child_cost", cost: item.childCost })} className="text-sm font-bold text-slate-700 hover:text-slate-950">Edit</button>
                         <form action={deleteChildCost} onSubmit={(event) => { if (!confirmDelete(`Delete ${item.title}?`)) event.preventDefault(); }}>

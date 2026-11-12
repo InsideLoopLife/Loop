@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parseNumber } from "@/lib/format/money";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
-import { applyMutableRecordFilter, getActiveHouseholdContext, householdMemberDataOrFilter, householdWriteFields } from "@/lib/auth/household-context";
+import { applyMutableRecordFilter, changeRecord, getActiveHouseholdContext, householdMemberDataOrFilter, householdWriteFields } from "@/lib/auth/household-context";
 import { standardCategoryForLabel } from "@/lib/financial-flow/categories";
 
 function emptyToNull(value: FormDataEntryValue | null) {
@@ -343,7 +343,7 @@ export async function updatePlannedItem(formData: FormData) {
     updated_at: new Date().toISOString(),
   };
 
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("planned_items").update(payload as any),
     id,
     householdContext,
@@ -462,7 +462,7 @@ export async function deletePlannedItem(formData: FormData) {
 
   const householdContext = await getActiveHouseholdContext(supabase, user);
   const id = String(formData.get("id"));
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("planned_items").delete(),
     id,
     householdContext,
@@ -641,7 +641,7 @@ export async function deleteSpendingEntry(formData: FormData) {
 
   const householdContext = await getActiveHouseholdContext(supabase, user);
   const id = String(formData.get("id"));
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("spending_entries").delete(),
     id,
     householdContext,

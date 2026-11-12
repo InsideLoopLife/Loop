@@ -201,11 +201,23 @@ export function householdWriteFields(ctx: ActiveHouseholdContext, userId: string
 }
 
 export function applyMutableRecordFilter<T extends { eq: (column: string, value: any) => T; or: (filter: string) => T }>(query: T, id: string, ctx: ActiveHouseholdContext): T {
-  let scoped = query.eq("id", id);
-  if (ctx.householdId && ctx.isOwnerOrAdmin) {
-    return scoped.or(`user_id.eq.${ctx.userId},and(household_id.eq.${ctx.householdId},visibility_scope.eq.household)`);
-  }
-  return scoped.eq("user_id", ctx.userId);
+  // In a household the database rules decide who can change what (owner,
+  // sharing level, the person it's assigned to). Outside one, only your own.
+  const scoped = query.eq("id", id);
+  return ctx.householdId ? scoped : scoped.eq("user_id", ctx.userId);
+}
+
+export const NOT_YOURS_TO_CHANGE = "This belongs to someone else in your household, and they've kept it view-only. Ask them to change it, or to allow edits in Account → Household.";
+
+/**
+ * Update or delete one record, and say clearly when nothing changed because
+ * it isn't yours to change (the database quietly changes no rows then).
+ */
+export async function changeRecord(query: any, id: string, ctx: ActiveHouseholdContext): Promise<{ error: { message: string } | null }> {
+  const { data, error } = await applyMutableRecordFilter(query, id, ctx).select("id");
+  if (error) return { error };
+  if (!data || (Array.isArray(data) && data.length === 0)) return { error: { message: NOT_YOURS_TO_CHANGE } };
+  return { error: null };
 }
 
 export type HouseholdPersonIdentity = {

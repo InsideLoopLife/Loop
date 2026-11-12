@@ -12,6 +12,8 @@ export type GuidedSetupDefaults = {
   hasSelfPay: boolean;
   existingBills: string[];
   hasHome: boolean;
+  /** Joining someone else's household: who's already there, and the shared bills. */
+  joining?: { householdName: string; people: string[]; sharedBills: string[] } | null;
 };
 
 type YesNo = "yes" | "no" | "";
@@ -425,15 +427,18 @@ export function GuidedSetup({ defaults }: { defaults: GuidedSetupDefaults }) {
   const [extras, setExtras] = useState<Record<string, boolean>>({});
   const [homeStatus, setHomeStatus] = useState<HomeStatus | "">("");
   const topRef = useRef<HTMLDivElement>(null);
-  const existingBills = useMemo(() => new Set(defaults.existingBills.map((b) => b.toLowerCase())), [defaults.existingBills]);
+  const joining = defaults.joining || null;
+  const existingBills = useMemo(() => new Set([...defaults.existingBills, ...(joining?.sharedBills || [])].map((b) => b.toLowerCase())), [defaults.existingBills, joining]);
 
   const steps = [
     { key: "you", title: "Let's start with you", lead: "Just your name for now. You can add a photo and more later.", icon: UserRound },
-    { key: "household", title: "Who's in your household?", lead: "So LOOP can plan for everyone's money, not just yours.", icon: Users },
+    joining
+      ? { key: "joined", title: `Welcome to ${joining.householdName}`, lead: "Your household is already set up, so you just need to add your own money.", icon: Users }
+      : { key: "household", title: "Who's in your household?", lead: "So LOOP can plan for everyone's money, not just yours.", icon: Users },
     { key: "pay", title: "Your pay", lead: defaults.hasSelfPay ? "You've already added your pay — you can change it any time on the Income page." : "This is what makes everything else work: your budget, savings and what you can afford.", icon: WalletCards },
     ...(hasPartner === "yes" ? [{ key: "partner-pay", title: "Your partner's pay", lead: "Optional. Add it now to see your combined household picture.", icon: WalletCards }] : []),
-    { key: "home", title: "Your home", lead: "LOOP looks up your council tax and keeps an eye on your mortgage deal for you.", icon: House },
-    { key: "bills", title: "Your regular bills", lead: "Fill in the ones you pay. Leave the rest blank — you can add more later.", icon: ReceiptText },
+    ...(joining ? [] : [{ key: "home", title: "Your home", lead: "LOOP looks up your council tax and keeps an eye on your mortgage deal for you.", icon: House }]),
+    { key: "bills", title: joining ? "Bills you pay yourself" : "Your regular bills", lead: joining ? "Only the ones that come out of your own account. Household bills already added show a tick." : "Fill in the ones you pay. Leave the rest blank — you can add more later.", icon: ReceiptText },
     { key: "extras", title: "Anything else to track?", lead: "Tick what you have. We'll show you where to add each one when you're done.", icon: PiggyBank },
   ];
   const current = steps[Math.min(step, steps.length - 1)];
@@ -472,6 +477,17 @@ export function GuidedSetup({ defaults }: { defaults: GuidedSetupDefaults }) {
               </Field>
             </div>
 
+            {joining ? (
+              <div hidden={current.key !== "joined"} className="space-y-4">
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-sm font-black text-slate-900">Already here</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-600">{joining.people.join(", ") || "Your household"}</p>
+                </div>
+                <div className="rounded-2xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">
+                  Everything you add is yours. You choose whether the household can see it, or change it, in Account → Household.
+                </div>
+              </div>
+            ) : null}
             <div hidden={current.key !== "household"} className="space-y-6">
               <div className="space-y-3">
                 <span className={labelClass}>Do you share money with a partner?</span>

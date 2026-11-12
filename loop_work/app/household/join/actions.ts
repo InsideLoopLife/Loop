@@ -39,9 +39,6 @@ async function alreadyActiveMember(userId: string, inviteId: string, token: stri
   return true;
 }
 
-function selectedCategories(formData: FormData) {
-  return formData.getAll("share_categories").map(String).filter(Boolean);
-}
 
 export async function acceptHouseholdJoinInvite(formData: FormData) {
   const supabase = await createClient();
@@ -67,24 +64,23 @@ export async function acceptHouseholdJoinInvite(formData: FormData) {
     p_token: token || null,
     p_invite_id: inviteId || null,
   });
-  if (acceptError) throw new Error(`${acceptError.message}. Run db/v28_26_household_scope_repair.sql in Supabase, then retry the invite link.`);
+  if (acceptError) throw new Error(acceptError.message);
 
   const householdId = typeof acceptResult === "string" ? acceptResult : acceptResult?.household_id;
   if (!householdId) throw new Error("Household invite accepted but no household was returned.");
 
-  const shareMode = String(formData.get("share_mode") || "none");
-  const fromDate = String(formData.get("from_date") || "").trim() || null;
-  const categories = selectedCategories(formData);
-
-  if (shareMode !== "none" && categories.length > 0) {
-    const { error: shareError } = await supabase.rpc("app_share_my_history_with_household", {
-      p_household_id: householdId,
-      p_share_mode: shareMode,
-      p_from_date: fromDate,
-      p_categories: categories,
-    });
-    if (shareError) throw new Error(shareError.message);
-  }
+  // Everything you already had comes into the household, still owned by you;
+  // your sharing level decides who else can see or change it.
+  const shareLevel = ["private", "view", "edit"].includes(String(formData.get("share_level"))) ? String(formData.get("share_level")) : "view";
+  const { error: levelError } = await supabase.rpc("app_set_my_share_level", { p_household_id: householdId, p_level: shareLevel });
+  if (levelError) throw new Error(levelError.message);
+  const { error: shareError } = await supabase.rpc("app_share_my_history_with_household", {
+    p_household_id: householdId,
+    p_share_mode: "all",
+    p_from_date: null,
+    p_categories: ["people", "income", "spending", "accounts", "property", "net_worth", "lifestyle"],
+  });
+  if (shareError) throw new Error(shareError.message);
 
   revalidatePath("/account");
   revalidatePath("/household");

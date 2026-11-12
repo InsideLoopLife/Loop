@@ -1,3 +1,4 @@
+import { SharingChoice } from "@/components/household/SharingChoice";
 import { APP_FALLBACK_URL } from "@/lib/app-url";
 import { EmailDigestButton } from "@/components/notifications/EmailDigestButton";
 import Link from "next/link";
@@ -409,6 +410,10 @@ export default async function AccountPage({
   const visibleTabs = tabs;
   const activeTab = requestedTab;
 
+  const { data: myShare } = householdId
+    ? await supabase.from("app_household_members").select("share_level").eq("household_id", householdId).eq("user_id", user.id).maybeSingle()
+    : { data: null as { share_level?: string | null } | null };
+
   return (
     <>
       <Nav />
@@ -724,6 +729,11 @@ export default async function AccountPage({
 
         {activeTab === "household" ? (
           <div className="space-y-6" id="households">
+            {householdId ? (
+              <SectionCard title="How you share your money" description="Your bills, pay and accounts belong to you. Choose who else in the household can see or change them.">
+                <SharingChoice current={myShare?.share_level} />
+              </SectionCard>
+            ) : null}
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-white px-5 py-4">
               <p className="text-sm text-[var(--muted)]">Add people, children and invites from the Household page.</p>
               <Link href="/household" className="rounded-xl bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white">Open Household</Link>

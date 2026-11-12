@@ -1,3 +1,4 @@
+import { loadShareContext } from "@/lib/household/permissions";
 import { getVerifiedUser } from "@/lib/supabase/verified-user";
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
@@ -20,6 +21,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
   if (!user) redirect("/login");
 
   const householdContext = await getActiveHouseholdContext(supabase, user);
+  const shareContext = await loadShareContext(supabase, householdContext);
   const dataOwnerUserId = householdContext.dataOwnerUserId || user.id;
   const hasActiveHousehold = Boolean(householdContext.householdId);
   const householdVisibleFilter = householdMemberDataOrFilter(householdContext);
@@ -64,14 +66,14 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       .returns<SpendingCategory[]>(),
     supabase
       .from("spending_entries")
-      .select("id, person_id, label, amount, spent_at, notes, category_id, payment_account_id, pet_id")
+      .select("id, person_id, label, amount, spent_at, notes, category_id, payment_account_id, pet_id, user_id, household_id, visibility_scope")
       .or(householdVisibleFilter)
       .order("spent_at", { ascending: false })
       .limit(250)
       .returns<SpendingEntry[]>(),
     supabase
       .from("planned_items")
-      .select("id, person_id, category_id, direction, item_type, label, amount, recurrence, recurrence_interval_days, start_date, end_date, day_of_month, payment_timing, payment_adjustment, brand_name, brand_domain, brand_logo_url, brand_logo_source, brand_logo_checked_at, end_behavior, renewal_notice_days, early_upgrade_date, expected_refund_amount, notes, payment_account_id, pet_id")
+      .select("id, person_id, category_id, direction, item_type, label, amount, recurrence, recurrence_interval_days, start_date, end_date, day_of_month, payment_timing, payment_adjustment, brand_name, brand_domain, brand_logo_url, brand_logo_source, brand_logo_checked_at, end_behavior, renewal_notice_days, early_upgrade_date, expected_refund_amount, notes, payment_account_id, pet_id, user_id, household_id, visibility_scope")
       .or(householdVisibleFilter)
       .order("start_date", { ascending: false })
       .returns<PlannedItem[]>(),
@@ -82,7 +84,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       .returns<PayEvent[]>(),
     supabase
       .from("child_costs")
-      .select("id, child_id, bill_person_id, label, cost_kind, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, payment_timing, payment_day_of_month, payment_adjustment, starts_on, ends_on, care_type, care_details")
+      .select("id, child_id, bill_person_id, label, cost_kind, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, payment_timing, payment_day_of_month, payment_adjustment, starts_on, ends_on, care_type, care_details, user_id, household_id, visibility_scope")
       .or(householdVisibleFilter)
       .order("starts_on", { ascending: false })
       .returns<ChildCost[]>(),
@@ -145,6 +147,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       <main className="mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         {((entries ?? []).length + (plannedItems ?? []).length + (childCosts ?? []).length + (regularCandidates ?? []).length) === 0 ? <PageLandingExperience kind="spending" /> : null}
         <SpendingPlannerDeferredClient
+          shareContext={shareContext}
           people={peopleWithAvatars}
           categories={categories ?? []}
           entries={entries ?? []}

@@ -273,7 +273,6 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
       .from("pay_event_monthly_overrides")
       .select("id, pay_event_id, person_id, month, statutory_pay, occupational_pay, gross_pay, net_pay_override, notes")
       .eq("person_id", personId)
-      .or(householdVisibleFilter)
       .returns<PayEventOverride[]>(),
   ]);
 

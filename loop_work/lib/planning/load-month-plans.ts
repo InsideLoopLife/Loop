@@ -14,7 +14,7 @@ export async function loadMonthPlans(supabase: any, opts: { userId: string; filt
     supabase.from("child_costs").select("*").or(filter),
     supabase.from("people").select("id, name, relationship").or(filter).or("account_status.is.null,account_status.neq.duplicate_merged"),
     supabase.from("pay_events").select("*").or(filter),
-    supabase.from("pay_event_monthly_overrides").select("id, pay_event_id, person_id, month, statutory_pay, occupational_pay, gross_pay, net_pay_override").eq("user_id", userId),
+    supabase.from("pay_event_monthly_overrides").select("id, pay_event_id, person_id, month, statutory_pay, occupational_pay, gross_pay, net_pay_override"),
     supabase.from("home_mortgage_deals").select("id, lender, product_name, balance, balance_as_of_date, interest_rate, term_years, monthly_payment_override, payment_day_of_month, initial_period_end, start_date, end_date, first_payment_date").or(filter),
     supabase.from("planned_items").select("id, person_id, category_id, direction, item_type, label, amount, recurrence, recurrence_interval_days, start_date, end_date, day_of_month, payment_timing, payment_adjustment, end_behavior, renewal_notice_days, early_upgrade_date, expected_refund_amount").or(filter),
     supabase.from("income_entries").select("id, person_id, label, gross_amount, net_amount, frequency, entry_date").or(filter),

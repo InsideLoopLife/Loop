@@ -10,7 +10,7 @@ import { parseNumber } from "@/lib/format/money";
 import { calculateMonthlyMortgagePayment } from "@/lib/calculations/mortgage";
 import { calculateStampDutyEngland } from "@/lib/calculations/property";
 import {
-  applyMutableRecordFilter,
+  applyMutableRecordFilter, changeRecord,
   getActiveHouseholdContext,
   householdWriteFields,
 } from "@/lib/auth/household-context";
@@ -175,7 +175,7 @@ export async function updateHome(formData: FormData) {
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing home id");
 
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("homes").update({
       label: String(formData.get("label") || "Home"),
       address_line: String(formData.get("address_line") || "") || null,
@@ -244,7 +244,7 @@ export async function deleteHome(formData: FormData) {
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing home id");
 
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("homes").delete(),
     id,
     householdContext,
@@ -323,7 +323,7 @@ export async function deleteHomeMortgageDeal(formData: FormData) {
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing mortgage deal id");
 
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("home_mortgage_deals").delete(),
     id,
     householdContext,
@@ -340,7 +340,7 @@ export async function updateHomeMortgageDeal(formData: FormData) {
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing mortgage deal id");
 
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("home_mortgage_deals").update({
       home_id: String(formData.get("home_id") || "") || null,
       lender: String(formData.get("lender") || "") || null,

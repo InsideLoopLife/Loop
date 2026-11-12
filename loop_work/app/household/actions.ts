@@ -35,7 +35,7 @@ function birthDateFrom(formData: FormData, field = "birth_date") {
 
 const NEW_CARE_TYPES: CareType[] = ["childminder", "breakfast_club", "after_school_club", "holiday_camp", "nanny"];
 import { getLatestAssumptionValue, recordAssumptionCheck } from "@/lib/assumptions/server";
-import { applyMutableRecordFilter, getActiveHouseholdContext, householdWriteFields, visibleDataOrFilter } from "@/lib/auth/household-context";
+import { applyMutableRecordFilter, changeRecord, getActiveHouseholdContext, householdWriteFields, visibleDataOrFilter } from "@/lib/auth/household-context";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -397,7 +397,7 @@ export async function updatePayEvent(formData: FormData) {
 
   const personId = String(formData.get("person_id") || "") || null;
 
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("pay_events").update({
       person_id: personId,
       label: String(formData.get("label") || "Pay change"),
@@ -589,7 +589,7 @@ export async function updateChildCost(formData: FormData) {
   if (!id) throw new Error("Missing child cost id");
 
   const payload = buildChildCostPayload(user.id, formData);
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("child_costs").update(payload as any),
     id,
     householdContext,
@@ -612,7 +612,7 @@ export async function deletePerson(formData: FormData) {
 export async function deletePayEvent(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id"));
-  const { error } = await applyMutableRecordFilter(supabase.from("pay_events").delete(), id, householdContext);
+  const { error } = await changeRecord(supabase.from("pay_events").delete(), id, householdContext);
   if (error) throw new Error(error.message);
   revalidatePath("/household");
   revalidatePath("/dashboard");
@@ -623,7 +623,7 @@ export async function deletePayEvent(formData: FormData) {
 export async function deleteChildCost(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id"));
-  const { error } = await applyMutableRecordFilter(supabase.from("child_costs").delete(), id, householdContext);
+  const { error } = await changeRecord(supabase.from("child_costs").delete(), id, householdContext);
   if (error) throw new Error(error.message);
   revalidatePath("/household");
   revalidatePath("/dashboard");
@@ -1152,4 +1152,15 @@ export async function addHouseholdVehicle(formData: FormData) {
   });
   if (error) throw new Error(error.message);
   revalidatePath("/household");
+}
+
+/** Choose how your own money is shared with the rest of the household. */
+export async function setMyShareLevel(formData: FormData) {
+  const { supabase, householdContext } = await requireUser();
+  const level = String(formData.get("share_level") || "");
+  if (!["private", "view", "edit"].includes(level)) throw new Error("Pick how you'd like to share.");
+  if (!householdContext.householdId) throw new Error("You're not in a household yet.");
+  const { error } = await supabase.rpc("app_set_my_share_level", { p_household_id: householdContext.householdId, p_level: level });
+  if (error) throw new Error(friendlyHouseholdError(error.message));
+  for (const path of ["/household", "/account", "/dashboard", "/financial-flow", "/spending", "/income"]) revalidatePath(path);
 }

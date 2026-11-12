@@ -8,7 +8,7 @@ import { calculateSavingsAccruedBalance } from "@/lib/wealth/savings-accrual";
 import { ensureSavingsDealShadow } from "@/lib/wealth/savings-deal-shadow";
 import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
 import {
-  applyMutableRecordFilter,
+  applyMutableRecordFilter, changeRecord,
   getActiveHouseholdContext,
   householdWriteFields,
   visibleDataOrFilter,
@@ -212,7 +212,7 @@ async function recalculateSavingsAccountFromLedger(
   }
 
   const nowIso = new Date().toISOString();
-  await applyMutableRecordFilter(
+  await changeRecord(
     supabase.from("financial_accounts").update({
       current_balance: balance,
       balance_last_confirmed_value: balance,
@@ -404,7 +404,7 @@ export async function updateFinancialAccount(formData: FormData) {
     updated_at: nowIso,
   };
 
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("financial_accounts").update(updatePayload),
     id,
     householdContext,
@@ -491,7 +491,7 @@ export async function assignSavingsAccountOwner(formData: FormData) {
 
   if (!existing?.id) throw new Error("Savings account not found or not editable.");
 
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("financial_accounts").update({
       owner_person_id: ownerPersonId,
       ownership_scope: ownershipScope,
@@ -527,7 +527,7 @@ export async function deleteFinancialAccount(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const id = String(formData.get("id"));
 
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("financial_accounts").delete(),
     id,
     householdContext,
@@ -585,7 +585,7 @@ export async function addSavingsAccountMovement(formData: FormData) {
   const balanceDelta = resultingBalance - previousConfirmedBalance;
   const nowIso = new Date().toISOString();
 
-  const { error: updateError } = await applyMutableRecordFilter(
+  const { error: updateError } = await changeRecord(
     supabase.from("financial_accounts").update({
       current_balance: resultingBalance,
       balance_last_confirmed_value: resultingBalance,
@@ -977,7 +977,7 @@ export async function deleteSavingsPot(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) return;
-  const { error } = await applyMutableRecordFilter(
+  const { error } = await changeRecord(
     supabase.from("savings_pots").delete(),
     id,
     householdContext,
