@@ -31,7 +31,8 @@ export async function GET() {
     .from("app_notifications")
     .select("id", { count: "exact", head: true })
     .eq("user_id", user.id)
-    .eq("status", "unread");
+    .eq("status", "unread")
+    .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`);
 
   const entitlementsPromise = getEffectiveEntitlements(user.id);
 

@@ -70,6 +70,7 @@ export default async function NotificationsPage({ searchParams }: { searchParams
     .select("*")
     .eq("user_id", user.id)
     .neq("status", "dismissed")
+    .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
     .order("created_at", { ascending: false })
     .limit(120);
 

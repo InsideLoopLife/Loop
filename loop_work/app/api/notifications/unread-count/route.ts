@@ -10,7 +10,8 @@ export async function GET() {
     .from("app_notifications")
     .select("id", { count: "exact", head: true })
     .eq("user_id", user.id)
-    .eq("status", "unread");
+    .eq("status", "unread")
+    .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`);
 
   if (error) return NextResponse.json({ count: 0 });
   return NextResponse.json({ count: count ?? 0 });
