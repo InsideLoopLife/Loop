@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { buildNotifications } from "@/lib/notifications/insights";
+import { areaOf, needsDecision } from "@/lib/notifications/areas";
 import { WRITE_OFF_NOTIFICATION_TYPE, writeOffHolding } from "@/lib/investments/write-off";
 
 async function requireUser() {
@@ -138,5 +139,35 @@ export async function createWeeklyPreview() {
   ]);
   // Same builder as the daily job, so pressing this never adds duplicates.
   await buildNotifications(supabase, { user_id: user.id, household_id: membership?.household_id || null }, { prefs: prefs ? { ...prefs, in_app_enabled: true } : null });
+  revalidatePath("/notifications");
+}
+
+const ACTIVE = () => `expires_at.is.null,expires_at.gt.${new Date().toISOString()}`;
+
+/** Mark notifications read: the ids given, or every unread one (in one area if named). */
+export async function markRead(input: { ids?: string[]; area?: string | null }) {
+  const { supabase, user } = await requireUser();
+  let ids = (input.ids || []).filter((id) => typeof id === "string" && id.length < 64);
+  if (!input.ids) {
+    const { data } = await supabase.from("app_notifications").select("id, notification_type, cta_href, status, action_status").eq("user_id", user.id).eq("status", "unread").or(ACTIVE()).limit(500);
+    ids = (data || [])
+      .filter((n: any) => !needsDecision(n)) // a yes/no is never cleared by "mark all read"
+      .filter((n: any) => !input.area || areaOf(n) === input.area)
+      .map((n: any) => n.id);
+  }
+  if (!ids.length) return;
+  const { error } = await supabase.from("app_notifications").update({ status: "read", read_at: new Date().toISOString() }).in("id", ids).eq("user_id", user.id).eq("status", "unread");
+  if (error) throw new Error(error.message);
+  revalidatePath("/notifications");
+}
+
+export async function markAllReadForm(formData: FormData) {
+  await markRead({ area: String(formData.get("area") || "") || null });
+}
+
+export async function dismissById(id: string) {
+  const { supabase, user } = await requireUser();
+  const { error } = await supabase.from("app_notifications").update({ status: "dismissed", read_at: new Date().toISOString() }).eq("id", id).eq("user_id", user.id);
+  if (error) throw new Error(error.message);
   revalidatePath("/notifications");
 }

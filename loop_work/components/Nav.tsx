@@ -1,5 +1,6 @@
 "use client";
 
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -696,10 +697,12 @@ function NavInner() {
       refreshUnreadCount,
       15000,
     );
+    window.addEventListener("loop:notifications-updated", refreshUnreadCount);
 
     return () => {
       mounted = false;
       window.clearInterval(timer);
+      window.removeEventListener("loop:notifications-updated", refreshUnreadCount);
     };
   }, []);
 
@@ -840,7 +843,8 @@ function NavInner() {
             <div className="flex items-center gap-2">
               <Link href={domain === "wealth" ? "/nutrition" : wealthHome} className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">{domain === "wealth" ? "Health" : "Wealth"}</Link>
               <CalendarQuickAccessButton />
-              <button type="button" onClick={() => setAccountOpen(true)} className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-slate-700" aria-label="Account and settings">{avatarUrl ? <img src={avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" /> : <UserRound className="h-5 w-5" />}{unreadCount > 0 ? <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-violet-600 ring-2 ring-white" /> : null}</button>
+              <NotificationBell count={unreadCount} onCountChange={setUnreadCount} />
+              <button type="button" onClick={() => setAccountOpen(true)} className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-slate-700" aria-label="Account and settings">{avatarUrl ? <img src={avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" /> : <UserRound className="h-5 w-5" />}</button>
               {mobileLayout === "cards" ? <button type="button" onClick={() => setMobileOpen(true)} className="grid h-10 w-10 place-items-center rounded-full bg-slate-950 text-white" aria-label="Open navigation cards"><Menu className="h-5 w-5" /></button> : null}
             </div>
           </div>
@@ -889,6 +893,7 @@ function NavInner() {
             <Brand />
             <div className="flex items-center gap-1">
               <CalendarQuickAccessButton />
+              <NotificationBell count={unreadCount} onCountChange={setUnreadCount} compact />
               <button
                 className="rounded-xl p-2 text-[var(--muted)] hover:bg-[var(--paper)] lg:hidden"
                 onClick={() => setMobileOpen(false)}
@@ -949,9 +954,6 @@ function NavInner() {
               {avatarUrl ? <img src={avatarUrl} alt="" className="h-5 w-5 rounded-full object-cover" /> : <CircleUserRound className="h-5 w-5" />}
               <span className="flex-1">Account & settings</span>
               <ChevronDown className="h-4 w-4" />
-              {unreadCount > 0 ? (
-                <span className="absolute left-7 top-1 h-2.5 w-2.5 rounded-full bg-[var(--pine)] ring-2 ring-white" />
-              ) : null}
             </button>
           </div>
         </aside>
@@ -991,6 +993,7 @@ function NavInner() {
                 </Link>
               </div>
               <CalendarQuickAccessButton />
+              <NotificationBell count={unreadCount} onCountChange={setUnreadCount} />
               <button
                 type="button"
                 onClick={() => setAccountOpen(true)}
@@ -1003,9 +1006,6 @@ function NavInner() {
                 )}
                 <span className="hidden sm:inline">Account</span>
                 <ChevronDown className="h-4 w-4" />
-                {unreadCount > 0 ? (
-                  <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-violet-600 ring-2 ring-white" />
-                ) : null}
               </button>
               <div id="loop-page-actions" className="hidden shrink-0 items-center md:flex" />
           </div>
