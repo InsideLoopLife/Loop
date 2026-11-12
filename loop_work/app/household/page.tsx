@@ -397,11 +397,11 @@ export default async function HouseholdPage({ searchParams }: { searchParams?: P
           <SharingChoice current={members.find((m) => m.user_id === user.id)?.share_level} />
         </SectionCard>
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-white px-5 py-4">
-          <div><p className="font-semibold text-[var(--ink)]">Who can see and change what</p><p className="text-sm text-[var(--muted)]">Everyone keeps their own money private unless they choose to share it.</p></div>
+          <div><p className="font-semibold text-[var(--ink)]">Someone new?</p><p className="text-sm text-[var(--muted)]">Invite an adult, or add a child, pet or someone who won&apos;t log in.</p></div>
           {canManage ? <Link href="/household?add=1" className="rounded-xl bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white">+ Add someone</Link> : null}
         </div>
         <section className="grid gap-6 lg:grid-cols-[1fr_.8fr]">
-          <SectionCard title="People with a login" description="Choose what each person can do. Their own money stays private unless they share it.">
+          <SectionCard title="People with a login" description="Choose what each person can do in the household. How they share their own money is their choice.">
             <div className="divide-y divide-[var(--line)]">
               {members.map((member) => {
                 const isCurrentUser = member.user_id === user.id;
