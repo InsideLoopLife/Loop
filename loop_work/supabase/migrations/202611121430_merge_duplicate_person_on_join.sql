@@ -1,4 +1,4 @@
--- NOT YET APPLIED – waiting for approval.
+-- Applied 12 Nov 2026 after Dan approved.
 -- When someone joins a household and already had their own "me" card, and the
 -- household already had a card for them (e.g. their partner added them), keep
 -- the household card and move everything from the old card onto it, so there's

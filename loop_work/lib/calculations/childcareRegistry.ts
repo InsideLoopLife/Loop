@@ -128,6 +128,7 @@ export const COST_TYPE_REGISTRY: CostTypeDefinition[] = [
         { id: "hourlyRate", title: "What's the hourly rate?", type: "currency", suffix: "/hr" },
         { id: "fundingEligible", title: `Is ${child?.name ?? "your child"} currently using government-funded early years hours?`, type: "boolean", hint: fh.note },
         { id: "fundedHoursPerWeek", title: "How many funded hours per week?", type: "number", min: 0, max: 30, suffix: "hrs/week", default: fh.suggested, condition: (ans) => ans.fundingEligible === true },
+  { id: "taxFreeChildcare", title: "Do you pay this through Tax-Free Childcare?", type: "boolean", hint: "The government adds £2 for every £8 you pay (20%), up to £500 every 3 months per child. The provider has to be registered, e.g. with Ofsted." },
       ];
     },
   },
@@ -147,6 +148,7 @@ export const COST_TYPE_REGISTRY: CostTypeDefinition[] = [
         hint: "If not, we'll use a standard England term calendar for now — you can refine this later once you've added the school's own dates.",
       },
       { id: "cadence", title: "How is this invoiced?", type: "select", options: [{ value: "weekly", label: "Weekly" }, { value: "half_termly", label: "Half-termly" }] },
+      { id: "taxFreeChildcare", title: "Do you pay this through Tax-Free Childcare?", type: "boolean", hint: "The government adds £2 for every £8 you pay (20%), up to £500 every 3 months per child. The provider has to be registered, e.g. with Ofsted." },
     ],
   },
   {
@@ -165,6 +167,7 @@ export const COST_TYPE_REGISTRY: CostTypeDefinition[] = [
         hint: "If not, we'll use a standard England term calendar for now — you can refine this later once you've added the school's own dates.",
       },
       { id: "cadence", title: "How is this invoiced?", type: "select", options: [{ value: "weekly", label: "Weekly" }, { value: "half_termly", label: "Half-termly" }] },
+      { id: "taxFreeChildcare", title: "Do you pay this through Tax-Free Childcare?", type: "boolean", hint: "The government adds £2 for every £8 you pay (20%), up to £500 every 3 months per child. The provider has to be registered, e.g. with Ofsted." },
     ],
   },
   {
@@ -179,6 +182,7 @@ export const COST_TYPE_REGISTRY: CostTypeDefinition[] = [
       { id: "dayRate", title: "What's the day rate?", type: "currency", suffix: "/day" },
       { id: "siblingDiscount", title: "Does a sibling discount apply?", type: "boolean" },
       { id: "siblingDiscountPct", title: "What's the discount?", type: "percent", condition: (ans) => ans.siblingDiscount === true },
+      { id: "taxFreeChildcare", title: "Do you pay this through Tax-Free Childcare?", type: "boolean", hint: "The government adds £2 for every £8 you pay (20%), up to £500 every 3 months per child. The provider has to be registered, e.g. with Ofsted." },
     ],
   },
   {
@@ -203,6 +207,13 @@ export const COST_TYPE_REGISTRY: CostTypeDefinition[] = [
 // correct figure for any month in a forecast, exactly like the existing
 // nursery/activity calculators do.
 // ---------------------------------------------------------------------------
+
+/** Tax-Free Childcare: the government pays 20%, up to £500 a quarter per child (planned monthly). */
+function taxFreeChildcareTopUp(cost: number, enabled?: boolean) {
+  if (!enabled || cost <= 0) return 0;
+  return Math.min(cost * 0.2, 500 / 3);
+}
+const tfcNote = (topUp: number) => (topUp > 0 ? `, less ${Math.round(topUp)} Tax-Free Childcare top-up` : "");
 
 function attendanceWeekdaysForCount(daysPerWeek: number): Weekday[] {
   const clamped = Math.max(0, Math.min(5, Math.round(daysPerWeek || 0)));
@@ -233,6 +244,7 @@ export type ChildminderDetails = {
   fundedHoursPerWeek?: number;
   fundingMode?: FundingMode;
   termWeeksPerYear?: number;
+  taxFreeChildcare?: boolean;
 };
 
 export function calculateChildminderMonthlyCost(details: ChildminderDetails, billingMonth: string) {
@@ -249,25 +261,29 @@ export function calculateChildminderMonthlyCost(details: ChildminderDetails, bil
     fundingCredit = usableFundedHours * (details.hourlyRate || 0);
   }
 
-  const estimatedMonthlyCost = Math.max(0, grossCost - fundingCredit);
+  const parentCost = Math.max(0, grossCost - fundingCredit);
+  const topUp = taxFreeChildcareTopUp(parentCost, details.taxFreeChildcare);
+  const estimatedMonthlyCost = parentCost - topUp;
   return {
     estimatedMonthlyCost,
-    explanation: `${attendedDays} attended day${attendedDays === 1 ? "" : "s"} at ${details.hoursPerDay || 0}hrs/day${fundingCredit > 0 ? `, ${Math.round(fundingCredit)} funded-hours credit deducted` : ""}.`,
+    explanation: `${attendedDays} attended day${attendedDays === 1 ? "" : "s"} at ${details.hoursPerDay || 0}hrs/day${fundingCredit > 0 ? `, ${Math.round(fundingCredit)} funded-hours credit deducted` : ""}${tfcNote(topUp)}.`,
   };
 }
 
 export type WraparoundDetails = {
   daysPerWeek: number;
   sessionRate: number;
+  taxFreeChildcare?: boolean;
 };
 
 export function calculateWraparoundMonthlyCost(details: WraparoundDetails, billingMonth: string) {
   const weekdays = attendanceWeekdaysForCount(details.daysPerWeek);
   const sessions = countAttendedDaysInMonth(billingMonth, weekdays, { excludeBankHolidays: true, excludeSchoolHolidays: true });
-  const estimatedMonthlyCost = sessions * (details.sessionRate || 0);
+  const gross = sessions * (Number(details.sessionRate) || 0);
+  const topUp = taxFreeChildcareTopUp(gross, details.taxFreeChildcare);
   return {
-    estimatedMonthlyCost,
-    explanation: `${sessions} term-time session${sessions === 1 ? "" : "s"} at ${details.sessionRate || 0}/session.`,
+    estimatedMonthlyCost: gross - topUp,
+    explanation: `${sessions} term-time session${sessions === 1 ? "" : "s"} at ${details.sessionRate || 0}/session${tfcNote(topUp)}.`,
   };
 }
 
@@ -277,6 +293,7 @@ export type HolidayCampDetails = {
   dayRate: number;
   siblingDiscount?: boolean;
   siblingDiscountPct?: number;
+  taxFreeChildcare?: boolean;
 };
 
 export function calculateHolidayCampMonthlyCost(details: HolidayCampDetails, billingMonth: string) {
@@ -296,10 +313,11 @@ export function calculateHolidayCampMonthlyCost(details: HolidayCampDetails, bil
     grossCost *= 1 - Math.min(100, Math.max(0, details.siblingDiscountPct)) / 100;
   }
 
-  const estimatedMonthlyCost = Math.max(0, grossCost);
+  const topUp = taxFreeChildcareTopUp(Math.max(0, grossCost), details.taxFreeChildcare);
+  const estimatedMonthlyCost = Math.max(0, grossCost) - topUp;
   return {
     estimatedMonthlyCost,
-    explanation: `${Math.round(attendedDays * 10) / 10} attended holiday day${attendedDays === 1 ? "" : "s"} this month at ${details.dayRate || 0}/day.`,
+    explanation: `${Math.round(attendedDays * 10) / 10} attended holiday day${attendedDays === 1 ? "" : "s"} this month at ${details.dayRate || 0}/day${tfcNote(topUp)}.`,
   };
 }
 
