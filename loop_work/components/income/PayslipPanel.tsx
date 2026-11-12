@@ -1,4 +1,5 @@
 "use client";
+import { isLoopError } from "@/lib/actions/friendly";
 
 // A payslip for one pay record: everything that comes off, line by line, with
 // a dropdown on each so the person can see and correct how LOOP is treating
@@ -111,7 +112,7 @@ export function PayslipPanel({
     if (event.person_id) fd.set("person_id", event.person_id);
     for (const [k, v] of Object.entries(fields)) fd.set(k, v);
     startTransition(async () => {
-      await updatePaySettings(fd);
+      if (isLoopError(await updatePaySettings(fd))) return; // the save box says why
       router.refresh();
       setSaved(true);
       window.setTimeout(() => setSaved(false), 1800);
@@ -127,7 +128,7 @@ export function PayslipPanel({
     fd.set("source", "payslip");
     fd.set("notes", "Take-home from payslip");
     startTransition(async () => {
-      await addPayEventMonthlyOverride(fd);
+      if (isLoopError(await addPayEventMonthlyOverride(fd))) return;
       router.refresh();
       setActual("");
     });

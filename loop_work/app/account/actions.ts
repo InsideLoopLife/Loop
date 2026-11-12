@@ -1,4 +1,5 @@
 "use server";
+import { runFriendly } from "@/lib/actions/friendly";
 import { APP_FALLBACK_URL } from "@/lib/app-url";
 
 import crypto from "crypto";
@@ -144,7 +145,7 @@ async function syncSelfPersonWithAccount(
   });
 }
 
-export async function saveAccountProfile(formData: FormData) {
+async function saveAccountProfile__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const displayName = String(formData.get("display_name") || "").trim();
   const timezone = String(formData.get("timezone") || "Europe/London").trim();
@@ -198,7 +199,7 @@ export async function saveAccountProfile(formData: FormData) {
   revalidatePath("/account");
 }
 
-export async function saveNotificationPreferences(formData: FormData) {
+async function saveNotificationPreferences__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const householdId = await getHouseholdId(supabase, user.id);
 
@@ -261,7 +262,7 @@ function recoveryRedirectUrl() {
   return callback.toString();
 }
 
-export async function sendPasswordResetEmail() {
+async function sendPasswordResetEmail__save() {
   const { supabase, user } = await requireUser();
   if (!user.email) throw new Error("No email is attached to this account.");
 
@@ -385,7 +386,7 @@ async function householdImageUrlFromForm(
   return fallback;
 }
 
-export async function saveHouseholdSettings(formData: FormData) {
+async function saveHouseholdSettings__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const name = String(formData.get("household_name") || "").trim() || "Household";
   const currency = String(formData.get("currency") || "GBP").trim().toUpperCase();
@@ -415,7 +416,7 @@ export async function saveHouseholdSettings(formData: FormData) {
   revalidatePath("/household");
 }
 
-export async function savePersonalIdentityProfile(formData: FormData) {
+async function savePersonalIdentityProfile__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const householdId = await getOrCreateHouseholdId(supabase, user);
   const existingAvatar = String(formData.get("existing_avatar_url") || "") || null;
@@ -456,7 +457,7 @@ export async function savePersonalIdentityProfile(formData: FormData) {
   revalidatePath("/account");
 }
 
-export async function saveHouseholdPermissions(formData: FormData) {
+async function saveHouseholdPermissions__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const householdId = await getHouseholdId(supabase, user.id);
   if (!householdId) throw new Error("No active household found.");
@@ -490,7 +491,7 @@ export async function saveHouseholdPermissions(formData: FormData) {
 }
 
 
-export async function saveMyHouseholdSharingPreferences(formData: FormData) {
+async function saveMyHouseholdSharingPreferences__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const householdId = await getHouseholdId(supabase, user.id);
   if (!householdId) throw new Error("No active household found.");
@@ -523,7 +524,7 @@ export async function saveMyHouseholdSharingPreferences(formData: FormData) {
   revalidatePath("/net-worth");
 }
 
-export async function hideHouseholdSharedRecord(formData: FormData) {
+async function hideHouseholdSharedRecord__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const householdId = await getHouseholdId(supabase, user.id);
   if (!householdId) throw new Error("No active household found.");
@@ -549,7 +550,7 @@ export async function hideHouseholdSharedRecord(formData: FormData) {
   revalidatePath("/net-worth");
 }
 
-export async function assignChildGuardians(formData: FormData) {
+async function assignChildGuardians__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const childId = String(formData.get("child_id") || "");
   if (!childId) throw new Error("Missing child profile id.");
@@ -570,7 +571,7 @@ export async function assignChildGuardians(formData: FormData) {
 }
 
 
-export async function sendAccountTestEmail(formData: FormData) {
+async function sendAccountTestEmail__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const to = String(formData.get("to") || user.email || "").trim();
   if (!to) throw new Error("Add a recipient email address.");
@@ -616,7 +617,7 @@ async function userCanManageHousehold(client: any, householdId: string, userId: 
   return Boolean(data && (["owner", "admin"].includes(data.permission_tier) || data.can_manage_people));
 }
 
-export async function createNewHousehold(formData: FormData) {
+async function createNewHousehold__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const name = String(formData.get("household_name") || "").trim() || "My household";
   const currency = String(formData.get("currency") || "GBP").trim().toUpperCase();
@@ -636,7 +637,7 @@ export async function createNewHousehold(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function switchActiveHousehold(formData: FormData) {
+async function switchActiveHousehold__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const householdId = String(formData.get("household_id") || "").trim();
   if (!householdId) throw new Error("Missing household id.");
@@ -648,7 +649,7 @@ export async function switchActiveHousehold(formData: FormData) {
   redirect("/household");
 }
 
-export async function createHouseholdShareInvite(formData: FormData) {
+async function createHouseholdShareInvite__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const householdId = await getOrCreateHouseholdId(supabase, user);
   const email = String(formData.get("invite_email") || "").trim().toLowerCase() || null;
@@ -753,7 +754,7 @@ async function restoreManualAccountsForSnapTradeAccount(
   return manualIds.length;
 }
 
-export async function hideSnapTradeImportedAccount(formData: FormData) {
+async function hideSnapTradeImportedAccount__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const accountId = String(formData.get("account_id") || "").trim();
   if (!accountId) throw new Error("Missing imported account ID.");
@@ -797,7 +798,7 @@ export async function hideSnapTradeImportedAccount(formData: FormData) {
   revalidatePath("/investments");
 }
 
-export async function restoreArchivedManualInvestmentAccount(formData: FormData) {
+async function restoreArchivedManualInvestmentAccount__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const accountId = String(formData.get("account_id") || "").trim();
   if (!accountId) throw new Error("Missing manual account ID.");
@@ -854,7 +855,7 @@ export async function restoreArchivedManualInvestmentAccount(formData: FormData)
   revalidatePath("/investments");
 }
 
-export async function removeSnapTradeConnectionAndRestoreManual(formData: FormData) {
+async function removeSnapTradeConnectionAndRestoreManual__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const localConnectionId = String(formData.get("connection_id") || "").trim();
   const externalConnectionId = String(formData.get("external_connection_id") || "").trim();
@@ -997,7 +998,7 @@ async function getAccountHouseholdContext(supabase: Awaited<ReturnType<typeof cr
   return householdId;
 }
 
-export async function saveEmploymentJob(formData: FormData) {
+async function saveEmploymentJob__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const householdId = await getAccountHouseholdContext(supabase, user.id);
   const file = formData.get("job_document") as File | null;
@@ -1050,7 +1051,7 @@ export async function saveEmploymentJob(formData: FormData) {
   revalidatePath("/lifestyle/family-planning");
 }
 
-export async function deleteEmploymentJob(formData: FormData) {
+async function deleteEmploymentJob__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) return;
@@ -1060,7 +1061,7 @@ export async function deleteEmploymentJob(formData: FormData) {
   revalidatePath("/lifestyle/family-planning");
 }
 
-export async function saveHealthAccountSettings(formData: FormData) {
+async function saveHealthAccountSettings__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const householdId = await getOrCreateHouseholdId(supabase, user);
   const { error } = await supabase.from("app_user_profiles").upsert({
@@ -1079,7 +1080,7 @@ export async function saveHealthAccountSettings(formData: FormData) {
   revalidatePath("/account");
 }
 
-export async function savePrivacyModeSettings(formData: FormData) {
+async function savePrivacyModeSettings__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const mode = String(formData.get("privacy_mode") || "off");
   if (!["off", "blur", "fake_currency"].includes(mode)) throw new Error("Invalid privacy mode.");
@@ -1095,7 +1096,7 @@ export async function savePrivacyModeSettings(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function saveWealthAccountSettings(formData: FormData) {
+async function saveWealthAccountSettings__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const householdId = await getOrCreateHouseholdId(supabase, user);
   const { error } = await supabase.from("app_user_profiles").upsert({
@@ -1142,3 +1143,26 @@ export async function saveWealthAccountSettings(formData: FormData) {
   revalidatePath("/spending");
   revalidatePath("/household");
 }
+
+// Every save hands a clear message back if it fails (see lib/actions/friendly).
+export async function saveAccountProfile(...args: Parameters<typeof saveAccountProfile__save>): ReturnType<typeof saveAccountProfile__save> { return runFriendly(() => saveAccountProfile__save(...args)); }
+export async function saveNotificationPreferences(...args: Parameters<typeof saveNotificationPreferences__save>): ReturnType<typeof saveNotificationPreferences__save> { return runFriendly(() => saveNotificationPreferences__save(...args)); }
+export async function sendPasswordResetEmail(...args: Parameters<typeof sendPasswordResetEmail__save>): ReturnType<typeof sendPasswordResetEmail__save> { return runFriendly(() => sendPasswordResetEmail__save(...args)); }
+export async function saveHouseholdSettings(...args: Parameters<typeof saveHouseholdSettings__save>): ReturnType<typeof saveHouseholdSettings__save> { return runFriendly(() => saveHouseholdSettings__save(...args)); }
+export async function savePersonalIdentityProfile(...args: Parameters<typeof savePersonalIdentityProfile__save>): ReturnType<typeof savePersonalIdentityProfile__save> { return runFriendly(() => savePersonalIdentityProfile__save(...args)); }
+export async function saveHouseholdPermissions(...args: Parameters<typeof saveHouseholdPermissions__save>): ReturnType<typeof saveHouseholdPermissions__save> { return runFriendly(() => saveHouseholdPermissions__save(...args)); }
+export async function saveMyHouseholdSharingPreferences(...args: Parameters<typeof saveMyHouseholdSharingPreferences__save>): ReturnType<typeof saveMyHouseholdSharingPreferences__save> { return runFriendly(() => saveMyHouseholdSharingPreferences__save(...args)); }
+export async function hideHouseholdSharedRecord(...args: Parameters<typeof hideHouseholdSharedRecord__save>): ReturnType<typeof hideHouseholdSharedRecord__save> { return runFriendly(() => hideHouseholdSharedRecord__save(...args)); }
+export async function assignChildGuardians(...args: Parameters<typeof assignChildGuardians__save>): ReturnType<typeof assignChildGuardians__save> { return runFriendly(() => assignChildGuardians__save(...args)); }
+export async function sendAccountTestEmail(...args: Parameters<typeof sendAccountTestEmail__save>): ReturnType<typeof sendAccountTestEmail__save> { return runFriendly(() => sendAccountTestEmail__save(...args)); }
+export async function createNewHousehold(...args: Parameters<typeof createNewHousehold__save>): ReturnType<typeof createNewHousehold__save> { return runFriendly(() => createNewHousehold__save(...args)); }
+export async function switchActiveHousehold(...args: Parameters<typeof switchActiveHousehold__save>): ReturnType<typeof switchActiveHousehold__save> { return runFriendly(() => switchActiveHousehold__save(...args)); }
+export async function createHouseholdShareInvite(...args: Parameters<typeof createHouseholdShareInvite__save>): ReturnType<typeof createHouseholdShareInvite__save> { return runFriendly(() => createHouseholdShareInvite__save(...args)); }
+export async function hideSnapTradeImportedAccount(...args: Parameters<typeof hideSnapTradeImportedAccount__save>): ReturnType<typeof hideSnapTradeImportedAccount__save> { return runFriendly(() => hideSnapTradeImportedAccount__save(...args)); }
+export async function restoreArchivedManualInvestmentAccount(...args: Parameters<typeof restoreArchivedManualInvestmentAccount__save>): ReturnType<typeof restoreArchivedManualInvestmentAccount__save> { return runFriendly(() => restoreArchivedManualInvestmentAccount__save(...args)); }
+export async function removeSnapTradeConnectionAndRestoreManual(...args: Parameters<typeof removeSnapTradeConnectionAndRestoreManual__save>): ReturnType<typeof removeSnapTradeConnectionAndRestoreManual__save> { return runFriendly(() => removeSnapTradeConnectionAndRestoreManual__save(...args)); }
+export async function saveEmploymentJob(...args: Parameters<typeof saveEmploymentJob__save>): ReturnType<typeof saveEmploymentJob__save> { return runFriendly(() => saveEmploymentJob__save(...args)); }
+export async function deleteEmploymentJob(...args: Parameters<typeof deleteEmploymentJob__save>): ReturnType<typeof deleteEmploymentJob__save> { return runFriendly(() => deleteEmploymentJob__save(...args)); }
+export async function saveHealthAccountSettings(...args: Parameters<typeof saveHealthAccountSettings__save>): ReturnType<typeof saveHealthAccountSettings__save> { return runFriendly(() => saveHealthAccountSettings__save(...args)); }
+export async function savePrivacyModeSettings(...args: Parameters<typeof savePrivacyModeSettings__save>): ReturnType<typeof savePrivacyModeSettings__save> { return runFriendly(() => savePrivacyModeSettings__save(...args)); }
+export async function saveWealthAccountSettings(...args: Parameters<typeof saveWealthAccountSettings__save>): ReturnType<typeof saveWealthAccountSettings__save> { return runFriendly(() => saveWealthAccountSettings__save(...args)); }

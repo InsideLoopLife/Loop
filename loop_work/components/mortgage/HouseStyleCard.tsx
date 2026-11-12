@@ -1,4 +1,5 @@
 "use client";
+import { ensureSaved } from "@/lib/actions/friendly";
 
 // The drawing of the person's home, with choices to make it look like theirs:
 // the kind of house, floors and loft, the front door, walls and roof, the
@@ -204,7 +205,7 @@ export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string
                     const fd = new FormData();
                     fd.set("home_id", homeId || "");
                     fd.set("style", JSON.stringify({ ...style, vehicles: Array.from({ length: cars }, (_, i) => vehicle(i)) }));
-                    await saveHouseStyle(fd);
+                    ensureSaved(await saveHouseStyle(fd));
                     setEditing(false);
                     router.refresh();
                   } catch (caught: any) {

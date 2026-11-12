@@ -11,6 +11,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parseNumber } from "@/lib/format/money";
 import { saveAccountProfile } from "@/app/account/actions";
+import { isLoopError } from "@/lib/actions/friendly";
 import { addPerson, inviteExistingUserToHousehold } from "@/app/household/actions";
 import { addRecurringPayEvent, upsertStudentLoanAccount } from "@/app/income/actions";
 import { addPlannedItem } from "@/app/spending/actions";
@@ -25,6 +26,13 @@ const STUDENT_LOAN_PLANS = ["plan_1", "plan_2", "plan_4", "plan_5", "postgraduat
 
 function text(formData: FormData, key: string) {
   return String(formData.get(key) || "").trim();
+}
+
+/** Run a save and treat a returned error as a failure. */
+async function must<T>(promise: Promise<T>) {
+  const result = await promise;
+  if (isLoopError(result)) throw new Error(result.__loopError);
+  return result;
 }
 
 function form(values: Record<string, string | number | null | undefined>) {
@@ -88,7 +96,7 @@ async function savePay(supabase: any, userId: string, personId: string, formData
   const pensionMethod = inPension && isNhs ? "nhs_pension" : "net_pay";
   const pensionPercent = !inPension ? 0 : isNhs ? (gross ? nhsMemberContributionPercent(gross) : 0) : parseNumber(formData.get(`${prefix}_pension_percent`)) ?? 5;
 
-  await addRecurringPayEvent(form({
+  await must(addRecurringPayEvent(form({
     person_id: personId,
     label,
     pay_kind: "salary",
@@ -102,11 +110,11 @@ async function savePay(supabase: any, userId: string, personId: string, formData
     pay_timing: payDay ? "fixed_day" : "last_workday",
     pay_day_of_month: payDay ?? 28,
     effective_from: new Date().toISOString().slice(0, 10),
-  }));
+  })));
 
   const balance = parseNumber(formData.get(`${prefix}_student_loan_balance`));
   if (studentLoanPlan !== "none" && balance) {
-    await upsertStudentLoanAccount(form({ person_id: personId, plan: studentLoanPlan, current_balance: balance }));
+    await must(upsertStudentLoanAccount(form({ person_id: personId, plan: studentLoanPlan, current_balance: balance })));
   }
 }
 
@@ -194,7 +202,7 @@ async function saveHome(
       notes: valueNote,
     });
     for (const id of owners) fd.append("owner_ids", id);
-    await addHome(fd);
+    await must(addHome(fd));
     const { data } = await supabase.from("homes").select("id").eq("user_id", userId).eq("ownership_status", "current_home").order("created_at", { ascending: false }).limit(1).maybeSingle();
     homeId = data?.id || null;
   });
@@ -219,7 +227,7 @@ async function saveHome(
       payment_day_of_month: dayOfMonth(formData, "mortgage_day"),
     });
     for (const id of owners) fd.append("liability_person_ids", id);
-    await addHomeMortgageDeal(fd);
+    await must(addHomeMortgageDeal(fd));
   });
 }
 
@@ -231,7 +239,8 @@ export async function completeGuidedSetup(formData: FormData) {
   const problems: string[] = [];
   const attempt = async (step: string, fn: () => Promise<unknown>) => {
     try {
-      await fn();
+      const result = await fn();
+      if (isLoopError(result)) throw new Error(result.__loopError);
     } catch (error: any) {
       // redirect() inside a nested action throws NEXT_REDIRECT — never swallow it.
       if (String(error?.digest || error?.message || "").startsWith("NEXT_REDIRECT")) throw error;

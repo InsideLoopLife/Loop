@@ -8,6 +8,7 @@ import { formatMoney } from "@/lib/format/money";
 import type { HouseholdOverviewModel, HouseholdOverviewPerson } from "@/lib/household/household-overview-model";
 import { addHouseholdPet, addHouseholdVehicle, addPerson, removeDependant, updateHouseholdPet, adoptHouseholdFoodAssumption, createManagedChildProfile, inviteExistingUserToHousehold, saveHouseholdCarbonProfile } from "@/app/household/actions";
 import { SubmitButton } from "@/components/SubmitButton";
+import { isLoopError } from "@/lib/actions/friendly";
 
 type HouseholdShape = {
   name?: string | null;
@@ -250,8 +251,9 @@ export function HouseholdOverviewDashboard({ household, people, pets = [], vehic
   const [sent, setSent] = useState<string | null>(null);
   const [openPet, setOpenPet] = useState<HouseholdPet | null>(null);
   // Run a form's action, then close the window (and say what happened).
-  const thenClose = (action: (fd: FormData) => Promise<void>, done?: (fd: FormData) => string) => async (fd: FormData) => {
-    await action(fd);
+  const thenClose = (action: (fd: FormData) => Promise<unknown>, done?: (fd: FormData) => string) => async (fd: FormData) => {
+    const result = await action(fd);
+    if (isLoopError(result)) return; // the save box explains what went wrong; keep the form open
     setModal(null);
     setOpenPet(null);
     if (done) setSent(done(fd));

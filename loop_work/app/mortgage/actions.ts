@@ -1,4 +1,5 @@
 "use server";
+import { runFriendly } from "@/lib/actions/friendly";
 
 import { quoteCouncilTax } from "@/lib/property/council-tax-rates";
 import { revalidatePath } from "next/cache";
@@ -101,7 +102,7 @@ function liabilityRowsFromForm(
   }));
 }
 
-export async function addHome(formData: FormData) {
+async function addHome__save(formData: FormData) {
   const { supabase, user, householdContext, dataOwnerUserId } =
     await requireUser();
 
@@ -169,7 +170,7 @@ export async function addHome(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function updateHome(formData: FormData) {
+async function updateHome__save(formData: FormData) {
   const { supabase, user, householdContext, dataOwnerUserId } =
     await requireUser();
   const id = String(formData.get("id") || "");
@@ -239,7 +240,7 @@ export async function updateHome(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function deleteHome(formData: FormData) {
+async function deleteHome__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing home id");
@@ -256,7 +257,7 @@ export async function deleteHome(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function addHomeMortgageDeal(formData: FormData) {
+async function addHomeMortgageDeal__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
 
   const { data: deal, error } = await supabase
@@ -318,7 +319,7 @@ export async function addHomeMortgageDeal(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function deleteHomeMortgageDeal(formData: FormData) {
+async function deleteHomeMortgageDeal__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing mortgage deal id");
@@ -335,7 +336,7 @@ export async function deleteHomeMortgageDeal(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function updateHomeMortgageDeal(formData: FormData) {
+async function updateHomeMortgageDeal__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing mortgage deal id");
@@ -404,7 +405,7 @@ export async function updateHomeMortgageDeal(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function addHomeValuationSource(formData: FormData) {
+async function addHomeValuationSource__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
 
   const { error } = await supabase.from("home_valuation_sources").insert({
@@ -433,7 +434,7 @@ export async function addHomeValuationSource(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function updateHomeValuationSource(formData: FormData) {
+async function updateHomeValuationSource__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing valuation id");
@@ -465,7 +466,7 @@ export async function updateHomeValuationSource(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function deleteHomeValuationSource(formData: FormData) {
+async function deleteHomeValuationSource__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing valuation id");
@@ -481,7 +482,7 @@ export async function deleteHomeValuationSource(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function addMortgageScenario(formData: FormData) {
+async function addMortgageScenario__save(formData: FormData) {
   const { supabase, dataOwnerUserId } = await requireUser();
 
   const payload = {
@@ -499,7 +500,7 @@ export async function addMortgageScenario(formData: FormData) {
   revalidatePath("/mortgage");
 }
 
-export async function deleteMortgageScenario(formData: FormData) {
+async function deleteMortgageScenario__save(formData: FormData) {
   const { supabase, dataOwnerUserId } = await requireUser();
 
   const id = String(formData.get("id"));
@@ -514,7 +515,7 @@ export async function deleteMortgageScenario(formData: FormData) {
   revalidatePath("/mortgage");
 }
 
-export async function addPropertyMoveQuery(formData: FormData) {
+async function addPropertyMoveQuery__save(formData: FormData) {
   const { supabase, dataOwnerUserId } = await requireUser();
   const propertyUrl = String(formData.get("property_url") || "").trim();
   const manualAskingPrice = parseNumber(formData.get("asking_price"));
@@ -682,7 +683,7 @@ export async function addPropertyMoveQuery(formData: FormData) {
   revalidatePath("/mortgage");
 }
 
-export async function archivePropertyMoveQuery(formData: FormData) {
+async function archivePropertyMoveQuery__save(formData: FormData) {
   const { supabase, dataOwnerUserId } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing move query id");
@@ -702,7 +703,7 @@ export async function archivePropertyMoveQuery(formData: FormData) {
   revalidatePath("/mortgage");
 }
 
-export async function saveMortgageDealPreference(formData: FormData) {
+async function saveMortgageDealPreference__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const ratesSupabase = createWorkerDatabaseClient("rates");
   const sourceKind = String(formData.get("source_kind") || "market");
@@ -742,7 +743,7 @@ export async function saveMortgageDealPreference(formData: FormData) {
   revalidatePath("/mortgage");
 }
 
-export async function updateMortgageWorkspacePreference(formData: FormData) {
+async function updateMortgageWorkspacePreference__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const movingHomeLabel =
     String(formData.get("moving_home_label") || "Moving home")
@@ -770,7 +771,7 @@ export async function updateMortgageWorkspacePreference(formData: FormData) {
   revalidatePath("/mortgage");
 }
 
-export async function reportMortgageRecommendationIssue(formData: FormData) {
+async function reportMortgageRecommendationIssue__save(formData: FormData) {
   const { supabase, user, dataOwnerUserId } = await requireUser();
   const recommendationId = String(formData.get("recommendation_id") || "");
   const issueKind =
@@ -851,7 +852,7 @@ export async function reportMortgageRecommendationIssue(formData: FormData) {
 
 const HOUSE_TYPES = new Set(["flat", "terraced", "end_terrace", "semi", "detached", "bungalow"]);
 
-export async function saveHouseStyle(formData: FormData) {
+async function saveHouseStyle__save(formData: FormData) {
   const { supabase } = await requireUser();
   const homeId = String(formData.get("home_id") || "");
   let style: any = null;
@@ -894,7 +895,7 @@ export async function saveHouseStyle(formData: FormData) {
   revalidatePath("/mortgage");
 }
 
-export async function saveCouncilTaxBand(formData: FormData) {
+async function saveCouncilTaxBand__save(formData: FormData) {
   const { supabase } = await requireUser();
   const homeId = String(formData.get("home_id") || "");
   const band = String(formData.get("band") || "").trim().toUpperCase();
@@ -925,7 +926,7 @@ function journeyFields(formData: FormData) {
   };
 }
 
-export async function addHomeJourneyEvent(formData: FormData) {
+async function addHomeJourneyEvent__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const homeId = String(formData.get("home_id") || "");
   if (!homeId) throw new Error("No home chosen.");
@@ -939,7 +940,7 @@ export async function addHomeJourneyEvent(formData: FormData) {
   revalidatePath("/mortgage");
 }
 
-export async function updateHomeJourneyEvent(formData: FormData) {
+async function updateHomeJourneyEvent__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const id = String(formData.get("id") || "");
   const { error } = await supabase.from("home_journey_events").update({ ...journeyFields(formData), updated_at: new Date().toISOString() }).eq("id", id).eq("user_id", user.id);
@@ -947,10 +948,33 @@ export async function updateHomeJourneyEvent(formData: FormData) {
   revalidatePath("/mortgage");
 }
 
-export async function deleteHomeJourneyEvent(formData: FormData) {
+async function deleteHomeJourneyEvent__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const id = String(formData.get("id") || "");
   const { error } = await supabase.from("home_journey_events").delete().eq("id", id).eq("user_id", user.id);
   if (error) throw new Error(error.message);
   revalidatePath("/mortgage");
 }
+
+// Every save hands a clear message back if it fails (see lib/actions/friendly).
+export async function addHome(...args: Parameters<typeof addHome__save>): ReturnType<typeof addHome__save> { return runFriendly(() => addHome__save(...args)); }
+export async function updateHome(...args: Parameters<typeof updateHome__save>): ReturnType<typeof updateHome__save> { return runFriendly(() => updateHome__save(...args)); }
+export async function deleteHome(...args: Parameters<typeof deleteHome__save>): ReturnType<typeof deleteHome__save> { return runFriendly(() => deleteHome__save(...args)); }
+export async function addHomeMortgageDeal(...args: Parameters<typeof addHomeMortgageDeal__save>): ReturnType<typeof addHomeMortgageDeal__save> { return runFriendly(() => addHomeMortgageDeal__save(...args)); }
+export async function deleteHomeMortgageDeal(...args: Parameters<typeof deleteHomeMortgageDeal__save>): ReturnType<typeof deleteHomeMortgageDeal__save> { return runFriendly(() => deleteHomeMortgageDeal__save(...args)); }
+export async function updateHomeMortgageDeal(...args: Parameters<typeof updateHomeMortgageDeal__save>): ReturnType<typeof updateHomeMortgageDeal__save> { return runFriendly(() => updateHomeMortgageDeal__save(...args)); }
+export async function addHomeValuationSource(...args: Parameters<typeof addHomeValuationSource__save>): ReturnType<typeof addHomeValuationSource__save> { return runFriendly(() => addHomeValuationSource__save(...args)); }
+export async function updateHomeValuationSource(...args: Parameters<typeof updateHomeValuationSource__save>): ReturnType<typeof updateHomeValuationSource__save> { return runFriendly(() => updateHomeValuationSource__save(...args)); }
+export async function deleteHomeValuationSource(...args: Parameters<typeof deleteHomeValuationSource__save>): ReturnType<typeof deleteHomeValuationSource__save> { return runFriendly(() => deleteHomeValuationSource__save(...args)); }
+export async function addMortgageScenario(...args: Parameters<typeof addMortgageScenario__save>): ReturnType<typeof addMortgageScenario__save> { return runFriendly(() => addMortgageScenario__save(...args)); }
+export async function deleteMortgageScenario(...args: Parameters<typeof deleteMortgageScenario__save>): ReturnType<typeof deleteMortgageScenario__save> { return runFriendly(() => deleteMortgageScenario__save(...args)); }
+export async function addPropertyMoveQuery(...args: Parameters<typeof addPropertyMoveQuery__save>): ReturnType<typeof addPropertyMoveQuery__save> { return runFriendly(() => addPropertyMoveQuery__save(...args)); }
+export async function archivePropertyMoveQuery(...args: Parameters<typeof archivePropertyMoveQuery__save>): ReturnType<typeof archivePropertyMoveQuery__save> { return runFriendly(() => archivePropertyMoveQuery__save(...args)); }
+export async function saveMortgageDealPreference(...args: Parameters<typeof saveMortgageDealPreference__save>): ReturnType<typeof saveMortgageDealPreference__save> { return runFriendly(() => saveMortgageDealPreference__save(...args)); }
+export async function updateMortgageWorkspacePreference(...args: Parameters<typeof updateMortgageWorkspacePreference__save>): ReturnType<typeof updateMortgageWorkspacePreference__save> { return runFriendly(() => updateMortgageWorkspacePreference__save(...args)); }
+export async function reportMortgageRecommendationIssue(...args: Parameters<typeof reportMortgageRecommendationIssue__save>): ReturnType<typeof reportMortgageRecommendationIssue__save> { return runFriendly(() => reportMortgageRecommendationIssue__save(...args)); }
+export async function saveHouseStyle(...args: Parameters<typeof saveHouseStyle__save>): ReturnType<typeof saveHouseStyle__save> { return runFriendly(() => saveHouseStyle__save(...args)); }
+export async function saveCouncilTaxBand(...args: Parameters<typeof saveCouncilTaxBand__save>): ReturnType<typeof saveCouncilTaxBand__save> { return runFriendly(() => saveCouncilTaxBand__save(...args)); }
+export async function addHomeJourneyEvent(...args: Parameters<typeof addHomeJourneyEvent__save>): ReturnType<typeof addHomeJourneyEvent__save> { return runFriendly(() => addHomeJourneyEvent__save(...args)); }
+export async function updateHomeJourneyEvent(...args: Parameters<typeof updateHomeJourneyEvent__save>): ReturnType<typeof updateHomeJourneyEvent__save> { return runFriendly(() => updateHomeJourneyEvent__save(...args)); }
+export async function deleteHomeJourneyEvent(...args: Parameters<typeof deleteHomeJourneyEvent__save>): ReturnType<typeof deleteHomeJourneyEvent__save> { return runFriendly(() => deleteHomeJourneyEvent__save(...args)); }

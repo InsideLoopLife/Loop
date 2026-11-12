@@ -1,4 +1,5 @@
 "use client";
+import { ensureSaved } from "@/lib/actions/friendly";
 
 // "+ Add income": what kind → who → name → amount → (salary) details.
 // Salary saves as a pay event, so tax, NI, pension, student loan, Scottish
@@ -169,13 +170,13 @@ export function IncomeQuickAdd({ people, payEvents, defaultPersonId, onClose, on
         if (day >= 1 && day <= 31 && (payDay || current?.pay_timing === "fixed_day")) { fd.set("pay_timing", "fixed_day"); fd.set("pay_day_of_month", String(day)); }
         else fd.set("pay_timing", "last_workday");
         if (current) fd.set("replace_previous", "yes");
-        await addRecurringPayEvent(fd);
+        ensureSaved(await addRecurringPayEvent(fd));
       } else {
         fd.set("gross_amount", String(toNumber(amount)));
         fd.set("net_amount", String(toNumber(amount)));
         fd.set("frequency", kind === "one_off" ? "one_off" : often);
         fd.set("entry_date", date);
-        await addIncomeEntry(fd);
+        ensureSaved(await addIncomeEntry(fd));
       }
       router.refresh();
       onSaved?.(`Added ${name.trim()}`);

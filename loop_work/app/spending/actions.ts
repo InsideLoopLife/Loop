@@ -1,4 +1,5 @@
 "use server";
+import { runFriendly } from "@/lib/actions/friendly";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -58,7 +59,7 @@ function revalidateSpendingStructure() {
   revalidatePath("/accounts");
 }
 
-export async function setEmergencyFundEssential(formData: FormData) {
+async function setEmergencyFundEssential__save(formData: FormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
@@ -186,7 +187,7 @@ function brandColumns(brand: Awaited<ReturnType<typeof resolveBillBrand>> | null
   };
 }
 
-export async function addSpendingCategory(formData: FormData) {
+async function addSpendingCategory__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -211,7 +212,7 @@ export async function addSpendingCategory(formData: FormData) {
   revalidateSpendingViews();
 }
 
-export async function addSpendingEntry(formData: FormData) {
+async function addSpendingEntry__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -243,7 +244,7 @@ export async function addSpendingEntry(formData: FormData) {
   revalidateSpendingViews(personId);
 }
 
-export async function addPlannedItem(formData: FormData) {
+async function addPlannedItem__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -297,7 +298,7 @@ export async function addPlannedItem(formData: FormData) {
   revalidateSpendingViews(personId);
 }
 
-export async function updatePlannedItem(formData: FormData) {
+async function updatePlannedItem__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -356,7 +357,7 @@ export async function updatePlannedItem(formData: FormData) {
   revalidateSpendingViews(personId);
 }
 
-export async function updateFinancialFlowLineCategories(formData: FormData) {
+async function updateFinancialFlowLineCategories__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -405,7 +406,7 @@ export async function updateFinancialFlowLineCategories(formData: FormData) {
   revalidateSpendingStructure();
 }
 
-export async function upsertStudentLoanAccount(formData: FormData) {
+async function upsertStudentLoanAccount__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -454,7 +455,7 @@ export async function upsertStudentLoanAccount(formData: FormData) {
   revalidateSpendingViews(personId);
 }
 
-export async function deletePlannedItem(formData: FormData) {
+async function deletePlannedItem__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -475,7 +476,7 @@ export async function deletePlannedItem(formData: FormData) {
   revalidateSpendingViews();
 }
 
-export async function deleteSpendingCategoriesBulk(ids: string[]) {
+async function deleteSpendingCategoriesBulk__save(ids: string[]) {
   const cleanIds = Array.from(new Set((ids || []).map(String).filter(Boolean))).slice(0, 100);
   if (!cleanIds.length) return;
   const supabase = await createClient();
@@ -489,7 +490,7 @@ export async function deleteSpendingCategoriesBulk(ids: string[]) {
   revalidateSpendingStructure();
 }
 
-export async function deleteFinancialFlowLinesBulk(lineIds: string[]) {
+async function deleteFinancialFlowLinesBulk__save(lineIds: string[]) {
   const clean = Array.from(new Set((lineIds || []).map(String).filter(Boolean))).slice(0, 100);
   if (!clean.length) return;
   const supabase = await createClient();
@@ -507,7 +508,7 @@ export async function deleteFinancialFlowLinesBulk(lineIds: string[]) {
   revalidateSpendingViews();
 }
 
-export async function deleteSpendingCategory(formData: FormData) {
+async function deleteSpendingCategory__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -528,7 +529,7 @@ export async function deleteSpendingCategory(formData: FormData) {
   revalidateSpendingViews();
 }
 
-export async function addCategoryGroup(formData: FormData) {
+async function addCategoryGroup__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -551,7 +552,7 @@ export async function addCategoryGroup(formData: FormData) {
   revalidatePath("/spending/categories");
 }
 
-export async function renameCategoryGroup(formData: FormData) {
+async function renameCategoryGroup__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -577,7 +578,7 @@ export async function renameCategoryGroup(formData: FormData) {
   revalidatePath("/spending/categories");
 }
 
-export async function deleteCategoryGroup(formData: FormData) {
+async function deleteCategoryGroup__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -610,7 +611,7 @@ export async function deleteCategoryGroup(formData: FormData) {
 
 // Used by the "Manage categories and groups" drag-and-drop board: dropping a category
 // card onto a group box assigns it to that group; dropping onto "Ungrouped" clears it.
-export async function assignCategoryGroup(formData: FormData) {
+async function assignCategoryGroup__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -633,7 +634,7 @@ export async function assignCategoryGroup(formData: FormData) {
   revalidateSpendingStructure();
 }
 
-export async function deleteSpendingEntry(formData: FormData) {
+async function deleteSpendingEntry__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -912,7 +913,7 @@ function buildRegularPaymentCandidates(transactions: ParsedBankTransaction[]) {
     .sort((a, b) => b.confidence - a.confidence);
 }
 
-export async function importBankCsv(formData: FormData) {
+async function importBankCsv__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -1036,7 +1037,7 @@ export async function importBankCsv(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function acceptRegularPaymentCandidate(formData: FormData) {
+async function acceptRegularPaymentCandidate__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -1101,7 +1102,7 @@ export async function acceptRegularPaymentCandidate(formData: FormData) {
   revalidateSpendingViews(personId);
 }
 
-export async function refreshMissingBillLogos() {
+async function refreshMissingBillLogos__save() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -1159,7 +1160,7 @@ export async function refreshMissingBillLogos() {
   revalidateSpendingViews();
 }
 
-export async function dismissRegularPaymentCandidate(formData: FormData) {
+async function dismissRegularPaymentCandidate__save(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -1176,3 +1177,25 @@ export async function dismissRegularPaymentCandidate(formData: FormData) {
   if (error) throw new Error(error.message);
   revalidatePath("/spending");
 }
+
+// Every save hands a clear message back if it fails (see lib/actions/friendly).
+export async function setEmergencyFundEssential(...args: Parameters<typeof setEmergencyFundEssential__save>): ReturnType<typeof setEmergencyFundEssential__save> { return runFriendly(() => setEmergencyFundEssential__save(...args)); }
+export async function addSpendingCategory(...args: Parameters<typeof addSpendingCategory__save>): ReturnType<typeof addSpendingCategory__save> { return runFriendly(() => addSpendingCategory__save(...args)); }
+export async function addSpendingEntry(...args: Parameters<typeof addSpendingEntry__save>): ReturnType<typeof addSpendingEntry__save> { return runFriendly(() => addSpendingEntry__save(...args)); }
+export async function addPlannedItem(...args: Parameters<typeof addPlannedItem__save>): ReturnType<typeof addPlannedItem__save> { return runFriendly(() => addPlannedItem__save(...args)); }
+export async function updatePlannedItem(...args: Parameters<typeof updatePlannedItem__save>): ReturnType<typeof updatePlannedItem__save> { return runFriendly(() => updatePlannedItem__save(...args)); }
+export async function updateFinancialFlowLineCategories(...args: Parameters<typeof updateFinancialFlowLineCategories__save>): ReturnType<typeof updateFinancialFlowLineCategories__save> { return runFriendly(() => updateFinancialFlowLineCategories__save(...args)); }
+export async function upsertStudentLoanAccount(...args: Parameters<typeof upsertStudentLoanAccount__save>): ReturnType<typeof upsertStudentLoanAccount__save> { return runFriendly(() => upsertStudentLoanAccount__save(...args)); }
+export async function deletePlannedItem(...args: Parameters<typeof deletePlannedItem__save>): ReturnType<typeof deletePlannedItem__save> { return runFriendly(() => deletePlannedItem__save(...args)); }
+export async function deleteSpendingCategoriesBulk(...args: Parameters<typeof deleteSpendingCategoriesBulk__save>): ReturnType<typeof deleteSpendingCategoriesBulk__save> { return runFriendly(() => deleteSpendingCategoriesBulk__save(...args)); }
+export async function deleteFinancialFlowLinesBulk(...args: Parameters<typeof deleteFinancialFlowLinesBulk__save>): ReturnType<typeof deleteFinancialFlowLinesBulk__save> { return runFriendly(() => deleteFinancialFlowLinesBulk__save(...args)); }
+export async function deleteSpendingCategory(...args: Parameters<typeof deleteSpendingCategory__save>): ReturnType<typeof deleteSpendingCategory__save> { return runFriendly(() => deleteSpendingCategory__save(...args)); }
+export async function addCategoryGroup(...args: Parameters<typeof addCategoryGroup__save>): ReturnType<typeof addCategoryGroup__save> { return runFriendly(() => addCategoryGroup__save(...args)); }
+export async function renameCategoryGroup(...args: Parameters<typeof renameCategoryGroup__save>): ReturnType<typeof renameCategoryGroup__save> { return runFriendly(() => renameCategoryGroup__save(...args)); }
+export async function deleteCategoryGroup(...args: Parameters<typeof deleteCategoryGroup__save>): ReturnType<typeof deleteCategoryGroup__save> { return runFriendly(() => deleteCategoryGroup__save(...args)); }
+export async function assignCategoryGroup(...args: Parameters<typeof assignCategoryGroup__save>): ReturnType<typeof assignCategoryGroup__save> { return runFriendly(() => assignCategoryGroup__save(...args)); }
+export async function deleteSpendingEntry(...args: Parameters<typeof deleteSpendingEntry__save>): ReturnType<typeof deleteSpendingEntry__save> { return runFriendly(() => deleteSpendingEntry__save(...args)); }
+export async function importBankCsv(...args: Parameters<typeof importBankCsv__save>): ReturnType<typeof importBankCsv__save> { return runFriendly(() => importBankCsv__save(...args)); }
+export async function acceptRegularPaymentCandidate(...args: Parameters<typeof acceptRegularPaymentCandidate__save>): ReturnType<typeof acceptRegularPaymentCandidate__save> { return runFriendly(() => acceptRegularPaymentCandidate__save(...args)); }
+export async function refreshMissingBillLogos(...args: Parameters<typeof refreshMissingBillLogos__save>): ReturnType<typeof refreshMissingBillLogos__save> { return runFriendly(() => refreshMissingBillLogos__save(...args)); }
+export async function dismissRegularPaymentCandidate(...args: Parameters<typeof dismissRegularPaymentCandidate__save>): ReturnType<typeof dismissRegularPaymentCandidate__save> { return runFriendly(() => dismissRegularPaymentCandidate__save(...args)); }

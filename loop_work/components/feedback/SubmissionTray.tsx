@@ -68,12 +68,23 @@ export function SubmissionTray() {
         if (!response.ok) {
           if (!shown) show();
           update(id, { state: "failed", detail: response.status === 413 ? "That file is too big." : "Nothing was changed. Please try again." });
-        } else if (shown) {
-          // The response carries the refreshed page; refresh once more so every
-          // panel shows the saved version, then confirm.
-          router.refresh();
-          update(id, { state: "saved" });
-          window.setTimeout(() => dismiss(id), 3500);
+        } else {
+          // A save that failed politely hands back { __loopError: "…" }.
+          const text = await response.clone().text().catch(() => "");
+          const match = text.match(/"__loopError":"((?:[^"\\]|\\.)*)"/);
+          if (match) {
+            let message = match[1];
+            try { message = JSON.parse(`"${match[1]}"`); } catch { /* keep raw */ }
+            if (!shown) show();
+            update(id, { state: "failed", detail: message });
+            window.dispatchEvent(new CustomEvent("loop:save-failed", { detail: message }));
+          } else if (shown) {
+            // The response carries the refreshed page; refresh once more so every
+            // panel shows the saved version, then confirm.
+            router.refresh();
+            update(id, { state: "saved" });
+            window.setTimeout(() => dismiss(id), 3500);
+          }
         }
         return response;
       } catch (error) {
@@ -103,7 +114,7 @@ export function SubmissionTray() {
             <span className="block font-semibold">
               {item.state === "saving" ? "Saving…" : item.state === "saved" ? "Saved – it's live" : "That didn't save"}
             </span>
-            <span className="block truncate text-xs text-[var(--muted)]">{item.state === "failed" ? item.detail : item.label}</span>
+            <span className={`block text-xs ${item.state === "failed" ? "text-red-800" : "truncate text-[var(--muted)]"}`}>{item.state === "failed" ? item.detail : item.label}</span>
           </span>
           {item.state !== "saving" ? (
             <button type="button" onClick={() => dismiss(item.id)} aria-label="Close" className="text-[var(--muted)] hover:text-[var(--ink)]"><X className="h-4 w-4" /></button>

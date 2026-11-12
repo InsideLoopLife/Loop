@@ -1,4 +1,5 @@
 "use client";
+import { ensureSaved } from "@/lib/actions/friendly";
 
 // The home's story: purchase, Help to Buy, each mortgage deal, remortgages,
 // improvements. Mortgage deals LOOP already has appear automatically; the rest
@@ -57,8 +58,8 @@ function EventForm({ homeId, event, onDone }: { homeId: string; event?: HomeJour
         start(async () => {
           setError(null);
           try {
-            if (event) await updateHomeJourneyEvent(formData);
-            else await addHomeJourneyEvent(formData);
+            if (event) ensureSaved(await updateHomeJourneyEvent(formData));
+            else ensureSaved(await addHomeJourneyEvent(formData));
             router.refresh();
             onDone();
           } catch (caught: any) {

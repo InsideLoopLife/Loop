@@ -1,4 +1,5 @@
 "use server";
+import { runFriendly } from "@/lib/actions/friendly";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -224,7 +225,7 @@ async function recalculateSavingsAccountFromLedger(
   );
 }
 
-export async function addFinancialAccount(formData: FormData) {
+async function addFinancialAccount__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
 
   const accountType = String(formData.get("account_type") || "savings");
@@ -347,7 +348,7 @@ export async function addFinancialAccount(formData: FormData) {
   revalidatePath("/financial-flow");
 }
 
-export async function updateFinancialAccount(formData: FormData) {
+async function updateFinancialAccount__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const householdVisibleFilter = visibleDataOrFilter(householdContext);
   const id = String(formData.get("id"));
@@ -473,7 +474,7 @@ export async function updateFinancialAccount(formData: FormData) {
   revalidatePath("/financial-flow");
 }
 
-export async function assignSavingsAccountOwner(formData: FormData) {
+async function assignSavingsAccountOwner__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const householdVisibleFilter = visibleDataOrFilter(householdContext);
   const id = String(formData.get("id") || "");
@@ -523,7 +524,7 @@ export async function assignSavingsAccountOwner(formData: FormData) {
   revalidatePath("/spending");
 }
 
-export async function deleteFinancialAccount(formData: FormData) {
+async function deleteFinancialAccount__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const id = String(formData.get("id"));
 
@@ -544,7 +545,7 @@ export async function deleteFinancialAccount(formData: FormData) {
 }
 
 
-export async function addSavingsAccountMovement(formData: FormData) {
+async function addSavingsAccountMovement__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const householdVisibleFilter = visibleDataOrFilter(householdContext);
   const accountId = String(formData.get("financial_account_id") || "");
@@ -635,7 +636,7 @@ export async function addSavingsAccountMovement(formData: FormData) {
   revalidatePath("/financial-flow");
 }
 
-export async function deleteSavingsAccountMovement(formData: FormData) {
+async function deleteSavingsAccountMovement__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) return;
@@ -662,7 +663,7 @@ export async function deleteSavingsAccountMovement(formData: FormData) {
   revalidatePath("/financial-flow");
 }
 
-export async function snapshotToday() {
+async function snapshotToday__save() {
   const { supabase, user, householdContext } = await requireUser();
   const householdVisibleFilter = visibleDataOrFilter(householdContext);
   const today = new Date().toISOString().slice(0, 10);
@@ -698,7 +699,7 @@ export async function snapshotToday() {
   revalidatePath("/dashboard");
 }
 
-export async function saveFinancialProviderRelationship(formData: FormData) {
+async function saveFinancialProviderRelationship__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const providerSlug = String(formData.get("provider_slug") || "").trim();
   const providerName = String(formData.get("provider_name") || "").trim();
@@ -741,7 +742,7 @@ export async function saveFinancialProviderRelationship(formData: FormData) {
 
 
 
-export async function savePensionPerformanceAssumption(formData: FormData) {
+async function savePensionPerformanceAssumption__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const pensionFundId = String(formData.get("pension_fund_id") || "");
   if (!pensionFundId) throw new Error("Choose a pension fund.");
@@ -809,7 +810,7 @@ async function uploadSavingsPotImage(supabase: Awaited<ReturnType<typeof createC
   return supabase.storage.from("savings-pot-images").getPublicUrl(path).data.publicUrl;
 }
 
-export async function createSavingsPot(formData: FormData) {
+async function createSavingsPot__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const name = String(formData.get("name") || "").trim();
   if (!name) throw new Error("Give the savings pot a name.");
@@ -899,7 +900,7 @@ export async function createSavingsPot(formData: FormData) {
   revalidatePath("/financial-flow");
 }
 
-export async function addSavingsPotMovement(formData: FormData) {
+async function addSavingsPotMovement__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const potId = String(formData.get("savings_pot_id") || "");
   const amount = Math.max(0, Number(parseNumber(formData.get("amount")) || 0));
@@ -922,7 +923,7 @@ export async function addSavingsPotMovement(formData: FormData) {
   revalidatePath("/financial-flow");
 }
 
-export async function addSavingsPotAllocation(formData: FormData) {
+async function addSavingsPotAllocation__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const potId = String(formData.get("savings_pot_id") || "");
   const accountId = String(formData.get("financial_account_id") || "") || null;
@@ -958,7 +959,7 @@ export async function addSavingsPotAllocation(formData: FormData) {
   revalidatePath("/accounts");
 }
 
-export async function deleteSavingsPotAllocation(formData: FormData) {
+async function deleteSavingsPotAllocation__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) return;
@@ -973,7 +974,7 @@ export async function deleteSavingsPotAllocation(formData: FormData) {
   revalidatePath("/accounts");
 }
 
-export async function deleteSavingsPot(formData: FormData) {
+async function deleteSavingsPot__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) return;
@@ -986,7 +987,7 @@ export async function deleteSavingsPot(formData: FormData) {
   revalidatePath("/accounts");
 }
 
-export async function saveSavingsDealEligibility(formData: FormData) {
+async function saveSavingsDealEligibility__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const dealId = String(formData.get("savings_rate_deal_id") || "");
   const status = String(formData.get("eligibility_status") || "unknown");
@@ -1016,3 +1017,20 @@ export async function saveSavingsDealEligibility(formData: FormData) {
   if (error) throw new Error(error.message);
   revalidatePath("/accounts");
 }
+
+// Every save hands a clear message back if it fails (see lib/actions/friendly).
+export async function addFinancialAccount(...args: Parameters<typeof addFinancialAccount__save>): ReturnType<typeof addFinancialAccount__save> { return runFriendly(() => addFinancialAccount__save(...args)); }
+export async function updateFinancialAccount(...args: Parameters<typeof updateFinancialAccount__save>): ReturnType<typeof updateFinancialAccount__save> { return runFriendly(() => updateFinancialAccount__save(...args)); }
+export async function assignSavingsAccountOwner(...args: Parameters<typeof assignSavingsAccountOwner__save>): ReturnType<typeof assignSavingsAccountOwner__save> { return runFriendly(() => assignSavingsAccountOwner__save(...args)); }
+export async function deleteFinancialAccount(...args: Parameters<typeof deleteFinancialAccount__save>): ReturnType<typeof deleteFinancialAccount__save> { return runFriendly(() => deleteFinancialAccount__save(...args)); }
+export async function addSavingsAccountMovement(...args: Parameters<typeof addSavingsAccountMovement__save>): ReturnType<typeof addSavingsAccountMovement__save> { return runFriendly(() => addSavingsAccountMovement__save(...args)); }
+export async function deleteSavingsAccountMovement(...args: Parameters<typeof deleteSavingsAccountMovement__save>): ReturnType<typeof deleteSavingsAccountMovement__save> { return runFriendly(() => deleteSavingsAccountMovement__save(...args)); }
+export async function snapshotToday(...args: Parameters<typeof snapshotToday__save>): ReturnType<typeof snapshotToday__save> { return runFriendly(() => snapshotToday__save(...args)); }
+export async function saveFinancialProviderRelationship(...args: Parameters<typeof saveFinancialProviderRelationship__save>): ReturnType<typeof saveFinancialProviderRelationship__save> { return runFriendly(() => saveFinancialProviderRelationship__save(...args)); }
+export async function savePensionPerformanceAssumption(...args: Parameters<typeof savePensionPerformanceAssumption__save>): ReturnType<typeof savePensionPerformanceAssumption__save> { return runFriendly(() => savePensionPerformanceAssumption__save(...args)); }
+export async function createSavingsPot(...args: Parameters<typeof createSavingsPot__save>): ReturnType<typeof createSavingsPot__save> { return runFriendly(() => createSavingsPot__save(...args)); }
+export async function addSavingsPotMovement(...args: Parameters<typeof addSavingsPotMovement__save>): ReturnType<typeof addSavingsPotMovement__save> { return runFriendly(() => addSavingsPotMovement__save(...args)); }
+export async function addSavingsPotAllocation(...args: Parameters<typeof addSavingsPotAllocation__save>): ReturnType<typeof addSavingsPotAllocation__save> { return runFriendly(() => addSavingsPotAllocation__save(...args)); }
+export async function deleteSavingsPotAllocation(...args: Parameters<typeof deleteSavingsPotAllocation__save>): ReturnType<typeof deleteSavingsPotAllocation__save> { return runFriendly(() => deleteSavingsPotAllocation__save(...args)); }
+export async function deleteSavingsPot(...args: Parameters<typeof deleteSavingsPot__save>): ReturnType<typeof deleteSavingsPot__save> { return runFriendly(() => deleteSavingsPot__save(...args)); }
+export async function saveSavingsDealEligibility(...args: Parameters<typeof saveSavingsDealEligibility__save>): ReturnType<typeof saveSavingsDealEligibility__save> { return runFriendly(() => saveSavingsDealEligibility__save(...args)); }

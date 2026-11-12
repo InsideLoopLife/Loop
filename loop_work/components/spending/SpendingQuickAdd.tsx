@@ -1,4 +1,5 @@
 "use client";
+import { ensureSaved } from "@/lib/actions/friendly";
 
 // "+" on the Spending page: name → amount → once or repeating → when → (who).
 // Saves through the existing actions: a spend that already happened becomes a
@@ -139,7 +140,7 @@ export function SpendingQuickAdd({ people, onClose, onSaved }: { people: Person[
       const today = todayIso();
       if (repeat === "once" && date <= today) {
         fd.set("spent_at", date);
-        await addSpendingEntry(fd);
+        ensureSaved(await addSpendingEntry(fd));
       } else {
         fd.set("direction", "outgoing");
         fd.set("start_date", date);
@@ -152,7 +153,7 @@ export function SpendingQuickAdd({ people, onClose, onSaved }: { people: Person[
           fd.set("recurrence", often);
           if (["monthly", "quarterly", "annual"].includes(often)) fd.set("day_of_month", date.slice(8, 10));
         }
-        await addPlannedItem(fd);
+        ensureSaved(await addPlannedItem(fd));
       }
       router.refresh();
       const howOften = repeat === "once" ? "" : ` · ${OFTEN.find((o) => o.value === often)?.label.toLowerCase()}`;

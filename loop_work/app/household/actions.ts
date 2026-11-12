@@ -1,4 +1,5 @@
 "use server";
+import { runFriendly } from "@/lib/actions/friendly";
 import { APP_FALLBACK_URL } from "@/lib/app-url";
 
 import crypto from "crypto";
@@ -193,7 +194,7 @@ async function logPayEventAssumptionChecks(supabase: any, userId: string, formDa
   }
 }
 
-export async function addPerson(formData: FormData) {
+async function addPerson__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
 
   const avatarUrl = await avatarUrlFromForm(supabase, user.id, formData);
@@ -222,7 +223,7 @@ export async function addPerson(formData: FormData) {
   revalidatePath("/affordability");
 }
 
-export async function updatePersonProfile(formData: FormData) {
+async function updatePersonProfile__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing person id");
@@ -253,7 +254,7 @@ export async function updatePersonProfile(formData: FormData) {
   revalidatePath("/income");
 }
 
-export async function createPersonAccountPrompt(formData: FormData) {
+async function createPersonAccountPrompt__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const householdVisibleFilter = visibleDataOrFilter(householdContext);
   const personId = String(formData.get("person_id") || "");
@@ -348,7 +349,7 @@ Passwords and two-factor authentication are controlled by the person who owns th
   revalidatePath(`/household/${personId}`);
 }
 
-export async function addPayEvent(formData: FormData) {
+async function addPayEvent__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
 
   const { error } = await supabase.from("pay_events").insert({
@@ -390,7 +391,7 @@ export async function addPayEvent(formData: FormData) {
 }
 
 
-export async function updatePayEvent(formData: FormData) {
+async function updatePayEvent__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing pay event id");
@@ -604,7 +605,7 @@ async function checkChildCost(supabase: any, payload: { child_id?: string | null
   }
 }
 
-export async function addChildCost(formData: FormData) {
+async function addChildCost__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const payload = { ...buildChildCostPayload(user.id, formData), ...householdWriteFields(householdContext, user.id) };
   await checkChildCost(supabase, payload as any);
@@ -613,7 +614,7 @@ export async function addChildCost(formData: FormData) {
   revalidateChildCostPaths(String(formData.get("child_id") || ""));
 }
 
-export async function updateChildCost(formData: FormData) {
+async function updateChildCost__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing child cost id");
@@ -632,7 +633,7 @@ export async function updateChildCost(formData: FormData) {
 }
 
 
-export async function deletePerson(formData: FormData) {
+async function deletePerson__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id"));
   const { error } = await applyMutableRecordFilter(supabase.from("people").delete(), id, householdContext);
@@ -641,7 +642,7 @@ export async function deletePerson(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function deletePayEvent(formData: FormData) {
+async function deletePayEvent__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id"));
   const { error } = await changeRecord(supabase.from("pay_events").delete(), id, householdContext);
@@ -652,7 +653,7 @@ export async function deletePayEvent(formData: FormData) {
   revalidatePath("/affordability");
 }
 
-export async function deleteChildCost(formData: FormData) {
+async function deleteChildCost__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id"));
   const { error } = await changeRecord(supabase.from("child_costs").delete(), id, householdContext);
@@ -663,7 +664,7 @@ export async function deleteChildCost(formData: FormData) {
   revalidatePath("/affordability");
 }
 
-export async function addPayEventMonthlyOverride(formData: FormData) {
+async function addPayEventMonthlyOverride__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const payEventId = String(formData.get("pay_event_id") || "");
   const personId = String(formData.get("person_id") || "") || null;
@@ -689,7 +690,7 @@ export async function addPayEventMonthlyOverride(formData: FormData) {
   revalidatePath("/income");
 }
 
-export async function deletePayEventMonthlyOverride(formData: FormData) {
+async function deletePayEventMonthlyOverride__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const id = String(formData.get("id") || "");
   const personId = String(formData.get("person_id") || "");
@@ -848,7 +849,7 @@ async function syncCurrentUserSelfPerson(
 }
 
 
-export async function createHouseholdFromHouseholdPage(formData: FormData) {
+async function createHouseholdFromHouseholdPage__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const name = String(formData.get("household_name") || "").trim() || "My household";
   const timezone = String(formData.get("timezone") || "Europe/London").trim();
@@ -870,7 +871,7 @@ export async function createHouseholdFromHouseholdPage(formData: FormData) {
   redirect("/household?created=1");
 }
 
-export async function createManagedChildProfile(formData: FormData) {
+async function createManagedChildProfile__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const context = await ensureCanManageHousehold(supabase, user);
   const householdOwnerUserId = context.household!.owner_user_id || user.id;
@@ -916,7 +917,7 @@ export async function createManagedChildProfile(formData: FormData) {
 }
 
 
-export async function inviteExistingUserToHousehold(formData: FormData) {
+async function inviteExistingUserToHousehold__save(formData: FormData) {
   const { supabase, user } = await requireUser();
   const context = await ensureCanManageHousehold(supabase, user);
   const inviteTo = normaliseEmailOrUsername(formData.get("invite_to"));
@@ -965,7 +966,7 @@ export async function inviteExistingUserToHousehold(formData: FormData) {
 }
 
 
-export async function createOpenHouseholdQrInvite() {
+async function createOpenHouseholdQrInvite__save() {
   const { supabase, user } = await requireUser();
   const context = await ensureCanManageHousehold(supabase, user);
   const baseUrl = (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || APP_FALLBACK_URL).replace(/\/$/, "");
@@ -982,7 +983,7 @@ export async function createOpenHouseholdQrInvite() {
 }
 
 
-export async function updateHouseholdMemberRole(formData: FormData) {
+async function updateHouseholdMemberRole__save(formData: FormData) {
   const { supabase } = await requireUser();
   const memberId = String(formData.get("member_id") || "");
   const permissionTier = ["admin", "parent", "member", "viewer"].includes(String(formData.get("permission_tier"))) ? String(formData.get("permission_tier")) : "member";
@@ -1001,7 +1002,7 @@ export async function updateHouseholdMemberRole(formData: FormData) {
 }
 
 
-export async function removeHouseholdMember(formData: FormData) {
+async function removeHouseholdMember__save(formData: FormData) {
   const { supabase } = await requireUser();
   const memberId = String(formData.get("member_id") || "");
   if (!memberId) throw new Error("Missing member id.");
@@ -1015,7 +1016,7 @@ export async function removeHouseholdMember(formData: FormData) {
 }
 
 
-export async function requestProfileDataHandover(formData: FormData) {
+async function requestProfileDataHandover__save(formData: FormData) {
   const { supabase } = await requireUser();
   const personId = String(formData.get("person_id") || "");
   const message = String(formData.get("message") || "").trim();
@@ -1032,7 +1033,7 @@ export async function requestProfileDataHandover(formData: FormData) {
   revalidatePath("/notifications");
 }
 
-export async function deleteHousehold(formData: FormData) {
+async function deleteHousehold__save(formData: FormData) {
   const { supabase } = await requireUser();
   const householdId = String(formData.get("household_id") || "");
   const confirmation = String(formData.get("confirmation") || "").trim();
@@ -1051,7 +1052,7 @@ export async function deleteHousehold(formData: FormData) {
 }
 
 
-export async function leaveHousehold(formData: FormData) {
+async function leaveHousehold__save(formData: FormData) {
   const { supabase } = await requireUser();
   const householdId = String(formData.get("household_id") || "");
   if (!householdId) throw new Error("Missing household id.");
@@ -1065,7 +1066,7 @@ export async function leaveHousehold(formData: FormData) {
   redirect("/account?tab=sharing&left=1");
 }
 
-export async function addHouseholdPet(formData: FormData) {
+async function addHouseholdPet__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   if (!householdContext.householdId) throw new Error("Create or join a household before adding a pet.");
   const name = String(formData.get("name") || "").trim();
@@ -1086,7 +1087,7 @@ export async function addHouseholdPet(formData: FormData) {
   revalidatePath("/spending");
 }
 
-export async function archiveHouseholdPet(formData: FormData) {
+async function archiveHouseholdPet__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id || !householdContext.householdId) return;
@@ -1096,7 +1097,7 @@ export async function archiveHouseholdPet(formData: FormData) {
   revalidatePath("/spending");
 }
 
-export async function saveHouseholdCarbonProfile(formData: FormData) {
+async function saveHouseholdCarbonProfile__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   if (!householdContext.householdId) throw new Error("Create or join a household first.");
   const { error } = await supabase.from("household_carbon_profiles").upsert({
@@ -1112,7 +1113,7 @@ export async function saveHouseholdCarbonProfile(formData: FormData) {
   revalidatePath("/household");
 }
 
-export async function adoptHouseholdFoodAssumption() {
+async function adoptHouseholdFoodAssumption__save() {
   const { supabase, user, householdContext } = await requireUser();
   if (!householdContext.householdId) throw new Error("Create or join a household first.");
   const { error } = await supabase.from("household_carbon_profiles").upsert({
@@ -1163,7 +1164,7 @@ export async function adoptHouseholdFoodAssumption() {
   revalidatePath("/financial-flow");
 }
 
-export async function addHouseholdVehicle(formData: FormData) {
+async function addHouseholdVehicle__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   if (!householdContext.householdId) throw new Error("Create or join a household first.");
   const name = String(formData.get("name") || "").trim();
@@ -1187,7 +1188,7 @@ export async function addHouseholdVehicle(formData: FormData) {
 }
 
 /** Choose how your own money is shared with the rest of the household. */
-export async function setMyShareLevel(formData: FormData) {
+async function setMyShareLevel__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const level = String(formData.get("share_level") || "");
   if (!["private", "view", "edit"].includes(level)) throw new Error("Pick how you'd like to share.");
@@ -1204,7 +1205,7 @@ export async function setMyShareLevel(formData: FormData) {
  * - Added by mistake: delete them (a child's own cost lines go with them; a
  *   pet's bills are kept but no longer linked to the pet).
  */
-export async function removeDependant(formData: FormData) {
+async function removeDependant__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const kind = String(formData.get("kind") || "");
   const id = String(formData.get("id") || "");
@@ -1247,7 +1248,7 @@ export async function removeDependant(formData: FormData) {
 }
 
 /** Update a pet's details. */
-export async function updateHouseholdPet(formData: FormData) {
+async function updateHouseholdPet__save(formData: FormData) {
   const { supabase, householdContext } = await requireUser();
   const id = String(formData.get("id") || "");
   if (!id || !householdContext.householdId) throw new Error("Missing pet.");
@@ -1266,3 +1267,34 @@ export async function updateHouseholdPet(formData: FormData) {
   revalidatePath("/household");
   revalidatePath("/spending");
 }
+
+// Every save hands a clear message back if it fails (see lib/actions/friendly).
+export async function addPerson(...args: Parameters<typeof addPerson__save>): ReturnType<typeof addPerson__save> { return runFriendly(() => addPerson__save(...args)); }
+export async function updatePersonProfile(...args: Parameters<typeof updatePersonProfile__save>): ReturnType<typeof updatePersonProfile__save> { return runFriendly(() => updatePersonProfile__save(...args)); }
+export async function createPersonAccountPrompt(...args: Parameters<typeof createPersonAccountPrompt__save>): ReturnType<typeof createPersonAccountPrompt__save> { return runFriendly(() => createPersonAccountPrompt__save(...args)); }
+export async function addPayEvent(...args: Parameters<typeof addPayEvent__save>): ReturnType<typeof addPayEvent__save> { return runFriendly(() => addPayEvent__save(...args)); }
+export async function updatePayEvent(...args: Parameters<typeof updatePayEvent__save>): ReturnType<typeof updatePayEvent__save> { return runFriendly(() => updatePayEvent__save(...args)); }
+export async function addChildCost(...args: Parameters<typeof addChildCost__save>): ReturnType<typeof addChildCost__save> { return runFriendly(() => addChildCost__save(...args)); }
+export async function updateChildCost(...args: Parameters<typeof updateChildCost__save>): ReturnType<typeof updateChildCost__save> { return runFriendly(() => updateChildCost__save(...args)); }
+export async function deletePerson(...args: Parameters<typeof deletePerson__save>): ReturnType<typeof deletePerson__save> { return runFriendly(() => deletePerson__save(...args)); }
+export async function deletePayEvent(...args: Parameters<typeof deletePayEvent__save>): ReturnType<typeof deletePayEvent__save> { return runFriendly(() => deletePayEvent__save(...args)); }
+export async function deleteChildCost(...args: Parameters<typeof deleteChildCost__save>): ReturnType<typeof deleteChildCost__save> { return runFriendly(() => deleteChildCost__save(...args)); }
+export async function addPayEventMonthlyOverride(...args: Parameters<typeof addPayEventMonthlyOverride__save>): ReturnType<typeof addPayEventMonthlyOverride__save> { return runFriendly(() => addPayEventMonthlyOverride__save(...args)); }
+export async function deletePayEventMonthlyOverride(...args: Parameters<typeof deletePayEventMonthlyOverride__save>): ReturnType<typeof deletePayEventMonthlyOverride__save> { return runFriendly(() => deletePayEventMonthlyOverride__save(...args)); }
+export async function createHouseholdFromHouseholdPage(...args: Parameters<typeof createHouseholdFromHouseholdPage__save>): ReturnType<typeof createHouseholdFromHouseholdPage__save> { return runFriendly(() => createHouseholdFromHouseholdPage__save(...args)); }
+export async function createManagedChildProfile(...args: Parameters<typeof createManagedChildProfile__save>): ReturnType<typeof createManagedChildProfile__save> { return runFriendly(() => createManagedChildProfile__save(...args)); }
+export async function inviteExistingUserToHousehold(...args: Parameters<typeof inviteExistingUserToHousehold__save>): ReturnType<typeof inviteExistingUserToHousehold__save> { return runFriendly(() => inviteExistingUserToHousehold__save(...args)); }
+export async function createOpenHouseholdQrInvite(...args: Parameters<typeof createOpenHouseholdQrInvite__save>): ReturnType<typeof createOpenHouseholdQrInvite__save> { return runFriendly(() => createOpenHouseholdQrInvite__save(...args)); }
+export async function updateHouseholdMemberRole(...args: Parameters<typeof updateHouseholdMemberRole__save>): ReturnType<typeof updateHouseholdMemberRole__save> { return runFriendly(() => updateHouseholdMemberRole__save(...args)); }
+export async function removeHouseholdMember(...args: Parameters<typeof removeHouseholdMember__save>): ReturnType<typeof removeHouseholdMember__save> { return runFriendly(() => removeHouseholdMember__save(...args)); }
+export async function requestProfileDataHandover(...args: Parameters<typeof requestProfileDataHandover__save>): ReturnType<typeof requestProfileDataHandover__save> { return runFriendly(() => requestProfileDataHandover__save(...args)); }
+export async function deleteHousehold(...args: Parameters<typeof deleteHousehold__save>): ReturnType<typeof deleteHousehold__save> { return runFriendly(() => deleteHousehold__save(...args)); }
+export async function leaveHousehold(...args: Parameters<typeof leaveHousehold__save>): ReturnType<typeof leaveHousehold__save> { return runFriendly(() => leaveHousehold__save(...args)); }
+export async function addHouseholdPet(...args: Parameters<typeof addHouseholdPet__save>): ReturnType<typeof addHouseholdPet__save> { return runFriendly(() => addHouseholdPet__save(...args)); }
+export async function archiveHouseholdPet(...args: Parameters<typeof archiveHouseholdPet__save>): ReturnType<typeof archiveHouseholdPet__save> { return runFriendly(() => archiveHouseholdPet__save(...args)); }
+export async function saveHouseholdCarbonProfile(...args: Parameters<typeof saveHouseholdCarbonProfile__save>): ReturnType<typeof saveHouseholdCarbonProfile__save> { return runFriendly(() => saveHouseholdCarbonProfile__save(...args)); }
+export async function adoptHouseholdFoodAssumption(...args: Parameters<typeof adoptHouseholdFoodAssumption__save>): ReturnType<typeof adoptHouseholdFoodAssumption__save> { return runFriendly(() => adoptHouseholdFoodAssumption__save(...args)); }
+export async function addHouseholdVehicle(...args: Parameters<typeof addHouseholdVehicle__save>): ReturnType<typeof addHouseholdVehicle__save> { return runFriendly(() => addHouseholdVehicle__save(...args)); }
+export async function setMyShareLevel(...args: Parameters<typeof setMyShareLevel__save>): ReturnType<typeof setMyShareLevel__save> { return runFriendly(() => setMyShareLevel__save(...args)); }
+export async function removeDependant(...args: Parameters<typeof removeDependant__save>): ReturnType<typeof removeDependant__save> { return runFriendly(() => removeDependant__save(...args)); }
+export async function updateHouseholdPet(...args: Parameters<typeof updateHouseholdPet__save>): ReturnType<typeof updateHouseholdPet__save> { return runFriendly(() => updateHouseholdPet__save(...args)); }

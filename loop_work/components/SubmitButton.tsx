@@ -20,6 +20,13 @@ export function SubmitButton({
   const { pending } = useFormStatus();
   const was = useRef(false);
   const [saved, setSaved] = useState(false);
+  const [failed, setFailed] = useState(false);
+  // If the save comes back with a problem, don't claim it saved.
+  useEffect(() => {
+    const onFail = () => { if (was.current || saved) { setSaved(false); setFailed(true); window.setTimeout(() => setFailed(false), 4000); } };
+    window.addEventListener("loop:save-failed", onFail);
+    return () => window.removeEventListener("loop:save-failed", onFail);
+  }, [saved]);
   useEffect(() => {
     if (was.current && !pending) {
       setSaved(true);
@@ -31,7 +38,7 @@ export function SubmitButton({
   }, [pending]);
   return (
     <button type="submit" disabled={pending} className={`${className} gap-1.5 disabled:cursor-wait disabled:opacity-60`}>
-      {pending ? pendingLabel : saved ? <><Check className="h-4 w-4" /> {savedLabel}</> : children}
+      {pending ? pendingLabel : failed ? "Didn't save – try again" : saved ? <><Check className="h-4 w-4" /> {savedLabel}</> : children}
     </button>
   );
 }

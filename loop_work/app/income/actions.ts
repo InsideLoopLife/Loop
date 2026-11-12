@@ -1,4 +1,5 @@
 "use server";
+import { runFriendly } from "@/lib/actions/friendly";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -85,7 +86,7 @@ function revalidateIncomeSurfaces(personId?: string | null) {
   if (personId) revalidatePath(`/household/${personId}`);
 }
 
-export async function addIncomeEntry(formData: FormData) {
+async function addIncomeEntry__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireIncomeUser();
   const personId = await resolveIncomePersonId(supabase, user.id, householdContext, formData.get("person_id"));
 
@@ -104,7 +105,7 @@ export async function addIncomeEntry(formData: FormData) {
   revalidateIncomeSurfaces(personId);
 }
 
-export async function updateIncomeEntry(formData: FormData) {
+async function updateIncomeEntry__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireIncomeUser();
   const id = String(formData.get("id") || "").trim();
   if (!id) throw new Error("Missing income id");
@@ -127,7 +128,7 @@ export async function updateIncomeEntry(formData: FormData) {
   revalidateIncomeSurfaces(personId);
 }
 
-export async function deleteIncomeEntry(formData: FormData) {
+async function deleteIncomeEntry__save(formData: FormData) {
   const { supabase, householdContext } = await requireIncomeUser();
   const id = String(formData.get("id"));
   const { error } = await changeRecord(
@@ -140,7 +141,7 @@ export async function deleteIncomeEntry(formData: FormData) {
   revalidateIncomeSurfaces();
 }
 
-export async function addRecurringPayEvent(formData: FormData) {
+async function addRecurringPayEvent__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireIncomeUser();
   const personId = await resolveIncomePersonId(supabase, user.id, householdContext, formData.get("person_id"));
   const payload = {
@@ -168,7 +169,7 @@ export async function addRecurringPayEvent(formData: FormData) {
   revalidateIncomeSurfaces(personId);
 }
 
-export async function updateRecurringPayEvent(formData: FormData) {
+async function updateRecurringPayEvent__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireIncomeUser();
   const id = String(formData.get("id") || "").trim();
   if (!id) throw new Error("Missing pay event id");
@@ -183,7 +184,7 @@ export async function updateRecurringPayEvent(formData: FormData) {
   revalidateIncomeSurfaces(personId);
 }
 
-export async function deleteIncomePayEvent(formData: FormData) {
+async function deleteIncomePayEvent__save(formData: FormData) {
   const { supabase, householdContext } = await requireIncomeUser();
   const id = String(formData.get("id") || "");
   const { error } = await changeRecord(supabase.from("pay_events").delete(), id, householdContext);
@@ -191,7 +192,7 @@ export async function deleteIncomePayEvent(formData: FormData) {
   revalidateIncomeSurfaces();
 }
 
-export async function upsertStudentLoanAccount(formData: FormData) {
+async function upsertStudentLoanAccount__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireIncomeUser();
   const id = String(formData.get("id") || "").trim() || null;
   const personId = await resolveIncomePersonId(supabase, user.id, householdContext, formData.get("person_id"));
@@ -260,7 +261,7 @@ export async function upsertStudentLoanAccount(formData: FormData) {
   revalidateIncomeSurfaces(personId);
 }
 
-export async function deleteStudentLoanAccount(formData: FormData) {
+async function deleteStudentLoanAccount__save(formData: FormData) {
   const { supabase, householdContext } = await requireIncomeUser();
   const id = String(formData.get("id") || "");
   const { error } = await applyMutableRecordFilter(supabase.from("student_loan_accounts").delete(), id, householdContext);
@@ -270,7 +271,7 @@ export async function deleteStudentLoanAccount(formData: FormData) {
 
 const DEDUCTION_TYPES = ["car_salary_sacrifice", "cycle_to_work", "additional_pension", "other"];
 
-export async function addIncomeDeduction(formData: FormData) {
+async function addIncomeDeduction__save(formData: FormData) {
   const { supabase, user, householdContext } = await requireIncomeUser();
   const personId = await resolveIncomePersonId(supabase, user.id, householdContext, formData.get("person_id"));
   const deductionTypeValue = String(formData.get("deduction_type") || "other");
@@ -293,7 +294,7 @@ export async function addIncomeDeduction(formData: FormData) {
   revalidateIncomeSurfaces(personId);
 }
 
-export async function deleteIncomeDeduction(formData: FormData) {
+async function deleteIncomeDeduction__save(formData: FormData) {
   const { supabase, householdContext } = await requireIncomeUser();
   const id = String(formData.get("id") || "");
   const { error } = await applyMutableRecordFilter(supabase.from("income_deductions").delete(), id, householdContext);
@@ -306,7 +307,7 @@ const PENSION_METHODS = ["none", "net_pay", "salary_sacrifice", "relief_at_sourc
 const LOAN_PLANS = ["none", "plan_1", "plan_2", "plan_4", "plan_5", "postgraduate"];
 
 /** Payslip panel: change one pay record's deductions without reopening the full form. */
-export async function updatePaySettings(formData: FormData) {
+async function updatePaySettings__save(formData: FormData) {
   const { supabase, householdContext } = await requireIncomeUser();
   const id = String(formData.get("id") || "").trim();
   if (!id) throw new Error("Missing pay record");
@@ -329,3 +330,16 @@ export async function updatePaySettings(formData: FormData) {
   if (error) throw new Error(error.message);
   revalidateIncomeSurfaces(String(formData.get("person_id") || "") || null);
 }
+
+// Every save hands a clear message back if it fails (see lib/actions/friendly).
+export async function addIncomeEntry(...args: Parameters<typeof addIncomeEntry__save>): ReturnType<typeof addIncomeEntry__save> { return runFriendly(() => addIncomeEntry__save(...args)); }
+export async function updateIncomeEntry(...args: Parameters<typeof updateIncomeEntry__save>): ReturnType<typeof updateIncomeEntry__save> { return runFriendly(() => updateIncomeEntry__save(...args)); }
+export async function deleteIncomeEntry(...args: Parameters<typeof deleteIncomeEntry__save>): ReturnType<typeof deleteIncomeEntry__save> { return runFriendly(() => deleteIncomeEntry__save(...args)); }
+export async function addRecurringPayEvent(...args: Parameters<typeof addRecurringPayEvent__save>): ReturnType<typeof addRecurringPayEvent__save> { return runFriendly(() => addRecurringPayEvent__save(...args)); }
+export async function updateRecurringPayEvent(...args: Parameters<typeof updateRecurringPayEvent__save>): ReturnType<typeof updateRecurringPayEvent__save> { return runFriendly(() => updateRecurringPayEvent__save(...args)); }
+export async function deleteIncomePayEvent(...args: Parameters<typeof deleteIncomePayEvent__save>): ReturnType<typeof deleteIncomePayEvent__save> { return runFriendly(() => deleteIncomePayEvent__save(...args)); }
+export async function upsertStudentLoanAccount(...args: Parameters<typeof upsertStudentLoanAccount__save>): ReturnType<typeof upsertStudentLoanAccount__save> { return runFriendly(() => upsertStudentLoanAccount__save(...args)); }
+export async function deleteStudentLoanAccount(...args: Parameters<typeof deleteStudentLoanAccount__save>): ReturnType<typeof deleteStudentLoanAccount__save> { return runFriendly(() => deleteStudentLoanAccount__save(...args)); }
+export async function addIncomeDeduction(...args: Parameters<typeof addIncomeDeduction__save>): ReturnType<typeof addIncomeDeduction__save> { return runFriendly(() => addIncomeDeduction__save(...args)); }
+export async function deleteIncomeDeduction(...args: Parameters<typeof deleteIncomeDeduction__save>): ReturnType<typeof deleteIncomeDeduction__save> { return runFriendly(() => deleteIncomeDeduction__save(...args)); }
+export async function updatePaySettings(...args: Parameters<typeof updatePaySettings__save>): ReturnType<typeof updatePaySettings__save> { return runFriendly(() => updatePaySettings__save(...args)); }
