@@ -348,6 +348,27 @@ export default async function HouseholdPage({ searchParams }: { searchParams?: P
   const selectedGuardianIds = new Set(guardianLinks.map((link) => link.guardian_person_id));
   // Same month plan as the Summary and Money in & out, so the figures match.
   const { plans: [monthPlan], savingNames } = await loadMonthPlans(dataClient, { userId: householdContext.dataOwnerUserId, filter: visibleFilter, months: [monthKey] }).catch(() => ({ plans: [null], savingNames: new Set<string>() }) as any);
+  // What each child and pet costs this month, shown under them on the family map.
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: petBills } = pets.length
+    ? await dataClient.from("planned_items").select("id, pet_id, label, amount, recurrence, start_date, end_date").in("pet_id", pets.map((p) => p.id)).or(`end_date.is.null,end_date.gte.${today}`).order("label")
+    : { data: [] as any[] };
+  const perMonth = (amount: number, recurrence?: string | null) => {
+    const r = String(recurrence || "monthly");
+    return r === "annual" || r === "yearly" ? amount / 12 : r === "quarterly" ? amount / 3 : r === "weekly" ? (amount * 52) / 12 : r === "fortnightly" ? (amount * 26) / 12 : r === "four_weekly" ? (amount * 13) / 12 : r === "one_off" ? 0 : amount;
+  };
+  const dependantCosts: Record<string, number> = {};
+  for (const line of (monthPlan?.outgoingItems || []) as any[]) {
+    if (line.personId) dependantCosts[line.personId] = (dependantCosts[line.personId] || 0) + Number(line.value || 0);
+  }
+  const petCosts: Record<string, Array<{ id: string; label: string; monthly: number }>> = {};
+  for (const bill of (petBills || []) as any[]) {
+    if (bill.start_date && bill.start_date > today) continue;
+    const monthly = perMonth(Number(bill.amount || 0), bill.recurrence);
+    (petCosts[bill.pet_id] ||= []).push({ id: bill.id, label: bill.label, monthly });
+    dependantCosts[`pet:${bill.pet_id}`] = (dependantCosts[`pet:${bill.pet_id}`] || 0) + monthly;
+  }
+
   const householdOverviewModel = buildHouseholdOverviewModel({
     plan: monthPlan,
     savingNames,
@@ -388,6 +409,8 @@ export default async function HouseholdPage({ searchParams }: { searchParams?: P
           model={householdOverviewModel}
           canManage={canManage}
           openAdd={params.add === "1"}
+          dependantCosts={dependantCosts}
+          petCosts={petCosts}
         />
         ) : null}
 

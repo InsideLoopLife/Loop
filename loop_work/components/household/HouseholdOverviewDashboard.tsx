@@ -6,7 +6,7 @@ import { ArrowRight, ChartNoAxesColumnIncreasing, CloudSun, Coins, Droplets, Hom
 import { SafeAvatar } from "@/components/SafeAvatar";
 import { formatMoney } from "@/lib/format/money";
 import type { HouseholdOverviewModel, HouseholdOverviewPerson } from "@/lib/household/household-overview-model";
-import { addHouseholdPet, addHouseholdVehicle, addPerson, adoptHouseholdFoodAssumption, createManagedChildProfile, inviteExistingUserToHousehold, saveHouseholdCarbonProfile } from "@/app/household/actions";
+import { addHouseholdPet, addHouseholdVehicle, addPerson, removeDependant, updateHouseholdPet, adoptHouseholdFoodAssumption, createManagedChildProfile, inviteExistingUserToHousehold, saveHouseholdCarbonProfile } from "@/app/household/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 
 type HouseholdShape = {
@@ -108,7 +108,7 @@ function BarRow({ label, amount, percent, tone = "emerald", helper }: { label: s
   );
 }
 
-function FamilyToken({ person, index }: { person: HouseholdOverviewPerson; index: number }) {
+function FamilyToken({ person, index, monthly }: { person: HouseholdOverviewPerson; index: number; monthly?: number }) {
   const isChild = String(person.relationship || "").toLowerCase() === "child";
   const childIcons = ["🦊", "🦖", "🐢", "🚀", "⭐", "🧸"];
   return (
@@ -122,18 +122,25 @@ function FamilyToken({ person, index }: { person: HouseholdOverviewPerson; index
       {!person.avatar_url && isChild ? <span className="absolute top-4 text-xl">{childIcons[index % childIcons.length]}</span> : null}
       <p className="max-w-[120px] truncate text-center text-xs font-black text-slate-700">{person.name}</p>
       <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${isChild ? "bg-sky-100 text-sky-700" : "bg-orange-100 text-orange-700"}`}>{person.relationship || "member"}</span>
+      {isChild ? <span className="text-[11px] font-bold text-slate-500">{monthly ? `${formatMoney(monthly)}/mo` : "No costs yet"}</span> : null}
     </Link>
   );
 }
 
-function PetToken({ pet }: { pet: HouseholdPet }) {
-  const age = pet.birth_date ? Math.max(0, Math.floor((Date.now() - new Date(`${pet.birth_date}T12:00:00`).getTime()) / 31_556_952_000)) : null;
+function petAge(birthDate?: string | null) {
+  if (!birthDate || birthDate < "1980-01-01") return null;
+  return Math.max(0, Math.floor((Date.now() - new Date(`${birthDate}T12:00:00`).getTime()) / 31_556_952_000));
+}
+
+function PetToken({ pet, monthly, onOpen }: { pet: HouseholdPet; monthly?: number; onOpen: () => void }) {
+  const age = petAge(pet.birth_date);
   return (
-    <Link href="/spending/categories" className="flex flex-col items-center gap-2 transition hover:-translate-y-0.5">
-      <span className="grid h-16 w-16 place-items-center rounded-3xl bg-emerald-50 text-3xl shadow-sm ring-4 ring-emerald-100" title={`${pet.species || "Pet"}${age !== null ? ` · age ${age}` : ""} — view bills`}>{petIcon(pet.species)}</span>
+    <button type="button" onClick={onOpen} className="flex flex-col items-center gap-2 rounded-3xl p-2 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-sm" title={`Open ${pet.name}`}>
+      <span className="grid h-16 w-16 place-items-center rounded-3xl bg-emerald-50 text-3xl shadow-sm ring-4 ring-emerald-100">{petIcon(pet.species)}</span>
       <p className="max-w-[120px] truncate text-center text-xs font-black text-slate-700">{pet.name}</p>
       <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700">{pet.species || "pet"}{age !== null ? ` · ${age}y` : ""}</span>
-    </Link>
+      <span className="text-[11px] font-bold text-slate-500">{monthly ? `${formatMoney(monthly)}/mo` : "No costs yet"}</span>
+    </button>
   );
 }
 
@@ -238,13 +245,15 @@ function HouseholdPlanningGuidance({ model, onSelect }: { model: HouseholdOvervi
   );
 }
 
-export function HouseholdOverviewDashboard({ household, people, pets = [], vehicles = [], carbonProfile, model, canManage, openAdd = false }: { household: HouseholdShape; people: HouseholdOverviewPerson[]; pets?: HouseholdPet[]; vehicles?: HouseholdVehicle[]; carbonProfile?: CarbonProfile | null; model: HouseholdOverviewModel; canManage: boolean; openAdd?: boolean }) {
+export function HouseholdOverviewDashboard({ household, people, pets = [], vehicles = [], carbonProfile, model, canManage, openAdd = false, dependantCosts = {}, petCosts = {} }: { dependantCosts?: Record<string, number>; petCosts?: Record<string, Array<{ id: string; label: string; monthly: number }>>; household: HouseholdShape; people: HouseholdOverviewPerson[]; pets?: HouseholdPet[]; vehicles?: HouseholdVehicle[]; carbonProfile?: CarbonProfile | null; model: HouseholdOverviewModel; canManage: boolean; openAdd?: boolean }) {
   const [modal, setModal] = useState<null | "add" | "invite" | "adult" | "child" | "pet" | "carbon" | "vehicle">(openAdd && canManage ? "add" : null);
   const [sent, setSent] = useState<string | null>(null);
+  const [openPet, setOpenPet] = useState<HouseholdPet | null>(null);
   // Run a form's action, then close the window (and say what happened).
   const thenClose = (action: (fd: FormData) => Promise<void>, done?: (fd: FormData) => string) => async (fd: FormData) => {
     await action(fd);
     setModal(null);
+    setOpenPet(null);
     if (done) setSent(done(fd));
   };
   const [selectedGuidance, setSelectedGuidance] = useState<HouseholdOverviewModel["variableSpendGuidance"][number] | null>(null);
@@ -309,9 +318,9 @@ export function HouseholdOverviewDashboard({ household, people, pets = [], vehic
               {adults.map((person, index) => <FamilyToken key={person.id} person={person} index={index} />)}
             </div>
             {children.length ? <div className="mx-auto my-5 h-8 w-px bg-slate-300" /> : null}
-            {children.length ? <div className="flex flex-wrap justify-center gap-5">{children.map((person, index) => <FamilyToken key={person.id} person={person} index={index} />)}</div> : null}
+            {children.length ? <div className="flex flex-wrap justify-center gap-5">{children.map((person, index) => <FamilyToken key={person.id} person={person} index={index} monthly={dependantCosts[person.id]} />)}</div> : null}
             {pets.length ? <div className="mx-auto my-5 h-8 w-px bg-emerald-300" /> : null}
-            {pets.length ? <div className="flex flex-wrap justify-center gap-5">{pets.map((pet) => <PetToken key={pet.id} pet={pet} />)}</div> : null}
+            {pets.length ? <div className="flex flex-wrap justify-center gap-5">{pets.map((pet) => <PetToken key={pet.id} pet={pet} monthly={dependantCosts[`pet:${pet.id}`]} onOpen={() => setOpenPet(pet)} />)}</div> : null}
             {!people.length ? <p className="text-center text-sm font-bold text-slate-500">Add household people to build the family map.</p> : null}
           </div>
         </div>
@@ -359,6 +368,52 @@ export function HouseholdOverviewDashboard({ household, people, pets = [], vehic
       {modal === "adult" ? <Modal title="Add an adult" onClose={() => setModal(null)}><form action={thenClose(addPerson, (fd) => `${fd.get("name")} added.`)} className="mt-5 grid gap-4 sm:grid-cols-2"><label className="font-black">Name<input name="name" required className={fieldClass} /></label><label className="font-black">They are your<select name="relationship" defaultValue="partner" className={fieldClass}><option value="partner">Partner</option><option value="other">Other adult (e.g. a parent or lodger)</option></select></label><p className="text-sm font-semibold text-slate-500 sm:col-span-2">You can add their pay and bills afterwards. If they want to log in later, invite them from their card.</p><div className="sm:col-span-2"><SubmitButton pendingLabel="Adding…">Add</SubmitButton></div></form></Modal> : null}
       {modal === "child" ? <Modal title="Add a child" onClose={() => setModal(null)}><form action={thenClose(createManagedChildProfile, (fd) => `${fd.get("name")} added.`)} className="mt-5 grid gap-4"><label className="font-black">Name<input name="name" required className={fieldClass} /></label><label className="font-black">Birth date<input name="birth_date" type="date" min="1900-01-01" required className={fieldClass} /></label><SubmitButton pendingLabel="Adding…">Add</SubmitButton></form></Modal> : null}
       {modal === "pet" ? <Modal title="Add a pet" onClose={() => setModal(null)}><form action={thenClose(addHouseholdPet, (fd) => `${fd.get("name")} added.`)} className="mt-5 grid gap-4 sm:grid-cols-2"><label className="font-black">Name<input name="name" required className={fieldClass} /></label><label className="font-black">Pet type<select name="species" className={fieldClass}><option value="dog">🐕 Dog</option><option value="cat">🐈 Cat</option><option value="fish">🐟 Fish</option><option value="rabbit">🐇 Rabbit</option><option value="bird">🐦 Bird</option><option value="horse">🐴 Horse</option><option value="reptile">🦎 Reptile</option><option value="other">🐾 Other</option></select></label><label className="font-black">Breed <span className="font-semibold text-slate-400">optional</span><input name="breed" className={fieldClass} /></label><label className="font-black">Date of birth <span className="font-semibold text-slate-400">optional</span><input name="birth_date" type="date" min="1900-01-01" className={fieldClass} /></label><details className="sm:col-span-2 rounded-2xl border border-slate-200 p-4"><summary className="cursor-pointer font-black">Insurance and care details</summary><div className="mt-4 grid gap-4 sm:grid-cols-2"><label className="font-black">Insurer<input name="insurer" className={fieldClass} /></label><label className="font-black">Vet / practice<input name="vet_name" className={fieldClass} /></label></div></details><div className="sm:col-span-2"><SubmitButton pendingLabel="Adding…">Add</SubmitButton></div></form></Modal> : null}
+      {openPet ? (
+        <Modal title={openPet.name} onClose={() => setOpenPet(null)}>
+          <div className="mt-4 grid gap-5">
+            <section className="rounded-2xl bg-emerald-50 p-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="font-black text-emerald-950">{petIcon(openPet.species)} Costs each month</p>
+                <p className="text-xl font-black text-emerald-950">{formatMoney(dependantCosts[`pet:${openPet.id}`] || 0)}</p>
+              </div>
+              {(petCosts[openPet.id] || []).length ? (
+                <ul className="mt-3 divide-y divide-emerald-100 text-sm">
+                  {(petCosts[openPet.id] || []).map((bill) => <li key={bill.id} className="flex justify-between gap-3 py-2"><span className="font-semibold text-emerald-950">{bill.label}</span><span className="font-bold text-emerald-900">{formatMoney(bill.monthly)}/mo</span></li>)}
+                </ul>
+              ) : <p className="mt-2 text-sm font-semibold text-emerald-900">No bills linked yet. When you add food, insurance or vet bills, choose {openPet.name} under &ldquo;Expense relates to pet&rdquo;.</p>}
+              <Link href={`/spending?add=monthly&prefill_label=${encodeURIComponent(`${openPet.name} insurance`)}`} className="mt-3 inline-block rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">+ Add a bill for {openPet.name}</Link>
+            </section>
+            {canManage ? (
+              <details className="rounded-2xl border border-slate-200 p-4">
+                <summary className="cursor-pointer font-black">Edit details</summary>
+                <form action={thenClose(updateHouseholdPet, (fd) => `${fd.get("name")} updated.`)} className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <input type="hidden" name="id" value={openPet.id} />
+                  <label className="font-black">Name<input name="name" defaultValue={openPet.name} required className={fieldClass} /></label>
+                  <label className="font-black">Pet type<select name="species" defaultValue={openPet.species || "dog"} className={fieldClass}><option value="dog">🐕 Dog</option><option value="cat">🐈 Cat</option><option value="fish">🐟 Fish</option><option value="rabbit">🐇 Rabbit</option><option value="bird">🐦 Bird</option><option value="horse">🐴 Horse</option><option value="reptile">🦎 Reptile</option><option value="other">🐾 Other</option></select></label>
+                  <label className="font-black">Breed<input name="breed" defaultValue={openPet.breed || ""} className={fieldClass} /></label>
+                  <label className="font-black">Date of birth<input name="birth_date" type="date" min="1980-01-01" defaultValue={openPet.birth_date && openPet.birth_date >= "1980-01-01" ? openPet.birth_date : ""} className={fieldClass} /></label>
+                  <label className="font-black">Insurer<input name="insurer" defaultValue={openPet.insurer || ""} className={fieldClass} /></label>
+                  <label className="font-black">Vet / practice<input name="vet_name" defaultValue={openPet.vet_name || ""} className={fieldClass} /></label>
+                  <div className="sm:col-span-2"><SubmitButton>Save</SubmitButton></div>
+                </form>
+              </details>
+            ) : null}
+            {canManage ? (
+              <details className="rounded-2xl border border-red-100 p-4">
+                <summary className="cursor-pointer font-black text-red-800">Remove {openPet.name}</summary>
+                <form action={thenClose(removeDependant, (fd) => `${openPet.name} removed.`)} className="mt-4 grid gap-3">
+                  <input type="hidden" name="kind" value="pet" />
+                  <input type="hidden" name="id" value={openPet.id} />
+                  <label className="flex items-start gap-2 text-sm"><input type="radio" name="reason" value="gone" defaultChecked className="mt-1" /><span><strong>Passed away or rehomed</strong><span className="block text-slate-500">Keeps their history. Their bills stop from the date below.</span></span></label>
+                  <label className="flex items-start gap-2 text-sm"><input type="radio" name="reason" value="mistake" className="mt-1" /><span><strong>Added by mistake</strong><span className="block text-slate-500">Deletes {openPet.name}. Bills you linked stay, just not linked to a pet.</span></span></label>
+                  <label className="text-sm font-black">From<input type="date" name="end_date" defaultValue={new Date().toISOString().slice(0, 10)} className={fieldClass} /></label>
+                  <SubmitButton className="rounded-2xl bg-red-600 px-5 py-3 font-black text-white">Remove {openPet.name}</SubmitButton>
+                </form>
+              </details>
+            ) : null}
+          </div>
+        </Modal>
+      ) : null}
       {sent ? <div role="status" className="fixed bottom-5 left-1/2 z-[210] flex -translate-x-1/2 items-center gap-3 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-xl">{sent}<button type="button" onClick={() => setSent(null)} aria-label="Close" className="text-white/70"><X className="h-4 w-4" /></button></div> : null}
       {modal === "carbon" ? <Modal title="Improve the household footprint" onClose={() => setModal(null)}><div className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-950">Use measured activity where possible. LOOP will use registrations, confirmed mileage, fuel and home energy before falling back to spending assumptions.</div>{expectedVehicleCount > vehicles.length ? <div className="mt-4 rounded-2xl border border-orange-200 bg-orange-50 p-4"><p className="font-black text-orange-950">Household activity suggests {expectedVehicleCount} cars</p><p className="mt-1 text-xs font-semibold text-orange-800">This is a prompt from adult profiles plus visible car-finance evidence—not a confirmed ownership claim. Add each registration to verify it.</p><div className="mt-3 flex flex-wrap gap-2">{Array.from({ length: expectedVehicleCount }).map((_, index) => <span key={index} className={`rounded-full px-3 py-2 text-xs font-black ${vehicles[index] ? "bg-emerald-100 text-emerald-800" : "bg-white text-orange-800"}`}>{vehicles[index] ? vehicles[index].registration || vehicles[index].name : `Car ${index + 1} · registration needed`}</span>)}</div></div> : null}<div className="mt-4 grid gap-3 sm:grid-cols-2"><a href="https://footprint.wwf.org.uk/" target="_blank" rel="noreferrer" className="rounded-2xl border border-emerald-200 p-4 font-black text-emerald-800">Open WWF footprint questionnaire ↗</a><button type="button" onClick={() => setModal("vehicle")} className="rounded-2xl border border-sky-200 p-4 text-left font-black text-sky-800">+ Add a household vehicle</button></div>{vehicles.length ? <div className="mt-4 space-y-2">{vehicles.map((vehicle) => <div key={vehicle.id} className="rounded-2xl bg-slate-50 p-4"><p className="font-black">{vehicle.name}{vehicle.registration ? ` · ${vehicle.registration}` : ""} · {vehicle.make_model || vehicle.fuel_type}</p><p className="text-xs font-semibold text-slate-500">{vehicle.annual_miles ? `${Number(vehicle.annual_miles).toLocaleString()} miles/year` : "Mileage needed"}{vehicle.mpg ? ` · ${vehicle.mpg} mpg` : ""}</p></div>)}</div> : null}<form action={saveHouseholdCarbonProfile} className="mt-5 grid gap-4"><input type="hidden" name="food_assumption_adopted" value={carbonProfile?.food_assumption_adopted ? "on" : ""} /><div className="grid gap-4 sm:grid-cols-2"><label className="font-black">Annual offset (kg CO₂e)<input name="annual_offset_kg" type="number" min="0" defaultValue={Number(carbonProfile?.annual_offset_kg || 0)} className={fieldClass} /></label><label className="font-black">Offset provider<input name="offset_provider" defaultValue={carbonProfile?.offset_provider || ""} className={fieldClass} /></label></div><label className="font-black">What does the offset cover?<input name="offset_notes" defaultValue={carbonProfile?.offset_notes || ""} className={fieldClass} /></label><button className="rounded-2xl bg-emerald-700 px-5 py-3 font-black text-white">Save footprint context</button></form></Modal> : null}
       {modal === "vehicle" ? <Modal title="Add a household vehicle" onClose={() => setModal("carbon")}><VehicleForm people={people} onBack={() => setModal("carbon")} /></Modal> : null}

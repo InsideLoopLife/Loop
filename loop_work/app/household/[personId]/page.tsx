@@ -15,7 +15,7 @@ import { formatMoneyExact } from "@/lib/format/money";
 import { formatPersonDate, DateDisplayFormat } from "@/lib/format/date";
 import { estimateAnnualTakeHome, PensionMethod, StudentLoanPlan } from "@/lib/calculations/tax";
 import { MaternityPayMode, calculateNhsMaternityMonthlyAmount } from "@/lib/calculations/maternity";
-import { requestProfileDataHandover, updatePersonProfile } from "../actions";
+import { removeDependant, requestProfileDataHandover, updatePersonProfile } from "../actions";
 import { ActivityBillingMode, BillingSchedule, DaySession, FundingMode, calculateActivityMonthlyCost, calculateNurseryMonthlyCost } from "@/lib/calculations/childcare";
 import { deductionsForMonth } from "@/lib/planning/month-plan";
 import { withPayOverrides } from "@/lib/planning/pay-overrides";
@@ -151,6 +151,25 @@ type ChildCost = {
 function isActiveRange(start: string, end: string | null) {
   const today = new Date().toISOString().slice(0, 10);
   return start <= today && (!end || end >= today);
+}
+
+function monthlyEquivalent(amount: number, recurrence?: string | null) {
+  const r = String(recurrence || "monthly");
+  if (r === "annual" || r === "yearly") return amount / 12;
+  if (r === "quarterly") return amount / 3;
+  if (r === "weekly") return (amount * 52) / 12;
+  if (r === "fortnightly") return (amount * 26) / 12;
+  if (r === "four_weekly") return (amount * 13) / 12;
+  if (r === "one_off") return 0;
+  return amount;
+}
+
+/** England: children usually start reception the September after they turn 4. */
+function schoolStart(birthDate?: string | null) {
+  if (!birthDate) return null;
+  const [y, m] = birthDate.split("-").map(Number);
+  const year = m >= 9 ? y + 5 : y + 4;
+  return `${year}-09-01`;
 }
 
 function currentBillingMonth() {
@@ -300,6 +319,17 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
   const activeNet = activePay.reduce((sum, event) => sum + getPayMonthlyNet(event), 0);
   const activeChildCosts = activeCosts.reduce((sum, cost) => sum + getChildCostMonthlyAmount(cost), 0);
   const isChild = person.relationship === "child";
+  // What this child costs: their childcare plus any bills assigned to them.
+  const monthKeys = Array.from({ length: 12 }, (_, i) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + i); return d.toISOString().slice(0, 7); });
+  const activeIn = (start: string | null | undefined, end: string | null | undefined, month: string) => (start || "1900-01-01").slice(0, 7) <= month && (!end || end.slice(0, 7) >= month);
+  const monthCost = (month: string) =>
+    childCostRows.filter((c) => activeIn(c.starts_on, c.ends_on, month)).reduce((sum, c) => sum + getChildCostMonthlyAmount(c, month), 0)
+    + plannedItemRows.filter((i: any) => i.direction === "outgoing" && activeIn(i.start_date, i.end_date, month)).reduce((sum, i: any) => sum + monthlyEquivalent(Number(i.amount || 0), i.recurrence), 0);
+  const childThisMonth = isChild ? monthCost(monthKeys[0]) : 0;
+  const childNextYear = isChild ? monthKeys.reduce((sum, month) => sum + monthCost(month), 0) : 0;
+  const endingSoon = isChild ? childCostRows.filter((c) => c.ends_on && c.ends_on >= new Date().toISOString().slice(0, 10)).sort((a, b) => String(a.ends_on).localeCompare(String(b.ends_on)))[0] : null;
+  const schoolFrom = isChild ? schoolStart(person.birth_date) : null;
+  const longDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
   return (
     <>
@@ -323,15 +353,15 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
                 {person.birth_date ? <p className="mt-1 text-sm font-semibold text-slate-600">{formatPersonDate(person.birth_date, dateDisplayFormat)}</p> : null}
               </div>
             </div>
-            <div className="rounded-3xl bg-white/70 p-4 text-sm font-semibold text-slate-600 shadow-sm">
+            {isChild ? null : <div className="rounded-3xl bg-white/70 p-4 text-sm font-semibold text-slate-600 shadow-sm">
               <p className="text-xs font-black uppercase tracking-wide text-slate-500">Account link</p>
               <p className="mt-1 text-slate-900">{person.linked_user_id ? "Own login linked" : (person.account_status || "managed_by_household").replaceAll("_", " ")}</p>
               <p className="mt-1 text-xs text-slate-500">{person.email || "No email set yet"}</p>
-            </div>
+            </div>}
           </div>
         </section>
 
-        <SectionCard title="Account & household visibility" description="Each person can eventually have their own login. Until linked, the household owner manages the profile on their behalf.">
+        {isChild ? null : <SectionCard title="Account & household visibility" description="Each person can eventually have their own login. Until linked, the household owner manages the profile on their behalf.">
           <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="text-xs font-black uppercase tracking-wide text-slate-500">Profile account</p>
@@ -374,7 +404,7 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
             <div><p className="text-xs font-black uppercase text-slate-500">Cost visibility</p><p className="font-black text-slate-950">{person.costs_visible_to_household ? "Visible" : "Private"}</p></div>
             <div><p className="text-xs font-black uppercase text-slate-500">Household can add costs</p><p className="font-black text-slate-950">{person.household_can_add_costs ? "Allowed" : "Person only"}</p></div>
           </div>
-        </SectionCard>
+        </SectionCard>}
 
         <details className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm">
           <summary className="cursor-pointer list-none text-sm font-black text-slate-800 [&::-webkit-details-marker]:hidden">Edit profile basics</summary>
@@ -397,11 +427,22 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
           </form>
         </details>
 
-        <section className="grid gap-4 md:grid-cols-3">
-          <StatCard title={isChild ? "Active monthly costs" : "Active gross income"} value={formatMoneyExact(isChild ? activeChildCosts : activeGross)} helper={isChild ? "Child costs active today" : "Annual gross from active pay events"} />
-          <StatCard title={isChild ? "Cost lines" : "Estimated take-home"} value={isChild ? String(childCostRows.length) : formatMoneyExact(activeNet)} helper={isChild ? "Nursery/clubs/wraparound" : "This month rough estimate"} />
-          <StatCard title="Visibility" value="Household" helper="Income/cost visibility can be controlled as household sharing matures" />
-        </section>
+        {isChild ? (
+          <section className="grid gap-4 md:grid-cols-3">
+            <StatCard title="This month" value={formatMoneyExact(childThisMonth)} helper="Childcare, clubs and bills for them" />
+            <StatCard title="Next 12 months" value={formatMoneyExact(childNextYear)} helper={`About ${formatMoneyExact(childNextYear / 12)} a month on average`} />
+            <StatCard
+              title="Coming up"
+              value={endingSoon?.ends_on ? `${endingSoon.label} ends` : schoolFrom && schoolFrom > new Date().toISOString().slice(0, 10) ? "Starts school" : "No changes"}
+              helper={endingSoon?.ends_on ? longDate(endingSoon.ends_on) : schoolFrom && schoolFrom > new Date().toISOString().slice(0, 10) ? `Usually September ${schoolFrom.slice(0, 4)} in England` : "Nothing ending in their plan"}
+            />
+          </section>
+        ) : (
+          <section className="grid gap-4 md:grid-cols-2">
+            <StatCard title="Active gross income" value={formatMoneyExact(activeGross)} helper="Pay active today, before tax" />
+            <StatCard title="Estimated take-home" value={formatMoneyExact(activeNet)} helper="After tax, NI and pension" />
+          </section>
+        )}
 
         <PersonCalendarPlanner
           person={{ id: person.id, name: person.name, relationship: person.relationship }}
@@ -410,6 +451,23 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
           incomeEntries={incomeEntryRows}
           plannedItems={plannedItemRows}
         />
+
+        {isChild ? (
+          <details className="rounded-2xl border border-[var(--line)] bg-white p-5">
+            <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">Remove {person.name} from the household</summary>
+            <form action={removeDependant} className="mt-4 grid gap-4 sm:grid-cols-2">
+              <input type="hidden" name="kind" value="child" />
+              <input type="hidden" name="id" value={person.id} />
+              <fieldset className="grid gap-2 sm:col-span-2">
+                <legend className="mb-1 text-sm font-semibold text-[var(--ink)]">Why?</legend>
+                <label className="flex items-start gap-2 text-sm"><input type="radio" name="reason" value="moved_out" defaultChecked className="mt-1" /> <span><strong>No longer lives with us</strong><span className="block text-[var(--muted)]">Keeps their history. Their costs stop from the date below.</span></span></label>
+                <label className="flex items-start gap-2 text-sm"><input type="radio" name="reason" value="mistake" className="mt-1" /> <span><strong>Added by mistake</strong><span className="block text-[var(--muted)]">Deletes {person.name} and their childcare costs.</span></span></label>
+              </fieldset>
+              <label className="text-sm font-semibold">From<input type="date" name="end_date" defaultValue={new Date().toISOString().slice(0, 10)} className="mt-1 w-full rounded-xl border border-[var(--line)] px-3 py-2" /></label>
+              <div className="flex items-end"><SubmitButton className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white">Remove {person.name}</SubmitButton></div>
+            </form>
+          </details>
+        ) : null}
       </main>
     </>
   );

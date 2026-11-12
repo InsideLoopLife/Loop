@@ -575,9 +575,21 @@ function revalidateChildCostPaths(childId: string) {
   revalidatePath("/affordability");
 }
 
+/** A child cost must be for a child, and can't end before it starts. */
+async function checkChildCost(supabase: any, payload: { child_id?: string | null; starts_on?: string | null; ends_on?: string | null }) {
+  if (payload.starts_on && payload.ends_on && payload.ends_on < payload.starts_on) {
+    throw new Error("The end date is before the start date. Check the year – a school year usually ends the following July.");
+  }
+  if (payload.child_id) {
+    const { data: person } = await supabase.from("people").select("relationship, name").eq("id", payload.child_id).maybeSingle();
+    if (person && person.relationship !== "child") throw new Error(`${person.name} isn't a child. Choose which child this cost is for.`);
+  }
+}
+
 export async function addChildCost(formData: FormData) {
   const { supabase, user, householdContext } = await requireUser();
   const payload = { ...buildChildCostPayload(user.id, formData), ...householdWriteFields(householdContext, user.id) };
+  await checkChildCost(supabase, payload as any);
   const { error } = await supabase.from("child_costs").insert(payload as any);
   if (error) throw new Error(error.message);
   revalidateChildCostPaths(String(formData.get("child_id") || ""));
@@ -588,7 +600,9 @@ export async function updateChildCost(formData: FormData) {
   const id = String(formData.get("id") || "");
   if (!id) throw new Error("Missing child cost id");
 
-  const payload = buildChildCostPayload(user.id, formData);
+  // Editing doesn't change who the cost belongs to.
+  const { user_id: _creator, ...payload } = buildChildCostPayload(user.id, formData) as Record<string, any>;
+  await checkChildCost(supabase, payload as any);
   const { error } = await changeRecord(
     supabase.from("child_costs").update(payload as any),
     id,
@@ -1163,4 +1177,74 @@ export async function setMyShareLevel(formData: FormData) {
   const { error } = await supabase.rpc("app_set_my_share_level", { p_household_id: householdContext.householdId, p_level: level });
   if (error) throw new Error(friendlyHouseholdError(error.message));
   for (const path of ["/household", "/account", "/dashboard", "/financial-flow", "/spending", "/income"]) revalidatePath(path);
+}
+
+/**
+ * Take a child or pet out of the household.
+ * - Moved out / passed away / rehomed: keep their history, stop their ongoing
+ *   costs from the date given, and hide them from the household from then.
+ * - Added by mistake: delete them (a child's own cost lines go with them; a
+ *   pet's bills are kept but no longer linked to the pet).
+ */
+export async function removeDependant(formData: FormData) {
+  const { supabase, householdContext } = await requireUser();
+  const kind = String(formData.get("kind") || "");
+  const id = String(formData.get("id") || "");
+  const reason = String(formData.get("reason") || "");
+  const today = new Date().toISOString().slice(0, 10);
+  const when = String(formData.get("end_date") || today);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(when)) throw new Error("That date doesn't look right.");
+  if (!id || !["child", "pet"].includes(kind)) throw new Error("Missing who to remove.");
+  if (!householdContext.householdId) throw new Error("You're not in a household.");
+  const canManage = householdContext.canManagePeople || ["owner", "admin", "parent", "parent_admin"].includes(householdContext.permissionTier);
+  if (!canManage) throw new Error("Only the household's Owner, Partners and Parents can do that.");
+  const dayBefore = new Date(new Date(`${when}T12:00:00`).getTime() - 86400000).toISOString().slice(0, 10);
+
+  if (kind === "child") {
+    const { data: child } = await supabase.from("people").select("id, name, relationship").eq("id", id).maybeSingle();
+    if (!child || child.relationship !== "child") throw new Error("Couldn't find that child.");
+    if (reason === "mistake") {
+      const { error } = await supabase.from("people").delete().eq("id", id);
+      if (error) throw new Error(friendlyHouseholdError(error.message));
+    } else {
+      await supabase.from("child_costs").update({ ends_on: dayBefore }).eq("child_id", id).or(`ends_on.is.null,ends_on.gte.${when}`);
+      await supabase.from("planned_items").update({ end_date: dayBefore }).eq("person_id", id).or(`end_date.is.null,end_date.gte.${when}`);
+      const { error } = await supabase.from("people").update({ active_until: dayBefore }).eq("id", id);
+      if (error) throw new Error(friendlyHouseholdError(error.message));
+    }
+  } else {
+    const { data: pet } = await supabase.from("household_pets").select("id").eq("id", id).eq("household_id", householdContext.householdId).maybeSingle();
+    if (!pet) throw new Error("Couldn't find that pet.");
+    if (reason === "mistake") {
+      const { error } = await supabase.from("household_pets").delete().eq("id", id);
+      if (error) throw new Error(friendlyHouseholdError(error.message));
+    } else {
+      await supabase.from("planned_items").update({ end_date: dayBefore }).eq("pet_id", id).or(`end_date.is.null,end_date.gte.${when}`);
+      const { error } = await supabase.from("household_pets").update({ status: "archived", updated_at: new Date().toISOString() }).eq("id", id);
+      if (error) throw new Error(friendlyHouseholdError(error.message));
+    }
+  }
+  for (const path of ["/household", "/dashboard", "/spending", "/financial-flow", "/affordability"]) revalidatePath(path);
+  if (kind === "child") redirect("/household");
+}
+
+/** Update a pet's details. */
+export async function updateHouseholdPet(formData: FormData) {
+  const { supabase, householdContext } = await requireUser();
+  const id = String(formData.get("id") || "");
+  if (!id || !householdContext.householdId) throw new Error("Missing pet.");
+  const name = String(formData.get("name") || "").trim();
+  if (!name) throw new Error("Add the pet's name.");
+  const { error } = await supabase.from("household_pets").update({
+    name,
+    species: String(formData.get("species") || "dog"),
+    breed: String(formData.get("breed") || "").trim() || null,
+    birth_date: birthDateFrom(formData),
+    insurer: String(formData.get("insurer") || "").trim() || null,
+    vet_name: String(formData.get("vet_name") || "").trim() || null,
+    updated_at: new Date().toISOString(),
+  }).eq("id", id).eq("household_id", householdContext.householdId);
+  if (error) throw new Error(friendlyHouseholdError(error.message));
+  revalidatePath("/household");
+  revalidatePath("/spending");
 }

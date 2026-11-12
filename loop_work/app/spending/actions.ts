@@ -290,6 +290,7 @@ export async function addPlannedItem(formData: FormData) {
     notes: String(formData.get("notes") || ""),
   };
 
+  if ((payload as any).end_date && (payload as any).start_date && (payload as any).end_date < (payload as any).start_date) throw new Error("The end date is before the start date.");
   const { error } = await supabase.from("planned_items").insert(payload as any);
   if (error) throw new Error(error.message);
 
@@ -343,6 +344,7 @@ export async function updatePlannedItem(formData: FormData) {
     updated_at: new Date().toISOString(),
   };
 
+  if (payload.end_date && payload.start_date && payload.end_date < payload.start_date) throw new Error("The end date is before the start date.");
   const { error } = await changeRecord(
     supabase.from("planned_items").update(payload as any),
     id,
