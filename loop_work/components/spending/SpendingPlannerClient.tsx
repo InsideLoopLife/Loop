@@ -371,7 +371,7 @@ function monthStart(month: string) {
 
 function monthEnd(month: string) {
   const [year, monthNumber] = month.split("-").map(Number);
-  return new Date(year, monthNumber, 0).toISOString().slice(0, 10);
+  return new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
 }
 
 function lastDayOfMonth(month: string) {
@@ -692,6 +692,14 @@ function addMonthsToMonth(month: string, monthsToAdd: number) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/** End and renewal dates can be years away, so always show the year with them. */
+function lifecycleDate(date: string, dateFormat: FlowDateFormat) {
+  const formatted = formatFlowDate(date, dateFormat);
+  if (dateFormat === "short_numeric" || dateFormat === "iso") return formatted;
+  const year = String(date).slice(0, 4);
+  return /^\d{4}$/.test(year) ? `${formatted} ${year}` : formatted;
+}
+
 function lifecycleLabel(item: PlannedItem) {
   const behavior = item.end_behavior ?? "drops_off";
   if (behavior === "renews") return "Renews / continues";
@@ -702,21 +710,21 @@ function lifecycleLabel(item: PlannedItem) {
 function lifecycleHint(item: PlannedItem, dateFormat: FlowDateFormat, money: (value: number | null | undefined) => string) {
   if (!item.end_date && !item.early_upgrade_date && !Number(item.expected_refund_amount ?? 0)) return null;
   const parts: string[] = [];
-  if (item.end_date) parts.push(`${lifecycleLabel(item)}: ${formatFlowDate(item.end_date, dateFormat)}`);
+  if (item.end_date) parts.push(`${lifecycleLabel(item)}: ${lifecycleDate(item.end_date, dateFormat)}`);
   if (item.renewal_notice_days && item.end_date) parts.push(`Nudge ${item.renewal_notice_days} day(s) before`);
-  if (item.early_upgrade_date) parts.push(`Early upgrade from ${formatFlowDate(item.early_upgrade_date, dateFormat)}`);
+  if (item.early_upgrade_date) parts.push(`Early upgrade from ${lifecycleDate(item.early_upgrade_date, dateFormat)}`);
   if (Number(item.expected_refund_amount ?? 0) > 0) parts.push(`Possible money back ${money(Number(item.expected_refund_amount))}`);
   return parts.join(" · ");
 }
 
 function compactLifecycleLabel(item: PlannedItem, dateFormat: FlowDateFormat) {
   if (item.end_date) {
-    const date = formatFlowDate(item.end_date, dateFormat);
+    const date = lifecycleDate(item.end_date, dateFormat);
     if ((item.end_behavior ?? "drops_off") === "renews") return `Renews ${date}`;
     if (item.end_behavior === "review_needed") return `Review ${date}`;
     return `Drops off ${date}`;
   }
-  if (item.early_upgrade_date) return `Upgrade ${formatFlowDate(item.early_upgrade_date, dateFormat)}`;
+  if (item.early_upgrade_date) return `Upgrade ${lifecycleDate(item.early_upgrade_date, dateFormat)}`;
   return null;
 }
 
@@ -1563,7 +1571,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
         amount: getChildCostMonthlyAmount(cost, selectedSummary.month),
         categoryLabel,
         categoryIcon: "👶",
-        lifecycleShort: cost.ends_on ? `Ends ${formatFlowDate(cost.ends_on, flowDateFormat)}` : null,
+        lifecycleShort: cost.ends_on ? `Ends ${lifecycleDate(cost.ends_on, flowDateFormat)}` : null,
         helper: `${categoryLabel}${cost.child_id ? ` · ${personName(peopleById, cost.child_id)}` : ""}`,
         childCost: cost,
       };
@@ -1608,6 +1616,30 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
   const timelineItems = allMonthItems
     .filter((item) => directionFilter === "all" || item.direction === directionFilter)
     .filter((item) => !categoryFilter || (item.categoryLabel || "Other") === categoryFilter);
+
+  // Bulk edit: the lines that can be edited, grouped by category and by the card or
+  // account they're paid from, so one tap selects all of them.
+  const bulkGroups = (() => {
+    const categoriesMap = new Map<string, { key: string; label: string; ids: string[] }>();
+    const cardsMap = new Map<string, { key: string; label: string; ids: string[] }>();
+    for (const item of timelineItems) {
+      const id = "selectableId" in item ? item.selectableId : null;
+      if (!id) continue;
+      // Someone else's private line: shown, but not ours to change.
+      if ("item" in item && item.item && !canChange(shareContext, item.item as any)) continue;
+      const categoryLabel = item.categoryLabel || "No category";
+      const category = categoriesMap.get(categoryLabel) || { key: categoryLabel, label: categoryLabel, ids: [] };
+      if (!category.ids.includes(id)) category.ids.push(id);
+      categoriesMap.set(categoryLabel, category);
+      const account = "paymentAccount" in item ? item.paymentAccount : null;
+      const cardKey = account?.id || "none";
+      const card = cardsMap.get(cardKey) || { key: cardKey, label: account ? `${account.provider ? `${account.provider} · ` : ""}${account.name}` : "Card not set", ids: [] };
+      if (!card.ids.includes(id)) card.ids.push(id);
+      cardsMap.set(cardKey, card);
+    }
+    const byName = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label);
+    return { categories: Array.from(categoriesMap.values()).sort(byName), cards: Array.from(cardsMap.values()).sort(byName) };
+  })();
 
   const duplicateCandidates: Array<{
     key: string;
@@ -1901,27 +1933,57 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
           </div>
         </div>
         {editingEnabled ? (
-          <form action={updateFinancialFlowLineCategories} className="mb-4 rounded-3xl border border-dashed border-slate-300 bg-white/80 p-4">
+          <form action={async (formData) => { await updateFinancialFlowLineCategories(formData); setSelectedLineIds([]); }} className="mb-4 rounded-3xl border border-dashed border-slate-300 bg-white/80 p-4">
             {selectedLineIds.map((id) => <input key={id} type="hidden" name="line_id" value={id} />)}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-sm font-black text-slate-950">Batch category update</p>
-                <p className="mt-1 text-xs font-bold text-slate-500">Select multiple bills/spends below, choose a category once, and apply it to all selected lines.</p>
+            <div>
+              <p className="text-sm font-black text-slate-950">Change several lines at once</p>
+              <p className="mt-1 text-xs font-bold text-slate-500">Tap a category or card to select all its lines, or tick lines below. Then choose what to change.</p>
+            </div>
+            {bulkGroups.categories.length || bulkGroups.cards.length ? (
+              <div className="mt-3 space-y-2">
+                {[{ title: "Category", groups: bulkGroups.categories }, { title: "Paid from", groups: bulkGroups.cards }].filter((row) => row.groups.length).map((row) => (
+                  <div key={row.title} className="flex flex-wrap items-center gap-2">
+                    <span className="w-20 shrink-0 text-[10px] font-black uppercase tracking-wide text-slate-400">{row.title}</span>
+                    {row.groups.map((group) => {
+                      const allSelected = group.ids.every((id) => selectedLineIds.includes(id));
+                      return (
+                        <button
+                          key={group.key}
+                          type="button"
+                          aria-pressed={allSelected}
+                          onClick={() => setSelectedLineIds((current) => allSelected ? current.filter((id) => !group.ids.includes(id)) : Array.from(new Set([...current, ...group.ids])))}
+                          className={`rounded-full px-3 py-1.5 text-xs font-black ring-1 ${allSelected ? "bg-slate-950 text-white ring-slate-950" : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"}`}
+                        >
+                          {group.label} <span className={allSelected ? "text-white/60" : "text-slate-400"}>{group.ids.length}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Category
-                  <select name="category_id" className="mt-1 block min-w-56 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800">
-                    <option value="">No category</option>
-                    {categories.map((category) => <option key={category.id} value={category.id}>{category.category_icon || guessCategoryIcon(category.name)} {category.name}</option>)}
-                  </select>
-                </label>
-                <button type="submit" disabled={selectedLineIds.length === 0} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300">
-                  Apply to {selectedLineIds.length || 0}
-                </button>
-                <button type="button" disabled={!selectedLineIds.length || deletePending} onClick={() => deleteLinesOptimistically(selectedLineIds)} className="rounded-full bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-40">Delete selected</button>
-                <button type="button" onClick={() => setSelectedLineIds([])} className="rounded-full bg-slate-100 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-200">Clear</button>
-              </div>
+            ) : null}
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+              <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Category
+                <select name="category_id" defaultValue="__keep" className="mt-1 block min-w-52 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800">
+                  <option value="__keep">Keep as it is</option>
+                  <option value="">No category</option>
+                  {categories.map((category) => <option key={category.id} value={category.id}>{category.category_icon || guessCategoryIcon(category.name)} {category.name}</option>)}
+                </select>
+              </label>
+              <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Paid from
+                <select name="payment_account_id" defaultValue="__keep" className="mt-1 block min-w-52 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800">
+                  <option value="__keep">Keep as it is</option>
+                  <option value="">Not set</option>
+                  {paymentAccounts.map((account) => <option key={account.id} value={account.id}>{account.provider ? `${account.provider} · ` : ""}{account.name}</option>)}
+                </select>
+              </label>
+              <button type="submit" disabled={selectedLineIds.length === 0} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300">
+                Apply to {selectedLineIds.length} line{selectedLineIds.length === 1 ? "" : "s"}
+              </button>
+              <button type="button" disabled={!selectedLineIds.length || deletePending} onClick={() => deleteLinesOptimistically(selectedLineIds)} className="rounded-full bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-40">Delete selected</button>
+              <button type="button" onClick={() => setSelectedLineIds([])} className="rounded-full bg-slate-100 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-200">Clear</button>
             </div>
           </form>
         ) : null}
@@ -1934,7 +1996,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
               <div key={item.id} title={("lifecycleHint" in item && item.lifecycleHint) ? item.lifecycleHint : undefined} className={`${selectableId && optimisticDeletedLineIds.includes(selectableId) ? "hidden" : ""} group/line relative rounded-[12px] border border-slate-200 bg-white px-4 py-3`}>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
-                    {editingEnabled && selectableId ? (
+                    {editingEnabled && selectableId && !("item" in item && item.item && !canChange(shareContext, item.item as any)) ? (
                       <input
                         type="checkbox"
                         checked={isSelected}

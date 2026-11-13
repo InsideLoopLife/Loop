@@ -140,7 +140,7 @@ function taxYearWindow(date = new Date()) {
 function activeInMonth(item: PlannedItemLike, month = new Date().toISOString().slice(0, 7)) {
   const [year, monthNum] = month.split("-").map(Number);
   const start = `${month}-01`;
-  const end = new Date(year, monthNum, 0).toISOString().slice(0, 10);
+  const end = new Date(Date.UTC(year, monthNum, 0)).toISOString().slice(0, 10);
   return String(item.start_date || "1900-01-01") <= end && String(item.end_behavior === "drops_off" ? item.end_date || "9999-12-31" : "9999-12-31") >= start;
 }
 

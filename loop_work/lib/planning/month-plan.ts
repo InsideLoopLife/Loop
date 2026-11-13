@@ -339,6 +339,22 @@ export function selectActivePayEventsForMonth(payEvents: PayEventForPlan[], mont
 // retirement, affordability and the calendar all go through this function.
 const REGISTRY_CARE_TYPES: CareType[] = ["childminder", "breakfast_club", "after_school_club", "holiday_camp", "nanny"];
 
+const CARE_TYPE_HELPERS: Record<string, string> = {
+  nursery: "Nursery",
+  childminder: "Childminder",
+  breakfast_club: "Breakfast club",
+  after_school_club: "After-school club",
+  holiday_camp: "Holiday camp",
+  nanny: "Nanny",
+};
+
+/** What kind of child cost this is, from its care type where one is set. */
+function childCostHelper(cost: ChildCostForPlan) {
+  const careType = String((cost as any).care_type || "");
+  if (CARE_TYPE_HELPERS[careType]) return CARE_TYPE_HELPERS[careType];
+  return cost.cost_kind === "activity" ? "Activity / class" : cost.cost_kind === "nursery" ? "Nursery" : "Child cost";
+}
+
 export function getChildCostMonthlyAmount(cost: ChildCostForPlan, month: string) {
   if (cost.care_type && REGISTRY_CARE_TYPES.includes(cost.care_type as CareType)) {
     return calculateNewCareTypeMonthlyCost(cost.care_type as CareType, cost.care_details ?? {}, month).estimatedMonthlyCost;
@@ -502,7 +518,7 @@ export function buildMonthPlan({
       value: getChildCostMonthlyAmount(cost, month),
       href: cost.child_id ? `/household/${cost.child_id}` : "/household",
       personId: cost.child_id,
-      helper: cost.cost_kind === "activity" ? "Activity / class" : cost.cost_kind === "nursery" ? "Nursery calendar estimate" : "Child cost",
+      helper: childCostHelper(cost),
     });
   });
 

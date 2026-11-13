@@ -2,11 +2,13 @@
 // pay events, so getPayAmount uses exact monthly figures and takes deductions
 // (cycle to work, car schemes, extra pension...) off on every page and the
 // calendar, not just one screen.
+import { carrySalaryForward } from "@/lib/planning/salary-carry-forward";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PayDeductionRow, PayEventOverrideForPlan } from "@/lib/planning/month-plan";
 
 export async function withPayOverrides<T extends { id: string; person_id?: string | null }>(db: SupabaseClient | any, payEvents: T[] | null | undefined): Promise<Array<T & { overrides: PayEventOverrideForPlan[]; deductions: PayDeductionRow[] }>> {
-  const events = payEvents || [];
+  // Salaries with an end date but no later pay record carry on (see carrySalaryForward).
+  const events = carrySalaryForward(payEvents);
   if (!events.length) return [];
   const personIds = Array.from(new Set(events.map((event) => event.person_id).filter(Boolean))) as string[];
   const [{ data }, deductionRead] = await Promise.all([

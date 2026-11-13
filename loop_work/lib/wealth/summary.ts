@@ -6,7 +6,7 @@ import { withPayOverrides } from "@/lib/planning/pay-overrides";
 
 function n(value: unknown) { const num = Number(value || 0); return Number.isFinite(num) ? num : 0; }
 function monthStart(month: string) { return `${month}-01`; }
-function monthEnd(month: string) { const [y, m] = month.split("-").map(Number); return new Date(y, m, 0).toISOString().slice(0, 10); }
+function monthEnd(month: string) { const [y, m] = month.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); }
 function activeInMonth(start?: string | null, end?: string | null, month?: string) { if (!month) return true; return String(start || "1900-01-01") <= monthEnd(month) && String(end || "9999-12-31") >= monthStart(month); }
 function monthlyAmount(item: any) { const amount = n(item.monthly_cost ?? item.amount ?? 0); if (item.recurrence === "weekly") return amount * 52 / 12; if (item.recurrence === "annual") return amount / 12; return amount; }
 function pensionFundValue(fund: any) { return n(fund.current_value) || n(fund.units) * n(fund.unit_price); }

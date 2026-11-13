@@ -1,3 +1,4 @@
+import { carrySalaryForward } from "@/lib/planning/salary-carry-forward";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createWorkerDatabaseClient } from "@/platform/database/worker-client";
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
       .order("gross_aer", { ascending: false })
       .limit(150),
     supabase.from("pay_events")
-      .select("id, person_id, gross_annual_salary, monthly_take_home_override, effective_from, effective_until")
+      .select("id, person_id, pay_kind, gross_annual_salary, monthly_take_home_override, effective_from, effective_until")
       .or(memberFilter),
     supabase.from("planned_items")
       .select("id, person_id, direction, label, amount, recurrence, start_date, end_date")
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest) {
     deals: deals as any,
     relationships: [],
     plannedItems: plannedResult.data || [],
-    payEvents: payResult.data || [],
+    payEvents: carrySalaryForward((payResult.data || []) as any[]) as any,
     subjectPersonId: requestedPeople[0] || null,
     adultPersonIds: (peopleResult.data || [])
       .filter((person: any) => String(person.relationship || "").toLowerCase() !== "child")

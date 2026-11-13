@@ -144,7 +144,7 @@ function monthStart(month: string) {
 
 function monthEnd(month: string) {
   const [year, monthIndex] = month.split("-").map(Number);
-  return new Date(year, monthIndex, 0).toISOString().slice(0, 10);
+  return new Date(Date.UTC(year, monthIndex, 0)).toISOString().slice(0, 10);
 }
 
 function formatMonthLabel(month: string) {

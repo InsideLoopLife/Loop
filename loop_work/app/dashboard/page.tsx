@@ -1,3 +1,4 @@
+import { carrySalaryForward } from "@/lib/planning/salary-carry-forward";
 import { PlainMonthPanel } from "@/components/dashboard/PlainMonthPanel";
 import { monthDrivers, outlook } from "@/lib/planning/plain-money";
 import { getVerifiedUser } from "@/lib/supabase/verified-user";
@@ -227,7 +228,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
       .returns<PayEvent[]>());
     rawPayRows = (payByPerson ?? []) as PayEvent[];
   }
-  const payRows = rawPayRows.map((event) => ({ ...event, overrides: overridesByEvent.get(event.id) || [] }));
+  const payRows = carrySalaryForward(rawPayRows).map((event) => ({ ...event, overrides: overridesByEvent.get(event.id) || [] }));
   const incomePensionContribution = deriveIncomePensionContribution(payRows, new Date(`${selectedMonth}-01T12:00:00Z`));
   const recordedPensionContribution = deriveMonthlyPensionContribution(pensionContributionEvents ?? [], incomePensionContribution.monthlyContribution);
   const pensionMonthlyContribution = recordedPensionContribution.monthlyContribution;

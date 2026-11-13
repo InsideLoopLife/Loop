@@ -368,18 +368,30 @@ async function updateFinancialFlowLineCategories__save(formData: FormData) {
   const householdContext = await getActiveHouseholdContext(supabase, user);
   const householdVisibleFilter = householdMemberDataOrFilter(householdContext);
 
-  const categoryId = emptyToNull(formData.get("category_id"));
+  // Bulk edit can change the category, the card/account a line is paid from, or both.
+  // "__keep" (or a missing field) leaves that field as it is.
+  const KEEP = "__keep";
+  const rawCategory = formData.get("category_id");
+  const changeCategory = rawCategory !== null && String(rawCategory) !== KEEP;
+  const categoryId = emptyToNull(rawCategory);
+  const rawPaymentAccount = formData.get("payment_account_id");
+  const changePaymentAccount = rawPaymentAccount !== null && String(rawPaymentAccount) !== KEEP;
+  const paymentAccountId = emptyToNull(rawPaymentAccount);
   const lineIds = formData.getAll("line_id").map((value) => String(value));
   const plannedIds = lineIds.filter((id) => id.startsWith("planned:")).map((id) => id.replace("planned:", "")).filter(Boolean);
   const entryIds = lineIds.filter((id) => id.startsWith("entry:")).map((id) => id.replace("entry:", "")).filter(Boolean);
   const childCostIds = lineIds.filter((id) => id.startsWith("child:")).map((id) => id.replace("child:", "")).filter(Boolean);
 
   if (plannedIds.length === 0 && entryIds.length === 0 && childCostIds.length === 0) return;
+  if (!changeCategory && !changePaymentAccount) return;
+  const changes: Record<string, string | null> = {};
+  if (changeCategory) changes.category_id = categoryId;
+  if (changePaymentAccount) changes.payment_account_id = paymentAccountId;
 
   if (plannedIds.length > 0) {
     const { error } = await supabase
       .from("planned_items")
-      .update({ category_id: categoryId, updated_at: new Date().toISOString() } as any)
+      .update({ ...changes, updated_at: new Date().toISOString() } as any)
       .in("id", plannedIds)
       .or(householdVisibleFilter);
     if (error) throw new Error(error.message);
@@ -388,7 +400,7 @@ async function updateFinancialFlowLineCategories__save(formData: FormData) {
   if (entryIds.length > 0) {
     const { error } = await supabase
       .from("spending_entries")
-      .update({ category_id: categoryId } as any)
+      .update(changes as any)
       .in("id", entryIds)
       .or(householdVisibleFilter);
     if (error) throw new Error(error.message);
@@ -397,7 +409,7 @@ async function updateFinancialFlowLineCategories__save(formData: FormData) {
   if (childCostIds.length > 0) {
     const { error } = await supabase
       .from("child_costs")
-      .update({ category_id: categoryId } as any)
+      .update(changes as any)
       .in("id", childCostIds)
       .or(householdVisibleFilter);
     if (error) throw new Error(error.message);

@@ -9,6 +9,7 @@ import { formatMoney } from "@/lib/format/money";
 import { FinancialInstitutionLogo } from "@/components/savings/FinancialInstitutionLogo";
 import { SavingsGoalVisual } from "@/components/savings/SavingsGoalVisual";
 import { SavingsMarketHealthDeferred } from "@/components/financial-flow/SavingsMarketHealthDeferred";
+import { RATE_WATCH_ENABLED } from "@/lib/product-switches";
 import { useEffect } from "react";
 import { useFinancialFlowRetained } from "@/components/financial-flow/FinancialFlowRetainedStore";
 import { FinancialFlowReasonCard } from "@/components/financial-flow/FinancialFlowReasonCard";
@@ -230,13 +231,13 @@ export function SavingsFlowDetail({
 
   return (
     <div className="space-y-6">
-      <SavingsMarketHealthDeferred scopePersonIds={scopePersonIds} />
+      {RATE_WATCH_ENABLED ? <SavingsMarketHealthDeferred scopePersonIds={scopePersonIds} /> : null}
       <FinancialFlowReasonCard
-        title={annualOpportunity >= MATERIAL_RATE_GAP ? "There may be a savings-rate improvement available" : "How LOOP is reading your savings"}
-        summary={annualOpportunity >= MATERIAL_RATE_GAP
+        title={RATE_WATCH_ENABLED && annualOpportunity >= MATERIAL_RATE_GAP ? "There may be a savings-rate improvement available" : "How LOOP is reading your savings"}
+        summary={RATE_WATCH_ENABLED && annualOpportunity >= MATERIAL_RATE_GAP
           ? `LOOP currently estimates around ${formatMoney(annualOpportunity)} a year of potential extra interest across ${Math.max(1, accountsWithOpportunity.length)} account${Math.max(1, accountsWithOpportunity.length) === 1 ? "" : "s"}. It is an indication, not an automatic recommendation to move money.`
-          : "These figures combine recorded balances, your current rates and clearly-labelled estimates. The reasoning stays visible so the score is not a black box."}
-        lines={reasoningLines}
+          : "These figures combine recorded balances, your current rates and clearly-labelled estimates."}
+        lines={RATE_WATCH_ENABLED ? reasoningLines : reasoningLines.filter((line) => line.label !== "Rate opportunity")}
         actionHref="/accounts?tab=accounts"
         actionLabel="Manage savings"
       />
@@ -292,7 +293,7 @@ export function SavingsFlowDetail({
                       <p className="text-xs font-bold text-slate-400">{account.provider}{account.endDate ? ` · ends ${account.endDate}` : ""}</p>
                     </div>
                   </div>
-                  <span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore < 0 ? "No comparable deal" : account.maximisedScore}</span>
+                  {RATE_WATCH_ENABLED ? <span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore < 0 ? "No comparable deal" : account.maximisedScore}</span> : null}
                 </div>
                 <div className="mt-3 flex items-end justify-between">
                   <div>
@@ -308,8 +309,8 @@ export function SavingsFlowDetail({
           {/* desktop: unchanged */}
           <div className="mt-4 hidden overflow-x-auto md:block">
             <table className="w-full min-w-[700px] text-left text-sm">
-              <thead><tr className="border-b border-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-400"><th className="pb-3">Account</th><th className="pb-3">This month / total</th><th className="pb-3">Interest rate</th><th className="pb-3">Max score</th><th className="pb-3">End date</th></tr></thead>
-              <tbody>{accounts.map((account) => <tr key={account.id} className="border-b border-slate-50"><td className="py-3"><div className="flex items-center gap-3"><FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-9 w-9 rounded-xl" /><div><p className="font-black text-slate-950">{account.name}</p><p className="text-xs font-bold text-slate-400">{account.provider}</p></div></div></td><td className="py-3 font-black text-slate-950">{formatMoney(account.savedThisMonth)} / {formatMoney(account.balance)}</td><td className="py-3 font-black text-slate-950">{account.interestRate.toFixed(2)}% AER</td><td className="py-3"><span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`rounded-full px-3 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore < 0 ? "No comparable deal" : account.maximisedScore}</span></td><td className="py-3 font-bold text-slate-500">{account.endDate || "—"}</td></tr>)}</tbody>
+              <thead><tr className="border-b border-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-400"><th className="pb-3">Account</th><th className="pb-3">This month / total</th><th className="pb-3">Interest rate</th>{RATE_WATCH_ENABLED ? <th className="pb-3">Max score</th> : null}<th className="pb-3">End date</th></tr></thead>
+              <tbody>{accounts.map((account) => <tr key={account.id} className="border-b border-slate-50"><td className="py-3"><div className="flex items-center gap-3"><FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-9 w-9 rounded-xl" /><div><p className="font-black text-slate-950">{account.name}</p><p className="text-xs font-bold text-slate-400">{account.provider}</p></div></div></td><td className="py-3 font-black text-slate-950">{formatMoney(account.savedThisMonth)} / {formatMoney(account.balance)}</td><td className="py-3 font-black text-slate-950">{account.interestRate.toFixed(2)}% AER</td>{RATE_WATCH_ENABLED ? <td className="py-3"><span title="100 means the rate is at or above the best broadly compatible eligible rate currently logged." className={`rounded-full px-3 py-1 text-xs font-black ${scoreClass(account.maximisedScore)}`}>{account.maximisedScore < 0 ? "No comparable deal" : account.maximisedScore}</span></td> : null}<td className="py-3 font-bold text-slate-500">{account.endDate || "—"}</td></tr>)}</tbody>
             </table>
           </div>
           {!accounts.length ? <p className="mt-4 rounded-2xl border border-dashed border-slate-200 p-5 text-center text-sm font-bold text-slate-400">No tracked savings accounts in this scope.</p> : null}

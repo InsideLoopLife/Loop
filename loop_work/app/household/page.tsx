@@ -1,3 +1,4 @@
+import { carrySalaryForward } from "@/lib/planning/salary-carry-forward";
 import { SharingChoice, shareLabel } from "@/components/household/SharingChoice";
 import { APP_FALLBACK_URL } from "@/lib/app-url";
 import { loadMonthPlans } from "@/lib/planning/load-month-plans";
@@ -374,7 +375,7 @@ export default async function HouseholdPage({ searchParams }: { searchParams?: P
     savingNames,
     monthKey,
     people,
-    payEvents: (payResult.data || []) as any,
+    payEvents: carrySalaryForward((payResult.data || []) as any[]) as any,
     incomeEntries: (incomeResult.data || []) as any,
     plannedItems: (plannedResult.data || []) as any,
     spendingEntries: (spendingResult.data || []) as any,

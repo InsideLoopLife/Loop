@@ -1,6 +1,7 @@
 // Loads everything a month plan needs and builds plans for the months asked.
 // The Summary, Household page and weekly email all use this, so their
 // "money in", "bills and spending", "saved" and "left over" always agree.
+import { carrySalaryForward } from "@/lib/planning/salary-carry-forward";
 import { buildMonthPlan, type MonthPlan } from "@/lib/planning/summary-plan";
 
 export type MonthTotals = { income: number; spending: number; saved: number; leftOver: number; savingsRate: number };
@@ -22,10 +23,10 @@ export async function loadMonthPlans(supabase: any, opts: { userId: string; filt
   const byEvent = new Map<string, any[]>();
   for (const o of (overrides.data ?? []) as any[]) if (o.pay_event_id) byEvent.set(o.pay_event_id, [...(byEvent.get(o.pay_event_id) || []), o]);
   const peopleById = new Map(((people.data ?? []) as any[]).map((p) => [p.id, p]));
-  let payRows = (payEvents.data ?? []) as any[];
+  let payRows = carrySalaryForward((payEvents.data ?? []) as any[]);
   if (!payRows.length && peopleById.size) {
     const { data } = await supabase.from("pay_events").select("*").in("person_id", Array.from(peopleById.keys()));
-    payRows = data ?? [];
+    payRows = carrySalaryForward(data ?? []);
   }
   const cats = (categories.data ?? []) as any[];
   const plans = opts.months.map((month) => buildMonthPlan({

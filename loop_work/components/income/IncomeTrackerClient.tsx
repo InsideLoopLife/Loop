@@ -1,5 +1,7 @@
 "use client";
 
+import { carrySalaryForward } from "@/lib/planning/salary-carry-forward";
+import { estimateStudentLoanBalance } from "@/lib/planning/student-loan-estimate";
 import { canChange, lockNote, type ShareContext } from "@/lib/household/permissions";
 import { Lock } from "lucide-react";
 
@@ -169,7 +171,7 @@ function monthStart(month: string) {
 
 function monthEnd(month: string) {
   const [year, monthIndex] = month.split("-").map(Number);
-  return new Date(year, monthIndex, 0).toISOString().slice(0, 10);
+  return new Date(Date.UTC(year, monthIndex, 0)).toISOString().slice(0, 10);
 }
 
 function isActiveInMonth(start: string, end: string | null, month: string) {
@@ -799,6 +801,14 @@ export function IncomeTrackerClient({
     () => rawPayEvents.map((event) => ({ ...event, deductions: (incomeDeductions as any[]).filter((d) => d.person_id === event.person_id) })),
     [rawPayEvents, incomeDeductions],
   );
+  // End date used for "is this pay active in a month": a salary with no later
+  // record carries on (see carrySalaryForward). Cards still show the date entered.
+  const carriedUntilById = useMemo(
+    () => new Map(carrySalaryForward(rawPayEvents as any[]).map((event: any) => [event.id, event.effective_until ?? null])),
+    [rawPayEvents],
+  );
+  const carriedUntil = (event: { id: string; effective_until?: string | null }) =>
+    carriedUntilById.has(event.id) ? carriedUntilById.get(event.id) ?? null : event.effective_until ?? null;
   useEffect(() => {
     writeRouteSnapshot<IncomeTrackerClientProps>("income", {
       entries, people, payEvents: rawPayEvents, studentLoanAccounts, studentLoanBalanceEvents,
@@ -873,7 +883,7 @@ export function IncomeTrackerClient({
 
     const payLines: IncomeLine[] = payEvents
       .filter((event) =>
-        isActiveInMonth(event.effective_from, event.effective_until, month),
+        isActiveInMonth(event.effective_from, carriedUntil(event), month),
       )
       .map((event) => {
         const breakdown = getPayEventBreakdown(event, month);
@@ -918,6 +928,21 @@ export function IncomeTrackerClient({
     [studentLoanAccounts, peopleById, adultPeople, defaultPersonId],
   );
 
+  // Today's balance: the checked figure, plus interest, less each payday's repayment since.
+  const studentLoanEstimate = (account: { person_id?: string | null; current_balance: number | string | null; balance_date?: string | null; interest_rate?: number | string | null; payroll_monthly_override?: number | string | null }) =>
+    estimateStudentLoanBalance({
+      balance: Number(account.current_balance || 0),
+      balanceDate: account.balance_date,
+      interestRatePercent: Number(account.interest_rate ?? 0),
+      today: new Date().toISOString().slice(0, 10),
+      repaymentForMonth: (monthKey) => {
+        if (account.payroll_monthly_override) return Number(account.payroll_monthly_override);
+        return payEvents
+          .filter((event) => event.person_id === account.person_id && isActiveInMonth(event.effective_from, carriedUntil(event), monthKey))
+          .reduce((sum, event) => sum + getPayEventBreakdown(event, monthKey).monthlyStudentLoan, 0);
+      },
+    });
+
   const effectivePersonFilter =
     personFilter === "all" && !canViewHouseholdIncome
       ? signedInPersonId || missingOwnProfileFilter
@@ -946,7 +971,7 @@ export function IncomeTrackerClient({
     const [year, monthNumber] = month.split("-").map(Number);
     const date = new Date(year, monthNumber - 1 + index, 1);
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-    const activePay = payEvents.filter((event) => { if (effectivePersonFilter !== "all" && event.person_id !== effectivePersonFilter) return false; return isActiveInMonth(event.effective_from, event.effective_until, monthKey); });
+    const activePay = payEvents.filter((event) => { if (effectivePersonFilter !== "all" && event.person_id !== effectivePersonFilter) return false; return isActiveInMonth(event.effective_from, carriedUntil(event), monthKey); });
     // All pay events that overlap this month contribute to expected income.
     // Transition months can legitimately contain both maternity pay and salary.
     const recurring = activePay;
@@ -1269,15 +1294,26 @@ export function IncomeTrackerClient({
                         {personName(peopleById, account.person_id)} ·{" "}
                         {account.plan.replaceAll("_", " ")}
                       </p>
-                      <p className="mt-1 text-2xl font-black text-slate-950">
-                        {formatMoney(Number(account.current_balance))}
-                      </p>
-                      <p className="text-sm font-semibold text-slate-500">
-                        Checked {formatNiceDate(account.balance_date)}
-                        {account.payroll_monthly_override
-                          ? ` · payslip ${formatMoney(account.payroll_monthly_override)}/mo`
-                          : ""}
-                      </p>
+                      {(() => {
+                        const estimate = studentLoanEstimate(account);
+                        const moved = estimate.paydays > 0 && Math.abs(estimate.estimatedBalance - Number(account.current_balance)) >= 1;
+                        return (
+                          <>
+                            <p className="mt-1 text-2xl font-black text-slate-950">
+                              {moved ? "About " : ""}{formatMoney(moved ? estimate.estimatedBalance : Number(account.current_balance))}
+                            </p>
+                            <p className="text-sm font-semibold text-slate-500">
+                              {moved
+                                ? `${formatMoney(Number(account.current_balance))} on ${formatNiceDate(account.balance_date)}, less ${formatMoney(estimate.repaid)} repaid from ${estimate.paydays} payday${estimate.paydays === 1 ? "" : "s"}${estimate.interest >= 1 ? `, plus ${formatMoney(estimate.interest)} interest` : ""}`
+                                : `Checked ${formatNiceDate(account.balance_date)}`}
+                              {account.payroll_monthly_override
+                                ? ` · payslip ${formatMoney(account.payroll_monthly_override)}/mo`
+                                : ""}
+                            </p>
+                            {moved ? <p className="text-xs font-semibold text-slate-400">An estimate. Update it with the balance from your Student Loans Company account when you next check.</p> : null}
+                          </>
+                        );
+                      })()}
                       <details className="mt-3 border-l-2 border-indigo-100 pl-4">
                         <summary className="cursor-pointer list-none text-[10px] font-black uppercase tracking-[0.18em] text-indigo-500">Balance history</summary>
                         <div className="space-y-2">

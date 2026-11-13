@@ -1,4 +1,6 @@
 import { getVerifiedUser } from "@/lib/supabase/verified-user";
+import { RATE_WATCH_ENABLED } from "@/lib/product-switches";
+import { carrySalaryForward } from "@/lib/planning/salary-carry-forward";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
@@ -346,7 +348,7 @@ const tabs = [
   { key: "pots", label: "Pots" },
   { key: "accounts", label: "Accounts" },
   { key: "banks", label: "Your banks", hidden: true },
-  { key: "rates", label: "Better rates" },
+  { key: "rates", label: "Better rates", hidden: !RATE_WATCH_ENABLED },
   { key: "ai", label: "Savings health", hidden: true },
   { key: "projection", label: "Projection" },
   { key: "add", label: "Add account", hidden: true },
@@ -803,6 +805,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       .returns<PayEvent[]>();
     payEvents = fallbackPayEvents ?? [];
   }
+  payEvents = carrySalaryForward(payEvents);
 
   const [{ data: pensionPerformanceAssumptions }, { data: savingsPotMovements }] = await Promise.all([
     activeTab === "projection"
@@ -1627,11 +1630,11 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                     tone="warning"
                   />
                 ) : null}
-                {topRateOpportunities.filter((row) => row.annualGain >= 10).slice(0, 3).map((row) => (
+                {(RATE_WATCH_ENABLED ? topRateOpportunities : []).filter((row) => row.annualGain >= 10).slice(0, 3).map((row) => (
                   <OpportunityCard key={row.accountId} title={`${row.providerName}: better rate available`} body={`${row.accountName} pays ${row.currentRate.toFixed(2)}%. A similar account pays ${row.bestRate?.toFixed(2)}%, about ${formatMoney(row.annualGain)} more a year.`} metric={`+${formatMoney(row.annualGain)}/yr`} tone="action" />
                 ))}
                 {intelligence.opportunities.filter((item) => !["better-rate", "isa-shield"].includes(item.key)).slice(0, 2).map((item) => <OpportunityCard key={item.key} title={item.title} body={item.body} metric={item.metric} tone={item.tone} />)}
-                {intelligence.taxableInterest <= 0 && !topRateOpportunities.some((row) => row.annualGain >= 10) && !intelligence.opportunities.some((item) => !["better-rate", "isa-shield"].includes(item.key)) ? (
+                {intelligence.taxableInterest <= 0 && !(RATE_WATCH_ENABLED && topRateOpportunities.some((row) => row.annualGain >= 10)) && !intelligence.opportunities.some((item) => !["better-rate", "isa-shield"].includes(item.key)) ? (
                   <p className="text-sm text-[var(--muted)]">Nothing needs doing right now.</p>
                 ) : null}
               </div>
@@ -1730,7 +1733,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
           </div>
         ) : null}
 
-        {activeTab === "rates" ? (
+        {activeTab === "rates" && RATE_WATCH_ENABLED ? (
           <div className="space-y-7">
             <SectionCard title="Better-rate watch" description="The daily comparison checks reviewed products for every saver. Paid tiers add automation and alerts; basic matching is not tier-gated.">
               <div className="grid gap-3 md:grid-cols-4">
