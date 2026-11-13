@@ -3,7 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient, hasSupabaseAdminKey } from "@/lib/supabase/admin";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
-import { cleanBarcode, looksLikeBarcode, mapOpenFoodFactsProduct, normaliseAiProductCandidate, type ProductLookupCandidate } from "@/lib/nutrition/product-data";
+import { cleanBarcode, enrichCandidate, looksLikeBarcode, mapOpenFoodFactsProduct, normaliseAiProductCandidate, type ProductLookupCandidate } from "@/lib/nutrition/product-data";
+import { referenceCandidates } from "@/lib/nutrition/reference-foods";
+import { expandBrandQuery, looksBranded, parseQuantity, textRelevance } from "@/lib/nutrition/food-search";
 import { fallbackRecipeEstimate, normaliseRecipeEstimate } from "@/lib/nutrition/scoring";
 import { cleanText, compactJson } from "@/lib/security/external-data";
 import { enforceUserRateLimit } from "@/lib/security/rate-limit";
@@ -19,6 +21,7 @@ const OFF_FIELDS = [
   "product_quantity",
   "serving_quantity",
   "serving_size",
+  "serving_quantity_unit",
   "image_url",
   "image_small_url",
   "image_front_url",
@@ -65,33 +68,10 @@ function parseJsonLoose(text: string) {
 }
 
 
-function productKey(value: { label?: string | null; brand_name?: string | null; brand?: string | null; source_url?: string | null; gtin?: string | null; barcode?: string | null }) {
-  const id = cleanBarcode(value.gtin || value.barcode);
-  if (id) return `gtin:${id}`;
-  const base = `${value.brand_name || value.brand || ""} ${value.label || ""} ${value.source_url || ""}`
-    .toLowerCase()
-    .replace(/https?:\/\//g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 180);
-  return base ? `name:${base}` : null;
-}
-
-function tokens(value: string) {
-  return cleanText(value || "", 220)
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((token) => token.length > 1 && !["zero", "the", "and", "with", "for"].includes(token));
-}
-
 function relevance(candidate: ProductLookupCandidate, query: string) {
-  const qTokens = tokens(query);
-  if (!qTokens.length) return 0;
-  const hay = `${candidate.label} ${candidate.brand_name || ""} ${candidate.source_label || ""}`.toLowerCase();
-  const matches = qTokens.filter((token) => hay.includes(token)).length;
-  const exactBoost = hay.includes(query.toLowerCase()) ? 3 : 0;
-  const ukBoost = /tesco|sainsbury|asda|morrisons|waitrose|ocado|aldi|lidl|iceland|greggs|costa|boots|superdrug|uk|great britain|united kingdom|fanta|coca.?cola|g fuel|gfuel/i.test(`${candidate.source_url || ""} ${candidate.source_label || ""} ${candidate.brand_name || ""}`) ? 1 : 0;
-  return matches / qTokens.length + exactBoost + ukBoost;
+  const text = `${candidate.brand_name || ""} ${candidate.label}`;
+  const ukBoost = /tesco|sainsbury|asda|morrisons|waitrose|ocado|aldi|lidl|iceland|greggs|costa|boots|superdrug|\buk\b|great britain|united kingdom/i.test(`${candidate.source_url || ""} ${candidate.source_label || ""} ${candidate.brand_name || ""}`) ? 0.1 : 0;
+  return textRelevance(query, text) + ukBoost;
 }
 
 function rowToCandidate(row: any, source: "meal_card" | "ingredient_db"): ProductLookupCandidate | null {
@@ -172,7 +152,7 @@ async function searchIngredientDb(supabase: any, userId: string, query: string) 
         : Promise.resolve({ data: [], error: null }),
     ]);
     const ownCandidates = (own.data || []).map((row: any) => rowToCandidate(row, "ingredient_db")).filter(Boolean) as ProductLookupCandidate[];
-    const globalCandidates = (global.data || []).map((row: any) => cacheCandidateFromRow({ ...row, lookup_json: row.lookup_json }, "global_cache")).filter(Boolean) as ProductLookupCandidate[];
+    const globalCandidates = (global.data || []).filter((row: any) => !(/^ai_/.test(String(row?.source || "")) && Number(row?.data_confidence || 0) < 50)).map((row: any) => cacheCandidateFromRow({ ...row, lookup_json: row.lookup_json }, "global_cache")).filter(Boolean) as ProductLookupCandidate[];
     return [...ownCandidates, ...globalCandidates];
   } catch {
     return [] as ProductLookupCandidate[];
@@ -236,7 +216,10 @@ async function searchGlobalCache(supabase: any, query: string) {
     rows = [...(nameResult.data || []), ...(brandResult.data || [])];
   }
 
-  return rows.map((row: any) => cacheCandidateFromRow(row, "global_cache")).filter(Boolean) as ProductLookupCandidate[];
+  return rows
+    .filter((row: any) => !(/^ai_/.test(String(row?.lookup_json?.source || "")) && Number(row?.data_confidence || 0) < 50))
+    .map((row: any) => cacheCandidateFromRow(row, "global_cache"))
+    .filter(Boolean) as ProductLookupCandidate[];
 }
 
 async function fetchOpenFoodFactsByBarcode(barcode: string) {
@@ -330,69 +313,10 @@ function dedupeCandidates(candidates: ProductLookupCandidate[], query = "") {
     const key = `${candidate.gtin || candidate.barcode || ""}:${candidate.label.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    output.push({ ...candidate, raw: compactJson(candidate.raw || {}, 35_000) });
+    output.push(enrichCandidate({ ...candidate, raw: compactJson(candidate.raw || {}, 35_000) }));
   }
-  return output.sort((a, b) => (relevance(b, query) * 100 + Number(b.data_confidence || 0)) - (relevance(a, query) * 100 + Number(a.data_confidence || 0))).slice(0, 10);
-}
-
-async function cacheHouseholdCandidates(supabase: any, userId: string, candidates: ProductLookupCandidate[]) {
-  if (!candidates.length) return;
-  const rows = candidates.map((candidate) => ({
-    user_id: userId,
-    product_key: productKey(candidate),
-    barcode: candidate.barcode || null,
-    gtin: candidate.gtin || candidate.barcode || null,
-    product_name: candidate.label.slice(0, 220),
-    brand_name: candidate.brand_name || null,
-    source: candidate.source,
-    source_url: candidate.source_url || null,
-    image_url: candidate.image_url || null,
-    ingredients_text: candidate.ingredients_text || null,
-    serving_label: candidate.serving_label || null,
-    package_quantity: candidate.package_quantity || null,
-    data_confidence: candidate.data_confidence,
-    lookup_json: compactJson(candidate, 65_000),
-    last_seen_at: new Date().toISOString(),
-  })).filter((row) => row.product_key);
-  try {
-    await supabase.from("nutrition_product_catalog").upsert(rows, { onConflict: "user_id,product_key", ignoreDuplicates: false });
-  } catch {
-    try {
-      const legacyRows = rows.filter((row: any) => row.gtin || row.barcode).map(({ product_key, ...row }: any) => row);
-      if (legacyRows.length) await supabase.from("nutrition_product_catalog").upsert(legacyRows, { onConflict: "user_id,gtin", ignoreDuplicates: false });
-    } catch {}
-  }
-}
-
-async function cacheGlobalCandidates(candidates: ProductLookupCandidate[]) {
-  if (!hasSupabaseAdminKey() || !candidates.length) return;
-  const admin = createAdminClient();
-  const rows = candidates
-    .map((candidate) => ({
-      product_key: productKey(candidate),
-      barcode: candidate.barcode || null,
-      gtin: candidate.gtin || candidate.barcode || null,
-      product_name: candidate.label.slice(0, 220),
-      brand_name: candidate.brand_name || null,
-      source: candidate.source,
-      source_url: candidate.source_url || null,
-      image_url: candidate.image_url || null,
-      ingredients_text: candidate.ingredients_text || null,
-      serving_label: candidate.serving_label || null,
-      package_quantity: candidate.package_quantity || null,
-      data_confidence: candidate.data_confidence,
-      lookup_json: compactJson(candidate, 65_000),
-      last_seen_at: new Date().toISOString(),
-    })).filter((row) => row.product_key);
-  if (!rows.length) return;
-  try {
-    await admin.from("nutrition_global_product_catalog").upsert(rows, { onConflict: "product_key", ignoreDuplicates: false });
-  } catch {
-    try {
-      const legacyRows = rows.filter((row: any) => row.gtin || row.barcode).map(({ product_key, ...row }: any) => row);
-      if (legacyRows.length) await admin.from("nutrition_global_product_catalog").upsert(legacyRows, { onConflict: "gtin", ignoreDuplicates: false });
-    } catch {}
-  }
+  const rank = (candidate: ProductLookupCandidate) => relevance(candidate, query) * 100 + Number(candidate.data_confidence || 0) * 0.5 - (candidate.quality_flags?.includes("energy_mismatch") ? 40 : 0) - (candidate.quality_flags?.includes("low_confidence_ai") ? 30 : 0);
+  return output.sort((a, b) => rank(b) - rank(a)).slice(0, 10);
 }
 
 export async function POST(request: Request) {
@@ -412,38 +336,62 @@ export async function POST(request: Request) {
     return jsonError("Too many product lookups. Try again shortly.", 429, { resetAt: generalLimit.resetAt });
   }
 
-  const candidates: ProductLookupCandidate[] = [];
-  candidates.push(...await searchSavedCards(supabase, user.id, query));
-  candidates.push(...await searchIngredientDb(supabase, user.id, query));
-  candidates.push(...await searchHouseholdCache(supabase, user.id, query));
-  candidates.push(...await searchGlobalCache(supabase, query));
+  const hint = parseQuantity(query);
+  const searchText = looksLikeBarcode(query) ? query : hint.text;
+  const reference = looksLikeBarcode(query) ? { best: 0, candidates: [] as ProductLookupCandidate[] } : referenceCandidates(query, 6);
+  const branded = looksBranded(searchText);
+  const strongReference = reference.best >= 1.45 && !branded;
 
-  if (candidates.length < 3 || Boolean(body.refreshExternal)) {
-    if (looksLikeBarcode(query)) candidates.push(...await fetchOpenFoodFactsByBarcode(cleanBarcode(query)));
-    if (!looksLikeBarcode(query) || candidates.length < 2) candidates.push(...await searchOpenFoodFacts(query));
+  const candidates: ProductLookupCandidate[] = [];
+  candidates.push(...await searchSavedCards(supabase, user.id, searchText));
+  candidates.push(...await searchIngredientDb(supabase, user.id, searchText));
+  candidates.push(...await searchHouseholdCache(supabase, user.id, searchText));
+  candidates.push(...await searchGlobalCache(supabase, searchText));
+
+  const wantExternal = Boolean(body.refreshExternal) || Boolean(body.deepResearch);
+  if (looksLikeBarcode(query)) {
+    if (candidates.length < 2 || wantExternal) candidates.push(...await fetchOpenFoodFactsByBarcode(cleanBarcode(query)));
+  } else if (wantExternal || (!strongReference && candidates.length < 3)) {
+    candidates.push(...await searchOpenFoodFacts(expandBrandQuery(searchText)));
   }
 
-  let sorted = dedupeCandidates(candidates, query);
-  const bestRelevance = sorted.length ? Math.max(...sorted.map((candidate) => relevance(candidate, query))) : 0;
-  const shouldWebResearch = Boolean(body.deepResearch) || sorted.length === 0 || bestRelevance < 0.55;
+  let sorted = dedupeCandidates(candidates, searchText);
+  const bestRelevance = sorted.length ? Math.max(...sorted.map((candidate) => relevance(candidate, searchText))) : 0;
+  const shouldWebResearch = Boolean(body.deepResearch) || (!strongReference && reference.best < 1.2 && (sorted.length === 0 || bestRelevance < 0.55));
   if (shouldWebResearch) {
     const aiLimit = await enforceUserRateLimit({ userId: user.id, bucket: "nutrition_retailer_research", limit: 25, windowSeconds: 60 * 60 * 24 });
-    if (aiLimit.allowed) candidates.push(...await searchWithOpenAi(supabase, user.id, query));
+    if (aiLimit.allowed) candidates.push(...await searchWithOpenAi(supabase, user.id, expandBrandQuery(searchText)));
   }
 
-  sorted = dedupeCandidates(candidates, query);
-  await Promise.all([
-    cacheHouseholdCandidates(supabase, user.id, sorted),
-    cacheGlobalCandidates(sorted.filter((candidate) => candidate.source !== "household_cache")),
-  ]);
+  sorted = dedupeCandidates(candidates, searchText);
+  // Low-confidence AI guesses only show when there's nothing better.
+  const trustworthy = sorted.filter((candidate) => !candidate.quality_flags?.includes("low_confidence_ai"));
+  const external = (trustworthy.length || reference.candidates.length ? trustworthy : sorted).map((candidate) => {
+    if (candidate.suggested_amount != null || candidate.base_amount == null) return candidate;
+    const amount = hint.amount ?? (hint.count && candidate.serving_known ? Math.round(candidate.base_amount * hint.count * 10) / 10 : null);
+    return amount ? { ...candidate, suggested_amount: amount } : candidate;
+  });
+  const everyday = reference.candidates.map(enrichCandidate);
+  const yours = external.filter((candidate) => candidate.result_group === "yours");
+  const brandedResults = external.filter((candidate) => candidate.result_group !== "yours");
+  const groupList = [
+    { key: "yours", label: "Your foods", note: "Things you've logged or saved before", candidates: yours },
+    { key: "everyday", label: "Everyday foods", note: "UK government reference data — per 100g/ml, pick a portion", candidates: everyday },
+    { key: "branded", label: "Branded & shop products", note: "From pack labels — check the details match yours", candidates: brandedResults },
+  ].filter((group) => group.candidates.length);
+  if (branded) groupList.sort((a, b) => (a.key === "branded" ? -1 : 0) - (b.key === "branded" ? -1 : 0));
+  const ordered = groupList.flatMap((group) => group.candidates);
 
   return NextResponse.json({
-    candidates: sorted,
+    candidates: ordered,
+    groups: groupList,
+    quantity: hint.amount || hint.count ? { amount: hint.amount, count: hint.count, unit: hint.unit } : null,
+    canSearchBrands: !wantExternal && strongReference,
     rateLimit: { remaining: generalLimit.remaining, resetAt: generalLimit.resetAt },
     autoWebResearch: shouldWebResearch,
-    sources: ["Your saved cards", "Reusable ingredients/products", "Shared product cache", "Open Food Facts UK/global", "AI retailer/manufacturer web research when local/source data is not enough"],
-    note: sorted.length
-      ? (shouldWebResearch ? "Local/database matches were limited, so LoopHealth also checked the web and will cache selected/saved products for future users." : "Matched from saved/shared product data first. Review the label/ingredients before saving because recipes and pack sizes can change.")
-      : "No product match found yet. Add a product URL/label photo/manual ingredients and LoopHealth will build the reusable database entry.",
+    sources: ["Your saved foods", "UK government reference data (CoFID)", "Shared product data", "Open Food Facts UK/global", "AI retailer/manufacturer web research when nothing else matches"],
+    note: ordered.length
+      ? (shouldWebResearch ? "Nothing close enough in the food databases, so Loop also checked shop and brand websites. Check the label before relying on it." : "Pick the closest match, then choose how much you had.")
+      : "No match yet. Try fewer words, check spelling, or add a product URL or label photo.",
   });
 }

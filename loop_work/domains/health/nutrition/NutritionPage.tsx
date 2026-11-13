@@ -119,6 +119,7 @@ export type FoodLog = {
   glycemic_impact_score: number | null;
   notes: string | null;
 };
+export type RecentFoodLog = { person_id: string | null; meal_id: string | null; label: string; meal_slot: string | null; eaten_on: string; serving_multiplier: number | null; calories: number | null; image_url: string | null };
 export type Supermarket = { id: string; name: string; location_label: string | null; online_url: string | null; notes: string | null };
 export type NutritionSettings = { health_child_scaling_enabled: boolean | null; health_child_logging_enabled: boolean | null; health_apple_health_enabled: boolean | null; health_prompt_for_time_enabled?: boolean | null };
 
@@ -136,12 +137,15 @@ export default async function NutritionPage({ searchParams }: { searchParams?: P
   const from = fromDate.toISOString().slice(0, 10);
   const to = toDate.toISOString().slice(0, 10);
 
-  const [peopleResult, mealsResult, logsResult, supermarketsResult, profileResult] = await Promise.all([
+  const historyFrom = new Date(selected);
+  historyFrom.setDate(selected.getDate() - 60);
+  const [peopleResult, mealsResult, logsResult, supermarketsResult, profileResult, recentResult] = await Promise.all([
     supabase.from("people").select("id, name, relationship, avatar_url, linked_user_id, account_status").eq("user_id", user.id).order("relationship").returns<NutritionPerson[]>(),
     supabase.from("meals").select("id, person_id, label, source_url, image_url, image_prompt, servings, adult_serving_multiplier, child_serving_multiplier, estimated_cost, supermarket_id, barcode, gtin, brand_name, product_data_source, card_kind, product_data_confidence, product_image_url, product_source_url, label_front_image_url, label_ingredients_image_url, label_nutrition_image_url, user_verified_label, product_lookup_json, calories, protein_g, carbs_g, fat_g, fibre_g, soluble_fibre_g, insoluble_fibre_g, sugar_g, added_sugar_g, natural_sugar_g, salt_g, saturated_fat_g, trans_fat_g, monounsaturated_fat_g, polyunsaturated_fat_g, sodium_mg, potassium_mg, calcium_mg, iron_mg, magnesium_mg, zinc_mg, folate_ug, niacin_mg, thiamin_mg, vitamin_c_mg, vitamin_d_ug, vitamin_b12_ug, omega_3_g, caffeine_mg, energy_density_kcal_per_g, glycemic_impact_score, ingredients, ingredients_json, ingredient_ratio_json, allergen_flags, dietary_flags, manufacturing_notes, confidence_reason, processing_level, notes, nutrition_score, nutrition_confidence, nutrition_json, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).returns<NutritionMeal[]>(),
     supabase.from("food_logs").select("id, person_id, meal_id, eaten_on, eaten_at, drink_volume_ml, meal_slot, serving_multiplier, label, image_url, calories, protein_g, carbs_g, fat_g, fibre_g, soluble_fibre_g, insoluble_fibre_g, sugar_g, added_sugar_g, natural_sugar_g, salt_g, saturated_fat_g, trans_fat_g, monounsaturated_fat_g, polyunsaturated_fat_g, sodium_mg, potassium_mg, calcium_mg, iron_mg, magnesium_mg, zinc_mg, folate_ug, niacin_mg, thiamin_mg, vitamin_c_mg, vitamin_d_ug, vitamin_b12_ug, omega_3_g, caffeine_mg, energy_density_kcal_per_g, glycemic_impact_score, notes").eq("user_id", user.id).gte("eaten_on", from).lte("eaten_on", to).order("eaten_on", { ascending: false }).order("eaten_at", { ascending: true, nullsFirst: false }).returns<FoodLog[]>(),
     supabase.from("grocery_supermarkets").select("id, name, location_label, online_url, notes").eq("user_id", user.id).order("name").returns<Supermarket[]>(),
     supabase.from("app_user_profiles").select("health_child_scaling_enabled, health_child_logging_enabled, health_apple_health_enabled, health_prompt_for_time_enabled").eq("user_id", user.id).maybeSingle<NutritionSettings>(),
+    supabase.from("food_logs").select("person_id, meal_id, label, meal_slot, eaten_on, serving_multiplier, calories, image_url").eq("user_id", user.id).gte("eaten_on", historyFrom.toISOString().slice(0, 10)).lte("eaten_on", selectedDate).order("eaten_on", { ascending: false }).limit(1500).returns<RecentFoodLog[]>(),
   ]);
 
   const basePeople = (peopleResult.data ?? []) as NutritionPerson[];
@@ -174,6 +178,7 @@ export default async function NutritionPage({ searchParams }: { searchParams?: P
         people={people}
         meals={mealsResult.data ?? []}
         logs={logsResult.data ?? []}
+        recentLogs={recentResult.data ?? []}
         supermarkets={supermarketsResult.data ?? []}
         selectedDate={selectedDate}
         settings={profileResult.data ?? { health_child_scaling_enabled: true, health_child_logging_enabled: true, health_apple_health_enabled: false, health_prompt_for_time_enabled: true }}

@@ -7,12 +7,13 @@ import { FormInput } from "@/components/FormInput";
 import { SubmitButton } from "@/components/SubmitButton";
 import { addNutritionMeal, bulkAddNutritionMeals, deleteFoodEntry, deleteNutritionMeal, generateMealMethod, logFoodEntry, queueNutritionProductCorrection, setNutritionMealCardKind, updateFoodEntry, updateNutritionMeal, updateNutritionSettings } from "@/app/nutrition/actions";
 import { addNutritionTotals, mealImageEmoji, NUTRITION_TOTAL_KEYS, nutritionBalanceRecommendations, scoreGutHealth, scoreMeal, scoreNutritionDay, scoreProcessedFood, type NutritionTotals, type RecipeEstimate } from "@/lib/nutrition/scoring";
-import type { FoodLog, NutritionMeal, NutritionPerson, NutritionSettings, Supermarket } from "@/app/nutrition/page";
+import type { FoodLog, NutritionMeal, NutritionPerson, NutritionSettings, RecentFoodLog, Supermarket } from "@/app/nutrition/page";
 import type { ProductLookupCandidate } from "@/lib/nutrition/product-data";
 import { cleanProductOrMealLabel, displayProductCandidateLabel, extractTimeHHMM, extractVolumeMl, inferFoodEntityType, isProductLikeKind, nutritionUpdateStatus, productUpdateStatusLabel } from "@/lib/nutrition/intelligence";
 import { writeRouteSnapshot } from "@/lib/client/route-snapshot-cache";
+import { basisFromCandidate, GroupedResults, PersonPortions, PortionPicker, SameAsYesterday, Usuals, usualsFor, type AmountBasis, type PortionTarget, type ResultGroup } from "@/components/nutrition/LogHelpers";
 
-export type NutritionClientProps = { people: NutritionPerson[]; meals: NutritionMeal[]; logs: FoodLog[]; supermarkets: Supermarket[]; selectedDate: string; settings: NutritionSettings; initialOpen?: "recipe" | "log" | "edit-recipe" | null; initialMealId?: string | null; initialTab?: "overview" | "recipes" | "food-log" | "meal-cards" };
+export type NutritionClientProps = { people: NutritionPerson[]; meals: NutritionMeal[]; logs: FoodLog[]; recentLogs?: RecentFoodLog[]; supermarkets: Supermarket[]; selectedDate: string; settings: NutritionSettings; initialOpen?: "recipe" | "log" | "edit-recipe" | null; initialMealId?: string | null; initialTab?: "overview" | "recipes" | "food-log" | "meal-cards" };
 type Modal = { type: "recipe" } | { type: "edit-recipe"; meal: NutritionMeal } | { type: "log"; meal?: NutritionMeal } | { type: "edit-log"; log: FoodLog } | { type: "menu-import" } | null;
 type NutritionPanel = "log" | "cards" | "settings";
 
@@ -342,14 +343,14 @@ function HiddenNutritionInputs({ values }: { values: Partial<NutritionTotals> })
 function ModalShell({ title, description, children, onClose }: { title: string; description?: string; children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-sm sm:items-center sm:p-6">
-      <div className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-t-[2rem] border border-white/70 bg-white p-6 shadow-2xl sm:rounded-[2rem]">
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
+      <div className="max-h-[94dvh] w-full max-w-6xl overflow-y-auto overscroll-contain rounded-t-[1.75rem] border border-white/70 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl sm:max-h-[92vh] sm:rounded-[2rem] sm:p-6" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="mb-4 flex items-start justify-between gap-4 sm:mb-5">
+          <div className="min-w-0">
             <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-600">LoopHealth</p>
-            <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950">{title}</h2>
+            <h2 className="mt-1 text-xl font-black tracking-tight text-slate-950 sm:text-2xl">{title}</h2>
             {description ? <p className="mt-1 text-sm font-semibold text-slate-500">{description}</p> : null}
           </div>
-          <button onClick={onClose} className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-200">Close</button>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-200">Close</button>
         </div>
         {children}
       </div>
@@ -1258,11 +1259,30 @@ function MenuImportProgress({ status, sourceReadInfo, itemCount }: { status: Men
 }
 
 
-function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: { people: NutritionPerson[]; meals: NutritionMeal[]; meal?: NutritionMeal; selectedDate: string; settings: NutritionSettings; onClose: () => void }) {
+/** A saved card can be logged in grams/ml when it was saved from a per-100g or labelled product. */
+function basisForMeal(meal: NutritionMeal | null | undefined): AmountBasis | null {
+  const lookup = meal?.product_lookup_json as Partial<ProductLookupCandidate> | null | undefined;
+  if (!meal || !lookup || typeof lookup !== "object") return null;
+  const basis = basisFromCandidate(lookup);
+  if (!basis) return null;
+  // Only when the card's own numbers are on the same basis as the product data.
+  if (Math.abs(number(meal.calories) - basis.kcalPerBase) > 2) return null;
+  return { ...basis, kcalPerBase: number(meal.calories) };
+}
+
+function startingAmount(basis: AmountBasis | null, suggested?: number | null) {
+  if (!basis) return null;
+  if (suggested && suggested > 0) return suggested;
+  return basis.servingKnown ? basis.baseAmount : null;
+}
+
+function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose, recentLogs = [] }: { people: NutritionPerson[]; meals: NutritionMeal[]; meal?: NutritionMeal; selectedDate: string; settings: NutritionSettings; onClose: () => void; recentLogs?: RecentFoodLog[] }) {
   const [selectedMealId, setSelectedMealId] = useState(meal?.id || "");
   const [selectedProduct, setSelectedProduct] = useState<ProductLookupCandidate | null>(null);
   const [productQuery, setProductQuery] = useState("");
   const [productCandidates, setProductCandidates] = useState<ProductLookupCandidate[]>([]);
+  const [productGroups, setProductGroups] = useState<ResultGroup[]>([]);
+  const [canSearchBrands, setCanSearchBrands] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [cardSearch, setCardSearch] = useState(meal?.label || "");
   const [menuUrl, setMenuUrl] = useState("");
@@ -1279,6 +1299,8 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
   const [selectedPeople, setSelectedPeople] = useState<string[]>(() => selectedMeal?.person_id ? [selectedMeal.person_id] : (defaultLogPerson?.id ? [defaultLogPerson.id] : [HOUSEHOLD_SENTINEL]));
   const defaultMultiplier = selectedMeal ? number(selectedMeal.adult_serving_multiplier || 1) : 1;
   const [portion, setPortion] = useState(defaultMultiplier || 1);
+  const [amount, setAmountState] = useState<number | null>(() => startingAmount(basisForMeal(meal)));
+  const [personOverrides, setPersonOverrides] = useState<Record<string, number>>({});
   const [mealSlot, setMealSlot] = useState("meal");
   const [inputMode, setInputMode] = useState<"search" | "ai">("search");
   const [aiDescription, setAiDescription] = useState("");
@@ -1323,11 +1345,32 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
     confidenceReason: selectedProduct.confidence_reason || selectedProduct.estimate?.confidence_reason || "",
   } : null;
 
+  const basis: AmountBasis | null = selectedMeal ? basisForMeal(selectedMeal) : basisFromCandidate(selectedProduct);
+  const childRatio = activeSource ? Math.max(0.1, Math.min(1, number(activeSource.child || 0.55) / Math.max(0.01, number(activeSource.adult || 1)))) : 0.55;
+
+  function setAmount(value: number | null) {
+    setAmountState(value);
+    setPersonOverrides({});
+    if (basis && value != null && value > 0) setPortion(Math.round((value / basis.baseAmount) * 10000) / 10000);
+  }
+
+  function pickSavedMeal(item: NutritionMeal, multiplier = 1) {
+    setSelectedMealId(item.id);
+    setSelectedProduct(null);
+    setManualImageUrl(item.image_url || item.product_image_url || "");
+    setCardSearch(item.label);
+    setPersonOverrides({});
+    const mealBasis = basisForMeal(item);
+    setPortion(multiplier || 1);
+    setAmountState(mealBasis ? (multiplier && multiplier !== 1 ? Math.round(mealBasis.baseAmount * multiplier * 10) / 10 : startingAmount(mealBasis)) : null);
+    if (isProductLikeKind(`${item.card_kind || ""} ${item.product_data_source || ""}`) && /drink|gfuel|g fuel|coffee|latte/i.test(item.label)) setMealSlot("drink");
+  }
+
   function togglePerson(id: string) {
     setSelectedPeople((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
 
-  async function lookupProduct(deepResearch = false) {
+  async function lookupProduct(deepResearch = false, refreshExternal = false) {
     const query = productQuery.trim();
     if (!query) {
       setLookupError("Search a product name or barcode first.");
@@ -1339,12 +1382,14 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
         const response = await fetch("/api/nutrition/product-lookup", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, deepResearch }),
+          body: JSON.stringify({ query, deepResearch, refreshExternal }),
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not lookup product");
         setProductCandidates(Array.isArray(data.candidates) ? data.candidates : []);
-        if (!data.candidates?.length) setLookupError(data.note || "No product match found yet.");
+        setProductGroups(Array.isArray(data.groups) ? data.groups : []);
+        setCanSearchBrands(Boolean(data.canSearchBrands));
+        if (!data.candidates?.length) setLookupError(data.note || "No match yet. Try fewer words or check the spelling.");
       } catch (caught) {
         setLookupError(caught instanceof Error ? caught.message : "Could not lookup product");
       }
@@ -1355,9 +1400,14 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
     setSelectedMealId("");
     setSelectedProduct({ ...candidate, label: displayProductCandidateLabel(candidate) });
     setProductCandidates([]);
+    setProductGroups([]);
     setLookupError(null);
     setManualImageUrl(candidate.image_url || "");
-    setPortion(1);
+    setPersonOverrides({});
+    const candidateBasis = basisFromCandidate(candidate);
+    const start = startingAmount(candidateBasis, candidate.suggested_amount);
+    setAmountState(start);
+    setPortion(candidateBasis && start ? Math.round((start / candidateBasis.baseAmount) * 10000) / 10000 : 1);
     const text = `${candidate.label || ""} ${candidate.serving_label || ""} ${candidate.ingredients_text || ""}`;
     if (/\b(water|tea|coffee|espresso|latte|cappuccino|juice|smoothie|shake|drink|squash|milk)\b/i.test(text)) setMealSlot("drink");
   }
@@ -1549,14 +1599,32 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
   const realPeopleSelected = selectedPeople.filter((id) => id !== HOUSEHOLD_SENTINEL).length;
   const selectedTargetCount = Math.max(1, realPeopleSelected + (selectedPeople.includes(HOUSEHOLD_SENTINEL) ? 1 : 0));
   const timePromptOn = settings.health_prompt_for_time_enabled !== false;
+  const singlePersonId = realPeopleSelected === 1 && !selectedPeople.includes(HOUSEHOLD_SENTINEL) ? selectedPeople.find((id) => id !== HOUSEHOLD_SENTINEL) || null : null;
+  const usualsPersonId = singlePersonId || defaultLogPerson?.id || null;
+  const usualsPerson = people.find((person) => person.id === usualsPersonId) || null;
+  const usualItems = useMemo(() => usualsFor(recentLogs, meals, usualsPersonId), [recentLogs, meals, usualsPersonId]);
+  const portionTargets: PortionTarget[] = selectedPeople.map((id) => {
+    if (id === HOUSEHOLD_SENTINEL) return { id, name: "Household / shared", child: false };
+    const person = people.find((item) => item.id === id);
+    return { id, name: person?.name || "Person", child: isChild(person), avatarUrl: person?.avatar_url || null };
+  });
+  const showPersonPortions = Boolean(activeSource) && allocationMode === "per_person" && portionTargets.length >= 2;
+  const roundAmount = (value: number) => basis ? Math.round(value / (basis.unit === "ml" ? 5 : 1)) * (basis.unit === "ml" ? 5 : 1) : Math.round(value * 100) / 100;
+  const personValues: Record<string, number> = Object.fromEntries(portionTargets.map((target) => {
+    const adultValue = basis ? number(amount) : number(portion);
+    return [target.id, personOverrides[target.id] ?? roundAmount(target.child ? adultValue * childRatio : adultValue)];
+  }));
+  const personMultipliers: Record<string, number> = showPersonPortions ? Object.fromEntries(Object.entries(personValues).map(([id, value]) => [id, basis ? Math.round((value / basis.baseAmount) * 10000) / 10000 : value])) : {};
+  const needsAmount = Boolean(activeSource && basis && (amount == null || amount <= 0));
 
   return (
-    <form action={logFoodEntry} className="space-y-4" onSubmit={() => window.setTimeout(onClose, 350)}>
+    <form action={logFoodEntry} className="space-y-4" onSubmit={(event) => { if (needsAmount) { event.preventDefault(); return; } window.setTimeout(onClose, 350); }}>
       <input type="hidden" name="meal_id" value={selectedMeal?.id || ""} />
       <input type="hidden" name="serving_allocation_mode" value={allocationMode} />
       <input type="hidden" name="label" value={activeLabel} /><input type="hidden" name="freehand_description" value={aiDescription} />
       <input type="hidden" name="image_url" value={resolvedImageUrl} />
       <input type="hidden" name="person_ids_json" value={JSON.stringify(selectedPeople)} />
+      <input type="hidden" name="person_portions_json" value={JSON.stringify(personMultipliers)} />
       <HiddenNutritionInputs values={activeSource?.nutrition || {}} />
       {selectedProduct ? (
         <>
@@ -1584,7 +1652,9 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
         </>
       ) : null}
 
-      <div className={`rounded-[2rem] border p-4 ${inputMode === "ai" ? "border-slate-200 bg-slate-50" : "border-emerald-100 bg-emerald-50/80"}`}>
+      {!activeSource ? <SameAsYesterday recentLogs={recentLogs} selectedDate={selectedDate} people={people} personFilter={singlePersonId} onDone={onClose} /> : null}
+
+      <div className={`rounded-[1.5rem] border p-3 sm:rounded-[2rem] sm:p-4 ${inputMode === "ai" ? "border-slate-200 bg-slate-50" : "border-emerald-100 bg-emerald-50/80"}`}>
         <div className="mb-4 flex flex-wrap gap-2">
           <button type="button" onClick={() => setInputMode("search")} className={`rounded-full px-4 py-2 text-sm font-black ${inputMode === "search" ? "bg-slate-950 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}>Quick search</button>
           <button type="button" onClick={() => setInputMode("ai")} className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-black ${inputMode === "ai" ? "bg-slate-950 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}><Sparkles className="h-4 w-4" /> Ask AI</button>
@@ -1592,13 +1662,15 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
 
         {inputMode === "search" ? <>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-            <label className="block flex-1"><span className="text-sm font-black text-emerald-950">Quick food / drink search</span><input value={productQuery} onChange={(event) => setProductQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); lookupProduct(false); } }} className="mt-1 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2" placeholder="Search Greggs sausage roll, Costa latte, Coke Zero..." /></label>
-            <button type="button" disabled={isLookupPending} onClick={() => lookupProduct(false)} className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-60">{isLookupPending ? "Searching..." : "Search"}</button>
-            <button type="button" disabled={isLookupPending} onClick={() => lookupProduct(true)} className="rounded-2xl bg-white px-5 py-3 text-sm font-black text-emerald-800 ring-1 ring-emerald-200 disabled:opacity-60">Retailer search</button>
+            <label className="block flex-1"><span className="text-sm font-black text-emerald-950">Quick food / drink search</span><input value={productQuery} onChange={(event) => setProductQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); lookupProduct(false); } }} className="mt-1 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-base font-semibold outline-none ring-emerald-500 transition focus:ring-2 sm:text-sm" placeholder="2 boiled eggs, banana, Coke Zero, Greggs sausage roll..." enterKeyHint="search" autoComplete="off" /></label>
+            <div className="grid grid-cols-2 gap-2 lg:flex">
+              <button type="button" disabled={isLookupPending} onClick={() => lookupProduct(false)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-60">{isLookupPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Searching</> : "Search"}</button>
+              <button type="button" disabled={isLookupPending} onClick={() => lookupProduct(true)} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-emerald-800 ring-1 ring-emerald-200 disabled:opacity-60" title="Also search shop and brand websites (slower)">Search shops online</button>
+            </div>
           </div>
-          <p className="mt-2 text-xs font-semibold text-emerald-900/80">Log from saved cards, branded search, retailer lookup or a source URL when the product is not in the database yet.</p>
+          <p className="mt-2 text-xs font-semibold text-emerald-900/80">Type it how you'd say it — "a pint of semi skimmed", "200g chicken breast". Plain foods use UK government data; branded items use the pack label.</p>
           {lookupError ? <p className="mt-3 rounded-2xl bg-white p-3 text-sm font-black text-orange-800 ring-1 ring-orange-100">{lookupError}</p> : null}
-          {productQuery.trim() && matchingSavedMeals.length ? <div className="mt-4 rounded-[1.5rem] bg-white p-3 ring-1 ring-emerald-100"><p className="mb-2 text-xs font-black uppercase tracking-wide text-emerald-700">Saved matches</p><div className="grid gap-2 md:grid-cols-2">{matchingSavedMeals.map((item) => <button key={item.id} type="button" onClick={() => { setSelectedMealId(item.id); setSelectedProduct(null); setManualImageUrl(item.image_url || item.product_image_url || ""); setCardSearch(item.label); if (isProductLikeKind(`${item.card_kind || ""} ${item.product_data_source || ""}`) && /drink|gfuel|g fuel|coffee|latte/i.test(item.label)) setMealSlot("drink"); }} className={`rounded-2xl px-3 py-2 text-left text-sm font-black ring-1 ${selectedMealId === item.id ? "bg-slate-950 text-white ring-slate-950" : "bg-slate-50 text-slate-800 ring-slate-100"}`}><span className="block">{item.label}</span><span className="block text-xs font-semibold opacity-70">{isProductLikeKind(`${item.card_kind || ""} ${item.product_data_source || ""}`) ? "Product/card" : "Recipe/meal"}</span></button>)}</div></div> : null}
+          {productQuery.trim() && matchingSavedMeals.length ? <div className="mt-4 rounded-[1.5rem] bg-white p-3 ring-1 ring-emerald-100"><p className="mb-2 text-xs font-black uppercase tracking-wide text-emerald-700">Saved matches</p><div className="grid gap-2 md:grid-cols-2">{matchingSavedMeals.map((item) => <button key={item.id} type="button" onClick={() => pickSavedMeal(item)} className={`rounded-2xl px-3 py-2 text-left text-sm font-black ring-1 ${selectedMealId === item.id ? "bg-slate-950 text-white ring-slate-950" : "bg-slate-50 text-slate-800 ring-slate-100"}`}><span className="block">{item.label}</span><span className="block text-xs font-semibold opacity-70">{isProductLikeKind(`${item.card_kind || ""} ${item.product_data_source || ""}`) ? "Product/card" : "Recipe/meal"}</span></button>)}</div></div> : null}
           {lookupError && !productCandidates.length ? (
             <div className="mt-4 rounded-[1.5rem] border border-dashed border-emerald-200 bg-white p-4">
               <p className="text-sm font-black text-slate-950">Not found? Add a URL and LoopHealth will pull it in.</p>
@@ -1611,7 +1683,9 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
               <MenuImportProgress status={menuImportStatus} sourceReadInfo={sourceReadInfo} itemCount={menuItems.length} />
             </div>
           ) : null}
-          {productCandidates.length ? <div className="mt-4 grid gap-3 md:grid-cols-2">{productCandidates.map((candidate, idx) => { const usedBefore = candidateSavedBefore(candidate, meals); const img = candidate.image_url || fallbackFoodImageUrl(candidate.label); return <button key={`${candidate.gtin || candidate.barcode || candidate.label}-${idx}`} type="button" onClick={() => applyProduct(candidate)} className="relative rounded-[1.5rem] bg-white p-3 text-left shadow-sm ring-1 ring-emerald-100 transition hover:-translate-y-0.5 hover:shadow-lg">{usedBefore ? <span className="absolute right-3 top-3 rounded-full bg-amber-100 p-1 text-amber-700" title="Used before / saved"><Star className="h-4 w-4 fill-current" /></span> : null}<div className="flex gap-3"><FoodThumb label={candidate.label} imageUrl={img} size="md" /><div className="min-w-0 flex-1 pr-8"><p className="line-clamp-2 text-sm font-black text-slate-950">{displayProductCandidateLabel(candidate)}</p><p className="mt-1 text-xs font-bold text-slate-500">{candidate.brand_name || candidate.source_label} · {candidate.data_confidence}% confidence</p></div></div></button>; })}</div> : null}
+          {productGroups.length ? <GroupedResults groups={productGroups} onPick={applyProduct} usedBefore={(candidate) => candidateSavedBefore(candidate, meals)} renderThumb={(candidate) => <FoodThumb label={candidate.label} imageUrl={candidate.image_url || fallbackFoodImageUrl(candidate.label)} size="md" />} /> : productCandidates.length ? <div className="mt-4 grid gap-3 md:grid-cols-2">{productCandidates.map((candidate, idx) => { const usedBefore = candidateSavedBefore(candidate, meals); const img = candidate.image_url || fallbackFoodImageUrl(candidate.label); return <button key={`${candidate.gtin || candidate.barcode || candidate.label}-${idx}`} type="button" onClick={() => applyProduct(candidate)} className="relative rounded-[1.5rem] bg-white p-3 text-left shadow-sm ring-1 ring-emerald-100 transition hover:-translate-y-0.5 hover:shadow-lg">{usedBefore ? <span className="absolute right-3 top-3 rounded-full bg-amber-100 p-1 text-amber-700" title="Used before / saved"><Star className="h-4 w-4 fill-current" /></span> : null}<div className="flex gap-3"><FoodThumb label={candidate.label} imageUrl={img} size="md" /><div className="min-w-0 flex-1 pr-8"><p className="line-clamp-2 text-sm font-black text-slate-950">{displayProductCandidateLabel(candidate)}</p><p className="mt-1 text-xs font-bold text-slate-500">{candidate.brand_name || candidate.source_label} · {candidate.data_confidence}% confidence</p></div></div></button>; })}</div> : null}
+          {canSearchBrands && productGroups.length ? <button type="button" disabled={isLookupPending} onClick={() => lookupProduct(false, true)} className="mt-3 w-full rounded-2xl bg-white px-4 py-3 text-sm font-black text-emerald-800 ring-1 ring-emerald-200 disabled:opacity-60 sm:w-auto">Looking for a brand? Show branded products too</button> : null}
+          {!productQuery.trim() && !activeSource ? <Usuals title={`${usualsPerson ? `${usualsPerson.name}'s` : "Your"} usuals`} items={usualItems} onPick={pickSavedMeal} /> : null}
           {menuItems.length ? (
             <div className="mt-4 rounded-[1.5rem] bg-white p-4 ring-1 ring-emerald-100">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1648,17 +1722,31 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
       <div className="grid gap-4 md:grid-cols-2">
         <FormInput label="Date" name="eaten_on" type="date" defaultValue={selectedDate} required />
         <TimeSliderInput name="eaten_at" value={eatenAt} onChange={setEatenAt} label="Time eaten / drunk" note={timePromptOn ? "Used later for caffeine timing, carb release and habit patterning." : undefined} />
-        <label className="block">
-          <span className="text-sm font-bold text-slate-700">Serving multiplier</span>
-          <div className="mt-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            <input name="serving_multiplier" type="number" step="0.05" value={portion} onChange={(event) => setPortion(Number(event.target.value || 0))} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold outline-none ring-emerald-500 focus:ring-2" />
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setAllocationMode("per_person")} className={`rounded-2xl px-3 py-2 text-xs font-black ${allocationMode === "per_person" ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700"}`}>Each person</button>
-              <button type="button" onClick={() => setAllocationMode("split")} className={`rounded-2xl px-3 py-2 text-xs font-black ${allocationMode === "split" ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700"}`}>Split/shared</button>
+        <div className="block md:col-span-2">
+          {basis ? (
+            <>
+              <input type="hidden" name="serving_multiplier" value={portion} />
+              <PortionPicker basis={basis} amount={amount} onChange={setAmount} label={showPersonPortions ? (allocationMode === "per_person" ? "How much did an adult have?" : "How much in total?") : allocationMode === "split" && selectedTargetCount > 1 ? "How much in total?" : "How much?"} />
+            </>
+          ) : (
+            <label className="block rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              <span className="text-sm font-black text-slate-950">Servings</span>
+              <input name="serving_multiplier" type="number" inputMode="decimal" step="0.05" min="0" value={portion} onChange={(event) => { setPortion(Number(event.target.value || 0)); setPersonOverrides({}); }} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold outline-none ring-emerald-500 focus:ring-2" />
+              <span className="mt-1 block text-xs font-semibold text-slate-500">{activeSource?.servingLabel ? `1 = ${activeSource.servingLabel}` : "1 = one saved serving"}</span>
+            </label>
+          )}
+          {selectedTargetCount > 1 ? (
+            <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+              <p className="text-sm font-black text-slate-950">More than one person</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setAllocationMode("per_person")} className={`rounded-2xl px-3 py-2 text-xs font-black ${allocationMode === "per_person" ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700"}`}>Everyone had their own</button>
+                <button type="button" onClick={() => setAllocationMode("split")} className={`rounded-2xl px-3 py-2 text-xs font-black ${allocationMode === "split" ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700"}`}>Shared it equally</button>
+              </div>
+              <p className="mt-2 text-xs font-semibold text-slate-500">{allocationMode === "split" ? `The amount above is split equally across ${selectedTargetCount}.` : "Set each person's portion below — children start smaller."}</p>
             </div>
-            <p className="mt-2 text-xs font-semibold text-slate-500">Each person logs the full serving for every selected person. Split/shared divides one serving across the selected people.</p>
-          </div>
-        </label>
+          ) : null}
+          {showPersonPortions ? <div className="mt-3"><PersonPortions targets={portionTargets} values={personValues} onChange={(id, value) => setPersonOverrides((current) => ({ ...current, [id]: value }))} basis={basis} kcalPerServing={number(activeSource?.nutrition.calories)} /></div> : null}
+        </div>
         {mealSlot === "drink" ? <label className="block"><span className="flex items-center gap-2 text-sm font-bold text-slate-700"><Droplets className="h-4 w-4" /> Drink volume (ml)</span><input name="drink_volume_ml" type="number" min="0" step="25" value={drinkVolumeMl} onChange={(event) => setDrinkVolumeMl(event.target.value)} placeholder="500" className={inputClass} /><span className="mt-1 block text-xs font-semibold text-slate-500">Powders, concentrates and caffeinated drinks have different hydration context at 250ml, 500ml or 2L.</span></label> : <input type="hidden" name="drink_volume_ml" value="0" />}
       </div>
 
@@ -1678,13 +1766,17 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose }: {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {activeSource ? <><button type="button" onClick={() => setPortion(number(activeSource.adult || 1))} className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">1 adult</button>{settings.health_child_scaling_enabled !== false ? <button type="button" onClick={() => setPortion(number(activeSource.child || 0.55))} className="rounded-full bg-emerald-100 px-3 py-2 text-xs font-black text-emerald-700">1 child</button> : null}{settings.health_child_scaling_enabled !== false ? <button type="button" onClick={() => setPortion(number(activeSource.adult || 1) * 2 + number(activeSource.child || 0.55))} className="rounded-full bg-orange-100 px-3 py-2 text-xs font-black text-orange-700">2 adults + child</button> : null}</> : null}
+        {activeSource && !basis && !showPersonPortions ? <><button type="button" onClick={() => setPortion(number(activeSource.adult || 1))} className="rounded-full bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">1 adult</button>{settings.health_child_scaling_enabled !== false ? <button type="button" onClick={() => setPortion(number(activeSource.child || 0.55))} className="rounded-full bg-emerald-100 px-3 py-2 text-xs font-black text-emerald-700">1 child</button> : null}{settings.health_child_scaling_enabled !== false ? <button type="button" onClick={() => setPortion(number(activeSource.adult || 1) * 2 + number(activeSource.child || 0.55))} className="rounded-full bg-orange-100 px-3 py-2 text-xs font-black text-orange-700">2 adults + child</button> : null}</> : null}
       </div>
 
       {activeSource ? <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-4 shadow-sm"><div className="grid gap-4 md:grid-cols-[180px_1fr]"><EditableImageUrlField label="Square image saved with this log" value={resolvedImageUrl} onChange={setManualImageUrl} foodLabel={activeSource.label} sourceUrl={selectedProduct?.source_url || selectedMeal?.source_url || null} compact /><div><p className="flex items-center gap-2 text-lg font-black text-slate-950">{activeSource.label}{(selectedMeal || existingLabelSet.has(activeSource.label.toLowerCase().trim())) ? <Star className="h-4 w-4 fill-amber-400 text-amber-500" /> : null}</p><p className="mt-1 text-xs font-bold text-slate-500">Base: {number(activeSource.nutrition.calories).toFixed(0)} kcal · protein {number(activeSource.nutrition.protein_g).toFixed(1)}g · fibre {number(activeSource.nutrition.fibre_g).toFixed(1)}g</p><p className="mt-2 text-xs font-semibold text-slate-400">Changing the image here saves it against the log and reusable card. Review ingredient estimates before relying on the AI output.</p><div className="mt-3"><ActiveIngredientBreakdown source={activeSource} portion={portion} allocationMode={allocationMode} targetCount={selectedTargetCount} /></div></div></div></div> : <p className="rounded-[2rem] border border-dashed border-slate-300 p-4 text-sm font-semibold text-slate-500">Choose a saved card, search a branded product or build an AI freehand entry first.</p>}
 
       <FormInput label="Notes" name="notes" placeholder="Felt full, kids ate half, added a drink etc." />
-      <div className="flex items-end"><SubmitButton>Log food</SubmitButton></div>
+      {activeSource?.nutrition && selectedProduct?.quality_flags?.includes("energy_mismatch") ? <p className="flex items-start gap-2 rounded-2xl bg-orange-50 px-4 py-3 text-xs font-black text-orange-900 ring-1 ring-orange-100"><ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" /> {selectedProduct.quality_note || "The calories don't match the protein, carbs and fat."} Check the pack before relying on this.</p> : null}
+      <div className="sticky bottom-0 -mx-4 flex flex-col gap-2 border-t border-slate-100 bg-white/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:items-center sm:border-0 sm:bg-transparent sm:p-0">
+        {needsAmount ? <p className="text-sm font-black text-amber-800">Choose how much you had to log this.</p> : null}
+        <div className={needsAmount ? "pointer-events-none opacity-50" : ""} aria-disabled={needsAmount}><SubmitButton>Log food</SubmitButton></div>
+      </div>
       </> : null}
     </form>
   );
@@ -1777,7 +1869,7 @@ function RecipeCard({ meal, onLog, onEdit }: { meal: NutritionMeal; onLog: () =>
   );
 }
 
-export function NutritionClient({ people, meals, logs, supermarkets, selectedDate, settings, initialOpen = null, initialMealId = null, initialTab }: NutritionClientProps) {
+export function NutritionClient({ people, meals, logs, recentLogs = [], supermarkets, selectedDate, settings, initialOpen = null, initialMealId = null, initialTab }: NutritionClientProps) {
   useEffect(() => {
     writeRouteSnapshot<NutritionClientProps>("nutrition", { people, meals, logs, supermarkets, selectedDate, settings, initialOpen, initialMealId, initialTab });
   }, [people, meals, logs, supermarkets, selectedDate, settings, initialOpen, initialMealId, initialTab]);
@@ -1891,7 +1983,7 @@ export function NutritionClient({ people, meals, logs, supermarkets, selectedDat
         </div>
       </section>
 
-      <section className="rounded-[2.5rem] border border-white/70 bg-white/85 p-5 shadow-xl">
+      <section className="rounded-[1.75rem] sm:rounded-[2.5rem] border border-white/70 bg-white/85 p-4 sm:p-5 shadow-xl">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-600">Nutrition view</p>
@@ -1912,7 +2004,7 @@ export function NutritionClient({ people, meals, logs, supermarkets, selectedDat
         </div>
       </section>
 
-      <section className="rounded-[2.5rem] border border-white/70 bg-white/85 p-5 shadow-xl">
+      <section className="rounded-[1.75rem] sm:rounded-[2.5rem] border border-white/70 bg-white/85 p-4 sm:p-5 shadow-xl">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div><p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-600">This week</p><h2 className="text-2xl font-black text-slate-950">Weekly balance</h2><p className="mt-1 text-sm font-semibold text-slate-500">Swipe across the week. These tiles follow the selected nutrition view, so someone else’s meal does not change your count.</p></div>
           <button onClick={() => setActivePanel("log")} className="rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white">Open food log</button>
@@ -1934,7 +2026,7 @@ export function NutritionClient({ people, meals, logs, supermarkets, selectedDat
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-        <div className="rounded-[2.5rem] border border-white/70 bg-[#f4f3df] p-6 shadow-xl">
+        <div className="rounded-[1.75rem] sm:rounded-[2.5rem] border border-white/70 bg-[#f4f3df] p-4 sm:p-6 shadow-xl">
           <div className="text-center"><p className="text-sm font-black text-slate-700">{dateLabel(selectedDate)}</p></div>
           <Link href={`/nutrition/day?date=${selectedDate}&person=${encodeURIComponent(activePersonId)}`} className="block rounded-[2rem] transition hover:bg-white/30"><Gauge score={dailyScore.score} label={dailyScore.label} /></Link>
           <div className="mx-auto mt-2 grid max-w-xl grid-cols-4 gap-3">
@@ -1957,7 +2049,7 @@ export function NutritionClient({ people, meals, logs, supermarkets, selectedDat
         </div>
       </section>
 
-      <section className="rounded-[2.5rem] border border-white/70 bg-white/85 p-6 shadow-xl">
+      <section className="rounded-[1.75rem] sm:rounded-[2.5rem] border border-white/70 bg-white/85 p-4 sm:p-6 shadow-xl">
         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div><p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-600">LoopHealth workspace</p><h2 className="text-2xl font-black text-slate-950">Food log, saved cards and settings</h2></div>
           <div className="flex flex-wrap gap-2">
@@ -2002,13 +2094,13 @@ export function NutritionClient({ people, meals, logs, supermarkets, selectedDat
           </form>
         ) : null}
 
-        {number(totals.caffeine_mg) > 0 && activePanel === "log" ? <div className="mt-5 rounded-[2.5rem] border border-orange-100 bg-orange-50 p-6 shadow-xl"><div className="flex items-start gap-3"><Coffee className="mt-1 h-5 w-5 text-orange-700" /><div><p className="font-black text-orange-950">Caffeine / drink balance</p><p className="mt-1 text-sm font-semibold text-orange-900">Caffeine can fit into a day. The app now separates the base drink from syrups/sweeteners and nudges hydration, sleep timing and sugar/salt balance where needed.</p></div></div></div> : null}
+        {number(totals.caffeine_mg) > 0 && activePanel === "log" ? <div className="mt-5 rounded-[1.75rem] sm:rounded-[2.5rem] border border-orange-100 bg-orange-50 p-4 sm:p-6 shadow-xl"><div className="flex items-start gap-3"><Coffee className="mt-1 h-5 w-5 text-orange-700" /><div><p className="font-black text-orange-950">Caffeine / drink balance</p><p className="mt-1 text-sm font-semibold text-orange-900">Caffeine can fit into a day. The app now separates the base drink from syrups/sweeteners and nudges hydration, sleep timing and sugar/salt balance where needed.</p></div></div></div> : null}
       </section>
 
       {modal?.type === "menu-import" ? <ModalShell title="Import menu products" description="Paste a restaurant, bakery or takeaway menu URL and save estimated product cards in bulk." onClose={() => setModal(null)}><MenuImportForm onClose={() => setModal(null)} /></ModalShell> : null}
       {modal?.type === "recipe" ? <ModalShell title="Build recipe card" description="Choose custom recipe or import recipe, refine the ingredient list, then estimate deep nutrition and save the card." onClose={() => setModal(null)}><RecipeForm people={people} supermarkets={supermarkets} onClose={() => setModal(null)} /></ModalShell> : null}
       {modal?.type === "edit-recipe" ? <ModalShell title={`Edit ${modal.meal.label}`} description="Update the recipe card, import details or ingredient ratios, then refresh the deep nutrition estimate." onClose={() => setModal(null)}><RecipeForm people={people} supermarkets={supermarkets} meal={modal.meal} onClose={() => setModal(null)} /></ModalShell> : null}
-      {modal?.type === "log" ? <ModalShell title="Log food / drink" description="Use a saved card or search a branded product, then allocate it to one or many people with a meal-slot shortcut." onClose={() => setModal(null)}><LogFoodForm people={people} meals={meals} meal={modal.meal} selectedDate={selectedDate} settings={settings} onClose={() => setModal(null)} /></ModalShell> : null}
+      {modal?.type === "log" ? <ModalShell title="Log food / drink" description="Search anything you ate or drank, pick how much, and choose who had it." onClose={() => setModal(null)}><LogFoodForm people={people} meals={meals} meal={modal.meal} selectedDate={selectedDate} settings={settings} recentLogs={recentLogs} onClose={() => setModal(null)} /></ModalShell> : null}
       {modal?.type === "edit-log" ? <ModalShell title={`Edit ${modal.log.label}`} description="Update the food log, meal slot, person, image or notes." onClose={() => setModal(null)}><EditLogForm people={people} log={modal.log} onClose={() => setModal(null)} /></ModalShell> : null}
     </main>
   );

@@ -7,6 +7,8 @@ import { createAdminClient, hasSupabaseAdminKey } from "@/lib/supabase/admin";
 import { parseNumber } from "@/lib/format/money";
 import { fallbackRecipeEstimate, scaleNutritionTotals, NUTRITION_TOTAL_KEYS, type NutritionTotals } from "@/lib/nutrition/scoring";
 import { cleanProductOrMealLabel, extractVolumeMl, inferFoodEntityType, isProductLikeKind } from "@/lib/nutrition/intelligence";
+import { sharePickedProduct } from "@/lib/nutrition/catalog-cache";
+import type { ProductLookupCandidate } from "@/lib/nutrition/product-data";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -646,9 +648,15 @@ export async function logFoodEntry(formData: FormData) {
   if (!rows.length) rows.push({ person_id: null });
 
   const splitDivisor = allocationMode === "split" ? Math.max(1, rows.length) : 1;
+  // Each person can have their own portion (e.g. adult 1 serving, child ¾).
+  const personPortions = allocationMode === "per_person" ? (jsonField(formData, "person_portions_json", {}) as Record<string, unknown>) : {};
+  const portionFor = (personId: string | null) => {
+    const raw = Number(personPortions[personId || "__household__"]);
+    return Number.isFinite(raw) && raw > 0 ? Math.min(raw, 50) : null;
+  };
   const insertedLogs = await supabase.from("food_logs").insert(
     rows.map((target) => {
-      const rowMultiplier = multiplier / splitDivisor;
+      const rowMultiplier = portionFor(target.person_id) ?? multiplier / splitDivisor;
       const scaled = base ? scaleNutritionTotals(base, rowMultiplier) : scaleNutritionTotals(directNutrition, rowMultiplier);
       return {
         user_id: user.id,
@@ -668,23 +676,11 @@ export async function logFoodEntry(formData: FormData) {
   ).select("id, person_id");
   if (insertedLogs.error) throw new Error(insertedLogs.error.message);
 
-  const linkedTargets = personTargets.length
-    ? await supabase.from("people").select("id, name, linked_user_id, account_status").in("id", personTargets)
-    : { data: [], error: null };
+  await requestLinkedClaims(supabase, user.id, personTargets, (insertedLogs.data || []) as Array<{ id: string; person_id: string | null }>, label || base?.label || "Food entry", eatenOn);
 
-  if (!linkedTargets.error && linkedTargets.data?.length) {
-    for (const person of linkedTargets.data as any[]) {
-      if (!person.linked_user_id || person.linked_user_id === user.id || person.account_status === "managed_by_household") continue;
-      const logIds = (insertedLogs.data || []).filter((row: any) => row.person_id === person.id).map((row: any) => row.id);
-      if (!logIds.length) continue;
-      await supabase.rpc("app_request_nutrition_allocation_claim", {
-        p_food_log_ids: logIds,
-        p_person_id: person.id,
-        p_target_user_id: person.linked_user_id,
-        p_label: label || base?.label || "Food entry",
-        p_eaten_on: eatenOn,
-      });
-    }
+  // Only now that someone has picked and logged it does a product get shared with other users.
+  if (!mealId && productMeta.product_lookup_json && typeof productMeta.product_lookup_json === "object") {
+    await sharePickedProduct(productMeta.product_lookup_json as ProductLookupCandidate);
   }
 
   revalidatePath("/nutrition");
@@ -694,6 +690,50 @@ export async function logFoodEntry(formData: FormData) {
 }
 
 
+
+async function requestLinkedClaims(supabase: any, userId: string, personTargets: string[], insertedRows: Array<{ id: string; person_id: string | null }>, label: string, eatenOn: string) {
+  if (!personTargets.length || !insertedRows.length) return;
+  const linkedTargets = await supabase.from("people").select("id, name, linked_user_id, account_status").in("id", personTargets);
+  if (linkedTargets.error || !linkedTargets.data?.length) return;
+  for (const person of linkedTargets.data as any[]) {
+    if (!person.linked_user_id || person.linked_user_id === userId || person.account_status === "managed_by_household") continue;
+    const logIds = insertedRows.filter((row) => row.person_id === person.id).map((row) => row.id);
+    if (!logIds.length) continue;
+    await supabase.rpc("app_request_nutrition_allocation_claim", {
+      p_food_log_ids: logIds,
+      p_person_id: person.id,
+      p_target_user_id: person.linked_user_id,
+      p_label: label,
+      p_eaten_on: eatenOn,
+    });
+  }
+}
+
+const REPEAT_COLUMNS = ["person_id", "meal_id", "meal_slot", "eaten_at", "drink_volume_ml", "serving_multiplier", "label", "image_url", ...NUTRITION_TOTAL_KEYS] as const;
+
+/** Copies a day's entries (optionally one meal slot / one person) onto another day — "same as yesterday". */
+export async function repeatFoodLogs(input: { fromDate: string; toDate: string; mealSlot?: string | null; personId?: string | null }) {
+  const { supabase, user } = await requireUser();
+  const isDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+  if (!isDate(input.fromDate) || !isDate(input.toDate)) throw new Error("Pick a valid date.");
+  if (input.fromDate === input.toDate) throw new Error("Pick a different day to copy from.");
+  let query = supabase.from("food_logs").select(REPEAT_COLUMNS.join(", ")).eq("user_id", user.id).eq("eaten_on", input.fromDate);
+  if (input.mealSlot && input.mealSlot !== "all") query = query.eq("meal_slot", input.mealSlot);
+  if (input.personId === "__household__") query = query.is("person_id", null);
+  else if (input.personId && input.personId !== "__all__") query = query.eq("person_id", input.personId);
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  const source = (data || []) as any[];
+  if (!source.length) return { copied: 0 };
+  const rows = source.map((row) => ({ ...row, user_id: user.id, eaten_on: input.toDate, notes: `Repeated from ${input.fromDate}` }));
+  const inserted = await supabase.from("food_logs").insert(rows).select("id, person_id");
+  if (inserted.error) throw new Error(inserted.error.message);
+  const personIds = Array.from(new Set(source.map((row) => row.person_id).filter(Boolean))) as string[];
+  await requestLinkedClaims(supabase, user.id, personIds, (inserted.data || []) as any[], `${source.length} item${source.length === 1 ? "" : "s"} repeated from ${input.fromDate}`, input.toDate);
+  revalidatePath("/nutrition");
+  revalidatePath("/nutrition/day");
+  return { copied: rows.length };
+}
 
 export async function setNutritionMealCardKind(formData: FormData) {
   const { supabase, user } = await requireUser();

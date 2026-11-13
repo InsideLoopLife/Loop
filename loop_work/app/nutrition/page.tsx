@@ -5,4 +5,5 @@ export type {
   FoodLog,
   Supermarket,
   NutritionSettings,
+  RecentFoodLog,
 } from "@/domains/health/nutrition/NutritionPage";

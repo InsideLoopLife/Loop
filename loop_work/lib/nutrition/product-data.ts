@@ -1,7 +1,9 @@
 import { fallbackRecipeEstimate, normaliseRecipeEstimate, scoreMeal, type NutritionTotals, type RecipeEstimate } from "@/lib/nutrition/scoring";
 import { cleanText, compactJson, safeExternalUrl } from "@/lib/security/external-data";
+import { checkEnergy } from "@/lib/nutrition/energy-check";
+import { parseServingAmount, portionsForProduct, type PortionOption, type PortionUnit } from "@/lib/nutrition/portions";
 
-export type ProductDataSource = "open_food_facts" | "open_food_facts_uk" | "retailer_web" | "manual_label" | "ai_research" | "user_verified" | "global_cache" | "household_cache" | "ingredient_url_import" | "restaurant_menu_import" | "product_search" | "ai_freehand" | "ai_photo";
+export type ProductDataSource = "open_food_facts" | "open_food_facts_uk" | "retailer_web" | "manual_label" | "ai_research" | "user_verified" | "global_cache" | "household_cache" | "ingredient_url_import" | "restaurant_menu_import" | "product_search" | "ai_freehand" | "ai_photo" | "uk_reference";
 
 export type ProductLookupCandidate = {
   source: ProductDataSource;
@@ -20,6 +22,21 @@ export type ProductLookupCandidate = {
   confidence_reason: string;
   raw?: unknown;
   estimate: RecipeEstimate;
+  /** Grams/ml that `estimate` describes (e.g. 100 for per-100g data, 30 for a 30g serving). */
+  base_amount?: number | null;
+  /** True when the label states its own serving size. */
+  serving_known?: boolean;
+  unit?: PortionUnit;
+  portions?: PortionOption[];
+  result_group?: "everyday" | "branded" | "yours";
+  quality_flags?: string[];
+  quality_note?: string | null;
+  reference_code?: string | null;
+  /** Ask how much was eaten rather than assuming a serving. */
+  needs_amount?: boolean;
+  match_score?: number;
+  /** Amount pulled from the search, e.g. "2 eggs" → 100g. */
+  suggested_amount?: number | null;
 };
 
 const zeroProductTotals: NutritionTotals = {
@@ -247,6 +264,9 @@ export function mapOpenFoodFactsProduct(product: any): ProductLookupCandidate | 
   const servingQuantity = asNumber(product?.serving_quantity, 0);
   const productQuantity = asNumber(product?.product_quantity, 0);
   const servingG = servingQuantity > 0 ? servingQuantity : productQuantity > 0 && productQuantity <= 100 ? productQuantity : 100;
+  const servingKnown = servingQuantity > 0 || (productQuantity > 0 && productQuantity <= 100);
+  const unitText = `${product?.serving_quantity_unit || ""} ${product?.serving_size || ""} ${product?.quantity || ""}`.toLowerCase();
+  const unit: PortionUnit = /\b\d*\s*(ml|cl|l|litre|liter)\b/.test(unitText) && !/\b\d+\s*(g|kg)\b/.test(unitText) ? "ml" : "g";
   const scale = servingG / 100;
   const sugar = nutriment(nutriments, "sugars", scale, 0);
   const addedSugar = nutriment(nutriments, "added-sugars", scale, 0) || inferAddedSugar(sugar, ingredients);
@@ -324,13 +344,66 @@ export function mapOpenFoodFactsProduct(product: any): ProductLookupCandidate | 
     brand_name: brand || null,
     image_url: safeExternalUrl(imageUrl) || null,
     ingredients_text: ingredients || null,
-    serving_label: servingQuantity > 0 ? `${round(servingQuantity, 0)}g/ml serving` : "Per 100g estimate",
+    serving_label: servingKnown ? `${round(servingG, 0)}${unit} serving` : `Per 100${unit}`,
     package_quantity: productTextList(product, ["quantity", "product_quantity"]),
     data_confidence: estimate.confidence,
     confidence_reason: estimate.confidence_reason,
     raw: compactSourceProduct(product),
     estimate,
+    base_amount: servingG,
+    serving_known: servingKnown,
+    unit,
+    needs_amount: !servingKnown,
+    result_group: "branded",
   };
+}
+
+const EXTERNAL_SOURCES = new Set<ProductDataSource>(["open_food_facts", "open_food_facts_uk", "retailer_web", "ai_research", "global_cache", "product_search"]);
+
+/**
+ * Fills in portion and quality details for any candidate (including older cached ones):
+ * what amount the numbers describe, everyday portions, and whether the calories add up.
+ */
+export function enrichCandidate(candidate: ProductLookupCandidate): ProductLookupCandidate {
+  const output: ProductLookupCandidate = { ...candidate };
+  if (output.base_amount == null) {
+    const label = String(output.serving_label || "");
+    if (/per 100\s?(g|ml)|per 100g estimate/i.test(label)) {
+      output.base_amount = 100;
+      output.serving_known = false;
+      output.unit = /ml/i.test(label) ? "ml" : "g";
+    } else {
+      const parsed = parseServingAmount(label);
+      if (parsed) {
+        output.base_amount = parsed.amount;
+        output.serving_known = true;
+        output.unit = parsed.unit;
+      }
+    }
+  }
+  if (output.base_amount != null && !output.unit) output.unit = "g";
+  if (output.needs_amount == null) output.needs_amount = output.base_amount != null && output.serving_known === false;
+  if (output.base_amount != null && !output.portions?.length) {
+    output.portions = portionsForProduct({ baseAmount: output.base_amount, servingKnown: Boolean(output.serving_known), unit: output.unit || "g", packageQuantity: output.package_quantity, servingLabel: output.serving_label });
+  }
+  if (!output.result_group) {
+    output.result_group = output.source === "uk_reference" ? "everyday" : output.source === "household_cache" ? "yours" : "branded";
+  }
+  const flags = new Set(output.quality_flags || []);
+  const energy = checkEnergy(output.estimate || {});
+  if (!energy.ok) {
+    flags.add("energy_mismatch");
+    output.quality_note = output.quality_note || energy.reason;
+  }
+  if ((output.source === "ai_research" || output.source === "ai_freehand" || output.source === "ai_photo") && Number(output.data_confidence || 0) < 50) flags.add("low_confidence_ai");
+  output.quality_flags = Array.from(flags);
+  return output;
+}
+
+export function isShareableExternalCandidate(candidate: ProductLookupCandidate) {
+  if (!EXTERNAL_SOURCES.has(candidate.source)) return false;
+  if (Number(candidate.data_confidence || 0) < 50) return false;
+  return checkEnergy(candidate.estimate || {}).ok;
 }
 
 export function normaliseAiProductCandidate(input: any, fallbackLabel: string): ProductLookupCandidate | null {
