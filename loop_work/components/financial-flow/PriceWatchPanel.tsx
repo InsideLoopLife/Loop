@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { applyPriceChange, respondPriceWatch } from "@/app/financial-flow/price-watch-actions";
 import type { PriceAlert } from "@/lib/bills/price-watch";
+import { CheckModal } from "@/components/accuracy/CheckModal";
 
 const STATUS: Record<PriceAlert["status"], [string, string]> = {
   confirmed: ["Confirmed", "bg-rose-50 text-rose-700"],
@@ -24,6 +25,9 @@ function Alert({ alert }: { alert: PriceAlert }) {
   const [askDate, setAskDate] = useState(false);
   const [date, setDate] = useState("");
   const [amount, setAmount] = useState(alert.next != null ? String(alert.next) : "");
+  const [checking, setChecking] = useState(false);
+  // Anything not yet confirmed by the company can be checked against your email.
+  const canCheckEmail = Boolean(alert.itemId) && alert.status !== "question" && alert.status !== "missing";
   const run = (fn: () => Promise<void>) => start(async () => { setError(null); try { await fn(); router.refresh(); } catch (e: any) { setError(e?.message || "That didn't save."); } });
   const [label, tone] = STATUS[alert.status];
   const up = alert.next != null && alert.current != null ? alert.next - alert.current : null;
@@ -75,6 +79,11 @@ function Alert({ alert }: { alert: PriceAlert }) {
           </span>
         ) : null}
         {alert.addHref ? <Link href={alert.addHref} className="rounded-lg bg-slate-950 px-3 py-1.5 text-xs font-bold text-white">Add it</Link> : null}
+        {canCheckEmail ? (
+          <button type="button" onClick={() => setChecking(true)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            Check my email
+          </button>
+        ) : null}
         {alert.status !== "question" ? (
           <button type="button" disabled={pending} onClick={() => run(() => respondPriceWatch({ key: alert.key, itemId: alert.itemId, response: "dismissed" }))}
             className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-50">
@@ -83,6 +92,25 @@ function Alert({ alert }: { alert: PriceAlert }) {
         ) : null}
         {error ? <span className="text-xs text-rose-600">{error}</span> : null}
       </div>
+      {checking && alert.itemId ? (
+        <CheckModal
+          onClose={() => setChecking(false)}
+          target={{
+            kind: "price_confirm",
+            recordId: alert.itemId,
+            title: alert.name,
+            reason: alert.status === "confirmed" ? alert.headline : `When does ${alert.name} go up? Companies email you before a price change.`,
+            current: alert.next ?? alert.current,
+            currentLabel: alert.next != null ? "LOOP's expected new price (a month)" : "Current price (a month)",
+            emailSearch: `${alert.name} price`,
+            amountLabel: "New price a month",
+            askEffective: true,
+            effectiveDefault: alert.effective,
+            watchKey: alert.key,
+            confirmQuestion: `Have you had an email from ${alert.name} confirming the new price?`,
+          }}
+        />
+      ) : null}
     </li>
   );
 }

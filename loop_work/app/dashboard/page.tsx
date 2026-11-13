@@ -32,6 +32,8 @@ import {
 } from "@/lib/calculations/childcare";
 import { calculateMonthlyMortgagePayment } from "@/lib/calculations/mortgage";
 import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
+import { loadAccuracyChecks } from "@/lib/accuracy/load";
+import { AccuracyChecksCard } from "@/components/accuracy/AccuracyChecksCard";
 import { buildWealthSummary } from "@/lib/wealth/summary";
 import { buildMonthlyInvestmentPensionPerformance } from "@/lib/wealth/monthly-performance";
 import {
@@ -113,6 +115,8 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
   const dataOwnerUserId = user.id;
   const dataClient = supabase;
   const householdVisibleFilter = visibleDataOrFilter(householdContext);
+  // Started now, awaited at render: runs alongside the other dashboard reads.
+  const accuracyChecksPromise = loadAccuracyChecks(supabase, householdContext).catch(() => []);
   const wealthUserIds = householdContext.householdId ? householdContext.memberUserIds : [dataOwnerUserId];
 
   const [{ data: profile }, { data: dashboardPrefs }, { data: categories }, { data: childCosts }, { data: people }, { data: payEvents }, { data: mortgageDeals }, { data: plannedItems }, { data: incomeEntries }, { data: dealBills }, { data: payOverrides }, wealthSummary, investmentPensionPerformance, { data: positionSnapshots }, { data: pensionSnapshots }, { data: pensionContributionEvents }, { data: pensionPerformanceAssumptions }, insightEvidence] = await timer.time("main_queries", Promise.all([
@@ -457,6 +461,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
     .order("layout_y", { ascending: true }));
 
   timer.log();
+  const accuracyChecks = await accuracyChecksPromise;
   return (
     <>
       <main className="loop-overview-page mx-auto w-full max-w-[2000px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -503,6 +508,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
             essentialsOnly={essentialMonthlyOutgoings > 0}
           />
         ) : null}
+        {hasDashboardData ? <AccuracyChecksCard checks={accuracyChecks} /> : null}
 
 {!hasDashboardData ? <PageLandingExperience kind="overview" /> : null}
 

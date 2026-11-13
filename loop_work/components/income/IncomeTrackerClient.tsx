@@ -2,6 +2,7 @@
 
 import { carrySalaryForward } from "@/lib/planning/salary-carry-forward";
 import { estimateStudentLoanBalance } from "@/lib/planning/student-loan-estimate";
+import { CheckModal } from "@/components/accuracy/CheckModal";
 import { canChange, lockNote, type ShareContext } from "@/lib/household/permissions";
 import { Lock } from "lucide-react";
 
@@ -928,6 +929,7 @@ export function IncomeTrackerClient({
     [studentLoanAccounts, peopleById, adultPeople, defaultPersonId],
   );
 
+  const [loanCheck, setLoanCheck] = useState<{ id: string; plan: string; balance: number } | null>(null);
   // Today's balance: the checked figure, plus interest, less each payday's repayment since.
   const studentLoanEstimate = (account: { person_id?: string | null; current_balance: number | string | null; balance_date?: string | null; interest_rate?: number | string | null; payroll_monthly_override?: number | string | null }) =>
     estimateStudentLoanBalance({
@@ -1272,6 +1274,7 @@ export function IncomeTrackerClient({
         </div>
       </SectionCard>
 
+      {loanCheck ? <CheckModal onClose={() => setLoanCheck(null)} target={{ kind: "student_loan", recordId: loanCheck.id, title: `Student loan (${loanCheck.plan.replaceAll("_", " ")})`, reason: "Sign in to see today's balance, then enter it here. LOOP works forward from it.", current: loanCheck.balance, currentLabel: "LOOP's estimate", link: { label: "Student Loans Company", url: "https://www.gov.uk/sign-in-to-manage-your-student-loan-balance" }, amountLabel: "Balance today" }} /> : null}
       <section>
         <SectionCard
           id="deductibles"
@@ -1310,7 +1313,12 @@ export function IncomeTrackerClient({
                                 ? ` · payslip ${formatMoney(account.payroll_monthly_override)}/mo`
                                 : ""}
                             </p>
-                            {moved ? <p className="text-xs font-semibold text-slate-400">An estimate. Update it with the balance from your Student Loans Company account when you next check.</p> : null}
+                            {moved ? (
+                              <p className="mt-1 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-400">
+                                An estimate.
+                                <button type="button" onClick={() => setLoanCheck({ id: account.id, plan: account.plan, balance: estimate.estimatedBalance })} className="rounded-full bg-slate-950 px-3 py-1 text-[11px] font-black text-white">Check the real balance</button>
+                              </p>
+                            ) : null}
                           </>
                         );
                       })()}
