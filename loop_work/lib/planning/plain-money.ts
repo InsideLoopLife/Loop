@@ -94,7 +94,7 @@ export function monthDrivers(before: MonthPlan, after: MonthPlan, limit = 3, thr
         else if (now === 0) text = `No ${name} this month (${pounds(was)} less)`;
         else text = `${name} ${change}`;
       }
-      out.push({ key, name, kind, before: was, after: now, effect, text, yearly: was > 0 && now > 0 ? effect * 12 : null });
+      out.push({ key, name, kind, before: was, after: now, effect, text, yearly: was > 0 && now > 0 && !countChange ? effect * 12 : null });
     }
   }
   return out.sort((x, y) => Math.abs(y.effect) - Math.abs(x.effect)).slice(0, limit);
