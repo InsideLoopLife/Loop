@@ -28,15 +28,30 @@ export type OutlookItem = {
 
 const shortName = (label: string) => (label.split(" · ").pop() || label).trim();
 
+// Month plans add " (×2)" when something lands twice in a month (four-weekly
+// Child Benefit, weekly bills). Compare on the underlying item, so a month with
+// two payments reads as "up £180" rather than one line arriving and another
+// stopping.
+const repeatSuffix = / \(×(\d+)\)$/;
+const baseLabel = (label: string) => label.replace(repeatSuffix, "");
+const repeatCount = (label: string) => Number(label.match(repeatSuffix)?.[1] || 1);
+
 function totals(lines: MonthPlanLine[], kind: "in" | "out") {
-  const map = new Map<string, { name: string; value: number }>();
+  const map = new Map<string, { name: string; value: number; times: number }>();
   for (const line of lines) {
-    const key = `${kind}:${line.label}`;
+    const base = baseLabel(line.label);
+    const key = `${kind}:${base}`;
     const current = map.get(key);
-    map.set(key, { name: shortName(line.label), value: (current?.value || 0) + Number(line.value || 0) });
+    map.set(key, {
+      name: shortName(base),
+      value: (current?.value || 0) + Number(line.value || 0),
+      times: (current?.times || 0) + repeatCount(line.label),
+    });
   }
   return map;
 }
+
+const timesText = (times: number) => (times === 2 ? "twice" : times === 3 ? "three times" : `${times} times`);
 
 const pounds = (n: number) => `£${Math.round(Math.abs(n)).toLocaleString("en-GB")}`;
 
@@ -53,17 +68,31 @@ export function monthDrivers(before: MonthPlan, after: MonthPlan, limit = 3, thr
       if (Math.abs(diff) < threshold) continue;
       const name = b.get(key)?.name || a.get(key)?.name || "Something";
       const effect = kind === "in" ? diff : -diff;
+      const timesBefore = a.get(key)?.times || 0;
+      const timesNow = b.get(key)?.times || 0;
+      // Same amount, different number of payments in the month.
+      const countChange = was > 0 && now > 0 && timesBefore !== timesNow;
+      const change = `${diff > 0 ? "up" : "down"} ${pounds(diff)}`;
       let text: string;
-      if (phrasing === "ahead") {
-        text = was === 0 ? `${name} ${pounds(now)}${kind === "in" ? " comes in" : ""}` : now === 0 ? `no ${name}` : `${name} ${diff > 0 ? "up" : "down"} ${pounds(diff)}`;
+      if (countChange) {
+        text = timesNow > 1
+          ? `${name} ${kind === "in" ? "paid" : "taken"} ${timesText(timesNow)} this month (${change})`
+          : `${name} back to once a month (${change})`;
+        if (phrasing === "ahead") text = text.replace(" this month", "");
+      } else if (phrasing === "ahead") {
+        text = was === 0
+          ? `${name} ${pounds(now)} ${kind === "in" ? "comes in" : "starts"}`
+          : now === 0
+            ? `${name} ${kind === "in" ? "stops" : "ends"} (${pounds(was)} a month)`
+            : `${name} ${change}`;
       } else if (kind === "out") {
         if (was === 0) text = `${name} is due (${pounds(now)})`;
-        else if (now === 0) text = `No ${name} this time (${pounds(was)} saved)`;
-        else text = `${name} ${diff > 0 ? "up" : "down"} ${pounds(diff)}`;
+        else if (now === 0) text = `No ${name} this month (${pounds(was)} saved)`;
+        else text = `${name} ${change}`;
       } else {
         if (was === 0) text = `${name} comes in (${pounds(now)})`;
-        else if (now === 0) text = `No ${name} this time (${pounds(was)} less)`;
-        else text = `${name} ${diff > 0 ? "up" : "down"} ${pounds(diff)}`;
+        else if (now === 0) text = `No ${name} this month (${pounds(was)} less)`;
+        else text = `${name} ${change}`;
       }
       out.push({ key, name, kind, before: was, after: now, effect, text, yearly: was > 0 && now > 0 ? effect * 12 : null });
     }

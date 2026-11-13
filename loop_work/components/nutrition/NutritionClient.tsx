@@ -1896,7 +1896,7 @@ export function NutritionClient({ people, meals, logs, supermarkets, selectedDat
           <div>
             <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-600">Nutrition view</p>
             <h2 className="text-2xl font-black text-slate-950">Currently counting: {viewLabel}</h2>
-            <p className="mt-1 text-sm font-semibold text-slate-500">Calories, score, hydration and coach snippets only use the selected person/view. Food allocated to Bethany, Oakley or another profile will not be added to Daniel unless that profile is selected.</p>
+            <p className="mt-1 text-sm font-semibold text-slate-500">Calories, score, hydration and coach snippets only use the selected person/view. Food logged for someone else in the household only counts when their profile is selected.</p>
           </div>
           <div className="flex max-w-full gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <button onClick={() => setActivePersonId(selfPerson?.id || HOUSEHOLD_SENTINEL)} className={`shrink-0 rounded-full px-4 py-2 text-sm font-black ${activePersonId === (selfPerson?.id || HOUSEHOLD_SENTINEL) ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700"}`}>Me</button>

@@ -157,9 +157,12 @@ export function SavingsFlowDetail({
     { name: "Earmarked to pots", value: Math.min(totalSavings, earmarkedToPots), colour: "#8b5cf6" },
     { name: "Unassigned savings", value: unallocated, colour: "#10b981" },
   ].filter((row) => row.value > 0.005), [earmarkedToPots, totalSavings, unallocated]);
+  // Below about £10 a year a rate gap isn't worth switching for; matches the Savings
+  // page's "Worth a look" rule.
+  const MATERIAL_RATE_GAP = 10;
   const totalInterest = providerConfirmedInterest + accruedThroughYesterday + estimatedInterest;
   const topOpportunity = [...accounts].sort((a, b) => b.annualOpportunity - a.annualOpportunity)[0] || null;
-  const accountsWithOpportunity = accounts.filter((account) => account.annualOpportunity > 0.5);
+  const accountsWithOpportunity = accounts.filter((account) => account.annualOpportunity >= MATERIAL_RATE_GAP);
   const reasoningLines = [
     {
       label: "Savings rate",
@@ -173,8 +176,8 @@ export function SavingsFlowDetail({
     },
     {
       label: "Rate opportunity",
-      value: annualOpportunity > 0.5 ? `~${formatMoney(annualOpportunity)}/yr` : "No material gap found",
-      explanation: topOpportunity && topOpportunity.annualOpportunity > 0.5
+      value: annualOpportunity >= MATERIAL_RATE_GAP ? `~${formatMoney(annualOpportunity)}/yr` : "No material gap found",
+      explanation: topOpportunity && topOpportunity.annualOpportunity >= MATERIAL_RATE_GAP
         ? `${topOpportunity.name} currently contributes the largest indicative gap. LOOP compares eligible balance and current rate with broadly compatible logged deals.`
         : "LOOP has not found a material broadly compatible rate gap in the currently checked catalogue.",
     },
@@ -229,9 +232,9 @@ export function SavingsFlowDetail({
     <div className="space-y-6">
       <SavingsMarketHealthDeferred scopePersonIds={scopePersonIds} />
       <FinancialFlowReasonCard
-        title={annualOpportunity > 0.5 ? "There may be a savings-rate improvement available" : "How LOOP is reading your savings"}
-        summary={annualOpportunity > 0.5
-          ? `LOOP currently estimates around ${formatMoney(annualOpportunity)} a year of potential extra interest across ${accountsWithOpportunity.length || 1} tracked account${accountsWithOpportunity.length === 1 ? "" : "s"}. It is an indication, not an automatic recommendation to move money.`
+        title={annualOpportunity >= MATERIAL_RATE_GAP ? "There may be a savings-rate improvement available" : "How LOOP is reading your savings"}
+        summary={annualOpportunity >= MATERIAL_RATE_GAP
+          ? `LOOP currently estimates around ${formatMoney(annualOpportunity)} a year of potential extra interest across ${Math.max(1, accountsWithOpportunity.length)} account${Math.max(1, accountsWithOpportunity.length) === 1 ? "" : "s"}. It is an indication, not an automatic recommendation to move money.`
           : "These figures combine recorded balances, your current rates and clearly-labelled estimates. The reasoning stays visible so the score is not a black box."}
         lines={reasoningLines}
         actionHref="/accounts?tab=accounts"
@@ -274,7 +277,7 @@ export function SavingsFlowDetail({
           <div className="mt-4"><SavingsTrendSvg data={chartData} /></div>
         </article>
 
-        <article className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
+        <article className="min-w-0 rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
           <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-black text-slate-950">Savings accounts</h2><p className="mt-1 text-sm font-semibold text-slate-500">Balance, this month&apos;s saving and current rate. Scores are supporting evidence, not the primary thing you need to decode.</p></div><Link href="/accounts?tab=accounts" className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">Manage</Link></div>
 
           {/* mobile: cards, no horizontal scroll needed to read a rate or score */}
@@ -316,7 +319,7 @@ export function SavingsFlowDetail({
       <section className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-xl font-black text-slate-950">Pot coverage</h2><p className="mt-1 text-sm font-semibold text-slate-500">Green is already filled, orange is this month, and the remainder stays transparent.</p></div><Link href="/accounts?tab=pots" className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">View all pots <ChevronRight className="h-4 w-4" /></Link></div>
         <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          {pots.map((pot) => <article key={pot.id} className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm"><div className="flex items-start justify-between gap-2"><div><p className="font-black text-slate-950">{pot.name}</p><p className="text-xs font-bold text-slate-400">{formatMoney(pot.allocated)} of {formatMoney(pot.target)}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${scoreClass(pot.score)}`}>{pot.score}</span></div><SavingsGoalVisual goalType={pot.goalType} referenceImageUrl={pot.referenceImageUrl} progress={pot.progress} thisMonthProgress={pot.thisMonthProgress} score={null} compact /><p className="text-center text-xs font-black text-orange-600">{formatMoney(pot.thisMonthAmount)} this month</p></article>)}
+          {pots.map((pot) => <article key={pot.id} className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm"><div className="flex items-start justify-between gap-2"><div><p className="font-black text-slate-950">{pot.name}</p><p className="text-xs font-bold text-slate-400">{formatMoney(pot.allocated)} of {formatMoney(pot.target)}</p></div><span title="How on track this pot is, out of 100" className={`rounded-full px-2 py-1 text-[10px] font-black ${scoreClass(pot.score)}`}>{pot.score}/100</span></div><SavingsGoalVisual goalType={pot.goalType} referenceImageUrl={pot.referenceImageUrl} progress={pot.progress} thisMonthProgress={pot.thisMonthProgress} score={null} compact /><p className="text-center text-xs font-black text-orange-600">{formatMoney(pot.thisMonthAmount)} this month</p></article>)}
           <Link href="/accounts?tab=pots" className="grid min-h-60 place-items-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 text-center"><div><span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-white text-2xl shadow-sm"><PiggyBank className="h-5 w-5" /></span><p className="mt-3 text-sm font-black text-slate-700">Add new pot</p></div></Link>
         </div>
       </section>

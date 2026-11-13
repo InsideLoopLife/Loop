@@ -10,7 +10,6 @@ import {
   type UserFeatureAccess,
 } from "@/lib/features/user-feature-access";
 import {
-  Activity,
   BellRing,
   ChevronDown,
   CircleUserRound,
@@ -23,7 +22,6 @@ import {
   LineChart,
   LogOut,
   Menu,
-  MoonStar,
   PanelLeft,
   PanelBottom,
   PanelTop,
@@ -75,8 +73,8 @@ const wealthLinks: NavLink[] = [
 const healthLinks: NavLink[] = [
   { href: "/nutrition", label: "Nutrition", icon: Salad },
   { href: "/lifestyle", label: "Lifestyle", icon: HeartPulse },
-  { href: "/lifestyle?tab=sleep", label: "Sleep", icon: MoonStar },
-  { href: "/lifestyle?tab=activity", label: "Activity", icon: Activity },
+  // Sleep and Activity have no pages yet; they pointed at the same Lifestyle
+  // view. Add them back here when those features exist.
 ];
 
 const eagerWealthRoutes = ["/briefing", "/dashboard", "/financial-flow", "/investments", "/mortgage"];

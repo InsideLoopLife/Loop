@@ -78,11 +78,13 @@ export function SavingsMarketHealthDeferred({
         <div>
           <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">Savings health</p>
           <p className="mt-1 text-lg font-black text-slate-950">
-            {result.status === "healthy"
-              ? `${formatMoney(result.annualOpportunity)}/yr estimated rate opportunity`
-              : "Market comparison is still incomplete"}
+            {result.status !== "healthy"
+              ? "Market comparison is still incomplete"
+              : result.annualOpportunity >= 10
+                ? `About ${formatMoney(result.annualOpportunity)} a year more interest available`
+                : "Your savings rates look competitive"}
           </p>
-          <p className="mt-1 text-xs font-semibold text-slate-500">Market intelligence loaded after your own savings data.</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">Compared with the savings deals LOOP is tracking.</p>
         </div>
       </div>
       <Link href="/accounts?tab=ai" className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white">

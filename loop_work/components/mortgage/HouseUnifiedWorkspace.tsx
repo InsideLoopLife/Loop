@@ -184,6 +184,25 @@ function moveSourceLabel(url?: string | null) {
   }
 }
 
+
+/**
+ * The address under the home's name. When the postcode lookup found no street,
+ * the stored address is just "<house number> <postcode>" (e.g. "8 WA5 8AT"),
+ * which reads like a broken address next to the name; show town and postcode.
+ */
+function homeAddressText(home: any): string {
+  if (!home) return "";
+  const full = String(home.full_address || home.address_line || "").trim();
+  const line = String(home.address_line || "").trim();
+  const postcode = String(home.postcode || "").trim();
+  const squash = (value: string) => value.replace(/\s+/g, "").toUpperCase();
+  const numberOnly = /^\d+[a-z]?$/i.test(line);
+  if (numberOnly && (!full || squash(full) === squash(`${line}${postcode}`) || squash(full) === squash(line))) {
+    return [home.city, postcode].map((part: unknown) => String(part || "").trim()).filter(Boolean).join(", ");
+  }
+  return full;
+}
+
 export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
   const search = useSearchParams();
   const requestedRaw = search.get("tab") || "overview";
@@ -389,7 +408,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
                 <div className="grid lg:grid-cols-[1fr_1fr]">
                   <div className="p-5 sm:p-6">
                     <h2 className="text-xl font-bold">{home?.label || "Add your home"}</h2>
-                    {home?.full_address || home?.address_line ? <p className="mt-1 text-sm text-slate-500">{home?.full_address || home?.address_line}</p> : null}
+                    {homeAddressText(home) ? <p className="mt-1 text-sm text-slate-500">{homeAddressText(home)}</p> : null}
                     <dl className="mt-5 divide-y divide-slate-100 text-sm">
                       <div className="flex items-baseline justify-between gap-4 py-2.5"><dt className="text-slate-500">Lender</dt><dd className="font-semibold">{deal ? [deal.lender, deal.product_name].filter(Boolean).join(" · ") || "—" : "No mortgage added"}</dd></div>
                       {deal ? <div className="flex items-baseline justify-between gap-4 py-2.5"><dt className="text-slate-500">Rate</dt><dd className="font-semibold">{Number(deal.interest_rate).toFixed(2)}%</dd></div> : null}

@@ -50,7 +50,8 @@ function InsightContent({ data, viewport }: { data: WidgetInsightData; viewport:
       ) : null}
 
       <div className="insight-widget__foot">
-        <span title={data.source}>{data.source}</span>
+        {/* data.source names database tables; it is for debugging, not people. */}
+        <span aria-hidden="true" />
         {data.href ? <Link href={data.href}>Open <ArrowRight aria-hidden="true" /></Link> : null}
       </div>
     </div>

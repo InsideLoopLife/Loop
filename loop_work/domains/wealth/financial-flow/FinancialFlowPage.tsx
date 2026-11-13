@@ -1038,7 +1038,20 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     const savingsAccounts = (accountsResult.data || []).filter((account) => !account.is_liability && personOwned(account, activeScope));
     const investmentAccounts = savingsAccounts.filter((account) => String(account.account_type).toLowerCase().includes("investment"));
     const nonInvestmentSavingsAccounts = savingsAccounts.filter((account) => !String(account.account_type).toLowerCase().includes("investment"));
-    const accountTopUps = savingsAccounts.reduce((sum, account) => sum + n(account.monthly_top_up_amount), 0);
+    // A savings account's regular transfer is a dated planned item ("Savings transfer: …",
+    // tagged [linked_savings_account:id]). Use that item's dates, so months before the
+    // transfer started (or after it stopped) don't count it. Accounts with only a top-up
+    // figure and no linked item keep the flat amount. This matches Summary's month plans.
+    const linkedTransfers = (plannedResult.data || []).filter((row) => isLinkedSavingsTransfer(row));
+    const monthTopUp = (account: FinancialAccount) => {
+      const marker = `[linked_savings_account:${account.id}]`;
+      const linked = linkedTransfers.filter((row) => String(row.notes || "").includes(marker));
+      if (!linked.length) return n(account.monthly_top_up_amount);
+      return linked
+        .filter((row) => plannedItemAppliesToMonth(row, rangeStart, rangeEnd))
+        .reduce((sum, row) => sum + n(row.amount) * plannedItemOccurrencesInRange(row, rangeStart, rangeEnd), 0);
+    };
+    const accountTopUps = savingsAccounts.reduce((sum, account) => sum + monthTopUp(account), 0);
     const pensionAccounts = (pensionsResult.data || []).filter((account) => personOwned(account, activeScope));
     const pensionTopUps = pensionAccounts.reduce((sum, account) => sum + n(account.fixed_monthly_contribution), 0);
 
@@ -1072,15 +1085,22 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
       const key = groupName || "__ungrouped";
       spendByRealGroup.set(key, (spendByRealGroup.get(key) || 0) + n(entry.amount));
     }
+    // Mortgage payments come from Home & mortgage rather than a planned item, so
+    // they have no category group. Name them here instead of leaving them in the
+    // flow diagram's unexplained "Other spending" remainder.
+    for (const deal of (mortgageDealRows || []).filter((row: any) => isActiveInMonth(row.start_date, row.end_date, rangeStart, rangeEnd))) {
+      const amount = mortgageDealMonthlyPayment(deal as any);
+      if (amount > 0) spendByRealGroup.set("Mortgage", (spendByRealGroup.get("Mortgage") || 0) + amount);
+    }
     const hasAnyRealGroups = groupById.size > 0;
     const leftoverCash = Math.max(totalIncome - committedSpending - savingsTotal, 0);
 
     const savingsEvidence: FlowEvidence[] = [
-      ...nonInvestmentSavingsAccounts.filter((account) => n(account.monthly_top_up_amount) > 0).map((account) => ({ key: `savings-account-${account.id}`, label: account.name || account.provider || "Savings account", amount: n(account.monthly_top_up_amount), tone: "green" as Tone, href: "/accounts?tab=accounts" })),
+      ...nonInvestmentSavingsAccounts.filter((account) => monthTopUp(account) > 0).map((account) => ({ key: `savings-account-${account.id}`, label: account.name || account.provider || "Savings account", amount: monthTopUp(account), tone: "green" as Tone, href: "/accounts?tab=accounts" })),
       ...plannedSavingsRows.flatMap((row) => row.evidence?.length ? row.evidence : [{ key: row.key, label: row.label, amount: row.amount, tone: row.tone, href: row.href }]),
     ];
     const investmentEvidence: FlowEvidence[] = [
-      ...investmentAccounts.filter((account) => n(account.monthly_top_up_amount) > 0).map((account) => ({ key: `investment-account-${account.id}`, label: account.name || account.provider || "Investment account", amount: n(account.monthly_top_up_amount), tone: "green" as Tone, href: "/investments" })),
+      ...investmentAccounts.filter((account) => monthTopUp(account) > 0).map((account) => ({ key: `investment-account-${account.id}`, label: account.name || account.provider || "Investment account", amount: monthTopUp(account), tone: "green" as Tone, href: "/investments" })),
       ...plannedInvestmentRows.flatMap((row) => row.evidence?.length ? row.evidence : [{ key: row.key, label: row.label, amount: row.amount, tone: row.tone, href: row.href }]),
     ];
     const pensionEvidence: FlowEvidence[] = [
@@ -1107,7 +1127,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
         colour: personId ? personColour(personId, people) : "#64748b",
         income: incomeLines.filter((line) => (line.personId || null) === personId).reduce((sum, line) => sum + line.amount, 0),
         spending: spendRows.filter((line) => (line.personId || null) === personId).reduce((sum, line) => sum + line.amount, 0),
-        savings: personId ? savingsAccounts.filter((account) => (account.owner_person_id || account.person_id || null) === personId).reduce((sum, account) => sum + n(account.monthly_top_up_amount), 0) : 0,
+        savings: personId ? savingsAccounts.filter((account) => (account.owner_person_id || account.person_id || null) === personId).reduce((sum, account) => sum + monthTopUp(account), 0) : 0,
       };
     }).filter((row) => row.income > 0 || row.spending > 0 || row.savings > 0);
 
@@ -1126,7 +1146,8 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
       }) : [];
   const initialIncomeScopeKey = scopeIds.length === 1 ? scopeIds[0] : "all";
   const hasFlowData = model.totalIncome > 0 || model.committedSpending > 0 || model.savingsTotal > 0 || (plannedResult.data || []).length > 0 || (accountsResult.data || []).length > 0 || (potsResult.data || []).length > 0;
-  const yearMonths = activeTab === "flow"
+  // Savings needs the twelve months too: its year calendar and "Current month" card read them.
+  const yearMonths = activeTab === "flow" || activeTab === "savings"
     ? Array.from({ length: 12 }, (_, index) => `${month.key.slice(0, 4)}-${String(index + 1).padStart(2, "0")}`).map((key) => buildModel(key, false))
     : [];
 

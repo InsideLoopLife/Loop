@@ -475,7 +475,7 @@ export default async function AccountPage({
                         name="full_name"
                         defaultValue={profile?.full_name || ""}
                         className={inputClass}
-                        placeholder="Daniel Charlton"
+                        placeholder="Alex Smith"
                       />
                     </label>
                     <label>
@@ -486,7 +486,7 @@ export default async function AccountPage({
                         name="display_name"
                         defaultValue={profile?.display_name || ""}
                         className={inputClass}
-                        placeholder="Daniel"
+                        placeholder="Alex"
                       />
                     </label>
                     <AjaxProfileImageInput
