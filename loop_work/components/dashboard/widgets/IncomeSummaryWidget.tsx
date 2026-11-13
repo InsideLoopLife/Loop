@@ -7,7 +7,6 @@
 // - expanded -> total + source breakdown (salary / dividends / other, etc.)
 //
 
-import { useEffect, useState } from "react";
 import type { WidgetProps } from "@/lib/dashboard/types";
 import { WidgetTrendChart } from "./WidgetTrendChart";
 
@@ -22,31 +21,12 @@ interface IncomeData {
 }
 
 export function IncomeSummaryWidget({ config, householdId, dashboardContext, viewport }: WidgetProps) {
-  const [data, setData] = useState<IncomeData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Figures come from the dashboard's own month plan, so they match the Summary.
+  const data = null as IncomeData | null;
+  const loading = false;
 
-  useEffect(() => {
-    if (config.scope?.kind !== "member" && dashboardContext?.overview) {
-      return;
-    }
-    let cancelled = false;
-    const memberId = config.scope?.kind === "member" ? config.scope.memberId : undefined;
 
-    fetch(`/api/income/summary?householdId=${householdId}${memberId ? `&memberId=${memberId}` : ""}`)
-      .then((res) => res.json())
-      .then((json) => {
-        if (!cancelled) setData(json);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [householdId, config.scope, dashboardContext?.overview]);
-
-  const overview = config.scope?.kind !== "member" ? dashboardContext?.overview : undefined;
+  const overview = dashboardContext?.overview;
   const displayData = overview ? { total: overview.income, sources: [] } : data;
 
   if (loading && !overview) return <div className="widget-skeleton" />;

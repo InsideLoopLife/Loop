@@ -2320,8 +2320,7 @@ function MoveQueryDetail({
                 {propertyUse} · {query.postcode || "postcode pending"}
               </p>
             </div>
-            <button
-              type="button"
+            <div
               className="rounded-3xl bg-white/95 p-4 text-left shadow-xl ring-1 ring-white/70"
               title="Score breakdown is shown below"
             >
@@ -2332,7 +2331,7 @@ function MoveQueryDetail({
               <p className="text-xs font-bold text-orange-600">
                 Current: {currentAffordabilityScore?.score ?? "—"}/100
               </p>
-            </button>
+            </div>
           </div>
         </div>
       </div>
