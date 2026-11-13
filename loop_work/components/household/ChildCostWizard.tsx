@@ -9,6 +9,7 @@ import {
   WizardStep,
   mapCareTypeToCostKind,
   likelyCareTypesForAge,
+  PAYMENT_STEPS,
 } from "@/lib/calculations/childcareRegistry";
 import {
   calculateNurseryMonthlyCost,
@@ -216,7 +217,7 @@ export function ChildCostWizard({ childrenOptions, billPersonOptions = childrenO
   const selectedChildId: string | undefined = answers.child ?? (answers.coveredChildIds ?? [])[0];
   const selectedChild = childrenOptions.find((c) => c.id === selectedChildId) ?? null;
 
-  const allSteps = definition ? definition.steps(answers, selectedChild ? toChildLite(selectedChild) : null) : [];
+  const allSteps = definition ? [...definition.steps(answers, selectedChild ? toChildLite(selectedChild) : null), ...PAYMENT_STEPS] : [];
   const visibleSteps = allSteps.filter((s) => !s.condition || s.condition(answers));
   const currentStep = phase === "wizard" ? visibleSteps[stepIndex] : null;
 
@@ -278,9 +279,10 @@ export function ChildCostWizard({ childrenOptions, billPersonOptions = childrenO
       <input type="hidden" name="bank_holidays_are_free" value="true" />
       <input type="hidden" name="tax_free_childcare_enabled" value="false" />
       <input type="hidden" name="tax_free_childcare_cap_per_quarter" value="500" />
-      <input type="hidden" name="payment_timing" value="fixed_day" />
-      <input type="hidden" name="payment_day_of_month" value="1" />
-      <input type="hidden" name="payment_adjustment" value="previous_workday" />
+      {/* Half-termly clubs are paid as each half-term starts: the first working day on or after the 1st. */}
+      <input type="hidden" name="payment_timing" value={answers.cadence === "half_termly" ? "fixed_day" : answers.paymentTiming === "last_workday" ? "last_workday" : "fixed_day"} />
+      <input type="hidden" name="payment_day_of_month" value={String(answers.cadence === "half_termly" ? 1 : Math.min(31, Math.max(1, Number(answers.paymentDay) || 1)))} />
+      <input type="hidden" name="payment_adjustment" value={answers.cadence === "half_termly" ? "next_workday" : "previous_workday"} />
 
       {phase === "search" ? (
         <div>

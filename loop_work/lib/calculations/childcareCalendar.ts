@@ -143,3 +143,23 @@ export function weekdaysOverlappingMonth(period: HolidayPeriod, billingMonth: st
   }
   return count;
 }
+
+export type HalfTermBlock = { start: string; end: string };
+
+/**
+ * School half-terms: the stretches of term between one holiday and the next.
+ * Each starts the weekday after a holiday ends and runs to the day before the
+ * next holiday starts. Clubs that invoice "half-termly" bill each one as a block.
+ */
+export function halfTermBlocks(): HalfTermBlock[] {
+  const holidays = UK_HOLIDAY_PERIODS;
+  const blocks: HalfTermBlock[] = [];
+  for (let i = 0; i < holidays.length - 1; i += 1) {
+    let start = addDays(parseIsoDate(holidays[i].end), 1);
+    while (!isWeekday(start)) start = addDays(start, 1);
+    let end = addDays(parseIsoDate(holidays[i + 1].start), -1);
+    while (!isWeekday(end)) end = addDays(end, -1);
+    if (start <= end) blocks.push({ start: iso(start), end: iso(end) });
+  }
+  return blocks;
+}

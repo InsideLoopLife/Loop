@@ -1,5 +1,5 @@
 import { FundingMode, isEnglandWalesBankHoliday } from "@/lib/calculations/childcare";
-import { UK_HOLIDAY_PERIODS, HolidayPeriodKey, isTermTime, weekdaysOverlappingMonth } from "@/lib/calculations/childcareCalendar";
+import { UK_HOLIDAY_PERIODS, HolidayPeriodKey, halfTermBlocks, isTermTime, weekdaysOverlappingMonth } from "@/lib/calculations/childcareCalendar";
 
 // ---------------------------------------------------------------------------
 // Care types
@@ -82,6 +82,34 @@ export type WizardStep = {
   condition?: (answers: Record<string, any>) => boolean;
 };
 
+/**
+ * Asked for every child cost: when the payment leaves the account, so the
+ * calendar and month plans put it on the right day. Clubs billed per half-term
+ * are paid as each half-term starts, so they skip this.
+ */
+export const PAYMENT_STEPS: WizardStep[] = [
+  {
+    id: "paymentTiming",
+    title: "When do you pay?",
+    type: "select",
+    options: [
+      { value: "fixed_day", label: "On a set day each month" },
+      { value: "last_workday", label: "On the last working day of the month" },
+    ],
+    condition: (ans) => ans.cadence !== "half_termly",
+  },
+  {
+    id: "paymentDay",
+    title: "Which day of the month?",
+    type: "number",
+    min: 1,
+    max: 31,
+    default: 1,
+    hint: "If it lands on a weekend or bank holiday, LOOP moves it to the working day before.",
+    condition: (ans) => ans.cadence !== "half_termly" && (ans.paymentTiming ?? "fixed_day") === "fixed_day",
+  },
+];
+
 export type CostTypeDefinition = {
   id: CareType;
   label: string;
@@ -147,7 +175,7 @@ export const COST_TYPE_REGISTRY: CostTypeDefinition[] = [
         type: "boolean",
         hint: "If not, we'll use a standard England term calendar for now — you can refine this later once you've added the school's own dates.",
       },
-      { id: "cadence", title: "How is this invoiced?", type: "select", options: [{ value: "weekly", label: "Weekly" }, { value: "half_termly", label: "Half-termly" }] },
+      { id: "cadence", title: "How is this invoiced?", type: "select", options: [{ value: "weekly", label: "For the sessions used each week or month" }, { value: "half_termly", label: "Per half-term, in one go" }] },
       { id: "taxFreeChildcare", title: "Do you pay this through Tax-Free Childcare?", type: "boolean", hint: "The government adds £2 for every £8 you pay (20%), up to £500 every 3 months per child. The provider has to be registered, e.g. with Ofsted." },
     ],
   },
@@ -166,7 +194,7 @@ export const COST_TYPE_REGISTRY: CostTypeDefinition[] = [
         type: "boolean",
         hint: "If not, we'll use a standard England term calendar for now — you can refine this later once you've added the school's own dates.",
       },
-      { id: "cadence", title: "How is this invoiced?", type: "select", options: [{ value: "weekly", label: "Weekly" }, { value: "half_termly", label: "Half-termly" }] },
+      { id: "cadence", title: "How is this invoiced?", type: "select", options: [{ value: "weekly", label: "For the sessions used each week or month" }, { value: "half_termly", label: "Per half-term, in one go" }] },
       { id: "taxFreeChildcare", title: "Do you pay this through Tax-Free Childcare?", type: "boolean", hint: "The government adds £2 for every £8 you pay (20%), up to £500 every 3 months per child. The provider has to be registered, e.g. with Ofsted." },
     ],
   },
@@ -274,10 +302,42 @@ export type WraparoundDetails = {
   daysPerWeek: number;
   sessionRate: number;
   taxFreeChildcare?: boolean;
+  /** "half_termly": each half-term is charged as one bill, in the month it starts. */
+  cadence?: "weekly" | "half_termly" | string;
 };
+
+function countAttendedDaysInRange(startIso: string, endIso: string, weekdays: Weekday[]) {
+  const [sy, sm, sd] = startIso.split("-").map(Number);
+  const [ey, em, ed] = endIso.split("-").map(Number);
+  const targetIndices = new Set(weekdays.map((w) => WEEKDAY_JS_INDEX[w]));
+  let count = 0;
+  for (let d = new Date(sy, sm - 1, sd); d <= new Date(ey, em - 1, ed); d.setDate(d.getDate() + 1)) {
+    if (!targetIndices.has(d.getDay())) continue;
+    if (isEnglandWalesBankHoliday(d)) continue;
+    count += 1;
+  }
+  return count;
+}
+
+const shortDay = (isoDate: string) => new Date(`${isoDate}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
 export function calculateWraparoundMonthlyCost(details: WraparoundDetails, billingMonth: string) {
   const weekdays = attendanceWeekdaysForCount(details.daysPerWeek);
+  if (details.cadence === "half_termly") {
+    const month = billingMonth.slice(0, 7);
+    const blocks = halfTermBlocks().filter((block) => block.start.slice(0, 7) === month);
+    if (!blocks.length) {
+      return { estimatedMonthlyCost: 0, explanation: "Paid per half-term. No new half-term starts this month." };
+    }
+    const sessions = blocks.reduce((sum, block) => sum + countAttendedDaysInRange(block.start, block.end, weekdays), 0);
+    const gross = sessions * (Number(details.sessionRate) || 0);
+    const topUp = taxFreeChildcareTopUp(gross, details.taxFreeChildcare);
+    const span = blocks.map((block) => `${shortDay(block.start)} to ${shortDay(block.end)}`).join(" and ");
+    return {
+      estimatedMonthlyCost: gross - topUp,
+      explanation: `Paid per half-term: ${sessions} session${sessions === 1 ? "" : "s"} at ${details.sessionRate || 0}/session for ${span}${tfcNote(topUp)}.`,
+    };
+  }
   const sessions = countAttendedDaysInMonth(billingMonth, weekdays, { excludeBankHolidays: true, excludeSchoolHolidays: true });
   const gross = sessions * (Number(details.sessionRate) || 0);
   const topUp = taxFreeChildcareTopUp(gross, details.taxFreeChildcare);

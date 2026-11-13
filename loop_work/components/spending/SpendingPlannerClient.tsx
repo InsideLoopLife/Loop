@@ -8,6 +8,7 @@ import { getChildCostMonthlyAmount as sharedChildCostMonthlyAmount } from "@/lib
 import { useEffect, useMemo, useState, useTransition, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import Link from "next/link";
 import { NurseryCostForm } from "@/components/household/NurseryCostForm";
+import { CareTypeEditForm } from "@/components/household/CareTypeEditForm";
 import { ChildCostWizard } from "@/components/household/ChildCostWizard";
 import { CareType, calculateNewCareTypeMonthlyCost } from "@/lib/calculations/childcareRegistry";
 import { SectionCard } from "@/components/SectionCard";
@@ -1503,7 +1504,13 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
     })),
     ...selectedSummary.plannedForMonth.flatMap((item) => {
       const suggested = standardCategoryForLabel(`${item.label} ${item.item_type.replaceAll("_", " ")}`);
-      const category = item.category_id ? categoriesById.get(item.category_id) : categories.find((row) => row.standard_category_key === suggested.key || row.name.toLowerCase() === suggested.label.toLowerCase());
+      // Money coming in isn't spending, so don't guess a spending category for it
+      // (Child Benefit was being suggested as "Childcare").
+      const category = item.category_id
+        ? categoriesById.get(item.category_id)
+        : item.direction === "income"
+          ? undefined
+          : categories.find((row) => row.standard_category_key === suggested.key || row.name.toLowerCase() === suggested.label.toLowerCase());
       const categoryLabel = category?.name || labelise(item.item_type);
       return plannedItemDatesForMonth(item, selectedSummary.month).map((paymentDate, occurrenceIndex) => ({
         id: `planned-${item.id}-${occurrenceIndex}`,
@@ -1548,7 +1555,8 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
         pet: entry.pet_id ? petsById.get(entry.pet_id) : null,
       };
     }),
-    ...selectedSummary.childForMonth.map((cost) => {
+    // Clubs paid per half-term have nothing due in months with no new half-term.
+    ...selectedSummary.childForMonth.filter((cost) => getChildCostMonthlyAmount(cost, selectedSummary.month) > 0).map((cost) => {
       const careTypeLabels: Partial<Record<string, string>> = {
         nursery: "Nursery",
         childminder: "Childminder",
@@ -1557,7 +1565,10 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
         holiday_camp: "Holiday camp",
         nanny: "Nanny",
       };
-      const categoryLabel = (cost.care_type && careTypeLabels[cost.care_type]) || (cost.cost_kind === "nursery" ? "Childcare" : cost.cost_kind === "activity" ? "Activities" : cost.cost_kind === "nanny" ? "Nanny" : "Child cost");
+      // Nursery, clubs, childminders, camps and nannies are all childcare: one group,
+      // with the line saying which kind ("After-school club · Oakley").
+      const careKind = (cost.care_type && careTypeLabels[cost.care_type]) || (cost.cost_kind === "nursery" ? "Nursery" : cost.cost_kind === "activity" ? "Activity" : cost.cost_kind === "nanny" ? "Nanny" : "Child cost");
+      const categoryLabel = cost.care_type && careTypeLabels[cost.care_type] ? "Childcare" : cost.cost_kind === "activity" ? "Activities" : cost.cost_kind === "fixed" ? "Child cost" : "Childcare";
       return {
         id: `child-${cost.id}`,
         date: dueDateForMonth(selectedSummary.month, cost.payment_timing ?? "fixed_day", cost.payment_day_of_month ?? 1, cost.payment_adjustment ?? "previous_workday"),
@@ -1572,7 +1583,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
         categoryLabel,
         categoryIcon: "👶",
         lifecycleShort: cost.ends_on ? `Ends ${lifecycleDate(cost.ends_on, flowDateFormat)}` : null,
-        helper: `${categoryLabel}${cost.child_id ? ` · ${personName(peopleById, cost.child_id)}` : ""}`,
+        helper: `${careKind}${cost.child_id ? ` · ${personName(peopleById, cost.child_id)}` : ""}`,
         childCost: cost,
       };
     }),
@@ -2349,18 +2360,11 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
       {modal?.type === "edit_child_cost" ? (
         <Modal title={`Edit ${modal.cost.label}`} onClose={() => setModal(null)}>
           {modal.cost.care_type && NEW_CARE_TYPES.includes(modal.cost.care_type as CareType) ? (
-            <div className="space-y-3">
-              <p className="text-sm text-slate-600">
-                Editing {careTypeLabelsForEditNotice[modal.cost.care_type as CareType] ?? "this cost"} isn't wired up yet — delete this entry and re-add it with the corrected details for now.
-              </p>
-              <button
-                type="button"
-                onClick={() => setModal(null)}
-                className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200"
-              >
-                Close
-              </button>
-            </div>
+            <CareTypeEditForm
+              action={async (formData) => { await updateChildCost(formData); setModal(null); }}
+              cost={modal.cost as any}
+              submitLabel="Save child cost"
+            />
           ) : (
             <NurseryCostForm
               action={updateChildCost}

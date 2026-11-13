@@ -40,13 +40,15 @@ export type AccuracyCheck = {
 };
 
 export type StudentLoanRow = { id: string; person_id?: string | null; plan?: string | null; current_balance: number | string | null; balance_date?: string | null };
-export type MortgageRow = { id: string; lender?: string | null; product_name?: string | null; balance?: number | string | null; balance_as_of_date?: string | null; end_date?: string | null; start_date?: string | null };
+export type MortgageRow = { id: string; lender?: string | null; product_name?: string | null; balance?: number | string | null; balance_as_of_date?: string | null; end_date?: string | null; start_date?: string | null; estimated_balance?: number | null };
 export type PensionRow = { id: string; label?: string | null; provider?: string | null; current_value?: number | string | null; value_as_of_date?: string | null; valuation_mode?: string | null };
 export type WatchRow = { watch_key: string; planned_item_id: string | null; response: string; value?: string | null };
 export type PlannedRow = { id: string; label: string; amount: number | string; start_date: string; end_date?: string | null };
 
 const daysBetween = (from: string, to: string) =>
   Math.floor((new Date(`${to}T12:00:00Z`).getTime() - new Date(`${from}T12:00:00Z`).getTime()) / 86400000);
+
+const pounds0 = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
 
 const niceDate = (iso: string) =>
   new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
@@ -135,13 +137,22 @@ export function buildAccuracyChecks(input: {
 
   for (const deal of input.mortgages || []) {
     if (deal.end_date && deal.end_date < today) continue;
-    const reason = staleReason(deal.balance_as_of_date, today, "mortgage balance");
-    if (!reason) continue;
+    // With no check date, the saved balance is the one the deal started with.
+    const from = deal.balance_as_of_date || deal.start_date || null;
+    const days = from ? daysBetween(String(from).slice(0, 10), today) : Infinity;
+    if (days < CHECK_EVERY_DAYS) continue;
+    const opening = Number(deal.balance || 0);
+    const estimate = deal.estimated_balance != null ? Number(deal.estimated_balance) : opening;
+    const fromText = from
+      ? deal.balance_as_of_date
+        ? `${pounds0(opening)} when you checked it on ${niceDate(String(from).slice(0, 10))}`
+        : `${pounds0(opening)} when the deal started on ${niceDate(String(from).slice(0, 10))}`
+      : `${pounds0(opening)}`;
     checks.push({
       key: `mortgage:${deal.id}`, kind: "mortgage", recordId: deal.id,
       title: `Mortgage${deal.lender ? ` · ${deal.lender}` : ""}`,
-      reason: `${reason} LOOP is working the balance down from your payments.`,
-      current: Number(deal.balance || 0), currentLabel: "Balance when last checked",
+      reason: `LOOP is working the balance down from ${fromText}, using your rate and payments. Check it with your lender to make it exact.`,
+      current: estimate, currentLabel: "LOOP's estimate today",
       lastChecked: deal.balance_as_of_date || null, isEstimate: true,
       link: signInLink(deal.lender, "mortgage log in"),
       form: { amountLabel: "Balance today", askLastPayment: true },
