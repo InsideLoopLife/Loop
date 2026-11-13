@@ -1,4 +1,5 @@
 import { SubmissionTray } from "@/components/feedback/SubmissionTray";
+import { LoopDatePicker } from "@/components/ui/LoopDatePicker";
 import type { Metadata } from "next";
 // Onest is bundled and served from our own domain; the site's security
 // policy blocks Google's font stylesheet, so a <link> to it never loaded.
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body><PersistentLoopShell>{children}</PersistentLoopShell><PageTour /><RouteFreshnessManager /><RouteBootAutoPublisher /><SubmissionTray /></body>
+      <body><PersistentLoopShell>{children}</PersistentLoopShell><PageTour /><RouteFreshnessManager /><RouteBootAutoPublisher /><SubmissionTray /><LoopDatePicker /></body>
     </html>
   );
 }

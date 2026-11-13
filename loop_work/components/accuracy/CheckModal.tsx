@@ -170,7 +170,7 @@ export function CheckModal({ target, onClose }: { target: CheckTarget; onClose: 
               {target.askEffective ? (
                 <label className="block text-xs font-semibold text-slate-600">
                   When does it start?
-                  <input type="date" value={effective} onChange={(e) => setEffective(e.target.value)} required className={input} />
+                  <input type="date" data-loop-quick="first-next-month,today" value={effective} onChange={(e) => setEffective(e.target.value)} required className={input} />
                 </label>
               ) : (
                 <label className="block text-xs font-semibold text-slate-600">
