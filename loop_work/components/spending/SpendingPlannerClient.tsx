@@ -571,27 +571,29 @@ function BrandLogo({ title, logoUrl, brandName }: { title: string; logoUrl?: str
   return <Monogram label={label} />;
 }
 
-/** "Paid from" as a small logo bubble; hover or tap for the account's name. */
-function AccountBubble({ account }: { account: { name: string; provider?: string | null } }) {
+/** "Paid from" as a bank-logo badge on the corner of the line's logo; hover or focus for the account. */
+function AccountBadge({ account }: { account: { name: string; provider?: string | null } }) {
   const provider = account.provider || "";
   const brand = knownBrandForLabel(provider) || knownBrandForLabel(account.name);
   const [failed, setFailed] = useState(false);
-  const label = `Paid from ${provider ? `${provider} · ` : ""}${account.name}`;
+  const label = `Paid from ${account.name}${provider ? ` · ${provider}` : ""}`;
   return (
-    <span className="group relative inline-flex items-center gap-1.5 rounded-full bg-slate-50 py-0.5 pl-0.5 pr-2 text-[11px] font-bold text-slate-500 ring-1 ring-slate-200" title={label} aria-label={label} tabIndex={0}>
-      {brand && !failed ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={brand.logoUrl} alt="" className="h-5 w-5 rounded-full bg-white object-contain p-0.5" onError={() => setFailed(true)} />
-      ) : (
-        <Monogram label={provider || account.name} size="sm" />
-      )}
-      {brand?.brandName || provider || account.name}
-      <span role="tooltip" className="pointer-events-none absolute bottom-full left-0 z-20 mb-1.5 hidden whitespace-nowrap rounded-lg bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg group-hover:block group-focus:block">
-        {account.name}{provider ? ` · ${provider}` : ""}
+    <span className="group/badge absolute -bottom-1.5 -right-1.5 z-10" tabIndex={0} aria-label={label}>
+      <span className="grid h-7 w-7 place-items-center overflow-hidden rounded-full border-2 border-white bg-white shadow-md ring-1 ring-slate-200">
+        {brand && !failed ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={brand.logoUrl} alt="" className="h-5 w-5 object-contain" onError={() => setFailed(true)} />
+        ) : (
+          <span className="text-[9px] font-black text-slate-700">{(provider || account.name).slice(0, 2).toUpperCase()}</span>
+        )}
+      </span>
+      <span role="tooltip" className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg group-hover/badge:block group-focus/badge:block">
+        {label}
       </span>
     </span>
   );
 }
+
 
 function CategoryIcon({ icon, label }: { icon?: string | null; label: string }) {
   return (
@@ -2123,6 +2125,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
                       <p className="text-sm font-black uppercase tracking-wide text-slate-600">{formatFlowDate(item.date, flowDateFormat)}</p>
                       {item.lifecycleShort ? <p className="mt-1 text-[11px] font-black leading-4 text-orange-700">{item.lifecycleShort}</p> : null}
                     </div>
+                    <span className="relative shrink-0">
                     {billLogoMode !== "off" && lineLogo(item) ? (
                       <BrandLogo title={item.title} logoUrl={lineLogo(item)!.logoUrl} brandName={lineLogo(item)!.brandName} />
                     ) : billLogoMode !== "off" && "item" in item && item.item && item.direction === "outgoing" && !item.categoryIcon ? (
@@ -2132,6 +2135,8 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
                     ) : (
                       <MiniPersonAvatar name={item.person} avatarUrl={avatarUrl} />
                     )}
+                    {"paymentAccount" in item && item.paymentAccount ? <AccountBadge account={item.paymentAccount} /> : null}
+                    </span>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="truncate text-base font-black text-slate-950">{item.title}</p>
@@ -2146,12 +2151,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
                         <span>{item.categoryIcon || guessCategoryIcon(item.helper)}</span>
                         {item.helper}
                       </button>
-                      {("paymentAccount" in item && item.paymentAccount) || ("pet" in item && item.pet) ? (
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                          {"paymentAccount" in item && item.paymentAccount ? <AccountBubble account={item.paymentAccount} /> : null}
-                          {"pet" in item && item.pet ? <span className="text-[11px] font-bold text-slate-400">For {item.pet.name}</span> : null}
-                        </div>
-                      ) : null}
+                      {"pet" in item && item.pet ? <p className="mt-1 text-[11px] font-bold text-slate-400">For {item.pet.name}</p> : null}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 sm:justify-end">
