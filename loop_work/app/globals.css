@@ -417,3 +417,33 @@ html.loop-live-dark .loop-top-nav a::after { background: #f2f5f3 !important; }
 .loop-datepicker__quicks button:hover { background: var(--pine); color: #fff; }
 .loop-datepicker__clear { font-size: 12px; font-weight: 600; color: var(--muted); padding: 6px 8px; border-radius: 8px; }
 .loop-datepicker__clear:hover { color: var(--brick); background: rgba(163, 64, 46, 0.08); }
+
+/* ---- "It's in your plan" (Money in & out add window) ---- */
+.loop-added__ring { stroke: var(--pine-wash); }
+.loop-added__check { stroke: var(--pine); stroke-dasharray: 48; stroke-dashoffset: 48; animation: loop-tick-draw 420ms 180ms cubic-bezier(.65, 0, .35, 1) forwards; }
+.loop-added__tick { animation: loop-tick-pop 520ms cubic-bezier(.2, .9, .3, 1.3) both; }
+.loop-added > p { animation: loop-fade-up 360ms 320ms ease-out both; }
+@keyframes loop-tick-draw { to { stroke-dashoffset: 0; } }
+@keyframes loop-tick-pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes loop-fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* The new line opens up in place, nudging the lines below down, then glows briefly. */
+.loop-row-arrive {
+  animation:
+    loop-row-open 560ms cubic-bezier(.2, .8, .2, 1) backwards,
+    loop-row-glow 2800ms 450ms ease-out backwards;
+}
+@keyframes loop-row-open {
+  from { max-height: 0; opacity: 0; transform: translateY(-10px) scale(.98); padding-top: 0; padding-bottom: 0; margin-top: 0; border-width: 0; overflow: hidden; }
+  60% { opacity: 1; }
+  to { max-height: 180px; overflow: hidden; }
+}
+@keyframes loop-row-glow {
+  from { background-color: var(--pine-wash); box-shadow: 0 0 0 3px var(--pine-wash); border-color: var(--pine); }
+  to { background-color: var(--card); box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loop-added__check { animation: none; stroke-dashoffset: 0; }
+  .loop-added__tick, .loop-added > p { animation: none; }
+  .loop-row-arrive { animation: loop-row-glow 2000ms ease-out backwards; }
+}

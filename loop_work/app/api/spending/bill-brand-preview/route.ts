@@ -1,20 +1,9 @@
+import { knownBrandForLabel, logoUrlForDomain } from "@/lib/brands/uk-brands";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 
-const COMMON_BRAND_DOMAINS: { match: RegExp; brandName: string; domain: string }[] = [
-  { match: /spotify/i, brandName: "Spotify", domain: "spotify.com" },
-  { match: /netflix/i, brandName: "Netflix", domain: "netflix.com" },
-  { match: /apple|icloud/i, brandName: "Apple", domain: "apple.com" },
-  { match: /barclays/i, brandName: "Barclays", domain: "barclays.co.uk" },
-  { match: /ecologi/i, brandName: "Ecologi", domain: "ecologi.com" },
-  { match: /omaze/i, brandName: "Omaze", domain: "omaze.co.uk" },
-  { match: /postcode lottery|people.?s postcode/i, brandName: "People's Postcode Lottery", domain: "postcodelottery.co.uk" },
-  { match: /volkswagen|\bvw\b/i, brandName: "Volkswagen", domain: "volkswagen.co.uk" },
-  { match: /plum/i, brandName: "Plum", domain: "withplum.com" },
-  { match: /cottontails/i, brandName: "Cottontails", domain: "cottontailsdaynursery.co.uk" },
-];
 
 function normaliseDomain(value: string | null | undefined) {
   const clean = String(value || "")
@@ -27,14 +16,9 @@ function normaliseDomain(value: string | null | undefined) {
   return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(clean) ? clean : null;
 }
 
-function logoUrlForDomain(domain: string) {
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
-}
 
 function guessBrandFromLabel(label: string) {
-  const hit = COMMON_BRAND_DOMAINS.find((entry) => entry.match.test(label));
-  if (!hit) return null;
-  return { brandName: hit.brandName, domain: hit.domain, logoUrl: logoUrlForDomain(hit.domain), source: "known_brand" };
+  return knownBrandForLabel(label);
 }
 
 export async function GET(request: NextRequest) {

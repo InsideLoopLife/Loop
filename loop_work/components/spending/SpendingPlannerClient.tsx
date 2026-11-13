@@ -1,4 +1,6 @@
 "use client";
+import { isLoopError } from "@/lib/actions/friendly";
+import { knownBrandForLabel } from "@/lib/brands/uk-brands";
 import { AccountPicker } from "@/components/accounts/AccountPicker";
 
 import { canChange, lockNote, type ShareContext } from "@/lib/household/permissions";
@@ -528,20 +530,65 @@ function PersonMarker({
   );
 }
 
+/** The date of the first line in the list for something just added (it may repeat). */
+function firstArrivalDate(items: Array<{ title: string; date: string }>, added: { label: string }) {
+  return items.find((item) => item.title.trim() === added.label)?.date ?? null;
+}
+
+/** The logo for a line: its saved brand, or a well-known brand in its name or lender. */
+function lineLogo(item: { title: string; brandLogoUrl?: string | null; brandName?: string | null; [key: string]: any }): { logoUrl: string; brandName: string } | null {
+  if (item.brandLogoUrl) return { logoUrl: item.brandLogoUrl, brandName: item.brandName || item.title };
+  const known = knownBrandForLabel(item.title);
+  return known ? { logoUrl: known.logoUrl, brandName: known.brandName } : null;
+}
+
+const MONOGRAM_TONES = ["#1f6a50", "#2f5d8a", "#8a4f2f", "#6b4f8a", "#8a6b1f", "#2f7a7a", "#8a2f5d"];
+
+/** A calm initials tile, the same colour every time for the same name. */
+function Monogram({ label, size = "lg" }: { label: string; size?: "lg" | "sm" }) {
+  const words = label.replace(/[^\p{L}\p{N} ]/gu, " ").trim().split(/\s+/).filter(Boolean);
+  const initials = (words.length > 1 ? `${words[0][0]}${words[1][0]}` : (words[0] || "?").slice(0, 2)).toUpperCase();
+  const tone = MONOGRAM_TONES[Array.from(label).reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % MONOGRAM_TONES.length];
+  const box = size === "lg" ? "h-12 w-12 rounded-2xl text-sm" : "h-5 w-5 rounded-md text-[8px]";
+  return (
+    <span className={`grid shrink-0 place-items-center font-black text-white ${box}`} style={{ background: tone }} aria-hidden="true">
+      {initials}
+    </span>
+  );
+}
+
 function BrandLogo({ title, logoUrl, brandName }: { title: string; logoUrl?: string | null; brandName?: string | null }) {
   const label = brandName || title;
-  if (logoUrl) {
+  const [failed, setFailed] = useState(false);
+  if (logoUrl && !failed) {
     return (
-      <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" title={label}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={logoUrl} alt="" className="h-8 w-8 object-contain" />
+        <img src={logoUrl} alt="" className="h-8 w-8 object-contain" onError={() => setFailed(true)} />
       </span>
     );
   }
+  return <Monogram label={label} />;
+}
 
+/** "Paid from" as a small logo bubble; hover or tap for the account's name. */
+function AccountBubble({ account }: { account: { name: string; provider?: string | null } }) {
+  const provider = account.provider || "";
+  const brand = knownBrandForLabel(provider) || knownBrandForLabel(account.name);
+  const [failed, setFailed] = useState(false);
+  const label = `Paid from ${provider ? `${provider} · ` : ""}${account.name}`;
   return (
-    <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-slate-100 text-sm font-black text-slate-700">
-      {label.slice(0, 1).toUpperCase()}
+    <span className="group relative inline-flex items-center gap-1.5 rounded-full bg-slate-50 py-0.5 pl-0.5 pr-2 text-[11px] font-bold text-slate-500 ring-1 ring-slate-200" title={label} aria-label={label} tabIndex={0}>
+      {brand && !failed ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={brand.logoUrl} alt="" className="h-5 w-5 rounded-full bg-white object-contain p-0.5" onError={() => setFailed(true)} />
+      ) : (
+        <Monogram label={provider || account.name} size="sm" />
+      )}
+      {brand?.brandName || provider || account.name}
+      <span role="tooltip" className="pointer-events-none absolute bottom-full left-0 z-20 mb-1.5 hidden whitespace-nowrap rounded-lg bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg group-hover:block group-focus:block">
+        {account.name}{provider ? ` · ${provider}` : ""}
+      </span>
     </span>
   );
 }
@@ -816,7 +863,28 @@ function confirmDelete(message = "Delete this item? This cannot be undone.") {
   return typeof window === "undefined" ? true : window.confirm(message);
 }
 
-function SimpleFlowWizard({ people, categories, paymentAccounts, householdPets, selectedMonth, selectedPersonId, hasHousehold, initialTemplate }: { people: Person[]; categories: SpendingCategory[]; paymentAccounts: PaymentAccount[]; householdPets: HouseholdPet[]; selectedMonth: string; selectedPersonId: string; hasHousehold: boolean; initialTemplate?: SimpleFlowTemplate }) {
+type JustAdded = { label: string; firstDate: string; amount: number; direction: "income" | "outgoing" };
+
+/** The moment after saving: a tick that draws itself and where the new line will appear. */
+function AddedConfirmation({ added }: { added: JustAdded }) {
+  return (
+    <div className="loop-added flex flex-col items-center px-4 py-8 text-center" role="status" aria-live="polite">
+      <svg className="loop-added__tick" width="72" height="72" viewBox="0 0 72 72" aria-hidden="true">
+        <circle className="loop-added__ring" cx="36" cy="36" r="32" fill="none" strokeWidth="4" />
+        <path className="loop-added__check" d="M22 37.5 31.5 47 50 27" fill="none" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <p className="mt-5 text-xl font-black text-slate-950">{added.label} is in your plan</p>
+      <p className="mt-1 text-sm font-semibold text-slate-500">
+        {added.direction === "income" ? "First payment in" : "First payment"} {formatNiceDate(added.firstDate)} · {formatMoney(added.amount)}
+      </p>
+      <p className="mt-4 text-xs font-bold text-slate-400">Taking you to it…</p>
+    </div>
+  );
+}
+
+function SimpleFlowWizard({ people, categories, paymentAccounts, householdPets, selectedMonth, selectedPersonId, hasHousehold, initialTemplate, onAdded }: { people: Person[]; categories: SpendingCategory[]; paymentAccounts: PaymentAccount[]; householdPets: HouseholdPet[]; selectedMonth: string; selectedPersonId: string; hasHousehold: boolean; initialTemplate?: SimpleFlowTemplate; onAdded?: (added: JustAdded) => void }) {
+  const [added, setAdded] = useState<JustAdded | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [step, setStep] = useState(initialTemplate ? 2 : 1);
   const [template, setTemplate] = useState<SimpleFlowTemplate>(initialTemplate || {});
   const [label, setLabel] = useState(initialTemplate?.label || "");
@@ -885,7 +953,17 @@ function SimpleFlowWizard({ people, categories, paymentAccounts, householdPets, 
     <Field label={direction === "income" ? "Paid into account" : "Paid from account"}><AccountPicker accounts={paymentAccounts} people={people} value={accountId} onChange={setAccountId} defaultOwnerId={personId || undefined} /></Field>
   </div><div className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-900">LOOP suggests: {direction === "income" ? "incoming" : "outgoing"} · {suggested.label} · {recurrence === "custom_interval" ? `every ${intervalCount || 1} ${intervalUnit}${Number(intervalCount) === 1 ? "" : "s"}` : recurrence.replaceAll("_", " ")}.</div><details className="mt-4 rounded-3xl border border-slate-200 bg-white"><summary className="cursor-pointer list-none px-5 py-4 text-sm font-black text-slate-700">Advanced details <span className="font-semibold text-slate-400">· optional</span></summary><div className="grid gap-4 border-t border-slate-100 p-5 sm:grid-cols-2"><Field label="Override category"><Select value={categoryOverride} onChange={(event) => setCategoryOverride(event.target.value)}><option value="">Use LOOP suggestion</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</Select></Field><Field label="Ends on"><TextInput type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></Field>{householdPets.length ? <Field label="Relates to pet"><Select value={petId} onChange={(event) => setPetId(event.target.value)}><option value="">No specific pet</option>{householdPets.map((pet) => <option key={pet.id} value={pet.id}>{pet.name}</option>)}</Select></Field> : null}<p className="text-xs font-semibold leading-5 text-slate-500 sm:col-span-2">Renewal reminders, weekend handling, refunds and detailed ownership can be edited after confirmation.</p></div></details><div className="mt-5 flex justify-between"><button type="button" onClick={() => setStep(1)} className="rounded-full bg-slate-100 px-5 py-3 text-sm font-black text-slate-700">Back</button><button type="button" disabled={!label || !amount || !startDate} onClick={() => setStep(3)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-40">Preview calendar</button></div></div>;
 
-  return <form action={addPlannedItem}><input type="hidden" name="label" value={label} /><input type="hidden" name="amount" value={amount} /><input type="hidden" name="person_id" value={personId} /><input type="hidden" name="direction" value={direction} /><input type="hidden" name="item_type" value={itemType} /><input type="hidden" name="category_id" value={categoryId} /><input type="hidden" name="recurrence" value={recurrence} /><input type="hidden" name="recurrence_interval_days" value={recurrence === "custom_interval" ? String(intervalDays) : ""} /><input type="hidden" name="start_date" value={startDate} /><input type="hidden" name="end_date" value={endDate} /><input type="hidden" name="payment_account_id" value={accountId} /><input type="hidden" name="pet_id" value={petId} /><input type="hidden" name="payment_timing" value="fixed_day" /><input type="hidden" name="payment_adjustment" value="previous_workday" /><p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-600">Step 3 of 3</p><h3 className="mt-2 text-2xl font-black text-slate-950">This is how it will map out</h3><div className="mt-5 rounded-3xl bg-slate-950 p-5 text-white"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-wide text-white/50">{direction === "income" ? "Incoming" : "Outgoing"} · {suggested.label}</p><p className="mt-2 text-2xl font-black">{label}</p><p className="mt-1 text-sm font-bold text-white/65">{personId ? people.find((person) => person.id === personId)?.name : "Household / shared"}{accountId ? ` · ${paymentAccounts.find((account) => account.id === accountId)?.name}` : ""}</p></div><p className={`text-2xl font-black ${direction === "income" ? "text-emerald-300" : "text-orange-300"}`}>{direction === "income" ? "+" : "−"}{formatMoney(Number(amount || 0))}</p></div></div><div className="mt-4 space-y-2">{previewDates.map((date, index) => <div key={date} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3"><div><p className="text-xs font-black uppercase text-slate-400">{index === 0 ? "Next date" : "Then"}</p><p className="font-black text-slate-950">{formatNiceDate(date)}</p></div><p className="font-black text-slate-700">{formatMoney(Number(amount || 0))}</p></div>)}</div><p className="mt-4 text-xs font-semibold leading-5 text-slate-500">Confirming adds these dates to Money in & out. You can edit advanced timing, renewal and allocation logic later without rebuilding the entry.</p><div className="mt-5 flex justify-between"><button type="button" onClick={() => setStep(2)} className="rounded-full bg-slate-100 px-5 py-3 text-sm font-black text-slate-700">Change</button><Submit>Confirm and add to calendar</Submit></div></form>;
+  if (added) return <AddedConfirmation added={added} />;
+  const submitAdd = async (formData: FormData) => {
+    setSaveError(null);
+    const result = await addPlannedItem(formData);
+    if (isLoopError(result)) { setSaveError(result.__loopError); return; }
+    const info: JustAdded = { label: label.trim(), firstDate: previewDates[0], amount: Number(amount || 0), direction };
+    setAdded(info);
+    // Let the tick play, then close and show the line arriving in the list.
+    window.setTimeout(() => onAdded?.(info), 1300);
+  };
+  return <form action={submitAdd}>{saveError ? <p role="alert" className="mb-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">{saveError}</p> : null}<input type="hidden" name="label" value={label} /><input type="hidden" name="amount" value={amount} /><input type="hidden" name="person_id" value={personId} /><input type="hidden" name="direction" value={direction} /><input type="hidden" name="item_type" value={itemType} /><input type="hidden" name="category_id" value={categoryId} /><input type="hidden" name="recurrence" value={recurrence} /><input type="hidden" name="recurrence_interval_days" value={recurrence === "custom_interval" ? String(intervalDays) : ""} /><input type="hidden" name="start_date" value={startDate} /><input type="hidden" name="end_date" value={endDate} /><input type="hidden" name="payment_account_id" value={accountId} /><input type="hidden" name="pet_id" value={petId} /><input type="hidden" name="payment_timing" value="fixed_day" /><input type="hidden" name="payment_adjustment" value="previous_workday" /><p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-600">Step 3 of 3</p><h3 className="mt-2 text-2xl font-black text-slate-950">This is how it will map out</h3><div className="mt-5 rounded-3xl bg-slate-950 p-5 text-white"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-wide text-white/50">{direction === "income" ? "Incoming" : "Outgoing"} · {suggested.label}</p><p className="mt-2 text-2xl font-black">{label}</p><p className="mt-1 text-sm font-bold text-white/65">{personId ? people.find((person) => person.id === personId)?.name : "Household / shared"}{accountId ? ` · ${paymentAccounts.find((account) => account.id === accountId)?.name}` : ""}</p></div><p className={`text-2xl font-black ${direction === "income" ? "text-emerald-300" : "text-orange-300"}`}>{direction === "income" ? "+" : "−"}{formatMoney(Number(amount || 0))}</p></div></div><div className="mt-4 space-y-2">{previewDates.map((date, index) => <div key={date} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3"><div><p className="text-xs font-black uppercase text-slate-400">{index === 0 ? "Next date" : "Then"}</p><p className="font-black text-slate-950">{formatNiceDate(date)}</p></div><p className="font-black text-slate-700">{formatMoney(Number(amount || 0))}</p></div>)}</div><p className="mt-4 text-xs font-semibold leading-5 text-slate-500">Confirming adds these dates to Money in & out. You can edit advanced timing, renewal and allocation logic later without rebuilding the entry.</p><div className="mt-5 flex justify-between"><button type="button" onClick={() => setStep(2)} className="rounded-full bg-slate-100 px-5 py-3 text-sm font-black text-slate-700">Change</button><Submit>Confirm and add to calendar</Submit></div></form>;
 }
 
 function PlannedItemForm({
@@ -1475,6 +1553,31 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
   });
 
   const selectedSummary = monthSummaries.find((summary) => summary.month === selectedMonth) ?? monthSummaries[0];
+  // After adding: close the window, move to the month of the first payment and
+  // let the new line arrive in the list (see .loop-row-arrive).
+  const [justAdded, setJustAdded] = useState<JustAdded | null>(null);
+  function showJustAdded(added: JustAdded) {
+    setModal(null);
+    const month = added.firstDate.slice(0, 7);
+    setYear(Number(month.slice(0, 4)));
+    setSelectedMonth(month);
+    setCategoryFilter(null);
+    setJustAdded(added);
+    window.setTimeout(() => setJustAdded(null), 4000);
+  }
+  useEffect(() => {
+    if (!justAdded) return;
+    // The server sends the new line a moment after saving; scroll to it when it lands.
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      const row = document.querySelector<HTMLElement>(".loop-row-arrive");
+      if (row || ++tries > 20) {
+        window.clearInterval(timer);
+        row?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
+      }
+    }, 150);
+    return () => window.clearInterval(timer);
+  }, [justAdded]);
   function shiftSelectedMonth(delta: number) {
     const [y, m] = selectedMonth.split("-").map(Number);
     const d = new Date(Date.UTC(y, m - 1 + delta, 1));
@@ -2004,7 +2107,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
             const isSelected = selectableId ? selectedLineIds.includes(selectableId) : false;
             const avatarUrl = personAvatarUrl(peopleById, item.personId);
             return (
-              <div key={item.id} title={("lifecycleHint" in item && item.lifecycleHint) ? item.lifecycleHint : undefined} className={`${selectableId && optimisticDeletedLineIds.includes(selectableId) ? "hidden" : ""} group/line relative rounded-[12px] border border-slate-200 bg-white px-4 py-3`}>
+              <div key={item.id} title={("lifecycleHint" in item && item.lifecycleHint) ? item.lifecycleHint : undefined} className={`${selectableId && optimisticDeletedLineIds.includes(selectableId) ? "hidden" : ""} ${justAdded && item.title.trim() === justAdded.label && item.date === firstArrivalDate(timelineItems, justAdded) ? "loop-row-arrive" : ""} group/line relative rounded-[12px] border border-slate-200 bg-white px-4 py-3`}>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
                     {editingEnabled && selectableId && !("item" in item && item.item && !canChange(shareContext, item.item as any)) ? (
@@ -2020,8 +2123,10 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
                       <p className="text-sm font-black uppercase tracking-wide text-slate-600">{formatFlowDate(item.date, flowDateFormat)}</p>
                       {item.lifecycleShort ? <p className="mt-1 text-[11px] font-black leading-4 text-orange-700">{item.lifecycleShort}</p> : null}
                     </div>
-                    {"item" in item && item.brandLogoUrl && billLogoMode !== "off" ? (
-                      <BrandLogo title={item.title} logoUrl={item.brandLogoUrl} brandName={item.brandName} />
+                    {billLogoMode !== "off" && lineLogo(item) ? (
+                      <BrandLogo title={item.title} logoUrl={lineLogo(item)!.logoUrl} brandName={lineLogo(item)!.brandName} />
+                    ) : billLogoMode !== "off" && "item" in item && item.item && item.direction === "outgoing" && !item.categoryIcon ? (
+                      <Monogram label={item.title} />
                     ) : item.categoryLabel ? (
                       <CategoryIcon icon={item.categoryIcon} label={item.categoryLabel} />
                     ) : (
@@ -2041,7 +2146,12 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
                         <span>{item.categoryIcon || guessCategoryIcon(item.helper)}</span>
                         {item.helper}
                       </button>
-                      {("paymentAccount" in item && item.paymentAccount) || ("pet" in item && item.pet) ? <p className="mt-1 text-[11px] font-bold text-slate-400">{"paymentAccount" in item && item.paymentAccount ? `Paid from ${item.paymentAccount.provider ? `${item.paymentAccount.provider} · ` : ""}${item.paymentAccount.name}` : ""}{"paymentAccount" in item && item.paymentAccount && "pet" in item && item.pet ? " · " : ""}{"pet" in item && item.pet ? `For ${item.pet.name}` : ""}</p> : null}
+                      {("paymentAccount" in item && item.paymentAccount) || ("pet" in item && item.pet) ? (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          {"paymentAccount" in item && item.paymentAccount ? <AccountBubble account={item.paymentAccount} /> : null}
+                          {"pet" in item && item.pet ? <span className="text-[11px] font-bold text-slate-400">For {item.pet.name}</span> : null}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 sm:justify-end">
@@ -2316,7 +2426,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
 
       {modal?.type === "add" && modal.mode === "monthly" ? (
         <Modal title="Add to Money in & out" onClose={() => setModal(null)}>
-          <SimpleFlowWizard people={people} categories={categories} selectedPersonId={selectedPersonId} selectedMonth={selectedMonth} hasHousehold={hasHousehold} paymentAccounts={paymentAccounts} householdPets={householdPets} initialTemplate={modal.template} />
+          <SimpleFlowWizard people={people} categories={categories} selectedPersonId={selectedPersonId} selectedMonth={selectedMonth} hasHousehold={hasHousehold} paymentAccounts={paymentAccounts} householdPets={householdPets} initialTemplate={modal.template} onAdded={showJustAdded} />
         </Modal>
       ) : null}
 
@@ -2328,7 +2438,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
 
       {modal?.type === "add" && modal.mode === "one_off" ? (
         <Modal title="Add one-off spend" onClose={() => setModal(null)}>
-          <SimpleFlowWizard people={people} categories={categories} selectedPersonId={selectedPersonId} selectedMonth={selectedMonth} hasHousehold={hasHousehold} paymentAccounts={paymentAccounts} householdPets={householdPets} initialTemplate={{ kind: "spend", direction: "outgoing", itemType: "one_off", recurrence: "one_off" }} />
+          <SimpleFlowWizard people={people} categories={categories} selectedPersonId={selectedPersonId} selectedMonth={selectedMonth} hasHousehold={hasHousehold} paymentAccounts={paymentAccounts} householdPets={householdPets} initialTemplate={{ kind: "spend", direction: "outgoing", itemType: "one_off", recurrence: "one_off" }} onAdded={showJustAdded} />
         </Modal>
       ) : null}
 
