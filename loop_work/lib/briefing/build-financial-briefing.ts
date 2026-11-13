@@ -8,7 +8,7 @@ export type BriefingPeriod = "day" | "week" | "month";
 export type BriefingDelta = { period: BriefingPeriod; netWorth: number; investments: number; savings: number; pensions: number; propertyEquity: number };
 export type BriefingHoldingRow = { name: string; group: string; value: number; dayChangeGbp: number; dayChangePercent: number };
 export type BriefingPensionFundRow = { name: string; group: string; value: number; feePercent: number | null; annualised5y: number | null; annualised10y: number | null; asOf: string | null };
-export type FinancialBriefing = {
+export type FinancialBriefing = { pensionValue?: number;
   firstName: string;
   ageYears: number | null;
   currentNetWorth: number;
@@ -203,7 +203,7 @@ export async function buildFinancialBriefing(supabase: any, user: { id: string; 
     .slice(0, 25);
 
   return {
-    firstName,ageYears,currentNetWorth,dailyChange,weeklyChange,monthlyChange,assets:assetsTotal,liabilities:liabilitiesTotal,contributors,narrative,actions,
+    firstName,ageYears,currentNetWorth,pensionValue,dailyChange,weeklyChange,monthlyChange,assets:assetsTotal,liabilities:liabilitiesTotal,contributors,narrative,actions,
     flow:{income,spending,savings:plannedSavings,pensions,unassigned},
     investments:{value:investmentValue,weeklyChange:investmentWeeklyChange,topExposure:top?.[0]||null,topExposurePercent,evidence:holdings.length?`${holdings.length} priced holding${holdings.length===1?"":"s"}`:"No priced holdings"},
     savings:{balance:savingsBalance,monthlyDeposits:deposits,monthlyWithdrawals:withdrawals,confirmedInterest,accruedInterest,blendedRate},
