@@ -1,5 +1,6 @@
 "use client";
 
+import { getChildCostMonthlyAmount as sharedChildCostMonthlyAmount } from "@/lib/planning/month-plan";
 import { useMemo, useState, type ReactNode } from "react";
 import { NurseryCostForm } from "@/components/household/NurseryCostForm";
 import { PayEventWizard } from "@/components/household/PayEventWizard";
@@ -223,46 +224,9 @@ function getPayMonthlyNet(event: PayEvent, month: string) {
   }).monthlyTakeHome;
 }
 
+// One shared calculator, so care types (after-school clubs, childminders...) cost the same everywhere.
 function getChildCostMonthlyAmount(cost: ChildCost, billingMonth: string) {
-  if (cost.cost_kind === "activity") {
-    return calculateActivityMonthlyCost({
-      billingMonth,
-      weeklyCost: Number(cost.activity_weekly_cost ?? cost.monthly_cost ?? 0),
-      activityWeekday: Number(cost.activity_weekday ?? 6),
-      activityBillingMode: cost.activity_billing_mode ?? "calendar",
-      activityTermWeeksPerYear: Number(cost.activity_term_weeks_per_year ?? 38),
-      bankHolidaysAreFree: Boolean(cost.bank_holidays_are_free),
-    }).estimatedMonthlyCost;
-  }
-
-  if (cost.cost_kind !== "nursery") return Number(cost.monthly_cost ?? 0);
-
-  return calculateNurseryMonthlyCost({
-    billingMonth,
-    dailyRate: Number(cost.daily_rate ?? 0),
-    extraDailyCost: Number(cost.extra_daily_cost ?? 0),
-    fundedHoursPerWeek: Number(cost.funded_hours_per_week ?? 0),
-    fundingMode: cost.funding_mode ?? "none",
-    hourlyFundingCredit: Number(cost.hourly_funding_credit ?? 0),
-    termWeeksPerYear: Number(cost.term_weeks_per_year ?? 38),
-    billingSchedule: savedBillingSchedule(cost as any),
-    bankHolidaysAreFree: Boolean(cost.bank_holidays_are_free),
-    taxFreeChildcareEnabled: Boolean(cost.tax_free_childcare_enabled),
-    taxFreeChildcareCapPerQuarter: Number(cost.tax_free_childcare_cap_per_quarter ?? 500),
-    partDayMultiplier: Number(cost.part_day_multiplier ?? 0.5),
-    fullDayHours: Number(cost.full_day_hours ?? 10),
-    partDayHours: Number(cost.part_day_hours ?? 5),
-    mondaySession: cost.monday_session ?? "off",
-    tuesdaySession: cost.tuesday_session ?? "off",
-    wednesdaySession: cost.wednesday_session ?? "off",
-    thursdaySession: cost.thursday_session ?? "off",
-    fridaySession: cost.friday_session ?? "off",
-    mondayHours: Number(cost.monday_hours ?? 0),
-    tuesdayHours: Number(cost.tuesday_hours ?? 0),
-    wednesdayHours: Number(cost.wednesday_hours ?? 0),
-    thursdayHours: Number(cost.thursday_hours ?? 0),
-    fridayHours: Number(cost.friday_hours ?? 0),
-  }).estimatedMonthlyCost;
+  return sharedChildCostMonthlyAmount(cost as any, billingMonth);
 }
 
 function getYearMonths(year: number) {

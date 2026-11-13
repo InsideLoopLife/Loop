@@ -530,6 +530,13 @@ export function buildMonthPlan({
     });
   });
 
+  // Care that lets parents work (nursery, childminder, before/after-school and
+  // holiday clubs, a nanny) is childcare, an essential bill. Classes are activities.
+  const CHILDCARE_TYPES = new Set(["nursery", "childminder", "breakfast_club", "after_school_club", "holiday_camp", "nanny"]);
+  const childCostGroup = (cost: ChildCost) => {
+    if (CHILDCARE_TYPES.has(String((cost as any).care_type || ""))) return "Childcare";
+    return cost.cost_kind === "activity" ? "Activities" : cost.cost_kind === "nursery" ? "Childcare" : "Child cost";
+  };
   const activeChildCosts = childCosts.filter((cost) => isActiveInMonth(cost.starts_on, cost.ends_on, month));
   activeChildCosts.forEach((cost) => {
     outgoingItems.push({
@@ -537,8 +544,8 @@ export function buildMonthPlan({
       value: getChildCostMonthlyAmount(cost, month),
       href: cost.child_id ? `/household/${cost.child_id}` : "/household",
       personId: cost.child_id,
-      helper: cost.cost_kind === "activity" ? "Activities" : cost.cost_kind === "nursery" ? "Childcare" : "Child cost",
-      categoryLabel: cost.cost_kind === "activity" ? "Activities" : cost.cost_kind === "nursery" ? "Childcare" : "Child cost",
+      helper: childCostGroup(cost),
+      categoryLabel: childCostGroup(cost),
       categoryIcon: "👶",
       dueDate: dueDateForMonth(month, cost.payment_timing ?? "fixed_day", cost.payment_day_of_month ?? 1, cost.payment_adjustment ?? "previous_workday"),
     });
