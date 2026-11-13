@@ -32,20 +32,23 @@ export const HOLIDAY_PERIOD_LABELS: Record<HolidayPeriodKey, string> = {
 
 // Known dates for recent years; other years use the usual England pattern
 // (typicalHolidayPeriods below), so estimates never run off the end.
+// 2025-26 and 2026-27 follow Warrington Borough Council's recommended dates
+// (warrington.gov.uk/schoolholidays). Academies and VA schools can differ,
+// and INSET days are each school's own.
 const KNOWN_HOLIDAY_PERIODS: HolidayPeriod[] = [
   { key: "autumn_half_term", label: HOLIDAY_PERIOD_LABELS.autumn_half_term, start: "2025-10-27", end: "2025-10-31" },
   { key: "christmas", label: HOLIDAY_PERIOD_LABELS.christmas, start: "2025-12-22", end: "2026-01-02" },
   { key: "spring_half_term", label: HOLIDAY_PERIOD_LABELS.spring_half_term, start: "2026-02-16", end: "2026-02-20" },
-  { key: "easter", label: HOLIDAY_PERIOD_LABELS.easter, start: "2026-03-30", end: "2026-04-10" },
+  { key: "easter", label: HOLIDAY_PERIOD_LABELS.easter, start: "2026-04-03", end: "2026-04-17" },
   { key: "summer_half_term", label: HOLIDAY_PERIOD_LABELS.summer_half_term, start: "2026-05-25", end: "2026-05-29" },
-  { key: "summer", label: HOLIDAY_PERIOD_LABELS.summer, start: "2026-07-22", end: "2026-09-01" },
+  { key: "summer", label: HOLIDAY_PERIOD_LABELS.summer, start: "2026-07-23", end: "2026-09-01" },
 
   { key: "autumn_half_term", label: HOLIDAY_PERIOD_LABELS.autumn_half_term, start: "2026-10-26", end: "2026-10-30" },
   { key: "christmas", label: HOLIDAY_PERIOD_LABELS.christmas, start: "2026-12-21", end: "2027-01-01" },
   { key: "spring_half_term", label: HOLIDAY_PERIOD_LABELS.spring_half_term, start: "2027-02-15", end: "2027-02-19" },
-  { key: "easter", label: HOLIDAY_PERIOD_LABELS.easter, start: "2027-03-29", end: "2027-04-09" },
+  { key: "easter", label: HOLIDAY_PERIOD_LABELS.easter, start: "2027-03-26", end: "2027-04-09" },
   { key: "summer_half_term", label: HOLIDAY_PERIOD_LABELS.summer_half_term, start: "2027-05-31", end: "2027-06-04" },
-  { key: "summer", label: HOLIDAY_PERIOD_LABELS.summer, start: "2027-07-21", end: "2027-08-31" },
+  { key: "summer", label: HOLIDAY_PERIOD_LABELS.summer, start: "2027-07-22", end: "2027-09-01" },
 ];
 
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
