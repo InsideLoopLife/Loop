@@ -22,6 +22,9 @@ const PLAIN_FOOD_PHRASES: Array<[RegExp, string]> = [
   [/\begg(s)? on toast\b/g, "egg toast"],
   [/\btoast\b/g, "bread toasted"],
   [/\bporridge\b/g, "porridge"],
+  [/\b(cadbury )?dairy milk\b(?! free)/g, "chocolate milk"],
+  [/\bnaans?\b(?! bread)/g, "naan bread"],
+  [/\bpoppadoms?\b|\bpappadums?\b/g, "poppadums"],
   [/\bbrekkie\b/g, "breakfast"],
 ];
 
@@ -208,4 +211,15 @@ export function parseQuantity(query: string): QuantityHint {
     }
   }
   return { text: text.trim() || String(query || "").trim(), count, amount, unit };
+}
+
+/** Removes brand names and "by <brand>" so the generic food can be matched ("Greggs Sausage Roll" → "sausage roll"). */
+export function stripBrandWords(label: string) {
+  const global = new RegExp(KNOWN_BRAND_WORDS.source, "gi");
+  return String(label || "")
+    .replace(/\bby [a-z0-9&' ]+$/i, " ")
+    .replace(global, " ")
+    .replace(/\b(trek|nakd|graze|nature valley|eat natural|grenade|barebells|misfits|fulfil|kong strong|sneak|gfuel|milbona|deluxe|finest|taste the difference|extra special|essential|everyday)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }

@@ -4,7 +4,7 @@ import { createAdminClient, hasSupabaseAdminKey } from "@/lib/supabase/admin";
 import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 import { cleanBarcode, enrichCandidate, looksLikeBarcode, mapOpenFoodFactsProduct, normaliseAiProductCandidate, type ProductLookupCandidate } from "@/lib/nutrition/product-data";
-import { referenceCandidates } from "@/lib/nutrition/reference-foods";
+import { referenceCandidates, referenceMicroDonor } from "@/lib/nutrition/reference-foods";
 import { expandBrandQuery, looksBranded, parseQuantity, textRelevance } from "@/lib/nutrition/food-search";
 import { fallbackRecipeEstimate, normaliseRecipeEstimate } from "@/lib/nutrition/scoring";
 import { cleanText, compactJson } from "@/lib/security/external-data";
@@ -313,7 +313,7 @@ function dedupeCandidates(candidates: ProductLookupCandidate[], query = "") {
     const key = `${candidate.gtin || candidate.barcode || ""}:${candidate.label.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    output.push(enrichCandidate({ ...candidate, raw: compactJson(candidate.raw || {}, 35_000) }));
+    output.push(enrichCandidate({ ...candidate, raw: compactJson(candidate.raw || {}, 35_000) }, referenceMicroDonor));
   }
   const rank = (candidate: ProductLookupCandidate) => relevance(candidate, query) * 100 + Number(candidate.data_confidence || 0) * 0.5 - (candidate.quality_flags?.includes("energy_mismatch") ? 40 : 0) - (candidate.quality_flags?.includes("low_confidence_ai") ? 30 : 0);
   return output.sort((a, b) => rank(b) - rank(a)).slice(0, 10);
@@ -371,7 +371,7 @@ export async function POST(request: Request) {
     const amount = hint.amount ?? (hint.count && candidate.serving_known ? Math.round(candidate.base_amount * hint.count * 10) / 10 : null);
     return amount ? { ...candidate, suggested_amount: amount } : candidate;
   });
-  const everyday = reference.candidates.map(enrichCandidate);
+  const everyday = reference.candidates.map((candidate) => enrichCandidate(candidate));
   const yours = external.filter((candidate) => candidate.result_group === "yours");
   const brandedResults = external.filter((candidate) => candidate.result_group !== "yours");
   const groupList = [

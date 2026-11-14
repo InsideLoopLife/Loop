@@ -1,9 +1,10 @@
 import "server-only";
 import data from "@/lib/nutrition/data/uk-reference-foods.json";
 import { EMPTY_NUTRITION_TOTALS, scoreMeal, type NutritionTotals, type RecipeEstimate } from "@/lib/nutrition/scoring";
-import { expandPlainFoodQuery, foodTokens, looksBranded, normaliseFoodText, parseQuantity, tokenCoverage } from "@/lib/nutrition/food-search";
+import { expandPlainFoodQuery, foodTokens, looksBranded, normaliseFoodText, parseQuantity, stripBrandWords, tokenCoverage } from "@/lib/nutrition/food-search";
 import { portionsForReference, referenceUnit, type PortionUnit } from "@/lib/nutrition/portions";
 import { checkEnergy } from "@/lib/nutrition/energy-check";
+import { completeNutrition } from "@/lib/nutrition/completeness";
 import type { ProductLookupCandidate } from "@/lib/nutrition/product-data";
 
 // UK government reference data (CoFID 2021), per 100g edible portion (per 100ml for drinks, via specific gravity).
@@ -177,11 +178,40 @@ export function searchReferenceFoods(query: string, limit = 6): ReferenceMatch[]
   return results.sort((a, b) => b.score - a.score || a.food.name.length - b.food.name.length).slice(0, limit);
 }
 
-function referenceEstimate(food: RefFood): RecipeEstimate {
-  const totals: NutritionTotals = { ...EMPTY_NUTRITION_TOTALS };
+function referenceTotals(food: RefFood) {
+  const raw: NutritionTotals = { ...EMPTY_NUTRITION_TOTALS };
   for (const [key, value] of Object.entries(food.per100)) {
-    if (key in totals) (totals as any)[key] = Number(value || 0);
+    if (key in raw) (raw as any)[key] = Number(value || 0);
   }
+  // CoFID has no caffeine or free-sugar split, so fill those in for this food.
+  return completeNutrition(raw, { label: food.name, amount: 100, unit: food.unit, group: food.group, source: "uk_reference" });
+}
+
+/** Closest UK reference food for borrowing vitamins/minerals, or null when nothing is a confident match. */
+export function referenceMicroDonor(label: string) {
+  const hint = parseQuantity(stripBrandWords(label));
+  if (!hint.text) return null;
+  const [best] = searchReferenceFoods(hint.text, 1);
+  if (!best || best.score < 1.25) return null;
+  return { per100: best.food.per100, name: best.food.name };
+}
+
+export function referenceFoodByCode(code: string) {
+  return loadFoods().find((food) => food.code === code) || null;
+}
+
+/** Nutrients for an amount of a reference food (grams, or ml for drinks). */
+export function referenceNutrientsFor(food: RefFood, amount: number) {
+  const { totals, filled } = referenceTotals(food);
+  const factor = amount / 100;
+  const scaled = Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, key === "energy_density_kcal_per_g" || key === "glycemic_impact_score" ? value : Math.round(Number(value || 0) * factor * 100) / 100])) as unknown as NutritionTotals;
+  return { totals: scaled, filled };
+}
+
+export type { RefFood };
+
+function referenceEstimate(food: RefFood): RecipeEstimate {
+  const { totals, filled } = referenceTotals(food);
   const lowProcessing = /^(Fruit|Vegetables|Nuts and seeds|Eggs|Fish and seafood|Meat and meat products|Herbs and spices)$/.test(food.group) && !/canned|in sauce|homemade|fried|processed|pie|sausage|burger|bacon|ham|nugget/.test(food.normName);
   const processing_level: RecipeEstimate["processing_level"] = lowProcessing ? "low" : "unknown";
   return {
@@ -200,6 +230,7 @@ function referenceEstimate(food: RefFood): RecipeEstimate {
     assumptions: [
       `Values are per 100${food.unit} of the edible part. Pick a portion or type the ${food.unit === "ml" ? "millilitres" : "grams"} you had.`,
       "Allergen information is not part of the reference data — check packs if allergies matter.",
+      ...filled,
     ],
     confidence_reason: "UK government reference data (McCance and Widdowson's CoFID 2021) — lab-measured averages for this food.",
     processing_level,

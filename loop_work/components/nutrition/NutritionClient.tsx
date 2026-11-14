@@ -11,10 +11,16 @@ import type { FoodLog, NutritionMeal, NutritionPerson, NutritionSettings, Recent
 import type { ProductLookupCandidate } from "@/lib/nutrition/product-data";
 import { cleanProductOrMealLabel, displayProductCandidateLabel, extractTimeHHMM, extractVolumeMl, inferFoodEntityType, isProductLikeKind, nutritionUpdateStatus, productUpdateStatusLabel } from "@/lib/nutrition/intelligence";
 import { writeRouteSnapshot } from "@/lib/client/route-snapshot-cache";
+import { MicronutrientCard, NutritionProfileEditor, TargetsChip } from "@/components/nutrition/TargetsPanel";
+import { FreehandBreakdown } from "@/components/nutrition/FreehandBreakdown";
+import { InsightsPanel, TrendChip } from "@/components/nutrition/InsightsPanel";
+import { buildPatterns, weeklyTrend } from "@/lib/nutrition/patterns";
+import type { FreehandBreakdownItem } from "@/lib/nutrition/freehand";
+import { scoringTargets, targetsForPerson } from "@/lib/nutrition/targets";
 import { basisFromCandidate, GroupedResults, PersonPortions, PortionPicker, SameAsYesterday, Usuals, usualsFor, type AmountBasis, type PortionTarget, type ResultGroup } from "@/components/nutrition/LogHelpers";
 
 export type NutritionClientProps = { people: NutritionPerson[]; meals: NutritionMeal[]; logs: FoodLog[]; recentLogs?: RecentFoodLog[]; supermarkets: Supermarket[]; selectedDate: string; settings: NutritionSettings; initialOpen?: "recipe" | "log" | "edit-recipe" | null; initialMealId?: string | null; initialTab?: "overview" | "recipes" | "food-log" | "meal-cards" };
-type Modal = { type: "recipe" } | { type: "edit-recipe"; meal: NutritionMeal } | { type: "log"; meal?: NutritionMeal } | { type: "edit-log"; log: FoodLog } | { type: "menu-import" } | null;
+type Modal = { type: "recipe" } | { type: "edit-recipe"; meal: NutritionMeal } | { type: "log"; meal?: NutritionMeal } | { type: "edit-log"; log: FoodLog } | { type: "menu-import" } | { type: "profile" } | null;
 type NutritionPanel = "log" | "cards" | "settings";
 
 const inputClass = "mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold outline-none ring-emerald-500 transition focus:ring-2";
@@ -178,23 +184,6 @@ function fallbackFoodImageUrl(label: string) {
   return `/api/food-image-placeholder?label=${encodeURIComponent(label || "Food")}`;
 }
 
-const DAILY_TARGETS = {
-  calories: 2200,
-  protein_g: 75,
-  fibre_g: 30,
-  salt_g: 6,
-  saturated_fat_g: 20,
-  caffeine_mg: 400,
-  added_sugar_g: 30,
-  calcium_mg: 700,
-  iron_mg: 8,
-  potassium_mg: 3500,
-  vitamin_c_mg: 80,
-  vitamin_d_ug: 10,
-  folate_ug: 200,
-  magnesium_mg: 300,
-  zinc_mg: 9.5,
-};
 
 function barTone(value: number, target: number, inverted = false) {
   const ratio = target > 0 ? value / target : 0;
@@ -1305,6 +1294,7 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose, rec
   const [inputMode, setInputMode] = useState<"search" | "ai">("search");
   const [aiDescription, setAiDescription] = useState("");
   const [aiNote, setAiNote] = useState<string | null>(null);
+  const [freehandBreakdown, setFreehandBreakdown] = useState<FreehandBreakdownItem[]>([]);
   const [manualImageUrl, setManualImageUrl] = useState(selectedMeal?.image_url || "");
   const [eatenAt, setEatenAt] = useState(defaultNowTime());
   const [drinkVolumeMl, setDrinkVolumeMl] = useState("");
@@ -1445,21 +1435,23 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose, rec
       return;
     }
     const label = labelFromFreehand(description);
-    setAiNote("Estimating this as one diary entry. You can adjust the image, time, slot and portion before saving.");
+    setAiNote("Working it out item by item...");
+    setFreehandBreakdown([]);
     startAiTransition(async () => {
       try {
-        const response = await fetch("/api/nutrition/recipe-estimate", {
+        const response = await fetch("/api/nutrition/freehand-estimate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label, ingredients: description, notes: "Freehand food diary entry", servings: 1 }),
+          body: JSON.stringify({ text: description }),
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || "Could not estimate this entry");
         const estimate = data.estimate as RecipeEstimate;
+        setFreehandBreakdown(Array.isArray(data.breakdown) ? data.breakdown : []);
         const candidateLabel = cleanProductOrMealLabel(label);
         const candidate: ProductLookupCandidate = {
           source: "ai_freehand",
-          source_label: "AI freehand diary",
+          source_label: "Freehand entry",
           source_url: null,
           label: candidateLabel,
           brand_name: null,
@@ -1702,6 +1694,7 @@ function LogFoodForm({ people, meals, meal, selectedDate, settings, onClose, rec
             <p className="text-xs font-semibold text-slate-500">AI fills the same lower form; you still choose who ate it, time, volume and image before saving.</p>
           </div>
           {aiNote ? <p className="mt-3 rounded-2xl bg-white p-3 text-xs font-black text-slate-700 ring-1 ring-slate-100">{aiNote}</p> : null}
+          {freehandBreakdown.length && selectedProduct?.source === "ai_freehand" ? <FreehandBreakdown items={freehandBreakdown} /> : null}
 
           <div className="mt-4 border-t border-emerald-100 pt-4">
             <label className="flex items-center gap-2 text-sm font-black text-slate-950"><Camera className="h-4 w-4" /> Or take a photo of what you're eating or drinking</label>
@@ -1884,6 +1877,18 @@ export function NutritionClient({ people, meals, logs, recentLogs = [], supermar
     }
   }, [activePersonId, people, selfPerson?.id]);
   const viewLabel = activePersonId === "__all__" ? "Everyone" : activePersonId === HOUSEHOLD_SENTINEL ? "Household / shared" : personName(people, activePersonId);
+  const activePerson = useMemo(() => people.find((person) => person.id === activePersonId) || null, [people, activePersonId]);
+  const personTargets = useMemo(() => targetsForPerson(activePerson, selectedDate), [activePerson, selectedDate]);
+  const scoringProfile = useMemo(() => ({ targets: scoringTargets(personTargets) }), [personTargets]);
+  const personHistory = useMemo(() => (activePerson ? recentLogs.filter((log) => log.person_id === activePerson.id) : []), [recentLogs, activePerson]);
+  const patterns = useMemo(() => activePerson ? buildPatterns({ logs: personHistory, endDate: selectedDate, targets: personTargets, name: activePerson.name, isSelf: activePerson.id === selfPerson?.id }) : null, [activePerson, personHistory, selectedDate, personTargets, selfPerson?.id]);
+  const trend = useMemo(() => {
+    if (!activePerson) return null;
+    const byDate = new Map<string, RecentFoodLog[]>();
+    personHistory.forEach((log) => byDate.set(log.eaten_on, [...(byDate.get(log.eaten_on) || []), log]));
+    const dayScores = Array.from(byDate.entries()).map(([date, entries]) => ({ date, logged: entries.length >= 2, score: scoreNutritionDay(addNutritionTotals(entries.map((entry) => nutritionFromRecord(entry as any))), 0, scoringProfile).score }));
+    return weeklyTrend(dayScores, selectedDate);
+  }, [activePerson, personHistory, scoringProfile, selectedDate]);
   const viewedTodayLogs = useMemo(() => todayLogs.filter((log) => logBelongsToView(log, activePersonId)), [todayLogs, activePersonId]);
   const timelineLogs = useMemo(() => viewedTodayLogs.slice().sort(sortLogsByConsumption), [viewedTodayLogs]);
   const streakDays = useMemo(() => {
@@ -1896,14 +1901,14 @@ export function NutritionClient({ people, meals, logs, recentLogs = [], supermar
       const key = date.toISOString().slice(0, 10);
       const dayLogs = byDate.get(key) || [];
       const totals = addNutritionTotals(dayLogs.map(nutritionFromRecord));
-      if (scoreNutritionDay(totals).score >= 65 && dayLogs.length > 0) streak += 1;
+      if (scoreNutritionDay(totals, 0, scoringProfile).score >= 65 && dayLogs.length > 0) streak += 1;
       else break;
     }
     return streak;
-  }, [logs, selectedDate, activePersonId]);
+  }, [logs, selectedDate, activePersonId, scoringProfile]);
   const totals = useMemo(() => addNutritionTotals(viewedTodayLogs.map(nutritionFromRecord)), [viewedTodayLogs]);
   const hydrationMl = viewedTodayLogs.reduce((sum, log) => sum + number(log.drink_volume_ml), 0);
-  const rawDailyScore = scoreNutritionDay(totals, streakDays);
+  const rawDailyScore = scoreNutritionDay(totals, streakDays, scoringProfile);
   const dailyScore = viewedTodayLogs.length === 0 ? {
     score: 0,
     label: "Not started",
@@ -1923,10 +1928,10 @@ export function NutritionClient({ people, meals, logs, recentLogs = [], supermar
     const date = weekDateKey(selectedDate, idx);
     const entries = logs.filter((log) => log.eaten_on === date && logBelongsToView(log, activePersonId));
     const dayTotals = addNutritionTotals(entries.map(nutritionFromRecord));
-    const score = entries.length ? scoreNutritionDay(dayTotals).score : 0;
+    const score = entries.length ? scoreNutritionDay(dayTotals, 0, scoringProfile).score : 0;
     const fill = entries.length ? Math.max(12, Math.min(100, score)) : 0;
     return { date, entries, totals: dayTotals, score, fill, active: date === selectedDate };
-  }), [logs, selectedDate, activePersonId]);
+  }), [logs, selectedDate, activePersonId, scoringProfile]);
   const weekScrollerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -1956,7 +1961,7 @@ export function NutritionClient({ people, meals, logs, recentLogs = [], supermar
     ? Math.round(perLogProcessed.reduce((sum, item) => sum + item.processed.score * Math.max(1, number(item.log.calories)), 0) / perLogProcessed.reduce((sum, item) => sum + Math.max(1, number(item.log.calories)), 0))
     : 0;
   const processedEntry = perLogProcessed.find((item) => item.processed.score >= 65);
-  const baseBalanceRecommendations = nutritionBalanceRecommendations(totals, undefined, dailyScore.nudges);
+  const baseBalanceRecommendations = nutritionBalanceRecommendations(totals, scoringProfile, dailyScore.nudges);
   const processedEntryNudge = processedEntry
     ? (String(processedEntry.log.meal_slot || "").toLowerCase() === "drink"
       ? `${processedEntry.log.label} is logged as a drink. Treat sweeteners/syrups as add-ons, not the whole drink: keep an eye on caffeine, fluids and sugar/salt balance.`
@@ -2013,7 +2018,7 @@ export function NutritionClient({ people, meals, logs, recentLogs = [], supermar
           {weeklyDays.map((day) => {
             const colour = day.score >= 75 ? "bg-emerald-400" : day.score >= 55 ? "bg-lime-300" : day.score > 0 ? "bg-orange-300" : "bg-slate-200";
             const calories = number(day.totals.calories);
-            const calorieFill = day.entries.length ? Math.max(8, Math.min(100, calories / DAILY_TARGETS.calories * 100)) : 0;
+            const calorieFill = day.entries.length ? Math.max(8, Math.min(100, calories / personTargets.calories * 100)) : 0;
             return <Link key={day.date} data-active-day={day.active ? "true" : "false"} href={`/nutrition?date=${day.date}`} className={`group min-w-[76vw] snap-center rounded-[1.5rem] border p-3 transition hover:-translate-y-0.5 hover:shadow-lg sm:min-w-[260px] md:min-w-0 ${day.active ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-slate-50 text-slate-900"}`}>
               <div className="flex items-center justify-between gap-2"><span className="text-xs font-black uppercase tracking-wide">{shortDay(day.date)}</span><span className={`rounded-full px-2 py-1 text-xs font-black ${day.active ? "bg-white text-slate-950" : "bg-white text-slate-600"}`}>{day.score}/100</span></div>
               <div className="mt-3 h-16 overflow-hidden rounded-2xl bg-white/70 ring-1 ring-slate-100 md:h-20">
@@ -2025,10 +2030,13 @@ export function NutritionClient({ people, meals, logs, recentLogs = [], supermar
         </div>
       </section>
 
+      {activePerson ? <InsightsPanel summary={patterns} personKey={activePerson.id} title={activePerson.id === selfPerson?.id ? "Your patterns" : `${activePerson.name}'s patterns`} /> : <section className="rounded-[1.75rem] border border-white/70 bg-white/85 p-4 text-sm font-semibold text-slate-600 shadow-xl sm:rounded-[2.5rem] sm:p-6">Pick a person above to see their patterns over the last two weeks.</section>}
+
       <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
         <div className="rounded-[1.75rem] sm:rounded-[2.5rem] border border-white/70 bg-[#f4f3df] p-4 sm:p-6 shadow-xl">
           <div className="text-center"><p className="text-sm font-black text-slate-700">{dateLabel(selectedDate)}</p></div>
           <Link href={`/nutrition/day?date=${selectedDate}&person=${encodeURIComponent(activePersonId)}`} className="block rounded-[2rem] transition hover:bg-white/30"><Gauge score={dailyScore.score} label={dailyScore.label} /></Link>
+          {trend ? <div className="mt-1 flex justify-center"><TrendChip trend={trend} /></div> : null}
           <div className="mx-auto mt-2 grid max-w-xl grid-cols-4 gap-3">
             {dayQuickMeals.map((meal) => <button key={meal.id} onClick={() => setModal({ type: "log", meal })} className="relative overflow-hidden rounded-2xl border-2 border-white bg-white shadow-md" title="Log this again"><MealImage meal={meal} size="small" /><span className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-slate-950 text-white"><CheckCircle2 className="h-4 w-4" /></span><span className="absolute bottom-1 right-1 rounded-xl bg-lime-300 px-2 py-1 text-sm font-black text-slate-900">{number(meal.nutrition_score || scoreMeal(nutritionFromRecord(meal))).toFixed(0)}</span></button>)}
           </div>
@@ -2036,12 +2044,15 @@ export function NutritionClient({ people, meals, logs, recentLogs = [], supermar
         </div>
 
         <div className="grid gap-5 md:grid-cols-2">
-          <TargetBar label="Calories" value={number(totals.calories)} target={DAILY_TARGETS.calories} unit="kcal" note={`${viewedTodayLogs.length} food/drink entry(s) for ${viewLabel}. Apple Health can later adjust this target using BMR and active energy.`} />
-          <TargetBar label="Protein" value={number(totals.protein_g)} target={DAILY_TARGETS.protein_g} unit="g" note="Default adult target; later this can use weight, sex and training load." />
-          <TargetBar label="Fibre" value={number(totals.fibre_g)} target={DAILY_TARGETS.fibre_g} unit="g" note={`Soluble fibre ${number(totals.soluble_fibre_g).toFixed(1)}g. Fibre is a key gut-health driver.`} />
-          <TargetBar label="Salt" value={number(totals.salt_g)} target={DAILY_TARGETS.salt_g} unit="g" inverted note="UK adult guide is about 6g salt/day; lower is usually better unless medically advised otherwise." />
+          <div className="md:col-span-2"><TargetsChip person={activePerson} targets={personTargets} onEdit={activePerson ? () => setModal({ type: "profile" }) : undefined} /></div>
+          {!personTargets.isChild ? <TargetBar label="Calories" value={number(totals.calories)} target={personTargets.calories} unit="kcal" note={`${viewedTodayLogs.length} food/drink entr${viewedTodayLogs.length === 1 ? "y" : "ies"} for ${viewLabel}. A guide only — needs vary with activity.`} /> : null}
+          <TargetBar label="Protein" value={number(totals.protein_g)} target={personTargets.protein_g} unit="g" note={`UK reference amount for ${personTargets.bandLabel.toLowerCase()}${activePerson?.weight_kg && !personTargets.isChild ? " (0.75g per kg)" : ""}.`} />
+          <TargetBar label="Fibre" value={number(totals.fibre_g)} target={personTargets.fibre_g} unit="g" note={`UK guide for ${personTargets.bandLabel.toLowerCase()}. Most people fall short — fruit, veg, beans and wholegrains help.`} />
+          <TargetBar label="Free sugars" value={number(totals.added_sugar_g)} target={personTargets.added_sugar_g ?? 10} unit="g" inverted note={personTargets.added_sugar_g == null ? "Under 4s: UK advice is to avoid sugary foods and drinks." : `UK limit for ${personTargets.bandLabel.toLowerCase()} is ${personTargets.added_sugar_g}g. Includes added sugar, honey, syrups and fruit juice.`} />
+          <TargetBar label="Salt" value={number(totals.salt_g)} target={personTargets.salt_g} unit="g" inverted note={`UK limit for ${personTargets.bandLabel.toLowerCase()} is ${personTargets.salt_g}g a day.`} />
           <FatQualityCard totals={totals} />
-          <TargetBar label="Caffeine" value={number(totals.caffeine_mg)} target={DAILY_TARGETS.caffeine_mg} unit="mg" inverted note="A broad adult ceiling. Timing, sleep and pregnancy/breastfeeding context can change this." />
+          <TargetBar label="Caffeine" value={number(totals.caffeine_mg)} target={personTargets.caffeine_mg ?? 0} unit="mg" inverted note={personTargets.caffeine_mg == null ? "Children: add a weight in their details for a caffeine guide (3mg per kg). Until then, any caffeine is flagged." : personTargets.isChild ? `About 3mg per kg for children (EFSA) — ${personTargets.caffeine_mg}mg.` : personTargets.caffeine_mg === 400 ? "Up to 400mg a day is considered safe for healthy adults (EFSA); single doses over 200mg, or caffeine late in the day, can affect sleep." : `Personal limit of ${personTargets.caffeine_mg}mg a day.`} />
+          <MicronutrientCard totals={totals} targets={personTargets} />
           <TargetBar label="Logged fluids" value={hydrationMl} target={2000} unit="ml" note="Pulled from drink entries, so the liquid volume changes hydration context instead of only caffeine/macros." />
           <ProcessedLoadCard processed={balanceRecommendations.processed} />
           <div className="rounded-[2rem] border border-white/70 bg-white p-5 shadow-lg"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase text-slate-500">Gut health</p><p className="mt-2 text-3xl font-black text-slate-950">{balanceRecommendations.gut.score}/100</p></div><ScoreChip score={balanceRecommendations.gut.score} label={balanceRecommendations.gut.label} /></div><p className="mt-3 text-sm font-semibold text-slate-500">Based on fibre, soluble fibre, plant/legume signals, fermented-food signals and processed-load pressure.</p></div>
@@ -2100,6 +2111,7 @@ export function NutritionClient({ people, meals, logs, recentLogs = [], supermar
       {modal?.type === "menu-import" ? <ModalShell title="Import menu products" description="Paste a restaurant, bakery or takeaway menu URL and save estimated product cards in bulk." onClose={() => setModal(null)}><MenuImportForm onClose={() => setModal(null)} /></ModalShell> : null}
       {modal?.type === "recipe" ? <ModalShell title="Build recipe card" description="Choose custom recipe or import recipe, refine the ingredient list, then estimate deep nutrition and save the card." onClose={() => setModal(null)}><RecipeForm people={people} supermarkets={supermarkets} onClose={() => setModal(null)} /></ModalShell> : null}
       {modal?.type === "edit-recipe" ? <ModalShell title={`Edit ${modal.meal.label}`} description="Update the recipe card, import details or ingredient ratios, then refresh the deep nutrition estimate." onClose={() => setModal(null)}><RecipeForm people={people} supermarkets={supermarkets} meal={modal.meal} onClose={() => setModal(null)} /></ModalShell> : null}
+      {modal?.type === "profile" && activePerson ? <ModalShell title={`${activePerson.name}'s details`} description="Used to set daily targets from UK guidance." onClose={() => setModal(null)}><NutritionProfileEditor person={activePerson} onDone={() => setModal(null)} /></ModalShell> : null}
       {modal?.type === "log" ? <ModalShell title="Log food / drink" description="Search anything you ate or drank, pick how much, and choose who had it." onClose={() => setModal(null)}><LogFoodForm people={people} meals={meals} meal={modal.meal} selectedDate={selectedDate} settings={settings} recentLogs={recentLogs} onClose={() => setModal(null)} /></ModalShell> : null}
       {modal?.type === "edit-log" ? <ModalShell title={`Edit ${modal.log.label}`} description="Update the food log, meal slot, person, image or notes." onClose={() => setModal(null)}><EditLogForm people={people} log={modal.log} onClose={() => setModal(null)} /></ModalShell> : null}
     </main>

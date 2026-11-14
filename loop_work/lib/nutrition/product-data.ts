@@ -1,6 +1,7 @@
 import { fallbackRecipeEstimate, normaliseRecipeEstimate, scoreMeal, type NutritionTotals, type RecipeEstimate } from "@/lib/nutrition/scoring";
 import { cleanText, compactJson, safeExternalUrl } from "@/lib/security/external-data";
 import { checkEnergy } from "@/lib/nutrition/energy-check";
+import { completeNutrition, type MicroDonor } from "@/lib/nutrition/completeness";
 import { parseServingAmount, portionsForProduct, type PortionOption, type PortionUnit } from "@/lib/nutrition/portions";
 
 export type ProductDataSource = "open_food_facts" | "open_food_facts_uk" | "retailer_web" | "manual_label" | "ai_research" | "user_verified" | "global_cache" | "household_cache" | "ingredient_url_import" | "restaurant_menu_import" | "product_search" | "ai_freehand" | "ai_photo" | "uk_reference";
@@ -37,6 +38,9 @@ export type ProductLookupCandidate = {
   match_score?: number;
   /** Amount pulled from the search, e.g. "2 eggs" → 100g. */
   suggested_amount?: number | null;
+  /** Nutrients Loop filled in because the source left them blank. */
+  filled_notes?: string[];
+  completed?: boolean;
 };
 
 const zeroProductTotals: NutritionTotals = {
@@ -364,7 +368,7 @@ const EXTERNAL_SOURCES = new Set<ProductDataSource>(["open_food_facts", "open_fo
  * Fills in portion and quality details for any candidate (including older cached ones):
  * what amount the numbers describe, everyday portions, and whether the calories add up.
  */
-export function enrichCandidate(candidate: ProductLookupCandidate): ProductLookupCandidate {
+export function enrichCandidate(candidate: ProductLookupCandidate, microDonor?: MicroDonor): ProductLookupCandidate {
   const output: ProductLookupCandidate = { ...candidate };
   if (output.base_amount == null) {
     const label = String(output.serving_label || "");
@@ -385,6 +389,21 @@ export function enrichCandidate(candidate: ProductLookupCandidate): ProductLooku
   if (output.needs_amount == null) output.needs_amount = output.base_amount != null && output.serving_known === false;
   if (output.base_amount != null && !output.portions?.length) {
     output.portions = portionsForProduct({ baseAmount: output.base_amount, servingKnown: Boolean(output.serving_known), unit: output.unit || "g", packageQuantity: output.package_quantity, servingLabel: output.serving_label });
+  }
+  if (output.estimate && output.source !== "uk_reference" && !output.completed) {
+    const { totals, filled } = completeNutrition(output.estimate, {
+      label: `${output.brand_name || ""} ${output.label}`.trim(),
+      brand: output.brand_name,
+      ingredients: output.ingredients_text,
+      amount: output.base_amount ?? null,
+      unit: output.unit ?? null,
+      source: output.source,
+    }, microDonor);
+    if (filled.length) {
+      output.estimate = { ...output.estimate, ...totals, assumptions: [...(output.estimate.assumptions || []), ...filled] };
+      output.filled_notes = filled;
+    }
+    output.completed = true;
   }
   if (!output.result_group) {
     output.result_group = output.source === "uk_reference" ? "everyday" : output.source === "household_cache" ? "yours" : "branded";

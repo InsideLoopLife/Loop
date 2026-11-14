@@ -8,6 +8,8 @@ import { parseNumber } from "@/lib/format/money";
 import { fallbackRecipeEstimate, scaleNutritionTotals, NUTRITION_TOTAL_KEYS, type NutritionTotals } from "@/lib/nutrition/scoring";
 import { cleanProductOrMealLabel, extractVolumeMl, inferFoodEntityType, isProductLikeKind } from "@/lib/nutrition/intelligence";
 import { sharePickedProduct } from "@/lib/nutrition/catalog-cache";
+import { completeNutrition } from "@/lib/nutrition/completeness";
+import { referenceMicroDonor } from "@/lib/nutrition/reference-foods";
 import type { ProductLookupCandidate } from "@/lib/nutrition/product-data";
 
 async function requireUser() {
@@ -533,16 +535,38 @@ export async function logFoodEntry(formData: FormData) {
   if (mealId) {
     const { data, error } = await supabase
       .from("meals")
-      .select("id, label, person_id, image_url, calories, protein_g, carbs_g, fat_g, fibre_g, soluble_fibre_g, insoluble_fibre_g, sugar_g, added_sugar_g, natural_sugar_g, salt_g, saturated_fat_g, trans_fat_g, monounsaturated_fat_g, polyunsaturated_fat_g, sodium_mg, potassium_mg, calcium_mg, iron_mg, magnesium_mg, zinc_mg, folate_ug, niacin_mg, thiamin_mg, vitamin_c_mg, vitamin_d_ug, vitamin_b12_ug, omega_3_g, caffeine_mg, energy_density_kcal_per_g, glycemic_impact_score")
+      .select("id, label, person_id, image_url, brand_name, ingredients, product_lookup_json, calories, protein_g, carbs_g, fat_g, fibre_g, soluble_fibre_g, insoluble_fibre_g, sugar_g, added_sugar_g, natural_sugar_g, salt_g, saturated_fat_g, trans_fat_g, monounsaturated_fat_g, polyunsaturated_fat_g, sodium_mg, potassium_mg, calcium_mg, iron_mg, magnesium_mg, zinc_mg, folate_ug, niacin_mg, thiamin_mg, vitamin_c_mg, vitamin_d_ug, vitamin_b12_ug, omega_3_g, caffeine_mg, energy_density_kcal_per_g, glycemic_impact_score")
       .eq("id", mealId)
       .eq("user_id", user.id)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    base = data;
+    if (data) {
+      // Fill caffeine / free sugars / vitamins a saved card is missing, so day totals aren't under-counted.
+      const lookup = (data as any).product_lookup_json || {};
+      const sameBasis = Number(lookup?.base_amount) > 0 && Math.abs(Number(lookup?.estimate?.calories || 0) - Number((data as any).calories || 0)) <= 2;
+      const { totals } = completeNutrition(data as any, {
+        label: `${(data as any).brand_name || ""} ${(data as any).label}`.trim(),
+        brand: (data as any).brand_name,
+        ingredients: (data as any).ingredients,
+        amount: sameBasis ? Number(lookup.base_amount) : null,
+        unit: sameBasis ? (lookup.unit === "ml" ? "ml" : "g") : null,
+      }, referenceMicroDonor);
+      base = { ...data, ...totals };
+    } else {
+      base = data;
+    }
   }
 
-  const directNutrition = nutritionPayload(formData);
   const productMeta = productPayload(formData);
+  const lookupJson = (productMeta.product_lookup_json && typeof productMeta.product_lookup_json === "object" ? productMeta.product_lookup_json : {}) as Record<string, any>;
+  const directNutrition = completeNutrition(nutritionPayload(formData), {
+    label,
+    brand: lookupJson.brand_name || null,
+    ingredients: nullableString(formData.get("ingredients")) || lookupJson.ingredients_text || freehandText,
+    amount: Number(lookupJson.base_amount) > 0 ? Number(lookupJson.base_amount) : null,
+    unit: lookupJson.unit === "ml" ? "ml" : lookupJson.base_amount ? "g" : null,
+    source: lookupJson.source || null,
+  }, referenceMicroDonor).totals as NutritionTotals;
 
   let autoMealId = mealId;
   if (!autoMealId && label) {
@@ -1028,4 +1052,21 @@ export async function updateNutritionSettings(formData: FormData) {
   if (error) throw new Error(error.message);
   revalidatePath("/nutrition");
   revalidatePath("/account");
+}
+
+/** Saves the optional nutrition profile used for age/sex-based targets. */
+export async function saveNutritionProfile(input: { personId: string; birthDate?: string | null; referenceSex?: "male" | "female" | null; weightKg?: number | null; caffeineLimitMg?: number | null }) {
+  const { supabase, user } = await requireUser();
+  if (!input.personId) throw new Error("Pick a person first.");
+  const update: Record<string, unknown> = {
+    nutrition_reference_sex: input.referenceSex === "male" || input.referenceSex === "female" ? input.referenceSex : null,
+    weight_kg: input.weightKg && input.weightKg > 2 && input.weightKg < 400 ? Math.round(input.weightKg * 10) / 10 : null,
+    caffeine_limit_mg: input.caffeineLimitMg != null && input.caffeineLimitMg >= 0 && input.caffeineLimitMg <= 1000 ? Math.round(input.caffeineLimitMg) : null,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.birthDate && /^\d{4}-\d{2}-\d{2}$/.test(input.birthDate)) update.birth_date = input.birthDate;
+  const { error } = await supabase.from("people").update(update).eq("id", input.personId).eq("user_id", user.id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/nutrition");
+  return { ok: true };
 }

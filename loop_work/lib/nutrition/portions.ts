@@ -20,13 +20,15 @@ const SOLID_RULES: PortionRule[] = [
   { test: /^(raisins|sultanas|currants)/, portions: [["1 tbsp", 30], ["Mini box", 14]] },
   { test: /^tomato(es)?, (raw|cherry)/, portions: [["1 medium tomato", 85], ["5 cherry tomatoes", 75]] },
   { test: /^eggs?, chicken/, portions: [["1 medium egg", 50], ["1 large egg", 58], ["2 medium eggs", 100], ["3 medium eggs", 150]] },
-  { test: /^bread,|^bread\b/, not: /sauce|pudding|crumbs/, portions: [["1 medium slice", 36], ["1 thick slice", 44], ["2 medium slices", 72]] },
+  { test: /^bread,|^bread\b/, not: /sauce|pudding|crumbs|naan|pitta|chapati|tortilla/, portions: [["1 medium slice", 36], ["1 thick slice", 44], ["2 medium slices", 72]] },
   { test: /^(rolls?|bread rolls?|bap)/, portions: [["1 roll", 60]] },
   { test: /^(bagels?)/, portions: [["1 bagel", 85]] },
   { test: /^(croissants?)/, portions: [["1 croissant", 60]] },
   { test: /^crumpets?/, portions: [["1 crumpet", 55]] },
-  { test: /^(naan|nan) bread/, portions: [["Half a naan", 80], ["1 naan", 160]] },
+  { test: /naan/, portions: [["Half a naan", 80], ["1 naan", 160]] },
   { test: /^(tortilla|wraps?)/, portions: [["1 wrap", 62]] },
+  { test: /pitta/, portions: [["1 pitta", 60]] },
+  { test: /chapati/, portions: [["1 chapati", 55]] },
   { test: /^rice\b.*(boiled|cooked)|^rice, .*boiled/, portions: [["Small portion", 140], ["Medium portion", 180], ["Large portion", 250]] },
   { test: /^rice\b.*raw/, portions: [["1 portion (dry)", 75]] },
   { test: /^(pasta|spaghetti|macaroni|noodles)\b.*(boiled|cooked)/, portions: [["Small portion", 150], ["Medium portion", 230], ["Large portion", 300]] },
@@ -74,6 +76,8 @@ const SOLID_RULES: PortionRule[] = [
   { test: /^(pizza)/, portions: [["1 slice", 80], ["Half a 12\" pizza", 300]] },
   { test: /^(soup)/, portions: [["1 bowl", 300], ["Half a carton", 300]] },
   { test: /^(sandwich)/, portions: [["1 sandwich", 180]] },
+  { test: /^(curry|chilli con carne|chili con carne|stew|casserole|bolognese|spaghetti bolognese|lasagne|shepherd|cottage pie|risotto|paella|biryani|korma|tikka masala|jalfrezi|dhal|dal)/, portions: [["1 portion", 350], ["Small portion", 250], ["Large portion", 450]] },
+  { test: /pie\b/, not: /apple|fruit|cherry|mince pie|pork pie/, portions: [["1 individual pie", 200]] },
 ];
 
 const LIQUID_RULES: PortionRule[] = [

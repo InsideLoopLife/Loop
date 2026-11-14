@@ -267,6 +267,7 @@ export function scoreNutritionDay(totals: Partial<NutritionTotals>, streakDays =
   if (addedSugar > targets.added_sugar_g) nudges.push("Added sugar is creeping up, balance the next meal with protein/fibre.");
   if (transFat > 1) nudges.push("Potential trans fats detected from processed foods. Check labels.");
   if (Number(totals.fibre_g || 0) < targets.fibre_g * 0.5) nudges.push("A fruit, veg, beans or wholegrain top-up would help fibre.");
+  if (caffeine > targets.caffeine_mg) nudges.push(targets.caffeine_mg <= 0 ? "Caffeine has been logged — for children, UK and EU advice is to keep it low." : "Caffeine is over the daily guide — water or decaf for the next drink.");
 
   const snippet = nudges.length ? `You’re doing well. ${nudges[0]}` : highlights.length ? `You’re nailing today. ${highlights[0]}` : "A solid start — log one more meal to make the score more representative.";
 
