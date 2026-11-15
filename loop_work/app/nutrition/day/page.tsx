@@ -64,7 +64,7 @@ export default async function NutritionDayPage({ searchParams }: { searchParams?
     .returns<FoodLogRecord[]>();
 
   const personRow = personView !== "__all__" && personView !== "__household__"
-    ? (await supabase.from("people").select("birth_date, relationship, nutrition_reference_sex, weight_kg, caffeine_limit_mg, daily_calorie_target").eq("id", personView).eq("user_id", user.id).maybeSingle()).data
+    ? (await supabase.from("people").select("birth_date, relationship, nutrition_reference_sex, weight_kg, caffeine_limit_mg, daily_calorie_target, height_cm, activity_level, nutrition_goal, diet_type, food_allergies").eq("id", personView).eq("user_id", user.id).maybeSingle()).data
     : null;
   const personTargets = targetsForPerson(personRow as any, selectedDate);
   const TARGETS = targetMap(personTargets);

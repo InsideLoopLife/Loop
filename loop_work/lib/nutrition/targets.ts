@@ -9,7 +9,30 @@ export type NutritionProfileInput = {
   weight_kg?: number | null;
   caffeine_limit_mg?: number | null;
   daily_calorie_target?: number | null;
+  height_cm?: number | null;
+  activity_level?: "sedentary" | "light" | "moderate" | "active" | "very_active" | string | null;
+  nutrition_goal?: "maintain" | "lose" | "gain" | "eat_better" | string | null;
 };
+
+const ACTIVITY_FACTOR: Record<string, number> = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9 };
+
+/**
+ * Adult calorie estimate: Mifflin–St Jeor resting energy × activity factor, adjusted for the goal.
+ * Returns null unless weight, height, age and reference sex are all known.
+ */
+export function estimateAdultCalories(profile: NutritionProfileInput | null | undefined, age: number | null) {
+  const weight = Number(profile?.weight_kg || 0);
+  const height = Number(profile?.height_cm || 0);
+  const sex = profile?.nutrition_reference_sex;
+  if (!(weight > 30) || !(height > 120) || age == null || age < 19 || !sex) return null;
+  const bmr = 10 * weight + 6.25 * height - 5 * age + (sex === "male" ? 5 : -161);
+  const factor = ACTIVITY_FACTOR[String(profile?.activity_level || "")] ?? 1.375;
+  let kcal = bmr * factor;
+  const goal = profile?.nutrition_goal;
+  if (goal === "lose") kcal = Math.max(kcal - 500, bmr * 1.1, sex === "male" ? 1500 : 1200);
+  if (goal === "gain") kcal += 300;
+  return { kcal: Math.round(kcal / 10) * 10, bmr: Math.round(bmr), factor, goal: goal || null };
+}
 
 export type AgeBand = "toddler" | "child_4_6" | "child_7_10" | "teen_11_14" | "teen_15_18" | "adult" | "child_unknown";
 
@@ -19,6 +42,8 @@ export type PersonTargets = {
   ageYears: number | null;
   isChild: boolean;
   calories: number;
+  /** How the calorie guide was set: a UK average, a personal estimate, or a number someone typed in. */
+  caloriesBasis: "uk_average" | "personal_estimate" | "set";
   protein_g: number;
   fibre_g: number;
   /** Limits */
@@ -78,7 +103,7 @@ export function targetsForPerson(profile: NutritionProfileInput | null | undefin
   const male = sex === "male";
   const weight = Number(profile?.weight_kg || 0) > 0 ? Number(profile?.weight_kg) : null;
   const notes: string[] = [];
-  let t: Omit<PersonTargets, "band" | "bandLabel" | "ageYears" | "isChild" | "notes">;
+  let t: Omit<PersonTargets, "band" | "bandLabel" | "ageYears" | "isChild" | "notes" | "caloriesBasis">;
 
   switch (band) {
     case "toddler":
@@ -131,9 +156,24 @@ export function targetsForPerson(profile: NutritionProfileInput | null | undefin
     if (!weight) notes.push("Add a weight to get a caffeine guide (3mg per kg). Until then any caffeine is flagged.");
   }
   if (profile?.caffeine_limit_mg != null && profile.caffeine_limit_mg >= 0) t.caffeine_mg = profile.caffeine_limit_mg;
-  if (Number(profile?.daily_calorie_target || 0) > 0) t.calories = Number(profile?.daily_calorie_target);
+  let caloriesBasis: PersonTargets["caloriesBasis"] = "uk_average";
+  if (!isChild) {
+    const estimate = estimateAdultCalories(profile, age);
+    if (estimate) {
+      t.calories = estimate.kcal;
+      caloriesBasis = "personal_estimate";
+    } else if (band === "adult" && sex) {
+      notes.push("Add height and activity level for a personal calorie guide.");
+    }
+    // Protein: 0.75g per kg (UK reference), a little more when trying to lose weight.
+    if (weight && profile?.nutrition_goal === "lose") t.protein_g = Math.round(weight * 1.0);
+  }
+  if (Number(profile?.daily_calorie_target || 0) > 0) {
+    t.calories = Number(profile?.daily_calorie_target);
+    caloriesBasis = "set";
+  }
 
-  return { band, bandLabel: BAND_LABEL[band], ageYears: age, isChild, notes, ...t };
+  return { band, bandLabel: BAND_LABEL[band], ageYears: age, isChild, notes, ...t, caloriesBasis };
 }
 
 /** Shape the existing day score understands. */

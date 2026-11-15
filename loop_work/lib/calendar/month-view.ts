@@ -76,7 +76,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
   const [planResult, peopleResult, itemsResult, childCostsResult, dealsResult, logsResult, eventsResult] = await Promise.all([
     // Previous and next months too: a payment due on Sunday the 1st really leaves on Friday the 30th.
     loadMonthPlans(supabase, { userId: opts.dataOwnerUserId, filter, months: [shiftMonth(month, -1), month, shiftMonth(month, 1)] }).catch(() => null),
-    supabase.from("people").select("id, name, relationship, avatar_url, birth_date, nutrition_reference_sex, weight_kg, caffeine_limit_mg, daily_calorie_target, account_status").or(opts.peopleFilter).or("account_status.is.null,account_status.neq.duplicate_merged"),
+    supabase.from("people").select("id, name, relationship, avatar_url, birth_date, nutrition_reference_sex, weight_kg, caffeine_limit_mg, daily_calorie_target, height_cm, activity_level, nutrition_goal, diet_type, food_allergies, account_status").or(opts.peopleFilter).or("account_status.is.null,account_status.neq.duplicate_merged"),
     supabase.from("planned_items").select("id, user_id, person_id, category_id, direction, item_type, label, amount, recurrence, recurrence_interval_days, start_date, end_date, day_of_month, payment_timing, payment_adjustment, end_behavior, early_upgrade_date").or(filter),
     supabase.from("child_costs").select("id, child_id, label, starts_on, ends_on").or(filter),
     supabase.from("home_mortgage_deals").select("id, lender, product_name, initial_period_end, end_date").or(filter),

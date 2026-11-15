@@ -65,7 +65,7 @@ export function TargetsChip({ person, targets, onEdit }: { person: NutritionPers
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-600">
       <span className="rounded-full bg-white px-3 py-1.5 ring-1 ring-slate-200">Targets: {targets.band === "adult" ? "Adult" : targets.bandLabel}{targets.band === "adult" ? ageText : ""}</span>
-      {person && onEdit ? <button type="button" onClick={onEdit} className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 font-black text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-50"><Settings2 className="h-3.5 w-3.5" /> {person.name}&apos;s details</button> : null}
+      {person && onEdit ? <button type="button" onClick={onEdit} className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 font-black text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-50"><Settings2 className="h-3.5 w-3.5" /> {person.name}&apos;s health details</button> : null}
       {targets.notes.slice(0, 1).map((note) => <span key={note} className="text-slate-500">{note}</span>)}
     </div>
   );
