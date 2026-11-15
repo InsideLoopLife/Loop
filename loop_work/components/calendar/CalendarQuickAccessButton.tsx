@@ -65,7 +65,7 @@ export function CalendarQuickAccessButton({ dark = false }: { dark?: boolean }) 
         >
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-black text-slate-900">Calendar</h3>
-            <Link href="/lifestyle?tab=calendar" onClick={() => setOpen(false)} className="text-xs font-bold text-indigo-600 hover:underline">
+            <Link href="/calendar" onClick={() => setOpen(false)} className="text-xs font-bold text-indigo-600 hover:underline">
               Open full calendar
             </Link>
           </div>

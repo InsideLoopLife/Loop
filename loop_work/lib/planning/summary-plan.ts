@@ -240,6 +240,22 @@ export function dateIsInMonth(date: string, month: string) {
   return date >= toDateString(monthStart(month)) && date <= toDateString(monthEnd(month));
 }
 
+/**
+ * A "renews" line normally keeps forecasting past its end date. But when the same bill already
+ * has a later line (e.g. next year's council tax, or a price change), the old line must stop at
+ * its end date — otherwise both amounts are counted.
+ */
+export function capRenewedLines<T extends { label: string; start_date: string; end_date: string | null; end_behavior?: string | null; direction?: string; user_id?: string | null }>(items: T[]): T[] {
+  const key = (item: T) => `${item.user_id || ""}|${item.direction || ""}|${String(item.label || "").trim().toLowerCase()}`;
+  const byKey = new Map<string, T[]>();
+  for (const item of items) byKey.set(key(item), [...(byKey.get(key(item)) || []), item]);
+  return items.map((item) => {
+    if (!item.end_date || (item.end_behavior ?? "drops_off") === "drops_off") return item;
+    const hasSuccessor = (byKey.get(key(item)) || []).some((other) => other !== item && other.start_date > (item.end_date as string));
+    return hasSuccessor ? { ...item, end_behavior: "drops_off" } : item;
+  });
+}
+
 export function plannedItemForecastEndDate(item: PlannedItem) {
   if (item.recurrence !== "monthly") return item.end_date;
   if (!item.end_date) return null;
@@ -259,7 +275,17 @@ export function plannedItemIntervalDays(item: PlannedItem) {
 export function plannedItemDatesForMonth(item: PlannedItem, month: string): string[] {
   if (monthStepFor(item.recurrence)) { const d = monthSteppedDate(item as any, month); return d ? [d] : []; }
   if (item.recurrence === "one_off") return dateIsInMonth(item.start_date, month) ? [item.start_date] : [];
-  if (item.recurrence === "monthly") return isActiveInMonth(item.start_date, plannedItemForecastEndDate(item), month) ? [dueDateForMonth(month, item.payment_timing ?? "fixed_day", item.day_of_month ?? Number(item.start_date.slice(8, 10)), item.payment_adjustment ?? "previous_workday")] : [];
+  if (item.recurrence === "monthly") {
+    if (!isActiveInMonth(item.start_date, plannedItemForecastEndDate(item), month)) return [];
+    const due = dueDateForMonth(month, item.payment_timing ?? "fixed_day", item.day_of_month ?? Number(item.start_date.slice(8, 10)), item.payment_adjustment ?? "previous_workday");
+    // A line that ends (or starts) mid-month only pays if its due date is inside its own dates,
+    // so a price change on the 13th doesn't count the old and new price in the same month.
+    const forecastEnd = plannedItemForecastEndDate(item);
+    const scheduled = dueDateForMonth(month, item.payment_timing ?? "fixed_day", item.day_of_month ?? Number(item.start_date.slice(8, 10)), "none");
+    if (scheduled < item.start_date.slice(0, 10) && item.start_date.slice(0, 7) === month) return [];
+    if (forecastEnd && scheduled > forecastEnd.slice(0, 10) && forecastEnd.slice(0, 7) === month) return [];
+    return [due];
+  }
   const stepDays = plannedItemIntervalDays(item);
   const monthStartDate = new Date(`${month}-01T12:00:00Z`);
   const [year, monthNumber] = month.split("-").map(Number);
@@ -279,7 +305,7 @@ export function plannedItemDatesForMonth(item: PlannedItem, month: string): stri
 export function plannedItemAppliesToMonth(item: PlannedItem, month: string) {
   if (monthStepFor(item.recurrence)) return Boolean(monthSteppedDate(item as any, month));
   if (item.recurrence === "one_off") return dateIsInMonth(item.start_date, month);
-  if (item.recurrence === "monthly") return isActiveInMonth(item.start_date, plannedItemForecastEndDate(item), month);
+  if (item.recurrence === "monthly") return plannedItemDatesForMonth(item, month).length > 0;
   return plannedItemDatesForMonth(item, month).length > 0;
 }
 
@@ -470,7 +496,7 @@ export function buildMonthPlan({
     });
   });
 
-  const activePlannedItems = plannedItems.filter((item) => plannedItemAppliesToMonth(item, month));
+  const activePlannedItems = capRenewedLines(plannedItems as Array<PlannedItem & { user_id?: string | null }>).filter((item) => plannedItemAppliesToMonth(item, month));
   activePlannedItems.filter((item) => item.direction === "income").forEach((item) => {
     const dates = plannedItemDatesForMonth(item, month);
     const occurrences = Math.max(1, dates.length);

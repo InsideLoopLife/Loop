@@ -1,4 +1,5 @@
 "use client";
+import { capRenewedLines } from "@/lib/planning/summary-plan";
 import { isLoopError } from "@/lib/actions/friendly";
 import { knownBrandForLabel } from "@/lib/brands/uk-brands";
 import { AccountPicker } from "@/components/accounts/AccountPicker";
@@ -703,7 +704,17 @@ function plannedItemDueDate(item: PlannedItem, month: string) {
 function plannedItemDatesForMonth(item: PlannedItem, month: string) {
   if (monthStepFor(item.recurrence)) { const d = monthSteppedDate(item as any, month); return d ? [d] : []; }
   if (item.recurrence === "one_off") return dateIsInMonth(item.start_date, month) ? [item.start_date] : [];
-  if (item.recurrence === "monthly") return isActiveInMonth(item.start_date, plannedItemForecastEndDate(item), month) ? [dueDateForMonth(month, item.payment_timing ?? "fixed_day", item.day_of_month ?? Number(item.start_date.slice(8, 10)), item.payment_adjustment ?? "previous_workday")] : [];
+  if (item.recurrence === "monthly") {
+    if (!isActiveInMonth(item.start_date, plannedItemForecastEndDate(item), month)) return [];
+    const due = dueDateForMonth(month, item.payment_timing ?? "fixed_day", item.day_of_month ?? Number(item.start_date.slice(8, 10)), item.payment_adjustment ?? "previous_workday");
+    // A line that ends (or starts) mid-month only pays if its due date is inside its own dates,
+    // so a price change on the 13th doesn't count the old and new price in the same month.
+    const forecastEnd = plannedItemForecastEndDate(item);
+    const scheduled = dueDateForMonth(month, item.payment_timing ?? "fixed_day", item.day_of_month ?? Number(item.start_date.slice(8, 10)), "none");
+    if (scheduled < item.start_date.slice(0, 10) && item.start_date.slice(0, 7) === month) return [];
+    if (forecastEnd && scheduled > forecastEnd.slice(0, 10) && forecastEnd.slice(0, 7) === month) return [];
+    return [due];
+  }
   const stepDays = plannedItemIntervalDays(item);
   const monthStartDate = new Date(`${month}-01T12:00:00Z`);
   const [year, monthNumber] = month.split("-").map(Number);
@@ -1531,7 +1542,8 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
     return personId === selectedPersonId;
   };
 
-  const filteredPlannedItems = plannedItems.filter((item) => matchesSelectedPerson(item.person_id));
+  // Old "renews" lines stop where the same bill's next line takes over (no double counting).
+  const filteredPlannedItems = capRenewedLines(plannedItems).filter((item) => matchesSelectedPerson(item.person_id));
   const filteredEntries = entries.filter((entry) => matchesSelectedPerson(entry.person_id));
   const filteredPayEvents = payEvents.filter((event) => matchesSelectedPerson(event.person_id));
   const filteredChildCosts = childCosts.filter((cost) => matchesSelectedPerson(cost.bill_person_id));

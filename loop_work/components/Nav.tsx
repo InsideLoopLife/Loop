@@ -18,6 +18,7 @@ import {
   Home,
   House,
   LayoutGrid,
+  CalendarDays,
   LayoutDashboard,
   LineChart,
   LogOut,
@@ -52,6 +53,8 @@ type NavLink = {
 // Plain-English names. The routes are unchanged — only what people read.
 const wealthLinks: NavLink[] = [
   { href: "/dashboard", label: "Summary", icon: LayoutDashboard },
+  // Every day at a glance: money in and out, food, big dates and events.
+  { href: "/calendar", label: "Calendar", icon: CalendarDays },
   // Income, spending, accounts, savings and pots live behind this one entry.
   // Their existing routes remain available from its tabs and account context links.
   { href: "/financial-flow", label: "Money in & out", icon: WalletCards },
