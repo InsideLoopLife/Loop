@@ -221,6 +221,18 @@ function dateIsInMonth(date: string, month: string) {
   return date >= toDateString(monthStart(month)) && date <= toDateString(monthEnd(month));
 }
 
+
+/** A monthly line that starts or ends mid-month only pays if its scheduled day is inside its own dates. */
+function monthlyLinePaysInMonth(item: { start_date: string; end_date: string | null; day_of_month: number | null }, month: string) {
+  const [y, m] = month.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const day = Math.min(Math.max(Number(item.day_of_month || Number(String(item.start_date).slice(8, 10)) || 1), 1), lastDay);
+  const scheduled = `${month}-${String(day).padStart(2, "0")}`;
+  if (String(item.start_date).slice(0, 7) === month && scheduled < String(item.start_date).slice(0, 10)) return false;
+  if (item.end_date && String(item.end_date).slice(0, 7) === month && scheduled > String(item.end_date).slice(0, 10)) return false;
+  return true;
+}
+
 function plannedItemIntervalDays(item: PlannedItemForPlan) {
   if (item.recurrence === "custom_interval") return Math.max(1, Number(item.recurrence_interval_days || 0) || 7);
   return 28;
@@ -229,7 +241,7 @@ function plannedItemIntervalDays(item: PlannedItemForPlan) {
 function plannedItemDatesForMonth(item: PlannedItemForPlan, month: string): string[] {
   if (monthStepFor(item.recurrence)) { const d = monthSteppedDate(item as any, month); return d ? [d] : []; }
   if (item.recurrence === "one_off") return dateIsInMonth(item.start_date, month) ? [item.start_date] : [];
-  if (item.recurrence === "monthly") return isActiveInMonth(item.start_date, item.end_date, month) ? [item.start_date] : [];
+  if (item.recurrence === "monthly") return isActiveInMonth(item.start_date, item.end_date, month) && monthlyLinePaysInMonth(item, month) ? [item.start_date] : [];
   const stepDays = plannedItemIntervalDays(item);
   const monthStartDate = new Date(`${month}-01T12:00:00Z`);
   const [year, monthNumber] = month.split("-").map(Number);
@@ -258,7 +270,7 @@ function plannedItemRecurrenceLabel(item: PlannedItemForPlan, direction: "income
 function plannedItemAppliesToMonth(item: PlannedItemForPlan, month: string) {
   if (monthStepFor(item.recurrence)) return Boolean(monthSteppedDate(item as any, month));
   if (item.recurrence === "one_off") return dateIsInMonth(item.start_date, month);
-  if (item.recurrence === "monthly") return isActiveInMonth(item.start_date, item.end_date, month);
+  if (item.recurrence === "monthly") return isActiveInMonth(item.start_date, item.end_date, month) && monthlyLinePaysInMonth(item, month);
   return plannedItemDatesForMonth(item, month).length > 0;
 }
 

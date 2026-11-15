@@ -3,7 +3,7 @@ import "server-only";
 // each person's food score, and your own / Google events.
 
 import { loadMonthPlans, monthTotals } from "@/lib/planning/load-month-plans";
-import { capRenewedLines, englandWalesBankHolidays, plannedItemDatesForMonth, plannedItemAppliesToMonth, monthLabel } from "@/lib/planning/summary-plan";
+import { capRenewedLines, englandWalesBankHolidays, plannedItemDatesForMonth, plannedItemAppliesToMonth } from "@/lib/planning/summary-plan";
 import { UK_HOLIDAY_PERIODS } from "@/lib/calculations/childcareCalendar";
 import { addNutritionTotals, NUTRITION_TOTAL_KEYS, scoreNutritionDay, type NutritionTotals } from "@/lib/nutrition/scoring";
 import { ageInYears, scoringTargets, targetsForPerson } from "@/lib/nutrition/targets";
@@ -102,7 +102,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
   plans.forEach((monthPlan, planIndex) => {
     // Pay, income entries, mortgage, childcare and pension come straight from the month plan.
     monthPlan.incomeItems.filter((item) => item.href !== "/spending").forEach((item, index) => {
-      dayFor(item.dueDate)?.money.push({ id: `in-${planIndex}-${index}`, label: item.label, amount: item.value, direction: "in", personId: item.personId ?? null, personName: item.personId ? personName.get(item.personId) || null : null, kind: item.helper, href: item.href });
+      dayFor(item.dueDate)?.money.push({ id: `in-${planIndex}-${index}`, label: String(item.label || "").replace(/\s+/g, " ").trim(), amount: item.value, direction: "in", personId: item.personId ?? null, personName: item.personId ? personName.get(item.personId) || null : null, kind: item.helper, href: item.href });
     });
     monthPlan.outgoingItems.forEach((item, index) => {
       if (item.href === "/spending" && /spending category$/.test(item.helper)) {
@@ -110,7 +110,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
         return;
       }
       if (item.href === "/spending") return; // planned items are expanded per date below
-      dayFor(item.dueDate)?.money.push({ id: `out-${planIndex}-${index}`, label: item.label, amount: item.value, direction: "out", personId: item.personId ?? null, personName: item.personId ? personName.get(item.personId) || null : null, kind: item.categoryLabel || item.helper, href: item.href });
+      dayFor(item.dueDate)?.money.push({ id: `out-${planIndex}-${index}`, label: String(item.label || "").replace(/\s+/g, " ").trim(), amount: item.value, direction: "out", personId: item.personId ?? null, personName: item.personId ? personName.get(item.personId) || null : null, kind: item.categoryLabel || item.helper, href: item.href });
     });
   });
   // Planned bills and income: one entry on each real due date (weekly items appear every week).
@@ -123,7 +123,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
       seen.add(`${item.id}|${date}`);
       dayFor(date)?.money.push({
         id: `pi-${item.id}-${date}`,
-        label: item.label,
+        label: String(item.label || "").trim(),
         amount: Number(item.amount || 0),
         direction: item.direction === "income" ? "in" : "out",
         personId: item.person_id,
@@ -169,9 +169,10 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
   }
   // Price changes (a bill's next price line starts) and endings (no line continues).
   const byLabel = new Map<string, any[]>();
-  for (const item of items) byLabel.set(`${item.user_id}:${item.label}`, [...(byLabel.get(`${item.user_id}:${item.label}`) || []), item]);
+  const lineKey = (item: any) => `${item.user_id}|${item.person_id || ""}|${item.direction}|${String(item.label || "").trim().toLowerCase()}`;
+  for (const item of items) byLabel.set(lineKey(item), [...(byLabel.get(lineKey(item)) || []), item]);
   for (const item of items) {
-    const siblings = byLabel.get(`${item.user_id}:${item.label}`) || [];
+    const siblings = byLabel.get(lineKey(item)) || [];
     if (item.start_date >= first && item.start_date <= last) {
       // The line this one replaces: same bill, ended in the 45 days before this one starts.
       const previous = siblings
@@ -179,15 +180,15 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
         .sort((a, b) => String(b.end_date).localeCompare(String(a.end_date)))[0];
       if (previous && Number(previous.amount) !== Number(item.amount)) {
         const rise = Number(item.amount) > Number(previous.amount);
-        dayFor(item.start_date)?.dates.push({ id: `pc-${item.id}`, kind: "price_change", label: `${item.label} ${rise ? "goes up" : "goes down"}`, detail: `£${Number(previous.amount).toFixed(2)} → £${Number(item.amount).toFixed(2)}`, personId: item.person_id, href: `/spending?month=${month}` });
+        dayFor(item.start_date)?.dates.push({ id: `pc-${item.id}`, kind: "price_change", label: `${String(item.label).trim()} ${rise ? "goes up" : "goes down"}`, detail: `£${Number(previous.amount).toFixed(2)} → £${Number(item.amount).toFixed(2)}`, personId: item.person_id, href: `/spending?month=${month}` });
       }
     }
     if (item.end_date && item.end_date >= first && item.end_date <= last) {
       const continues = siblings.some((other) => other.id !== item.id && other.start_date && other.start_date > item.end_date && other.start_date <= addDays(item.end_date, 45));
-      if (!continues) dayFor(item.end_date)?.dates.push({ id: `end-${item.id}`, kind: "ending", label: `${item.label} ends`, detail: item.end_behavior === "upgrade" ? "Upgrade due" : "Last payment around now", personId: item.person_id, href: `/spending?month=${month}` });
+      if (!continues) dayFor(item.end_date)?.dates.push({ id: `end-${item.id}`, kind: "ending", label: `${String(item.label).trim()} ends`, detail: item.end_behavior === "upgrade" ? "Upgrade due" : "Last payment around now", personId: item.person_id, href: `/spending?month=${month}` });
     }
     if (item.early_upgrade_date && item.early_upgrade_date >= first && item.early_upgrade_date <= last) {
-      dayFor(item.early_upgrade_date)?.dates.push({ id: `up-${item.id}`, kind: "ending", label: `${item.label}: early upgrade possible`, personId: item.person_id, href: `/spending?month=${month}` });
+      dayFor(item.early_upgrade_date)?.dates.push({ id: `up-${item.id}`, kind: "ending", label: `${String(item.label).trim()}: early upgrade possible`, personId: item.person_id, href: `/spending?month=${month}` });
     }
   }
   for (const deal of (dealsResult.data || []) as any[]) {
@@ -195,8 +196,8 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
     if (end && end >= first && end <= last) dayFor(end)?.dates.push({ id: `deal-${deal.id}`, kind: "deal_end", label: `Mortgage deal ends${deal.lender ? ` · ${deal.lender}` : ""}`, detail: "Moves to the lender's standard rate unless you remortgage", href: "/mortgage" });
   }
   for (const cost of (childCostsResult.data || []) as any[]) {
-    if (cost.starts_on && cost.starts_on >= first && cost.starts_on <= last) dayFor(cost.starts_on)?.dates.push({ id: `cc-start-${cost.id}`, kind: "childcare", label: `${cost.label} starts`, personId: cost.child_id, href: cost.child_id ? `/household/${cost.child_id}` : "/household" });
-    if (cost.ends_on && cost.ends_on >= first && cost.ends_on <= last) dayFor(cost.ends_on)?.dates.push({ id: `cc-end-${cost.id}`, kind: "childcare", label: `${cost.label} ends`, personId: cost.child_id, href: cost.child_id ? `/household/${cost.child_id}` : "/household" });
+    if (cost.starts_on && cost.starts_on >= first && cost.starts_on <= last) dayFor(cost.starts_on)?.dates.push({ id: `cc-start-${cost.id}`, kind: "childcare", label: `${String(cost.label).trim()} starts`, personId: cost.child_id, href: cost.child_id ? `/household/${cost.child_id}` : "/household" });
+    if (cost.ends_on && cost.ends_on >= first && cost.ends_on <= last) dayFor(cost.ends_on)?.dates.push({ id: `cc-end-${cost.id}`, kind: "childcare", label: `${String(cost.label).trim()} ends`, personId: cost.child_id, href: cost.child_id ? `/household/${cost.child_id}` : "/household" });
   }
 
   /* ---------------- Food ---------------- */
@@ -227,7 +228,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
 
   return {
     month,
-    label: monthLabel(month),
+    label: new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }),
     today: londonToday(),
     days: dayList.map((date) => days.get(date)!),
     people: calendarPeople,

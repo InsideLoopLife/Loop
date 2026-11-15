@@ -245,8 +245,8 @@ export function dateIsInMonth(date: string, month: string) {
  * has a later line (e.g. next year's council tax, or a price change), the old line must stop at
  * its end date — otherwise both amounts are counted.
  */
-export function capRenewedLines<T extends { label: string; start_date: string; end_date: string | null; end_behavior?: string | null; direction?: string; user_id?: string | null }>(items: T[]): T[] {
-  const key = (item: T) => `${item.user_id || ""}|${item.direction || ""}|${String(item.label || "").trim().toLowerCase()}`;
+export function capRenewedLines<T extends { label: string; start_date: string; end_date: string | null; end_behavior?: string | null; direction?: string; user_id?: string | null; person_id?: string | null }>(items: T[]): T[] {
+  const key = (item: T) => `${item.user_id || ""}|${item.person_id || ""}|${item.direction || ""}|${String(item.label || "").trim().toLowerCase()}`;
   const byKey = new Map<string, T[]>();
   for (const item of items) byKey.set(key(item), [...(byKey.get(key(item)) || []), item]);
   return items.map((item) => {

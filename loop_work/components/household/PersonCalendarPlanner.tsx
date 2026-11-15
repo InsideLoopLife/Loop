@@ -171,8 +171,21 @@ function incomeEntryAppliesToMonth(entry: IncomeEntry, month: string) {
 function plannedItemAppliesToMonth(item: PlannedItem, month: string) {
   if (monthStepFor(item.recurrence)) return Boolean(monthSteppedDate(item as any, month));
   if (item.recurrence === "one_off") return item.start_date >= monthStart(month) && item.start_date <= monthEnd(month);
-  return item.start_date <= monthEnd(month) && (!item.end_date || item.end_date >= monthStart(month));
+  if (!(item.start_date <= monthEnd(month) && (!item.end_date || item.end_date >= monthStart(month)))) return false;
+  return item.recurrence !== "monthly" || monthlyLinePaysInMonth(item, month);
 }
+
+/** A monthly line that starts or ends mid-month only pays if its scheduled day is inside its own dates. */
+function monthlyLinePaysInMonth(item: { start_date: string; end_date: string | null; day_of_month: number | null }, month: string) {
+  const [y, m] = month.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const day = Math.min(Math.max(Number(item.day_of_month || Number(String(item.start_date).slice(8, 10)) || 1), 1), lastDay);
+  const scheduled = `${month}-${String(day).padStart(2, "0")}`;
+  if (String(item.start_date).slice(0, 7) === month && scheduled < String(item.start_date).slice(0, 10)) return false;
+  if (item.end_date && String(item.end_date).slice(0, 7) === month && scheduled > String(item.end_date).slice(0, 10)) return false;
+  return true;
+}
+
 
 function plannedItemRecurrenceLabel(item: PlannedItem) {
   if (item.recurrence === "monthly") return "monthly";
