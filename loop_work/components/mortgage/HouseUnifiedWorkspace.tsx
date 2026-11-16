@@ -7,7 +7,7 @@ import { AreaPriceCard, CouncilTaxCheck, MortgageFacts, RenewalCountdown, Runnin
 import { HomeJourney, type HomeJourneyEvent } from "@/components/mortgage/HomeJourney";
 import { HouseStyleCard } from "@/components/mortgage/HouseStyleCard";
 import { HomeItemsPlanner } from "@/components/mortgage/HomeItemsPlanner";
-import type { HouseStyle } from "@/components/mortgage/HouseIllustration";
+import { defaultHouseStyle, type HouseStyle } from "@/components/mortgage/HouseIllustration";
 import { saveCouncilTaxBand } from "@/app/mortgage/actions";
 import { useRouter } from "next/navigation";
 import type { AreaPrices } from "@/lib/property/house-price-index";
@@ -474,7 +474,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
             </div>
           ) : null}
 
-          {tab === "things" ? <HomeItemsPlanner homeId={home?.id ?? null} /> : null}
+          {tab === "things" ? <HomeItemsPlanner homeId={home?.id ?? null} houseStyle={((home as any)?.house_style as HouseStyle | null) ?? defaultHouseStyle((home as any)?.property_type ?? null)} /> : null}
           {tab === "overpayments" ? (
             <div className="mx-auto w-full max-w-none"><MortgageOverpaymentPlanner deal={deal} currentBalance={mortgage.balance} currentPayment={mortgage.payment} benchmarkRate={planningRate} /></div>
           ) : null}

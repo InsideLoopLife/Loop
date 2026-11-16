@@ -70,6 +70,8 @@ export type HomeItem = {
   id: string;
   user_id?: string | null;
   home_id: string | null;
+  /** The drawn room on the floor plan, when it has one. */
+  space_id?: string | null;
   room: HomeRoom;
   kind: string;
   label: string;

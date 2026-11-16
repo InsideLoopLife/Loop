@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { changeRecord, getActiveHouseholdContext, householdMemberDataOrFilter, householdWriteFields } from "@/lib/auth/household-context";
 import { KIND_BY_KEY, ROOM_LABELS, type HomeItem, type HomeRoom } from "@/lib/home/items";
+import { sanitisePlan, type FloorPlan } from "@/lib/home/floor-plan";
 
-const COLUMNS = "id, user_id, home_id, room, kind, label, brand, model, purchased_on, price, retailer, warranty_months, extended_warranty_ends_on, warranty_provider, expected_life_years, replacement_cost, notes, status";
+const COLUMNS = "id, user_id, home_id, space_id, room, kind, label, brand, model, purchased_on, price, retailer, warranty_months, extended_warranty_ends_on, warranty_provider, expected_life_years, replacement_cost, notes, status";
 
 async function context() {
   const supabase = await createClient();
@@ -15,16 +16,30 @@ async function context() {
   return { supabase, user, household };
 }
 
-export async function listHomeItems(): Promise<{ items: HomeItem[]; userId: string }> {
+export async function listHomeItems(homeId?: string | null): Promise<{ items: HomeItem[]; userId: string; floorPlan: FloorPlan | null }> {
   const { supabase, user, household } = await context();
-  const { data, error } = await supabase
-    .from("home_items")
-    .select(COLUMNS)
-    .or(householdMemberDataOrFilter(household))
-    .order("created_at", { ascending: true })
-    .limit(500);
+  const [{ data, error }, planResult] = await Promise.all([
+    supabase
+      .from("home_items")
+      .select(COLUMNS)
+      .or(householdMemberDataOrFilter(household))
+      .order("created_at", { ascending: true })
+      .limit(500),
+    homeId ? supabase.from("homes").select("floor_plan").eq("id", homeId).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
   if (error) throw new Error(error.message);
-  return { items: (data || []) as HomeItem[], userId: user.id };
+  const raw = (planResult as any)?.data?.floor_plan;
+  return { items: (data || []) as HomeItem[], userId: user.id, floorPlan: raw ? sanitisePlan(raw) : null };
+}
+
+export async function saveFloorPlan(homeId: string, plan: unknown): Promise<{ ok: true }> {
+  const { supabase } = await context();
+  if (!homeId) throw new Error("Add your home first.");
+  const { data, error } = await supabase.from("homes").update({ floor_plan: sanitisePlan(plan) }).eq("id", homeId).select("id");
+  if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error("Only the person who added this home can change its floor plan.");
+  revalidatePath("/mortgage");
+  return { ok: true };
 }
 
 const text = (value: unknown, max = 120) => {
@@ -45,6 +60,7 @@ const isoDate = (value: unknown) => {
 export type HomeItemInput = {
   id?: string | null;
   homeId?: string | null;
+  spaceId?: string | null;
   room: string;
   kind: string;
   label: string;
@@ -70,6 +86,7 @@ export async function saveHomeItem(input: HomeItemInput): Promise<{ ok: true; id
   const life = input.expectedLifeYears === null || input.expectedLifeYears === undefined || input.expectedLifeYears === "" ? null : Math.max(0.5, Math.min(100, Number(input.expectedLifeYears)));
   const fields = {
     home_id: input.homeId || null,
+    space_id: input.spaceId ? String(input.spaceId).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || null : null,
     room,
     kind,
     label,
