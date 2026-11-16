@@ -86,6 +86,7 @@ export type HomeItem = {
   expected_life_years: number | null;
   replacement_cost: number | null;
   notes: string | null;
+  product_url?: string | null;
   status: "active" | "replaced" | "gone";
 };
 
@@ -196,4 +197,36 @@ export function parseHomeItemText(text: string, today: string) {
     return found ? found.split(" ").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ").replace("Lg", "LG").replace("Hp", "HP") : null;
   })();
   return { kind: kind?.key ?? null, room: kind?.room ?? null, label: kind?.label ?? null, brand, price, purchasedOn, warrantyMonths };
+}
+
+/**
+ * A rough product name from a shop link, e.g.
+ * currys.co.uk/products/bosch-series-4-sms4hvi33g-wi-fi-connected-standard-dishwasher-10241010.html
+ * → "Bosch Series 4 Sms4hvi33g Wi Fi Connected Standard Dishwasher". Nothing is fetched.
+ */
+export function nameFromProductUrl(raw: string): { url: string; name: string | null; retailer: string | null } | null {
+  let url: URL;
+  try { url = new URL(raw.trim()); } catch { return null; }
+  if (!/^https?:$/.test(url.protocol)) return null;
+  const host = url.hostname.replace(/^www\./, "");
+  const retailers: Record<string, string> = { "currys.co.uk": "Currys", "argos.co.uk": "Argos", "ao.com": "AO", "johnlewis.com": "John Lewis", "amazon.co.uk": "Amazon", "appliancesdirect.co.uk": "Appliances Direct", "richersounds.com": "Richer Sounds", "very.co.uk": "Very", "dyson.co.uk": "Dyson", "apple.com": "Apple", "ikea.com": "IKEA", "screwfix.com": "Screwfix", "wickes.co.uk": "Wickes", "diy.com": "B&Q", "costco.co.uk": "Costco", "lakeland.co.uk": "Lakeland" };
+  const retailer = Object.entries(retailers).find(([domain]) => host === domain || host.endsWith(`.${domain}`))?.[1] || null;
+  const segments = url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+  // Amazon puts the name before /dp/; most shops put it in the longest segment.
+  const dp = segments.indexOf("dp");
+  const candidate = dp > 0 ? segments[dp - 1] : [...segments].sort((a, b) => b.length - a.length)[0];
+  if (!candidate) return { url: url.toString(), name: null, retailer };
+  const UPPER = new Set(["tv", "led", "oled", "qled", "hdr", "uhd", "hd", "usb", "uk", "xl"]);
+  const words = candidate
+    .replace(/\.(html?|aspx|php)$/i, "")
+    .split(/[-_+\s]+/)
+    .filter((word) => word && !/^\d{5,}$/.test(word) && !/^p\d{5,}$/i.test(word));
+  const pretty = words.slice(0, 10).map((word) => {
+    const lower = word.toLowerCase();
+    if (UPPER.has(lower)) return lower.toUpperCase();
+    if (/\d/.test(word) && /[a-z]/i.test(word)) return word.toUpperCase(); // model codes
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  });
+  const name = pretty.length >= 2 ? pretty.join(" ").replace(/\bWi Fi\b/g, "Wi-Fi") : null;
+  return { url: url.toString(), name, retailer };
 }

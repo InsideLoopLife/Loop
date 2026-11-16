@@ -6,7 +6,7 @@ import { changeRecord, getActiveHouseholdContext, householdMemberDataOrFilter, h
 import { KIND_BY_KEY, ROOM_LABELS, type HomeItem, type HomeRoom } from "@/lib/home/items";
 import { sanitisePlan, type FloorPlan } from "@/lib/home/floor-plan";
 
-const COLUMNS = "id, user_id, home_id, space_id, room, kind, label, brand, model, purchased_on, price, retailer, warranty_months, extended_warranty_ends_on, warranty_provider, expected_life_years, replacement_cost, notes, status";
+const COLUMNS = "id, user_id, home_id, space_id, room, kind, label, brand, model, purchased_on, price, retailer, warranty_months, extended_warranty_ends_on, warranty_provider, expected_life_years, replacement_cost, notes, product_url, status";
 
 async function context() {
   const supabase = await createClient();
@@ -61,6 +61,7 @@ export type HomeItemInput = {
   id?: string | null;
   homeId?: string | null;
   spaceId?: string | null;
+  productUrl?: string | null;
   room: string;
   kind: string;
   label: string;
@@ -101,6 +102,7 @@ export async function saveHomeItem(input: HomeItemInput): Promise<{ ok: true; id
     expected_life_years: Number.isFinite(life as number) ? life : null,
     replacement_cost: amount(input.replacementCost),
     notes: text(input.notes, 500),
+    product_url: (() => { const raw = String(input.productUrl ?? "").trim(); return /^https?:\/\/\S+$/i.test(raw) && raw.length <= 500 ? raw : null; })(),
     updated_at: new Date().toISOString(),
   };
   if (input.id) {
