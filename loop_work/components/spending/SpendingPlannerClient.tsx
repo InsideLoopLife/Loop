@@ -1544,13 +1544,13 @@ function AccountsBalanceCard({ monthLabel, items, people, personFiltered, money,
 
   return (
     <SectionCard title={`${monthLabel}: by account`} description="What comes into and goes out of each account this month, and what needs paying in to cover it.">
-      {personFiltered ? <p className="mb-3 rounded-2xl bg-slate-50 px-4 py-2 text-xs font-bold text-slate-500">Only the selected person's lines are counted. Choose Everyone to see whole accounts.</p> : null}
+      {personFiltered ? <p className="mb-3 rounded-2xl bg-slate-50 px-4 py-2 text-xs font-bold text-slate-500">Only the selected person&apos;s lines are counted. Choose Everyone to see whole accounts.</p> : null}
       {accountRows.length ? (
         <div className={`mb-4 rounded-3xl p-4 ${totalShort > 0 ? "bg-rose-50 ring-1 ring-rose-100" : "bg-emerald-50 ring-1 ring-emerald-100"}`}>
           <p className={`text-sm font-black ${totalShort > 0 ? "text-rose-900" : "text-emerald-900"}`}>
             {totalShort > 0 ? `${money(totalShort)} needs paying in this month to cover what goes out.` : "Every account has enough coming in to cover what goes out."}
           </p>
-          <p className="mt-1 text-xs font-semibold text-slate-500">Counts lines with an account set. Starting balances aren't included.</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">Counts lines with an account set. Starting balances aren&apos;t included.</p>
         </div>
       ) : null}
       <div className="space-y-3">
@@ -1572,7 +1572,7 @@ function AccountsBalanceCard({ monthLabel, items, people, personFiltered, money,
             {row.gap < 0 && row.split.length ? (
               <div className="mt-3 rounded-2xl bg-rose-50 px-3 py-2">
                 <p className="text-xs font-black text-rose-900">Suggested top-up: {row.split.map((entry) => `${entry.name} ${money(entry.amount)}`).join(" · ")}</p>
-                <p className="mt-0.5 text-[11px] font-semibold text-rose-700/80">Each person's own lines go to them; shared and children's lines are split evenly.</p>
+                <p className="mt-0.5 text-[11px] font-semibold text-rose-700/80">Each person&apos;s own lines go to them; shared and children&apos;s lines are split evenly.</p>
               </div>
             ) : null}
             <details className="mt-3">
@@ -1597,7 +1597,7 @@ function AccountsBalanceCard({ monthLabel, items, people, personFiltered, money,
               </div>
               <button type="button" onClick={onShowLines} className="rounded-full bg-amber-900 px-4 py-2 text-xs font-black text-white">Set accounts</button>
             </div>
-            <p className="mt-2 text-xs font-semibold text-amber-900/80">Until these have an account, they can't be counted above. Pay with no account is a common one: set it to the account it lands in.</p>
+            <p className="mt-2 text-xs font-semibold text-amber-900/80">Until these have an account, they can&apos;t be counted above. Pay with no account is a common one: set it to the account it lands in.</p>
             <details className="mt-2">
               <summary className="cursor-pointer text-xs font-black text-amber-800">Show lines</summary>
               <ul className="mt-2 divide-y divide-amber-100">
