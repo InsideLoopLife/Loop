@@ -123,6 +123,7 @@ export type PlannedItem = {
 
 export type PayEvent = {
   id: string;
+  payment_account_id?: string | null;
   person_id: string | null;
   label: string;
   pay_kind: string | null;
@@ -149,6 +150,7 @@ export type PayEvent = {
 };
 
 export type ChildCost = {
+  payment_account_id?: string | null;
   user_id?: string | null;
   household_id?: string | null;
   visibility_scope?: string | null;
@@ -275,7 +277,7 @@ type Props = {
   homeProfile?: HomeProfile | null;
   categoryGroups?: { id: string; name: string; icon?: string | null }[];
   /** Mortgage deals, so the mortgage shows here exactly as on the overview. */
-  mortgageDeals?: Array<HomeMortgageDealForPlan & { payment_day_of_month?: number | null }>;
+  mortgageDeals?: Array<HomeMortgageDealForPlan & { payment_day_of_month?: number | null; payment_account_id?: string | null }>;
   initialAddMode?: AddMode;
   initialAddTemplate?: SimpleFlowTemplate;
 };
@@ -288,7 +290,8 @@ type ModalState =
   | { type: "add"; mode: AddMode; template?: SimpleFlowTemplate }
   | { type: "edit_planned"; item: PlannedItem }
   | { type: "edit_child_cost"; cost: ChildCost }
-  | { type: "quick_category"; lineIds: string[]; title?: string };
+  | { type: "quick_category"; lineIds: string[]; title?: string }
+  | { type: "quick_account"; lineIds: string[]; title: string; direction: "income" | "outgoing"; current: string | null };
 
 function QuickCategoryForm({
   categories,
@@ -1607,6 +1610,8 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
   const allMonthItems = [
     ...selectedSummary.payForMonth.map((event) => ({
       id: `pay-${event.id}`,
+      selectableId: `pay:${event.id}`,
+      paymentAccount: event.payment_account_id ? paymentAccountsById.get(event.payment_account_id) : null,
       date: dueDateForMonth(selectedSummary.month, event.pay_timing ?? "last_workday", event.pay_day_of_month, event.pay_adjustment ?? "previous_workday"),
       title: event.label,
       person: personName(peopleById, event.person_id),
@@ -1688,6 +1693,8 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
       const categoryLabel = cost.care_type && careTypeLabels[cost.care_type] ? "Childcare" : cost.cost_kind === "activity" ? "Activities" : cost.cost_kind === "fixed" ? "Child cost" : "Childcare";
       return {
         id: `child-${cost.id}`,
+        selectableId: `child:${cost.id}`,
+        paymentAccount: cost.payment_account_id ? paymentAccountsById.get(cost.payment_account_id) : null,
         date: dueDateForMonth(selectedSummary.month, cost.payment_timing ?? "fixed_day", cost.payment_day_of_month ?? 1, cost.payment_adjustment ?? "previous_workday"),
         title: cost.label,
         person: personName(peopleById, cost.bill_person_id ?? null),
@@ -1706,6 +1713,8 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
     }),
     ...selectedSummary.mortgageForMonth.map((deal) => ({
       id: `mortgage-${deal.id}`,
+      selectableId: `mortgage:${deal.id}`,
+      paymentAccount: deal.payment_account_id ? paymentAccountsById.get(deal.payment_account_id) : null,
       date: dueDateForMonth(selectedSummary.month, "fixed_day", deal.payment_day_of_month || Number(String(deal.start_date || "").slice(8, 10)) || 1, "next_workday"),
       title: deal.lender ? `Mortgage · ${deal.lender}` : "Mortgage",
       person: personName(peopleById, null),
@@ -1814,7 +1823,8 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
 
 
   function deleteLinesOptimistically(lineIds: string[]) {
-    const ids = Array.from(new Set(lineIds.filter(Boolean)));
+    // Pay, childcare and the mortgage are removed where they're set up, not from here.
+    const ids = Array.from(new Set(lineIds.filter((id) => /^(planned|entry):/.test(id))));
     if (!ids.length || !confirmDelete(`Delete ${ids.length} selected item${ids.length === 1 ? "" : "s"}?`)) return;
     setOptimisticDeletedLineIds((current) => Array.from(new Set([...current, ...ids])));
     setSelectedLineIds((current) => current.filter((id) => !ids.includes(id)));
@@ -2156,13 +2166,23 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
                       </div>
                       <button
                         type="button"
-                        onClick={() => selectableId ? setModal({ type: "quick_category", lineIds: [selectableId], title: item.title }) : undefined}
+                        onClick={() => selectableId && /^(planned|entry|child):/.test(selectableId) ? setModal({ type: "quick_category", lineIds: [selectableId], title: item.title }) : undefined}
                         className="mt-1 inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-black text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
                         title="Quick change category"
                       >
                         <span>{item.categoryIcon || guessCategoryIcon(item.helper)}</span>
                         {item.helper}
                       </button>
+                      {editingEnabled && selectableId && !("item" in item && item.item && !canChange(shareContext, item.item as any)) && !("childCost" in item && item.childCost && !canChange(shareContext, item.childCost as any, "child_id")) ? (
+                        <button
+                          type="button"
+                          onClick={() => setModal({ type: "quick_account", lineIds: [selectableId], title: item.title, direction: item.direction === "income" ? "income" : "outgoing", current: "paymentAccount" in item && item.paymentAccount ? item.paymentAccount.id : null })}
+                          className={`ml-1 mt-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-black ${"paymentAccount" in item && item.paymentAccount ? "bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700" : "bg-amber-50 text-amber-800 hover:bg-amber-100"}`}
+                          title={item.direction === "income" ? "Change the account this is paid into" : "Change the account this is paid from"}
+                        >
+                          {"paymentAccount" in item && item.paymentAccount ? `${item.direction === "income" ? "Into" : "From"} ${item.paymentAccount.name}` : item.direction === "income" ? "Set account paid into" : "Set account paid from"}
+                        </button>
+                      ) : null}
                       {"pet" in item && item.pet ? <p className="mt-1 text-[11px] font-bold text-slate-400">For {item.pet.name}</p> : null}
                     </div>
                   </div>
@@ -2470,6 +2490,23 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
       {modal?.type === "quick_category" ? (
         <Modal title={`Quick categorise${modal.title ? ` · ${modal.title}` : ""}`} onClose={() => setModal(null)}>
           <QuickCategoryForm categories={categories} categoryGroups={categoryGroups} lineIds={modal.lineIds} onDone={() => { setSelectedLineIds([]); setModal(null); }} />
+        </Modal>
+      ) : null}
+
+      {modal?.type === "quick_account" ? (
+        <Modal title={`${modal.direction === "income" ? "Paid into" : "Paid from"} · ${modal.title}`} onClose={() => setModal(null)}>
+          <form action={async (formData) => { await updateFinancialFlowLineCategories(formData); setModal(null); }} className="space-y-4">
+            {modal.lineIds.map((id) => <input key={id} type="hidden" name="line_id" value={id} />)}
+            <label className="block text-xs font-black uppercase tracking-wide text-slate-500">
+              {modal.direction === "income" ? "Account it's paid into" : "Account it's paid from"}
+              <select name="payment_account_id" defaultValue={modal.current ?? ""} className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800">
+                <option value="">Not set</option>
+                {paymentAccounts.map((account) => <option key={account.id} value={account.id}>{account.provider ? `${account.provider} · ` : ""}{account.name}</option>)}
+              </select>
+            </label>
+            {/^(pay|mortgage):/.test(modal.lineIds[0] || "") ? <p className="text-xs font-semibold text-slate-500">The amount and dates are set in {modal.lineIds[0].startsWith("pay:") ? "Household (pay)" : "Home & mortgage"}; this only changes the account.</p> : null}
+            <div className="flex justify-end"><Submit>Save</Submit></div>
+          </form>
         </Modal>
       ) : null}
 

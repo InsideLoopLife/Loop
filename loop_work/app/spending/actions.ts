@@ -365,8 +365,11 @@ async function updateFinancialFlowLineCategories__save(formData: FormData) {
   const plannedIds = lineIds.filter((id) => id.startsWith("planned:")).map((id) => id.replace("planned:", "")).filter(Boolean);
   const entryIds = lineIds.filter((id) => id.startsWith("entry:")).map((id) => id.replace("entry:", "")).filter(Boolean);
   const childCostIds = lineIds.filter((id) => id.startsWith("child:")).map((id) => id.replace("child:", "")).filter(Boolean);
+  // Pay and the mortgage are set up elsewhere; from here only the account can change.
+  const payIds = lineIds.filter((id) => id.startsWith("pay:")).map((id) => id.replace("pay:", "")).filter(Boolean);
+  const mortgageIds = lineIds.filter((id) => id.startsWith("mortgage:")).map((id) => id.replace("mortgage:", "")).filter(Boolean);
 
-  if (plannedIds.length === 0 && entryIds.length === 0 && childCostIds.length === 0) return;
+  if (plannedIds.length === 0 && entryIds.length === 0 && childCostIds.length === 0 && payIds.length === 0 && mortgageIds.length === 0) return;
   if (!changeCategory && !changePaymentAccount) return;
   const changes: Record<string, string | null> = {};
   if (changeCategory) changes.category_id = categoryId;
@@ -395,6 +398,16 @@ async function updateFinancialFlowLineCategories__save(formData: FormData) {
       .from("child_costs")
       .update(changes as any)
       .in("id", childCostIds)
+      .or(householdVisibleFilter);
+    if (error) throw new Error(error.message);
+  }
+
+  for (const [table, ids] of [["pay_events", payIds], ["home_mortgage_deals", mortgageIds]] as const) {
+    if (!ids.length || !changePaymentAccount) continue;
+    const { error } = await supabase
+      .from(table)
+      .update({ payment_account_id: paymentAccountId } as any)
+      .in("id", ids)
       .or(householdVisibleFilter);
     if (error) throw new Error(error.message);
   }

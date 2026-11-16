@@ -79,12 +79,12 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       .returns<PlannedItem[]>(),
     supabase
       .from("pay_events")
-      .select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_scheme, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, pay_timing, pay_day_of_month, pay_adjustment, tax_region")
+      .select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_scheme, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, pay_timing, pay_day_of_month, pay_adjustment, tax_region, payment_account_id")
       .or(householdVisibleFilter)
       .returns<PayEvent[]>(),
     supabase
       .from("child_costs")
-      .select("id, child_id, bill_person_id, label, cost_kind, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, payment_timing, payment_day_of_month, payment_adjustment, starts_on, ends_on, care_type, care_details, user_id, household_id, visibility_scope")
+      .select("id, child_id, bill_person_id, label, cost_kind, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, payment_timing, payment_day_of_month, payment_adjustment, starts_on, ends_on, care_type, care_details, payment_account_id, user_id, household_id, visibility_scope")
       .or(householdVisibleFilter)
       .order("starts_on", { ascending: false })
       .returns<ChildCost[]>(),
@@ -97,7 +97,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
     Promise.resolve({ data: [] as any[] }),
     supabase
       .from("home_mortgage_deals")
-      .select("id, lender, product_name, balance, balance_as_of_date, interest_rate, term_years, monthly_payment_override, start_date, end_date, payment_day_of_month, first_payment_date, initial_period_end")
+      .select("id, lender, product_name, balance, balance_as_of_date, interest_rate, term_years, monthly_payment_override, start_date, end_date, payment_day_of_month, first_payment_date, initial_period_end, payment_account_id")
       .or(householdVisibleFilter),
     supabase
       .from("app_household_members")
