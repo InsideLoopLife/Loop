@@ -135,7 +135,7 @@ const TABS: [Tab, string][] = [
 const TAB_ALIASES: Partial<Record<string, Tab>> = { property: "overview", affordability: "moving" };
 
 const TAB_META: Record<Tab, { eyebrow: string; title: string; description: string }> = {
-  things: { eyebrow: "In the home", title: "Appliances & warranties", description: "What's in each room, when the warranty runs out, and what to put aside for when things wear out." },
+  things: { eyebrow: "In the home", title: "Appliances & warranties", description: "What you've bought, when each warranty runs out, and what to put aside for when things wear out." },
   overview: { eyebrow: "House overview", title: "Your home, in one place", description: "Property, mortgage, affordability and market context in one live view." },
   property: { eyebrow: "Property", title: "Your property", description: "The home record, valuation evidence and equity in one place." },
   rates: { eyebrow: "Renewal", title: "Your next mortgage deal", description: "The cheapest deals for your home this week, the best from your own lender, and where rates are heading." },
