@@ -168,7 +168,7 @@ export function HomeItemsPlanner({ homeId, houseStyle }: { homeId: string | null
         <p className="mt-1.5 text-[11px] font-semibold text-slate-400">You&apos;ll see it before it&apos;s saved.</p>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
         <div className="rounded-[18px] border border-slate-200 bg-[#eef4f1] p-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
             <HouseFloorPicker style={houseStyle} floors={floors} current={floor.key} counts={Object.fromEntries(floors.map((f) => [f.key, f.spaces.reduce((n, s) => n + (placement.bySpace.get(s.id)?.length || 0), 0)]))} onPick={pickFloor} />
@@ -318,11 +318,11 @@ function HouseFloorPicker({ style, floors, current, counts, onPick }: { style: H
   const ring = (key: FloorKey) => (current === key ? "#7c3aed" : "transparent");
   const badge = (key: FloorKey, x: number, y: number) => counts[key] ? <g><circle cx={x} cy={y} r="9" fill="#7c3aed" /><text x={x} y={y + 3.5} textAnchor="middle" fontSize="10" fontWeight="700" fill="#fff">{counts[key]}</text></g> : null;
   return (
-    <svg viewBox={`0 0 ${width} ${bottom + 30}`} className="h-auto w-full max-w-[220px] shrink-0 sm:w-[190px]" role="group" aria-label="Pick a floor">
+    <svg viewBox={`0 0 ${width} ${bottom + 30}`} className="mx-auto h-auto w-full max-w-[200px] shrink-0 sm:mx-0 sm:w-[150px]" role="group" aria-label="Pick a floor">
       {!isFlat ? (
         <g role="button" tabIndex={hasLoft ? 0 : -1} aria-label={hasLoft ? "Loft room" : undefined} aria-pressed={hasLoft ? current === "loft" : undefined} onClick={() => hasLoft && onPick("loft")} onKeyDown={(e) => { if (hasLoft && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onPick("loft"); } }} className={hasLoft ? "cursor-pointer" : ""}>
           <polygon points={`${hx - 6},${top} ${hx + houseW / 2},8 ${hx + houseW + 6},${top}`} fill={roof} stroke={ring("loft")} strokeWidth="3" />
-          {hasLoft ? <><rect x={hx + houseW / 2 - 12} y={top - 24} width="24" height="16" rx="2" fill="#fde68a" stroke="#fff" strokeWidth="2" /><text x={hx + houseW / 2} y={top - 3} textAnchor="middle" fontSize="9" fontWeight="700" fill="#fff">Loft</text>{badge("loft", hx + houseW - 14, top - 8)}</> : null}
+          {hasLoft ? <><rect x={hx + houseW / 2 - 9} y={top - 32} width="18" height="12" rx="2" fill="#fde68a" stroke="#fff" strokeWidth="1.5" /><rect x={hx + houseW / 2 - 20} y={top - 17} width="40" height="14" rx="7" fill={current === "loft" ? "#7c3aed" : "rgba(255,255,255,.92)"} /><text x={hx + houseW / 2} y={top - 7} textAnchor="middle" fontSize="9.5" fontWeight="700" fill={current === "loft" ? "#fff" : "#1e293b"}>Loft</text>{badge("loft", hx + houseW - 14, top - 8)}</> : null}
         </g>
       ) : <rect x={hx} y={top - 6} width={houseW} height="6" fill={roof} />}
       {indoor.map((f, index) => {
@@ -330,11 +330,12 @@ function HouseFloorPicker({ style, floors, current, counts, onPick }: { style: H
         return (
           <g key={f.key} role="button" tabIndex={0} aria-label={f.label} aria-pressed={current === f.key} onClick={() => onPick(f.key)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(f.key); } }} className="cursor-pointer">
             <rect x={hx} y={y} width={houseW} height={bandH} fill={index === 0 ? lower : upper} stroke={ring(f.key)} strokeWidth="3" />
-            <rect x={hx + 10} y={y + 9} width="22" height="18" rx="2" fill="#cfe3f3" stroke="#fff" strokeWidth="2" />
-            <rect x={hx + houseW - 32} y={y + 9} width="22" height="18" rx="2" fill="#cfe3f3" stroke="#fff" strokeWidth="2" />
+            <rect x={hx + 8} y={y + 8} width="16" height="13" rx="2" fill="#cfe3f3" stroke="#fff" strokeWidth="1.5" />
+            <rect x={hx + houseW - 24} y={y + 8} width="16" height="13" rx="2" fill="#cfe3f3" stroke="#fff" strokeWidth="1.5" />
             {index === 0 && integral ? <rect x={left ? hx + 4 : hx + houseW - 40} y={y + 8} width="36" height={bandH - 8} rx="2" fill="#e5e7eb" stroke="#94a3b8" /> : null}
-            {index === 0 && !isFlat ? <rect x={hx + houseW / 2 - 8} y={y + 12} width="16" height={bandH - 12} rx="2" fill="#1f4f3d" /> : null}
-            <text x={hx + houseW / 2} y={y + 10} textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#fff" style={{ paintOrder: "stroke", stroke: "rgba(15,23,42,.45)", strokeWidth: 2 }}>{f.label}</text>
+            {index === 0 && !isFlat ? <rect x={hx + houseW / 2 - 7} y={y + bandH - 14} width="14" height="14" rx="2" fill="#1f4f3d" /> : null}
+            <rect x={hx + houseW / 2 - 34} y={y + 6} width="68" height="15" rx="7.5" fill={current === f.key ? "#7c3aed" : "rgba(255,255,255,.92)"} />
+            <text x={hx + houseW / 2} y={y + 17} textAnchor="middle" fontSize="9.5" fontWeight="700" fill={current === f.key ? "#fff" : "#1e293b"}>{f.label}</text>
             {badge(f.key, hx + houseW - 8, y + 8)}
           </g>
         );
