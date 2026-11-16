@@ -1503,6 +1503,120 @@ function inferSpendingQuickCapture(
   };
 }
 
+type AccountFlowItem = { id: string; title: string; date: string; amount: number; direction: "income" | "outgoing"; personId: string | null; account: PaymentAccount | null };
+
+/**
+ * Money into and out of each account this month, and what has to be paid in to cover the gap.
+ * Suggested top-ups: a line for one adult goes to that adult; shared, household and children's
+ * lines are split evenly between the adults; money already coming in for an adult is taken off.
+ */
+function AccountsBalanceCard({ monthLabel, items, people, personFiltered, money, onShowLines }: { monthLabel: string; items: AccountFlowItem[]; people: Person[]; personFiltered: boolean; money: (value: number) => string; onShowLines: () => void }) {
+  const adults = people.filter((person) => person.relationship !== "child");
+  const adultIds = new Set(adults.map((person) => person.id));
+  const groups = new Map<string, { account: PaymentAccount | null; items: AccountFlowItem[] }>();
+  for (const item of items) {
+    if (!item.amount) continue;
+    const key = item.account?.id || "__none";
+    const group = groups.get(key) || { account: item.account, items: [] };
+    group.items.push(item);
+    groups.set(key, group);
+  }
+  const rows = Array.from(groups.entries()).map(([key, group]) => {
+    const moneyIn = group.items.filter((i) => i.direction === "income").reduce((sum, i) => sum + i.amount, 0);
+    const moneyOut = group.items.filter((i) => i.direction === "outgoing").reduce((sum, i) => sum + i.amount, 0);
+    const gap = Math.round((moneyIn - moneyOut) * 100) / 100;
+    // Who should top up, per adult.
+    const owed = new Map<string, number>(adults.map((person) => [person.id, 0]));
+    if (gap < 0 && adults.length) {
+      for (const item of group.items) {
+        const sign = item.direction === "outgoing" ? 1 : -1;
+        if (item.personId && adultIds.has(item.personId)) owed.set(item.personId, (owed.get(item.personId) || 0) + sign * item.amount);
+        else for (const adult of adults) owed.set(adult.id, (owed.get(adult.id) || 0) + (sign * item.amount) / adults.length);
+      }
+    }
+    const split = adults.map((adult) => ({ name: adult.name, amount: Math.max(0, Math.round((owed.get(adult.id) || 0) * 100) / 100) })).filter((entry) => entry.amount > 0);
+    return { key, account: group.account, items: group.items, moneyIn, moneyOut, gap, split };
+  }).sort((a, b) => (a.key === "__none" ? 1 : b.key === "__none" ? -1 : a.gap - b.gap));
+
+  const accountRows = rows.filter((row) => row.key !== "__none");
+  const unset = rows.find((row) => row.key === "__none");
+  const totalShort = accountRows.filter((row) => row.gap < 0).reduce((sum, row) => sum - row.gap, 0);
+
+  return (
+    <SectionCard title={`${monthLabel}: by account`} description="What comes into and goes out of each account this month, and what needs paying in to cover it.">
+      {personFiltered ? <p className="mb-3 rounded-2xl bg-slate-50 px-4 py-2 text-xs font-bold text-slate-500">Only the selected person's lines are counted. Choose Everyone to see whole accounts.</p> : null}
+      {accountRows.length ? (
+        <div className={`mb-4 rounded-3xl p-4 ${totalShort > 0 ? "bg-rose-50 ring-1 ring-rose-100" : "bg-emerald-50 ring-1 ring-emerald-100"}`}>
+          <p className={`text-sm font-black ${totalShort > 0 ? "text-rose-900" : "text-emerald-900"}`}>
+            {totalShort > 0 ? `${money(totalShort)} needs paying in this month to cover what goes out.` : "Every account has enough coming in to cover what goes out."}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">Counts lines with an account set. Starting balances aren't included.</p>
+        </div>
+      ) : null}
+      <div className="space-y-3">
+        {accountRows.map((row) => (
+          <div key={row.key} className="rounded-3xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-base font-black text-slate-950">{row.account?.name}</p>
+                <p className="text-xs font-bold text-slate-500">{row.account?.provider || "Account"} · {row.items.length} line{row.items.length === 1 ? "" : "s"}</p>
+              </div>
+              <div className="text-right">
+                <p className={`text-lg font-black tabular-nums ${row.gap < 0 ? "text-rose-700" : "text-emerald-700"}`}>{row.gap < 0 ? `${money(-row.gap)} short` : row.gap > 0 ? `${money(row.gap)} spare` : "Balanced"}</p>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-2xl bg-emerald-50 px-3 py-2"><p className="text-[11px] font-black uppercase tracking-wide text-emerald-700">In</p><p className="font-black tabular-nums text-emerald-900">{money(row.moneyIn)}</p></div>
+              <div className="rounded-2xl bg-slate-50 px-3 py-2"><p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Out</p><p className="font-black tabular-nums text-slate-900">{money(row.moneyOut)}</p></div>
+            </div>
+            {row.gap < 0 && row.split.length ? (
+              <div className="mt-3 rounded-2xl bg-rose-50 px-3 py-2">
+                <p className="text-xs font-black text-rose-900">Suggested top-up: {row.split.map((entry) => `${entry.name} ${money(entry.amount)}`).join(" · ")}</p>
+                <p className="mt-0.5 text-[11px] font-semibold text-rose-700/80">Each person's own lines go to them; shared and children's lines are split evenly.</p>
+              </div>
+            ) : null}
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs font-black text-slate-500 hover:text-slate-900">Show lines</summary>
+              <ul className="mt-2 divide-y divide-slate-100">
+                {row.items.slice().sort((a, b) => a.date.localeCompare(b.date)).map((item) => (
+                  <li key={item.id} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                    <span className="min-w-0 truncate font-bold text-slate-700">{item.title}</span>
+                    <span className={`shrink-0 font-black tabular-nums ${item.direction === "income" ? "text-emerald-700" : "text-slate-800"}`}>{item.direction === "income" ? "+" : "−"}{money(item.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </div>
+        ))}
+        {unset ? (
+          <div className="rounded-3xl border border-dashed border-amber-300 bg-amber-50/60 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-base font-black text-amber-950">No account set</p>
+                <p className="text-xs font-bold text-amber-800">{unset.items.length} line{unset.items.length === 1 ? "" : "s"}{unset.moneyIn ? ` · ${money(unset.moneyIn)} in` : ""}{unset.moneyOut ? ` · ${money(unset.moneyOut)} out` : ""}</p>
+              </div>
+              <button type="button" onClick={onShowLines} className="rounded-full bg-amber-900 px-4 py-2 text-xs font-black text-white">Set accounts</button>
+            </div>
+            <p className="mt-2 text-xs font-semibold text-amber-900/80">Until these have an account, they can't be counted above. Pay with no account is a common one: set it to the account it lands in.</p>
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs font-black text-amber-800">Show lines</summary>
+              <ul className="mt-2 divide-y divide-amber-100">
+                {unset.items.slice().sort((a, b) => a.date.localeCompare(b.date)).map((item) => (
+                  <li key={item.id} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                    <span className="min-w-0 truncate font-bold text-amber-950">{item.title}</span>
+                    <span className={`shrink-0 font-black tabular-nums ${item.direction === "income" ? "text-emerald-700" : "text-amber-950"}`}>{item.direction === "income" ? "+" : "−"}{money(item.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </div>
+        ) : null}
+        {!rows.length ? <p className="text-sm text-slate-500">Nothing in or out this month.</p> : null}
+      </div>
+    </SectionCard>
+  );
+}
+
 export function SpendingPlannerClient({ shareContext = null, people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], mortgageDeals = [], initialAddMode, initialAddTemplate }: Props) {
   const initialMonthValue = initialMonth && /^\d{4}-\d{2}$/.test(initialMonth) ? initialMonth : currentMonth();
   const [selectedPersonId, setSelectedPersonId] = useState(initialPersonId || "");
@@ -1517,6 +1631,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
   const [quickModeOverride, setQuickModeOverride] = useState<AddMode | null>(null);
   const [modal, setModal] = useState<ModalState>(initialAddMode ? { type: "add", mode: initialAddMode, template: initialAddTemplate } : null);
   const [editingEnabled, setEditingEnabled] = useState(false);
+  const [linesView, setLinesView] = useState<"lines" | "accounts">("lines");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -2044,6 +2159,23 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
       ) : null}
 
       <div id="month-lines" className="scroll-mt-28" />
+      <div className="mb-3 flex justify-end">
+        <div role="tablist" aria-label="Show this month by" className="inline-flex rounded-full bg-slate-100 p-1 ring-1 ring-slate-200">
+          {([["lines", "By date"], ["accounts", "By account"]] as const).map(([key, label]) => (
+            <button key={key} type="button" role="tab" aria-selected={linesView === key} onClick={() => setLinesView(key)} className={`rounded-full px-4 py-1.5 text-xs font-black ${linesView === key ? "bg-slate-950 text-white shadow-sm" : "text-slate-600 hover:text-slate-950"}`}>{label}</button>
+          ))}
+        </div>
+      </div>
+      {linesView === "accounts" ? (
+        <AccountsBalanceCard
+          monthLabel={formatMonthLabel(selectedSummary.month)}
+          items={allMonthItems.map((item) => ({ id: item.id, title: item.title, date: item.date, amount: Number(item.amount || 0), direction: item.direction === "income" ? "income" as const : "outgoing" as const, personId: item.personId ?? null, account: "paymentAccount" in item && item.paymentAccount ? item.paymentAccount : null }))}
+          people={people}
+          personFiltered={Boolean(selectedPersonId)}
+          money={money}
+          onShowLines={() => { setLinesView("lines"); setEditingEnabled(true); }}
+        />
+      ) : (
       <SectionCard title={!selectedPersonId ? `${formatMonthLabel(selectedSummary.month)}: money in & out` : `${formatMonthLabel(selectedSummary.month)} lines for ${currentPersonLabel}`} description={categoryFilter ? `Showing ${categoryFilter} only.` : directionFilter !== "all" ? `Showing money ${directionFilter === "income" ? "in" : "out"} only.` : "Everything in and out this month, by date."}>
         <div className="mb-4 flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white/70 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -2233,6 +2365,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
           {timelineItems.length === 0 ? <p className="text-sm text-slate-500">Nothing here for this month or filter. Press + to add something.</p> : null}
         </div>
       </SectionCard>
+      )}
 
       <SectionCard collapsible defaultOpen={false} title="Optional spending trackers" description="Only show specialist trackers when the household data makes them relevant. Add or remove the underlying records from here.">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
