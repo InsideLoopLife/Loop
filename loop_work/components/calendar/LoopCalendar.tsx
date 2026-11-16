@@ -33,9 +33,19 @@ function dayHeading(date: string) {
   return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 }
 
-function scoreTone(score: number) {
-  return score >= 75 ? "bg-emerald-500" : score >= 55 ? "bg-amber-400" : "bg-rose-500";
+/** Food score as a colour on a smooth red → amber → green scale. */
+function scoreColour(score: number, lightness = 50) {
+  const clamped = Math.max(0, Math.min(100, score));
+  return `hsl(${Math.round((clamped / 100) * 145)} 72% ${lightness}%)`;
 }
+
+/** Bottom strip: one colour stop per person, blended across the strip. */
+function foodGradient(scores: number[]) {
+  if (!scores.length) return undefined;
+  const stops = scores.length === 1 ? [scoreColour(scores[0], 62), scoreColour(scores[0], 46)] : scores.map((score) => scoreColour(score, 50));
+  return `linear-gradient(90deg, ${stops.join(", ")})`;
+}
+
 
 const DATE_STYLE: Record<CalendarDateItem["kind"], { icon: typeof Flag; tone: string }> = {
   birthday: { icon: CakeSlice, tone: "bg-pink-100 text-pink-800" },
@@ -114,7 +124,8 @@ export function LoopCalendar({ data, initialPerson, initialDay }: { data: Calend
         </div>
         <p className="mt-2 text-xs font-semibold text-slate-500">
           Same plan as your Summary.{data.totals.budgets > 0 ? ` ${gbp(data.totals.budgets, { whole: true })} of spending budgets (${data.budgets.slice(0, 3).map((b) => b.label).join(", ")}${data.budgets.length > 3 ? "…" : ""}) isn't tied to a day, so it's not on the calendar.` : ""}
-          {lowestDay && lowestDay.runningNet < 0 ? ` Tightest point: ${dayHeading(lowestDay.date)}, when bills are ${gbp(Math.abs(lowestDay.runningNet), { whole: true })} ahead of pay.` : ""}
+          {data.balance ? ` Starting from ${gbp(data.balance.amount, { whole: true })} in your current account on ${dayHeading(data.balance.asOf)}${data.balance.firstShortDay ? `, it runs short on ${dayHeading(data.balance.firstShortDay)}.` : ", it stays above zero this month."}` : ""}
+          {!data.balance && lowestDay && lowestDay.runningNet < 0 ? ` Tightest point: ${dayHeading(lowestDay.date)}, when bills are ${gbp(Math.abs(lowestDay.runningNet), { whole: true })} ahead of pay.` : ""}
         </p>
 
         {/* Filters */}
@@ -150,8 +161,10 @@ export function LoopCalendar({ data, initialPerson, initialDay }: { data: Calend
             const otherDates = day.dates.filter((item) => item.kind !== "school_holiday");
             const moneyIn = day.money.filter((m) => m.direction === "in").reduce((s, m) => s + m.amount, 0);
             const moneyOut = day.money.filter((m) => m.direction === "out").reduce((s, m) => s + m.amount, 0);
+            const short = day.short && moneyOut > 0;
             return (
-              <button key={day.date} type="button" onClick={() => setOpenDay(day.date)} className={`group flex min-h-[132px] flex-col rounded-2xl p-2 text-left ring-1 transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${isToday ? "bg-emerald-50 ring-2 ring-emerald-500" : weekend ? "bg-slate-50 ring-slate-100" : "bg-white ring-slate-100"}`}>
+              <button key={day.date} type="button" onClick={() => setOpenDay(day.date)} title={short ? `Projected balance ${gbp(day.projectedBalance ?? 0, { whole: true })} after this day's payments` : undefined} className={`group relative flex min-h-[132px] flex-col rounded-2xl p-2 text-left ring-1 transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${isToday ? "bg-emerald-50 ring-2 ring-emerald-500" : short ? "bg-rose-50 ring-rose-200" : weekend ? "bg-slate-50 ring-slate-100" : "bg-white ring-slate-100"}`}>
+                {short ? <span aria-hidden className="pointer-events-none absolute inset-0 animate-pulse rounded-2xl ring-2 ring-rose-500 motion-reduce:animate-none" /> : null}
                 <div className="flex items-start justify-between gap-1">
                   <span className={`grid h-7 w-7 place-items-center rounded-full text-sm font-black ${isToday ? "bg-emerald-600 text-white" : "text-slate-800"}`}>{Number(day.date.slice(8, 10))}</span>
                   {holiday?.kind === "school_holiday" ? <span className="truncate rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-black text-sky-800" title={holiday.label}>School off</span> : null}
@@ -166,24 +179,25 @@ export function LoopCalendar({ data, initialPerson, initialDay }: { data: Calend
                   {day.events.slice(0, 1).map((event) => <span key={event.id} className="flex items-center gap-1 truncate rounded-lg bg-indigo-50 px-1.5 py-0.5 text-[11px] font-black text-indigo-800"><CalendarDays className="h-3 w-3 shrink-0" /><span className="truncate">{event.title}</span></span>)}
                   {day.events.length > 1 ? <span className="block text-[11px] font-black text-slate-400">+{day.events.length - 1} event{day.events.length > 2 ? "s" : ""}</span> : null}
                 </div>
-                <div className="mt-auto space-y-1 pt-1">
-                  {moneyIn > 0 ? <p className="truncate text-xs font-black text-emerald-700">{gbp(moneyIn, { sign: true, whole: true })}</p> : null}
-                  {moneyOut > 0 ? <p className="truncate text-xs font-black text-slate-700" title={day.money.filter((m) => m.direction === "out").map((m) => m.label).join(", ")}>{gbp(-moneyOut, { sign: true, whole: true })} <span className="font-semibold text-slate-400">· {day.money.filter((m) => m.direction === "out").length}</span></p> : null}
-                  {day.food.length ? (
-                    <div className="flex flex-wrap items-center gap-1">
-                      {day.food.map((food) => <span key={`${food.personId}`} className={`grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-black text-white ${scoreTone(food.score)}`} title={`${food.personName}: ${food.score}/100 · ${food.kcal} kcal${food.flags.length ? ` · over on ${food.flags.join(", ").toLowerCase()}` : ""}`}>{food.personName.slice(0, 1)}</span>)}
-                      {day.food.some((food) => food.flags.length) ? <AlertTriangle className="h-3.5 w-3.5 text-amber-500" /> : null}
-                    </div>
-                  ) : null}
+                <div className="flex flex-1 flex-col items-center justify-center gap-0.5 py-1 text-center">
+                  {moneyIn > 0 ? <p className="max-w-full truncate text-sm font-black text-emerald-700">{gbp(moneyIn, { sign: true, whole: true })}</p> : null}
+                  {moneyOut > 0 ? <p className={`max-w-full truncate text-sm font-black ${short ? "text-rose-700" : "text-slate-700"}`} title={day.money.filter((m) => m.direction === "out").map((m) => m.label).join(", ")}>{gbp(-moneyOut, { sign: true, whole: true })} <span className={`text-xs font-semibold ${short ? "text-rose-400" : "text-slate-400"}`}>· {day.money.filter((m) => m.direction === "out").length}</span></p> : null}
+                  {short ? <p className="text-[10px] font-black uppercase tracking-wide text-rose-600">Short {gbp(Math.abs(day.projectedBalance ?? 0), { whole: true })}</p> : null}
                 </div>
+                {day.food.length ? (
+                  <div className="-mx-2 -mb-2 mt-auto flex h-7 items-center gap-1 rounded-b-2xl px-2" style={{ backgroundImage: foodGradient(day.food.map((food) => food.score)) }}>
+                    {day.food.map((food) => <span key={`${food.personId}`} className="grid h-5 min-w-5 place-items-center rounded-full bg-white/90 px-1 text-[10px] font-black text-slate-800" title={`${food.personName}: ${food.score}/100 · ${food.kcal} kcal${food.flags.length ? ` · over on ${food.flags.join(", ").toLowerCase()}` : ""}`}>{food.personName.slice(0, 1)}</span>)}
+                    {day.food.length === 1 ? <span className="text-[10px] font-black text-white drop-shadow-sm">{day.food[0].score}</span> : null}
+                    {day.food.some((food) => food.flags.length) ? <AlertTriangle className="ml-auto h-3.5 w-3.5 text-white drop-shadow" /> : null}
+                  </div>
+                ) : null}
               </button>
             );
           })}
         </div>
         <div className="mt-3 flex flex-wrap gap-3 text-[11px] font-bold text-slate-500">
-          <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-emerald-500" /> Food score 75+</span>
-          <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-amber-400" /> 55–74</span>
-          <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-rose-500" /> Under 55</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-3 w-16 rounded-full" style={{ backgroundImage: `linear-gradient(90deg, ${scoreColour(0)}, ${scoreColour(50)}, ${scoreColour(100)})` }} /> Food score 0 → 100</span>
+          {data.balance ? <span className="inline-flex items-center gap-1"><span className="h-3 w-3 animate-pulse rounded-full ring-2 ring-rose-500 motion-reduce:animate-none" /> Not enough in the account</span> : null}
           <span className="inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-amber-500" /> Over a limit (caffeine, sugar or salt)</span>
         </div>
       </section>
@@ -197,8 +211,10 @@ export function LoopCalendar({ data, initialPerson, initialDay }: { data: Calend
           const isToday = day.date === data.today;
           const moneyIn = day.money.filter((m) => m.direction === "in").reduce((s, m) => s + m.amount, 0);
           const moneyOut = day.money.filter((m) => m.direction === "out").reduce((s, m) => s + m.amount, 0);
+          const short = day.short && moneyOut > 0;
           return (
-            <button key={day.date} type="button" onClick={() => setOpenDay(day.date)} className={`flex w-full gap-3 rounded-[1.5rem] p-3 text-left shadow-sm ring-1 ${isToday ? "bg-emerald-50 ring-2 ring-emerald-500" : "bg-white ring-slate-100"}`}>
+            <button key={day.date} type="button" onClick={() => setOpenDay(day.date)} className={`relative flex w-full gap-3 rounded-[1.5rem] p-3 text-left shadow-sm ring-1 ${isToday ? "bg-emerald-50 ring-2 ring-emerald-500" : short ? "bg-rose-50 ring-rose-200" : "bg-white ring-slate-100"}`}>
+              {short ? <span aria-hidden className="pointer-events-none absolute inset-0 animate-pulse rounded-[1.5rem] ring-2 ring-rose-500 motion-reduce:animate-none" /> : null}
               <div className={`flex w-12 shrink-0 flex-col items-center rounded-2xl py-1.5 ${isToday ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-800"}`}>
                 <span className="text-[10px] font-black uppercase">{new Date(`${day.date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short" })}</span>
                 <span className="text-lg font-black leading-none">{Number(day.date.slice(8, 10))}</span>
@@ -209,11 +225,12 @@ export function LoopCalendar({ data, initialPerson, initialDay }: { data: Calend
                 {(moneyIn > 0 || moneyOut > 0) ? (
                   <p className="text-sm font-black">
                     {moneyIn > 0 ? <span className="text-emerald-700">{gbp(moneyIn, { sign: true, whole: true })} </span> : null}
-                    {moneyOut > 0 ? <span className="text-slate-700">{gbp(-moneyOut, { sign: true, whole: true })}</span> : null}
+                    {moneyOut > 0 ? <span className={short ? "text-rose-700" : "text-slate-700"}>{gbp(-moneyOut, { sign: true, whole: true })}</span> : null}
+                    {short ? <span className="ml-1 text-[10px] font-black uppercase text-rose-600">Short {gbp(Math.abs(day.projectedBalance ?? 0), { whole: true })}</span> : null}
                     <span className="ml-1 text-xs font-semibold text-slate-400">{day.money.slice(0, 2).map((m) => m.label).join(", ")}{day.money.length > 2 ? ` +${day.money.length - 2}` : ""}</span>
                   </p>
                 ) : null}
-                {day.food.length ? <div className="flex flex-wrap gap-1.5">{day.food.map((food) => <span key={`${food.personId}`} className="inline-flex items-center gap-1 rounded-full bg-slate-50 py-0.5 pl-0.5 pr-2 text-[11px] font-black text-slate-700 ring-1 ring-slate-100"><span className={`h-4 w-4 rounded-full ${scoreTone(food.score)}`} />{food.personName} {food.score}{food.flags.length ? <AlertTriangle className="h-3 w-3 text-amber-500" /> : null}</span>)}</div> : null}
+                {day.food.length ? <div className="flex flex-wrap gap-1.5">{day.food.map((food) => <span key={`${food.personId}`} className="inline-flex items-center gap-1 rounded-full bg-slate-50 py-0.5 pl-0.5 pr-2 text-[11px] font-black text-slate-700 ring-1 ring-slate-100"><span className="h-4 w-4 rounded-full" style={{ backgroundColor: scoreColour(food.score) }} />{food.personName} {food.score}{food.flags.length ? <AlertTriangle className="h-3 w-3 text-amber-500" /> : null}</span>)}</div> : null}
                 {!hasContent(day) ? <p className="text-sm font-semibold text-slate-400">Nothing planned</p> : null}
               </div>
             </button>
@@ -304,7 +321,11 @@ function DayPanel({ day, month, person, people, personName, onClose }: { day: Re
               ))}
             </ul>
           ) : <p className="mt-2 text-sm font-semibold text-slate-400">No payments due.</p>}
-          <p className={`mt-2 text-xs font-bold ${day.runningNet < 0 ? "text-rose-700" : "text-slate-500"}`}>By the end of this day the month is {gbp(day.runningNet, { sign: true, whole: true })} (money in minus dated bills so far).</p>
+          {day.projectedBalance != null ? (
+            <p className={`mt-2 text-xs font-bold ${day.projectedBalance < 0 ? "text-rose-700" : "text-slate-500"}`}>Projected current account balance at the end of this day: {gbp(day.projectedBalance, { whole: true })}{day.projectedBalance < 0 ? " — not enough to cover these payments." : "."}</p>
+          ) : (
+            <p className={`mt-2 text-xs font-bold ${day.runningNet < 0 ? "text-rose-700" : "text-slate-500"}`}>By the end of this day the month is {gbp(day.runningNet, { sign: true, whole: true })} (money in minus dated bills so far).</p>
+          )}
         </section>
 
         <section className="mt-5">
@@ -317,7 +338,7 @@ function DayPanel({ day, month, person, people, personName, onClose }: { day: Re
               {day.food.map((food) => (
                 <li key={`${food.personId}`}>
                   <Link href={`/nutrition/day?date=${day.date}&person=${encodeURIComponent(food.personId || "__household__")}`} className="flex items-center gap-3 rounded-2xl p-2 ring-1 ring-slate-100 hover:bg-slate-50">
-                    <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-full text-sm font-black text-white ${scoreTone(food.score)}`}>{food.score}</span>
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-sm font-black text-white" style={{ backgroundColor: scoreColour(food.score, 45) }}>{food.score}</span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-black text-slate-900">{food.personName} · {food.label}</span>
                       <span className="block text-xs font-semibold text-slate-500">{food.entries} entr{food.entries === 1 ? "y" : "ies"} · {food.kcal} kcal{food.flags.length ? ` · over on ${food.flags.join(", ").toLowerCase()}` : ""}</span>

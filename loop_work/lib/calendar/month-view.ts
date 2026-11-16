@@ -20,6 +20,10 @@ export type CalendarDay = {
   moneyOut: number;
   /** Money in minus money out from the 1st up to and including this day (dated items only). */
   runningNet: number;
+  /** Projected current-account balance at the end of this day, from the last confirmed balance. Null before that point or when no balance is known. */
+  projectedBalance: number | null;
+  /** Money leaves this day and the projected balance is below zero. */
+  short: boolean;
   dates: CalendarDateItem[];
   food: CalendarFoodItem[];
   events: CalendarEventItem[];
@@ -36,6 +40,7 @@ export type CalendarMonth = {
   totals: { income: number; spending: number; saved: number; leftOver: number; budgets: number; datedIn: number; datedOut: number };
   budgets: Array<{ label: string; amount: number }>;
   hasChildren: boolean;
+  balance: { amount: number; asOf: string; accounts: number; firstShortDay: string | null } | null;
 };
 
 const NUTRIENT_COLUMNS = "person_id, eaten_on, calories, protein_g, carbs_g, fat_g, fibre_g, soluble_fibre_g, insoluble_fibre_g, sugar_g, added_sugar_g, natural_sugar_g, salt_g, saturated_fat_g, trans_fat_g, monounsaturated_fat_g, polyunsaturated_fat_g, sodium_mg, potassium_mg, calcium_mg, iron_mg, magnesium_mg, zinc_mg, folate_ug, niacin_mg, thiamin_mg, vitamin_c_mg, vitamin_d_ug, vitamin_b12_ug, omega_3_g, caffeine_mg";
@@ -73,7 +78,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
   const dayList: string[] = [];
   for (let d = first; d <= last; d = addDays(d, 1)) dayList.push(d);
 
-  const [planResult, peopleResult, itemsResult, childCostsResult, dealsResult, logsResult, eventsResult] = await Promise.all([
+  const [planResult, peopleResult, itemsResult, childCostsResult, dealsResult, logsResult, eventsResult, accountsResult] = await Promise.all([
     // Previous and next months too: a payment due on Sunday the 1st really leaves on Friday the 30th.
     loadMonthPlans(supabase, { userId: opts.dataOwnerUserId, filter, months: [shiftMonth(month, -1), month, shiftMonth(month, 1)] }).catch(() => null),
     supabase.from("people").select("id, name, relationship, avatar_url, birth_date, nutrition_reference_sex, weight_kg, caffeine_limit_mg, daily_calorie_target, height_cm, activity_level, nutrition_goal, diet_type, food_allergies, account_status").or(opts.peopleFilter).or("account_status.is.null,account_status.neq.duplicate_merged"),
@@ -82,6 +87,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
     supabase.from("home_mortgage_deals").select("id, lender, product_name, initial_period_end, end_date").or(filter),
     supabase.from("food_logs").select(NUTRIENT_COLUMNS).eq("user_id", opts.userId).gte("eaten_on", first).lte("eaten_on", last).limit(3000),
     supabase.from("calendar_events").select("id, user_id, person_id, source, event_type, title, event_date").in("source", ["loop_manual", "google"]).gte("event_date", first).lte("event_date", last).limit(500),
+    supabase.from("financial_accounts").select("id, current_balance, balance_last_confirmed_at, updated_at, is_liability, account_status").eq("account_type", "current_account").or(filter),
   ]);
 
   const people: Array<any> = (peopleResult.data || []).filter((person: any, index: number, all: any[]) => all.findIndex((other) => other.id === person.id) === index);
@@ -92,7 +98,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
   });
   const hasChildren = calendarPeople.some((person) => person.isChild);
 
-  const days = new Map<string, CalendarDay>(dayList.map((date) => [date, { date, money: [], moneyIn: 0, moneyOut: 0, runningNet: 0, dates: [], food: [], events: [] }]));
+  const days = new Map<string, CalendarDay>(dayList.map((date) => [date, { date, money: [], moneyIn: 0, moneyOut: 0, runningNet: 0, projectedBalance: null, short: false, dates: [], food: [], events: [] }]));
   const dayFor = (date: string | undefined | null) => (date ? days.get(date.slice(0, 10)) : undefined);
 
   /* ---------------- Money ---------------- */
@@ -145,6 +151,32 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
     datedIn += day.moneyIn;
     datedOut += day.moneyOut;
     day.runningNet = Math.round(running * 100) / 100;
+  }
+
+  // Projected balance: start from the current account balance on the day it was last confirmed,
+  // then apply each later day's money in and out. Only when that confirmation falls in this month,
+  // so nothing between it and the 1st is missed.
+  const accounts = ((accountsResult?.data || []) as any[]).filter((account) => !account.is_liability && !/closed|archived/i.test(String(account.account_status || "")) && account.current_balance != null);
+  let balance: CalendarMonth["balance"] = null;
+  if (accounts.length) {
+    const asOf = accounts
+      .map((account) => String(account.balance_last_confirmed_at || account.updated_at || "").slice(0, 10))
+      .filter(Boolean)
+      .sort()[0];
+    if (asOf && asOf >= first && asOf <= last) {
+      const amount = Math.round(accounts.reduce((sum, account) => sum + Number(account.current_balance || 0), 0) * 100) / 100;
+      let projected = amount;
+      let firstShortDay: string | null = null;
+      for (const date of dayList) {
+        if (date <= asOf) continue;
+        const day = days.get(date)!;
+        projected += day.moneyIn - day.moneyOut;
+        day.projectedBalance = Math.round(projected * 100) / 100;
+        day.short = day.moneyOut > 0 && day.projectedBalance < 0;
+        if (day.short && !firstShortDay) firstShortDay = date;
+      }
+      balance = { amount, asOf, accounts: accounts.length, firstShortDay };
+    }
   }
   const headline = plan && planResult ? monthTotals(plan, planResult.savingNames) : { income: datedIn, spending: datedOut, saved: 0, leftOver: datedIn - datedOut, savingsRate: 0 };
 
@@ -243,5 +275,6 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
     },
     budgets,
     hasChildren,
+    balance,
   };
 }
