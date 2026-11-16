@@ -3,10 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { changeRecord, getActiveHouseholdContext, householdMemberDataOrFilter, householdWriteFields } from "@/lib/auth/household-context";
-import { KIND_BY_KEY, ROOM_LABELS, type HomeItem, type HomeRoom } from "@/lib/home/items";
+import { KIND_BY_KEY, PRICE_CAP_RATES, ROOM_LABELS, type EnergyRates, type HomeItem, type HomeRoom } from "@/lib/home/items";
+import { enforceUserRateLimit } from "@/lib/security/rate-limit";
+import { lookupProductPage, type ProductPreview } from "@/lib/home/product-preview";
 import { sanitisePlan, type FloorPlan } from "@/lib/home/floor-plan";
 
-const COLUMNS = "id, user_id, home_id, space_id, room, kind, label, brand, model, purchased_on, price, retailer, warranty_months, extended_warranty_ends_on, warranty_provider, expected_life_years, replacement_cost, notes, product_url, status";
+const COLUMNS = "id, user_id, home_id, space_id, room, kind, label, brand, model, purchased_on, price, retailer, warranty_months, extended_warranty_ends_on, warranty_provider, expected_life_years, replacement_cost, notes, product_url, image_url, fuel, energy_per_use_kwh, uses_per_week, power_watts, hours_per_day, annual_kwh, status";
 
 async function context() {
   const supabase = await createClient();
@@ -16,7 +18,7 @@ async function context() {
   return { supabase, user, household };
 }
 
-export async function listHomeItems(homeId?: string | null): Promise<{ items: HomeItem[]; userId: string; floorPlan: FloorPlan | null }> {
+export async function listHomeItems(homeId?: string | null): Promise<{ items: HomeItem[]; userId: string; floorPlan: FloorPlan | null; rates: EnergyRates & { own: boolean } }> {
   const { supabase, user, household } = await context();
   const [{ data, error }, planResult] = await Promise.all([
     supabase
@@ -25,11 +27,38 @@ export async function listHomeItems(homeId?: string | null): Promise<{ items: Ho
       .or(householdMemberDataOrFilter(household))
       .order("created_at", { ascending: true })
       .limit(500),
-    homeId ? supabase.from("homes").select("floor_plan").eq("id", homeId).maybeSingle() : Promise.resolve({ data: null }),
+    homeId ? supabase.from("homes").select("floor_plan, electricity_rate_pence, gas_rate_pence").eq("id", homeId).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   if (error) throw new Error(error.message);
-  const raw = (planResult as any)?.data?.floor_plan;
-  return { items: (data || []) as HomeItem[], userId: user.id, floorPlan: raw ? sanitisePlan(raw) : null };
+  const home = (planResult as any)?.data;
+  const raw = home?.floor_plan;
+  const electricity = home?.electricity_rate_pence != null ? Number(home.electricity_rate_pence) : null;
+  const gas = home?.gas_rate_pence != null ? Number(home.gas_rate_pence) : null;
+  return {
+    items: (data || []) as HomeItem[],
+    userId: user.id,
+    floorPlan: raw ? sanitisePlan(raw) : null,
+    rates: { electricity: electricity ?? PRICE_CAP_RATES.electricity, gas: gas ?? PRICE_CAP_RATES.gas, own: electricity != null || gas != null },
+  };
+}
+
+export async function saveEnergyRates(homeId: string, electricity: number | string | null, gas: number | string | null) {
+  const { supabase } = await context();
+  if (!homeId) throw new Error("Add your home first.");
+  const clean = (value: number | string | null) => { const n = value === null || value === "" ? null : Number(value); return n != null && Number.isFinite(n) && n > 0 && n < 200 ? Math.round(n * 100) / 100 : null; };
+  const { data, error } = await supabase.from("homes").update({ electricity_rate_pence: clean(electricity), gas_rate_pence: clean(gas) }).eq("id", homeId).select("id");
+  if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error("Only the person who added this home can change its energy prices.");
+  revalidatePath("/mortgage");
+  return { ok: true };
+}
+
+/** Name, picture and price from a shop link. Many big shops block this; then it returns what it could get. */
+export async function previewProductLink(url: string): Promise<ProductPreview> {
+  const { user } = await context();
+  const limited = await enforceUserRateLimit({ userId: user.id, bucket: "home_item_preview", limit: 30, windowSeconds: 3600 });
+  if (!limited.allowed) throw new Error("That's a lot of lookups — try again in a bit.");
+  return lookupProductPage(url);
 }
 
 export async function saveFloorPlan(homeId: string, plan: unknown): Promise<{ ok: true }> {
@@ -51,6 +80,11 @@ const amount = (value: unknown) => {
   const n = Number(String(value).replace(/[£,\s]/g, ""));
   return Number.isFinite(n) && n >= 0 && n < 1_000_000 ? Math.round(n * 100) / 100 : null;
 };
+const bounded = (value: unknown, min: number, max: number) => {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(String(value).replace(/,/g, ""));
+  return Number.isFinite(n) && n >= min && n <= max ? n : null;
+};
 const isoDate = (value: unknown) => {
   const s = String(value ?? "").trim();
   if (/^\d{4}-\d{2}$/.test(s)) return `${s}-01`;
@@ -62,6 +96,13 @@ export type HomeItemInput = {
   homeId?: string | null;
   spaceId?: string | null;
   productUrl?: string | null;
+  imageUrl?: string | null;
+  fuel?: string | null;
+  energyPerUseKwh?: number | string | null;
+  usesPerWeek?: number | string | null;
+  powerWatts?: number | string | null;
+  hoursPerDay?: number | string | null;
+  annualKwh?: number | string | null;
   room: string;
   kind: string;
   label: string;
@@ -103,6 +144,13 @@ export async function saveHomeItem(input: HomeItemInput): Promise<{ ok: true; id
     replacement_cost: amount(input.replacementCost),
     notes: text(input.notes, 500),
     product_url: (() => { const raw = String(input.productUrl ?? "").trim(); return /^https?:\/\/\S+$/i.test(raw) && raw.length <= 500 ? raw : null; })(),
+    image_url: (() => { const raw = String(input.imageUrl ?? "").trim(); return /^https:\/\/\S+$/i.test(raw) && raw.length <= 1000 ? raw : null; })(),
+    fuel: input.fuel === "electric" || input.fuel === "gas" || input.fuel === "none" ? input.fuel : null,
+    energy_per_use_kwh: bounded(input.energyPerUseKwh, 0, 500),
+    uses_per_week: bounded(input.usesPerWeek, 0, 500),
+    power_watts: bounded(input.powerWatts, 0, 50000),
+    hours_per_day: bounded(input.hoursPerDay, 0, 24),
+    annual_kwh: bounded(input.annualKwh, 0, 100000),
     updated_at: new Date().toISOString(),
   };
   if (input.id) {

@@ -33,34 +33,41 @@ export type HomeItemKind = {
   typicalCost: number;
   /** Words that point to this kind in a typed description. */
   words: string[];
+  /** Typical use, for running costs. Rough guides; the person's own numbers replace them. */
+  usage?: Usage;
 };
 
+export type Usage =
+  | { mode: "per_use"; kwh: number; perWeek: number; fuel?: "electric" | "gas" }
+  | { mode: "hours"; watts: number; hoursPerDay: number; fuel?: "electric" | "gas" }
+  | { mode: "annual"; kwh: number; fuel?: "electric" | "gas" };
+
 export const HOME_ITEM_KINDS: HomeItemKind[] = [
-  { key: "dishwasher", label: "Dishwasher", icon: "🍽️", room: "kitchen", lifeYears: 10, typicalCost: 400, words: ["dishwasher"] },
-  { key: "fridge_freezer", label: "Fridge freezer", icon: "🧊", room: "kitchen", lifeYears: 12, typicalCost: 600, words: ["fridge freezer", "fridge-freezer", "fridge", "american fridge"] },
-  { key: "freezer", label: "Freezer", icon: "❄️", room: "utility", lifeYears: 12, typicalCost: 350, words: ["chest freezer", "freezer"] },
-  { key: "oven", label: "Oven", icon: "🔥", room: "kitchen", lifeYears: 15, typicalCost: 450, words: ["oven", "range cooker", "cooker"] },
-  { key: "hob", label: "Hob", icon: "🍳", room: "kitchen", lifeYears: 15, typicalCost: 350, words: ["hob", "induction"] },
-  { key: "cooker_hood", label: "Cooker hood", icon: "🌬️", room: "kitchen", lifeYears: 12, typicalCost: 200, words: ["cooker hood", "extractor"] },
-  { key: "microwave", label: "Microwave", icon: "📦", room: "kitchen", lifeYears: 8, typicalCost: 120, words: ["microwave"] },
-  { key: "coffee_machine", label: "Coffee machine", icon: "☕", room: "kitchen", lifeYears: 6, typicalCost: 300, words: ["coffee machine", "bean to cup", "espresso"] },
-  { key: "air_fryer", label: "Air fryer", icon: "🍟", room: "kitchen", lifeYears: 4, typicalCost: 100, words: ["air fryer", "airfryer", "ninja"] },
-  { key: "washing_machine", label: "Washing machine", icon: "🫧", room: "utility", lifeYears: 10, typicalCost: 450, words: ["washing machine", "washer dryer", "washer"] },
-  { key: "tumble_dryer", label: "Tumble dryer", icon: "🌀", room: "utility", lifeYears: 11, typicalCost: 400, words: ["tumble dryer", "dryer", "heat pump dryer"] },
-  { key: "boiler", label: "Boiler", icon: "♨️", room: "utility", lifeYears: 13, typicalCost: 3000, words: ["boiler", "combi"] },
-  { key: "vacuum", label: "Vacuum cleaner", icon: "🧹", room: "hallway", lifeYears: 7, typicalCost: 250, words: ["vacuum", "hoover", "dyson"] },
-  { key: "tv", label: "TV", icon: "📺", room: "living", lifeYears: 8, typicalCost: 600, words: ["tv", "television", "oled", "telly"] },
-  { key: "sound", label: "Speakers / soundbar", icon: "🔊", room: "living", lifeYears: 8, typicalCost: 300, words: ["soundbar", "speaker", "sonos"] },
-  { key: "games_console", label: "Games console", icon: "🎮", room: "living", lifeYears: 7, typicalCost: 450, words: ["console", "playstation", "ps5", "xbox", "switch"] },
+  { key: "dishwasher", label: "Dishwasher", icon: "🍽️", room: "kitchen", lifeYears: 10, typicalCost: 400, words: ["dishwasher"], usage: { mode: "per_use", kwh: 1.0, perWeek: 5 } },
+  { key: "fridge_freezer", label: "Fridge freezer", icon: "🧊", room: "kitchen", lifeYears: 12, typicalCost: 600, words: ["fridge freezer", "fridge-freezer", "fridge", "american fridge"], usage: { mode: "annual", kwh: 250 } },
+  { key: "freezer", label: "Freezer", icon: "❄️", room: "utility", lifeYears: 12, typicalCost: 350, words: ["chest freezer", "freezer"], usage: { mode: "annual", kwh: 200 } },
+  { key: "oven", label: "Oven", icon: "🔥", room: "kitchen", lifeYears: 15, typicalCost: 450, words: ["oven", "range cooker", "cooker"], usage: { mode: "per_use", kwh: 1.0, perWeek: 4 } },
+  { key: "hob", label: "Hob", icon: "🍳", room: "kitchen", lifeYears: 15, typicalCost: 350, words: ["hob", "induction"], usage: { mode: "per_use", kwh: 0.7, perWeek: 6 } },
+  { key: "cooker_hood", label: "Cooker hood", icon: "🌬️", room: "kitchen", lifeYears: 12, typicalCost: 200, words: ["cooker hood", "extractor"], usage: { mode: "hours", watts: 100, hoursPerDay: 0.5 } },
+  { key: "microwave", label: "Microwave", icon: "📦", room: "kitchen", lifeYears: 8, typicalCost: 120, words: ["microwave"], usage: { mode: "per_use", kwh: 0.1, perWeek: 7 } },
+  { key: "coffee_machine", label: "Coffee machine", icon: "☕", room: "kitchen", lifeYears: 6, typicalCost: 300, words: ["coffee machine", "bean to cup", "espresso"], usage: { mode: "per_use", kwh: 0.05, perWeek: 14 } },
+  { key: "air_fryer", label: "Air fryer", icon: "🍟", room: "kitchen", lifeYears: 4, typicalCost: 100, words: ["air fryer", "airfryer", "ninja"], usage: { mode: "per_use", kwh: 0.5, perWeek: 4 } },
+  { key: "washing_machine", label: "Washing machine", icon: "🫧", room: "utility", lifeYears: 10, typicalCost: 450, words: ["washing machine", "washer dryer", "washer"], usage: { mode: "per_use", kwh: 0.7, perWeek: 5 } },
+  { key: "tumble_dryer", label: "Tumble dryer", icon: "🌀", room: "utility", lifeYears: 11, typicalCost: 400, words: ["tumble dryer", "dryer", "heat pump dryer"], usage: { mode: "per_use", kwh: 2.5, perWeek: 3 } },
+  { key: "boiler", label: "Boiler", icon: "♨️", room: "utility", lifeYears: 13, typicalCost: 3000, words: ["boiler", "combi"], usage: { mode: "annual", kwh: 9500, fuel: "gas" } },
+  { key: "vacuum", label: "Vacuum cleaner", icon: "🧹", room: "hallway", lifeYears: 7, typicalCost: 250, words: ["vacuum", "hoover", "dyson"], usage: { mode: "per_use", kwh: 0.15, perWeek: 3 } },
+  { key: "tv", label: "TV", icon: "📺", room: "living", lifeYears: 8, typicalCost: 600, words: ["tv", "television", "oled", "telly"], usage: { mode: "hours", watts: 100, hoursPerDay: 4 } },
+  { key: "sound", label: "Speakers / soundbar", icon: "🔊", room: "living", lifeYears: 8, typicalCost: 300, words: ["soundbar", "speaker", "sonos"], usage: { mode: "hours", watts: 30, hoursPerDay: 3 } },
+  { key: "games_console", label: "Games console", icon: "🎮", room: "living", lifeYears: 7, typicalCost: 450, words: ["console", "playstation", "ps5", "xbox", "switch"], usage: { mode: "hours", watts: 150, hoursPerDay: 1.5 } },
   { key: "sofa", label: "Sofa", icon: "🛋️", room: "living", lifeYears: 10, typicalCost: 1200, words: ["sofa", "settee", "couch"] },
   { key: "mattress", label: "Mattress", icon: "🛏️", room: "bedroom", lifeYears: 8, typicalCost: 600, words: ["mattress"] },
-  { key: "shower", label: "Electric shower", icon: "🚿", room: "bathroom", lifeYears: 10, typicalCost: 350, words: ["shower"] },
-  { key: "laptop", label: "Laptop / computer", icon: "💻", room: "office", lifeYears: 5, typicalCost: 900, words: ["laptop", "macbook", "computer", "pc", "imac"] },
-  { key: "printer", label: "Printer", icon: "🖨️", room: "office", lifeYears: 5, typicalCost: 150, words: ["printer"] },
-  { key: "router", label: "Wi-Fi / mesh", icon: "📶", room: "office", lifeYears: 5, typicalCost: 200, words: ["router", "mesh", "wifi", "wi-fi"] },
-  { key: "lawn_mower", label: "Lawn mower", icon: "🌱", room: "garden", lifeYears: 8, typicalCost: 300, words: ["mower", "lawnmower", "lawn mower"] },
-  { key: "pressure_washer", label: "Pressure washer", icon: "💦", room: "garage", lifeYears: 7, typicalCost: 200, words: ["pressure washer", "jet wash"] },
-  { key: "ev_charger", label: "EV charger", icon: "🔌", room: "garage", lifeYears: 10, typicalCost: 1000, words: ["ev charger", "car charger", "wallbox", "zappi"] },
+  { key: "shower", label: "Electric shower", icon: "🚿", room: "bathroom", lifeYears: 10, typicalCost: 350, words: ["shower"], usage: { mode: "per_use", kwh: 1.2, perWeek: 7 } },
+  { key: "laptop", label: "Laptop / computer", icon: "💻", room: "office", lifeYears: 5, typicalCost: 900, words: ["laptop", "macbook", "computer", "pc", "imac"], usage: { mode: "hours", watts: 50, hoursPerDay: 4 } },
+  { key: "printer", label: "Printer", icon: "🖨️", room: "office", lifeYears: 5, typicalCost: 150, words: ["printer"], usage: { mode: "per_use", kwh: 0.02, perWeek: 2 } },
+  { key: "router", label: "Wi-Fi / mesh", icon: "📶", room: "office", lifeYears: 5, typicalCost: 200, words: ["router", "mesh", "wifi", "wi-fi"], usage: { mode: "hours", watts: 10, hoursPerDay: 24 } },
+  { key: "lawn_mower", label: "Lawn mower", icon: "🌱", room: "garden", lifeYears: 8, typicalCost: 300, words: ["mower", "lawnmower", "lawn mower"], usage: { mode: "per_use", kwh: 0.6, perWeek: 0.5 } },
+  { key: "pressure_washer", label: "Pressure washer", icon: "💦", room: "garage", lifeYears: 7, typicalCost: 200, words: ["pressure washer", "jet wash"], usage: { mode: "per_use", kwh: 0.3, perWeek: 0.25 } },
+  { key: "ev_charger", label: "EV charger", icon: "🔌", room: "garage", lifeYears: 10, typicalCost: 1000, words: ["ev charger", "car charger", "wallbox", "zappi"], usage: { mode: "per_use", kwh: 20, perWeek: 2 } },
   { key: "other", label: "Something else", icon: "📦", room: "other", lifeYears: 8, typicalCost: 0, words: [] },
 ];
 
@@ -87,6 +94,13 @@ export type HomeItem = {
   replacement_cost: number | null;
   notes: string | null;
   product_url?: string | null;
+  image_url?: string | null;
+  fuel?: "electric" | "gas" | "none" | null;
+  energy_per_use_kwh?: number | null;
+  uses_per_week?: number | null;
+  power_watts?: number | null;
+  hours_per_day?: number | null;
+  annual_kwh?: number | null;
   status: "active" | "replaced" | "gone";
 };
 
@@ -229,4 +243,53 @@ export function nameFromProductUrl(raw: string): { url: string; name: string | n
   });
   const name = pretty.length >= 2 ? pretty.join(" ").replace(/\bWi Fi\b/g, "Wi-Fi") : null;
   return { url: url.toString(), name, retailer };
+}
+
+/** Ofgem price cap, 1 Oct–31 Dec 2026, Direct Debit averages (ofgem.gov.uk). Used until the household sets its own. */
+export const PRICE_CAP_RATES = { electricity: 26.32, gas: 7.97, label: "Ofgem price cap, Oct–Dec 2026" };
+
+export type EnergyRates = { electricity: number; gas: number };
+
+export type RunningCost = {
+  fuel: "electric" | "gas";
+  annualKwh: number;
+  annualCost: number;
+  /** Cost each time it's used, for things used in sessions. */
+  perUse: number | null;
+  perWeekUses: number | null;
+  /** True when every number came from the typical guide rather than the person. */
+  typical: boolean;
+  basis: string;
+};
+
+const num = (value: unknown) => (value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? null : Number(value));
+
+/** What it costs to run, from the person's own usage where given, otherwise the typical guide. */
+export function runningCost(item: Pick<HomeItem, "kind" | "fuel" | "energy_per_use_kwh" | "uses_per_week" | "power_watts" | "hours_per_day" | "annual_kwh">, rates: EnergyRates): RunningCost | null {
+  if (item.fuel === "none") return null;
+  const usage = KIND_BY_KEY.get(item.kind)?.usage;
+  const fuel: "electric" | "gas" = item.fuel === "gas" || item.fuel === "electric" ? item.fuel : usage?.fuel || "electric";
+  const rate = (fuel === "gas" ? rates.gas : rates.electricity) / 100;
+  const own = { annual: num(item.annual_kwh), perUse: num(item.energy_per_use_kwh), perWeek: num(item.uses_per_week), watts: num(item.power_watts), hours: num(item.hours_per_day) };
+  const round = (n: number) => Math.round(n * 100) / 100;
+
+  if (own.annual != null) {
+    return { fuel, annualKwh: own.annual, annualCost: round(own.annual * rate), perUse: null, perWeekUses: null, typical: false, basis: `${own.annual.toLocaleString("en-GB")} kWh a year (yours)` };
+  }
+  const hoursMode = own.watts != null || own.hours != null || usage?.mode === "hours";
+  if (hoursMode) {
+    const watts = own.watts ?? (usage?.mode === "hours" ? usage.watts : null);
+    const hours = own.hours ?? (usage?.mode === "hours" ? usage.hoursPerDay : null);
+    if (watts == null || hours == null) return null;
+    const kwh = (watts / 1000) * hours * 365;
+    return { fuel, annualKwh: Math.round(kwh), annualCost: round(kwh * rate), perUse: null, perWeekUses: null, typical: own.watts == null && own.hours == null, basis: `${watts}W for ${hours}h a day` };
+  }
+  if (usage?.mode === "annual" && own.perUse == null && own.perWeek == null) {
+    return { fuel, annualKwh: usage.kwh, annualCost: round(usage.kwh * rate), perUse: null, perWeekUses: null, typical: true, basis: `about ${usage.kwh.toLocaleString("en-GB")} kWh a year` };
+  }
+  const perUseKwh = own.perUse ?? (usage?.mode === "per_use" ? usage.kwh : null);
+  const perWeek = own.perWeek ?? (usage?.mode === "per_use" ? usage.perWeek : null);
+  if (perUseKwh == null || perWeek == null) return null;
+  const kwh = perUseKwh * perWeek * 52;
+  return { fuel, annualKwh: Math.round(kwh), annualCost: round(kwh * rate), perUse: round(perUseKwh * rate), perWeekUses: perWeek, typical: own.perUse == null && own.perWeek == null, basis: `${perUseKwh} kWh a use, ${perWeek} times a week` };
 }

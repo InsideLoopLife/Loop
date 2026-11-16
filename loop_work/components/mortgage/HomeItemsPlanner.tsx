@@ -1,22 +1,29 @@
 "use client";
 
-// Things in the home, as a list: type a product name or paste a shop link, add what you paid,
-// when you bought it and the warranty. Each line shows when the warranty ends and roughly when
-// it'll need replacing. (The room-map version is parked in HomeItemsMapPlanner.tsx.)
+// Things in the home, as a list of cards: paste a shop link (picture, name and price are looked
+// up where the shop allows it) or type a name, add the price, date and warranty. Each card shows
+// a lifespan timeline, what it costs to run and what it really costs a year to own. Changes made
+// in another tab or by someone else in the household appear straight away.
+// (The room-map version is parked in HomeItemsMapPlanner.tsx.)
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { deleteHomeItem, listHomeItems, saveHomeItem, setHomeItemStatus, type HomeItemInput } from "@/app/mortgage/home-items-actions";
-import { HOME_ITEM_KINDS, KIND_BY_KEY, STATUS_STYLE, nameFromProductUrl, parseHomeItemText, planHomeItem, type HomeItem } from "@/lib/home/items";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { deleteHomeItem, listHomeItems, previewProductLink, saveEnergyRates, saveHomeItem, setHomeItemStatus, type HomeItemInput } from "@/app/mortgage/home-items-actions";
+import { HOME_ITEM_KINDS, KIND_BY_KEY, PRICE_CAP_RATES, STATUS_STYLE, nameFromProductUrl, parseHomeItemText, planHomeItem, runningCost, type EnergyRates, type HomeItem, type HomeItemPlan, type RunningCost } from "@/lib/home/items";
+import { createClient } from "@/lib/supabase/client";
 
 const money = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
 const money2 = (n: number) => `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const niceDate = (iso: string | null | undefined) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "—");
+const pence = (pounds: number) => (pounds < 1 ? `${Math.round(pounds * 100)}p` : money2(pounds));
 const monthYear = (iso: string | null | undefined) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }) : "—");
 const londonToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+const dayNumber = (iso: string) => Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) / 86_400_000;
 const STATUS_RANK = { past_life: 0, nearing_end: 1, warranty_ending: 2, out_of_warranty: 3, unknown: 4, in_warranty: 5 } as const;
+const SYNC_CHANNEL = "loop-home-items";
 
 const WARRANTY_OPTIONS: Array<[string, string]> = [["", "Not sure"], ["0", "No warranty"], ["12", "1 year"], ["24", "2 years"], ["36", "3 years"], ["60", "5 years"], ["72", "6 years"], ["120", "10 years"], ["custom", "Other…"]];
 const PRESET_MONTHS = new Set(WARRANTY_OPTIONS.map(([value]) => value).filter((value) => value && value !== "custom"));
+
+type Preview = { url: string; loading: boolean; title: string | null; image: string | null; price: number | null; brand: string | null; reason?: string };
 
 type Form = {
   id?: string;
@@ -30,51 +37,54 @@ type Form = {
   brand: string;
   retailer: string;
   productUrl: string;
+  imageUrl: string;
   extendedWarrantyEndsOn: string;
   warrantyProvider: string;
   expectedLifeYears: string;
   replacementCost: string;
   notes: string;
+  fuel: string;
+  energyPerUseKwh: string;
+  usesPerWeek: string;
+  powerWatts: string;
+  hoursPerDay: string;
+  annualKwh: string;
 };
 
-const emptyForm = (): Form => ({ input: "", kind: "", kindTouched: false, price: "", boughtOn: "", warranty: "12", warrantyMonths: "", brand: "", retailer: "", productUrl: "", extendedWarrantyEndsOn: "", warrantyProvider: "", expectedLifeYears: "", replacementCost: "", notes: "" });
+const emptyForm = (): Form => ({ input: "", kind: "", kindTouched: false, price: "", boughtOn: "", warranty: "12", warrantyMonths: "", brand: "", retailer: "", productUrl: "", imageUrl: "", extendedWarrantyEndsOn: "", warrantyProvider: "", expectedLifeYears: "", replacementCost: "", notes: "", fuel: "", energyPerUseKwh: "", usesPerWeek: "", powerWatts: "", hoursPerDay: "", annualKwh: "" });
+
+const str = (value: unknown) => (value === null || value === undefined ? "" : String(value));
 
 function formFromItem(item: HomeItem): Form {
   const months = item.warranty_months;
   return {
-    id: item.id,
-    input: item.label,
-    kind: item.kind,
-    kindTouched: true,
-    price: item.price != null ? String(item.price) : "",
-    boughtOn: item.purchased_on || "",
-    warranty: months == null ? "" : PRESET_MONTHS.has(String(months)) ? String(months) : "custom",
-    warrantyMonths: months != null ? String(months) : "",
-    brand: item.brand || "",
-    retailer: item.retailer || "",
-    productUrl: item.product_url || "",
-    extendedWarrantyEndsOn: item.extended_warranty_ends_on || "",
-    warrantyProvider: item.warranty_provider || "",
-    expectedLifeYears: item.expected_life_years != null ? String(item.expected_life_years) : "",
-    replacementCost: item.replacement_cost != null ? String(item.replacement_cost) : "",
-    notes: item.notes || "",
+    id: item.id, input: item.label, kind: item.kind, kindTouched: true, price: str(item.price), boughtOn: item.purchased_on || "",
+    warranty: months == null ? "" : PRESET_MONTHS.has(String(months)) ? String(months) : "custom", warrantyMonths: str(months),
+    brand: item.brand || "", retailer: item.retailer || "", productUrl: item.product_url || "", imageUrl: item.image_url || "",
+    extendedWarrantyEndsOn: item.extended_warranty_ends_on || "", warrantyProvider: item.warranty_provider || "",
+    expectedLifeYears: str(item.expected_life_years), replacementCost: str(item.replacement_cost), notes: item.notes || "",
+    fuel: item.fuel || "", energyPerUseKwh: str(item.energy_per_use_kwh), usesPerWeek: str(item.uses_per_week), powerWatts: str(item.power_watts), hoursPerDay: str(item.hours_per_day), annualKwh: str(item.annual_kwh),
   };
 }
 
-/** What the name/link box tells us: a cleaned-up name, the link, the shop, and a guess at what it is. */
-function readInput(form: Form, today: string) {
+/** What the name/link box tells us. A looked-up page title beats the name read from the link. */
+function readInput(form: Form, today: string, preview: Preview | null) {
   const raw = form.input.trim();
-  const link = /^https?:\/\//i.test(raw) ? nameFromProductUrl(raw) : null;
-  const name = link ? link.name || "" : raw;
+  const isLink = /^https?:\/\//i.test(raw);
+  const link = isLink ? nameFromProductUrl(raw) : null;
+  const fetched = isLink && preview?.url === raw ? preview : null;
+  const name = isLink ? fetched?.title || link?.name || "" : raw;
   const parsed = parseHomeItemText(name, today);
-  const kind = form.kindTouched && form.kind ? form.kind : parsed.kind || "other";
   return {
+    isLink,
     name,
-    url: link?.url || (form.productUrl && !link ? form.productUrl : ""),
+    url: link?.url || (!isLink ? form.productUrl : ""),
     retailer: link?.retailer || null,
-    kind,
-    brand: parsed.brand,
-    linkUnreadable: Boolean(link && !link.name),
+    kind: form.kindTouched && form.kind ? form.kind : parsed.kind || "other",
+    brand: fetched?.brand || parsed.brand,
+    image: form.imageUrl || fetched?.image || "",
+    price: fetched?.price ?? null,
+    fetched,
   };
 }
 
@@ -83,29 +93,85 @@ function warrantyMonthsOf(form: Form) {
   return form.warranty === "" ? null : Number(form.warranty);
 }
 
+/** The usage fields as an item, so the same running-cost maths drives the preview and the cards. */
+function usageOf(form: Form, kind: string) {
+  const n = (value: string) => (value.trim() === "" ? null : Number(value));
+  return { kind, fuel: (form.fuel || null) as HomeItem["fuel"], energy_per_use_kwh: n(form.energyPerUseKwh), uses_per_week: n(form.usesPerWeek), power_watts: n(form.powerWatts), hours_per_day: n(form.hoursPerDay), annual_kwh: n(form.annualKwh) };
+}
+
 export function HomeItemsPlanner({ homeId }: { homeId: string | null; houseStyle?: unknown }) {
   const [items, setItems] = useState<HomeItem[] | null>(null);
+  const [rates, setRates] = useState<EnergyRates & { own: boolean }>({ electricity: PRICE_CAP_RATES.electricity, gas: PRICE_CAP_RATES.gas, own: false });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(emptyForm);
   const [editing, setEditing] = useState<Form | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [showGone, setShowGone] = useState(false);
+  const [live, setLive] = useState(false);
   const [today] = useState(londonToday);
   const [isPending, startTransition] = useTransition();
   const [reloadKey, setReloadKey] = useState(0);
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const channelRef = useRef<BroadcastChannel | null>(null);
+
+  const refreshSoon = useCallback(() => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    reloadTimer.current = setTimeout(() => setReloadKey((key) => key + 1), 250);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     listHomeItems(homeId)
-      .then((result) => { if (!cancelled) setItems(result.items); })
+      .then((result) => { if (!cancelled) { setItems(result.items); setRates(result.rates); } })
       .catch((error) => { if (!cancelled) setLoadError(error instanceof Error ? error.message : "Couldn't load your things."); });
     return () => { cancelled = true; };
   }, [reloadKey, homeId]);
 
+  // Live updates: other tabs in this browser (instant), and anyone in the household (database changes).
+  useEffect(() => {
+    const broadcast = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(SYNC_CHANNEL) : null;
+    channelRef.current = broadcast;
+    if (broadcast) broadcast.onmessage = () => refreshSoon();
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`home-items-${homeId || "all"}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "home_items" }, () => refreshSoon())
+      .subscribe((status) => setLive(status === "SUBSCRIBED"));
+    const onFocus = () => { if (document.visibilityState === "visible") refreshSoon(); };
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      broadcast?.close();
+      channelRef.current = null;
+      supabase.removeChannel(channel);
+      document.removeEventListener("visibilitychange", onFocus);
+      if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    };
+  }, [homeId, refreshSoon]);
+
+  // Look up a pasted link once it stops changing.
+  const linkInput = form.input.trim();
+  useEffect(() => {
+    if (!/^https?:\/\/\S+\.\S+/i.test(linkInput)) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setPreview({ url: linkInput, loading: true, title: null, image: null, price: null, brand: null });
+      previewProductLink(linkInput)
+        .then((result) => { if (!cancelled) setPreview({ url: linkInput, loading: false, title: result.title, image: result.image, price: result.price, brand: result.brand, reason: result.reason }); })
+        .catch((error) => { if (!cancelled) setPreview({ url: linkInput, loading: false, title: null, image: null, price: null, brand: null, reason: error instanceof Error ? error.message : "Couldn't look that up." }); });
+    }, 600);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [linkInput]);
+
   const rows = useMemo(() => (items || [])
     .filter((item) => item.status === "active" && (!homeId || !item.home_id || item.home_id === homeId))
-    .map((item) => ({ item, plan: planHomeItem(item, today) }))
-    .sort((a, b) => STATUS_RANK[a.plan.status] - STATUS_RANK[b.plan.status] || String(a.plan.warrantyEnds || "9999").localeCompare(String(b.plan.warrantyEnds || "9999"))), [items, homeId, today]);
+    .map((item) => {
+      const plan = planHomeItem(item, today);
+      const run = runningCost(item, rates);
+      const ownershipPerYear = plan.replacementCost / Math.max(0.5, plan.lifeYears) + (run?.annualCost || 0);
+      return { item, plan, run, ownershipPerYear };
+    })
+    .sort((a, b) => STATUS_RANK[a.plan.status] - STATUS_RANK[b.plan.status] || String(a.plan.warrantyEnds || "9999").localeCompare(String(b.plan.warrantyEnds || "9999"))), [items, homeId, today, rates]);
   const gone = (items || []).filter((item) => item.status !== "active");
 
   const totals = useMemo(() => {
@@ -114,41 +180,36 @@ export function HomeItemsPlanner({ homeId }: { homeId: string | null; houseStyle
       count: rows.length,
       outOfWarranty: rows.filter(({ plan }) => ["out_of_warranty", "nearing_end", "past_life"].includes(plan.status)).length,
       ending: rows.filter(({ plan }) => plan.status === "warranty_ending").length,
+      running: rows.reduce((sum, { run }) => sum + (run?.annualCost || 0), 0),
+      runningTypical: rows.filter(({ run }) => run?.typical).length,
       setAside: rows.reduce((sum, { plan }) => sum + plan.monthlySetAside, 0),
       dueSoonCost: soon.reduce((sum, { plan }) => sum + plan.replacementCost, 0),
       dueSoonCount: soon.length,
-      guesses: rows.filter(({ plan }) => plan.costIsGuess).length,
     };
   }, [rows]);
 
+  function announce() { channelRef.current?.postMessage("changed"); }
+
   function submit(current: Form, done: () => void) {
-    const read = readInput(current, today);
+    const read = readInput(current, today, preview);
     const label = read.name.trim() || KIND_BY_KEY.get(read.kind)?.label || "";
     if (!label) { setMessage({ tone: "error", text: "Add what it is — a name or a link." }); return; }
     const kind = KIND_BY_KEY.get(read.kind) || KIND_BY_KEY.get("other")!;
     const payload: HomeItemInput = {
-      id: current.id,
-      homeId,
-      room: kind.room,
-      kind: kind.key,
-      label: label.slice(0, 120),
-      brand: current.brand || read.brand,
-      purchasedOn: current.boughtOn || null,
-      price: current.price,
-      retailer: current.retailer || read.retailer,
-      productUrl: read.url || null,
-      warrantyMonths: warrantyMonthsOf(current),
-      extendedWarrantyEndsOn: current.extendedWarrantyEndsOn || null,
-      warrantyProvider: current.warrantyProvider || null,
-      expectedLifeYears: current.expectedLifeYears,
-      replacementCost: current.replacementCost,
-      notes: current.notes || null,
+      id: current.id, homeId, room: kind.room, kind: kind.key, label: label.slice(0, 120),
+      brand: current.brand || read.brand, purchasedOn: current.boughtOn || null,
+      price: current.price || (read.price != null && !current.id ? String(read.price) : ""),
+      retailer: current.retailer || read.retailer, productUrl: read.url || null, imageUrl: read.image || null,
+      warrantyMonths: warrantyMonthsOf(current), extendedWarrantyEndsOn: current.extendedWarrantyEndsOn || null, warrantyProvider: current.warrantyProvider || null,
+      expectedLifeYears: current.expectedLifeYears, replacementCost: current.replacementCost, notes: current.notes || null,
+      fuel: current.fuel || null, energyPerUseKwh: current.energyPerUseKwh, usesPerWeek: current.usesPerWeek, powerWatts: current.powerWatts, hoursPerDay: current.hoursPerDay, annualKwh: current.annualKwh,
     };
     startTransition(async () => {
       try {
         await saveHomeItem(payload);
         done();
         setMessage({ tone: "ok", text: current.id ? "Saved." : `Added ${label}.` });
+        announce();
         setReloadKey((key) => key + 1);
       } catch (error) {
         setMessage({ tone: "error", text: error instanceof Error ? error.message : "Couldn't save that." });
@@ -158,7 +219,7 @@ export function HomeItemsPlanner({ homeId }: { homeId: string | null; houseStyle
 
   function act(task: () => Promise<unknown>) {
     startTransition(async () => {
-      try { await task(); setEditing(null); setReloadKey((key) => key + 1); }
+      try { await task(); setEditing(null); announce(); setReloadKey((key) => key + 1); }
       catch (error) { setMessage({ tone: "error", text: error instanceof Error ? error.message : "Couldn't change that." }); }
     });
   }
@@ -167,87 +228,59 @@ export function HomeItemsPlanner({ homeId }: { homeId: string | null; houseStyle
 
   return (
     <div className="space-y-5">
-      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-5">
         {[
-          ["Things logged", String(totals.count), totals.count ? `${totals.outOfWarranty} out of warranty` : "Add your first below"],
-          ["Warranty ending", String(totals.ending), "In the next 90 days"],
-          ["Put aside", `${money(totals.setAside)}/mo`, totals.guesses ? `Uses typical prices for ${totals.guesses}` : "So replacements are covered"],
+          ["Things logged", String(totals.count), totals.count ? `${totals.outOfWarranty} out of warranty · ${totals.ending} ending soon` : "Add your first below"],
+          ["Running costs", `${money(totals.running)}/yr`, totals.runningTypical ? `${totals.runningTypical} using typical use — add yours` : "From how you use them"],
+          ["Put aside", `${money(totals.setAside)}/mo`, "So replacements are covered"],
           ["Could need replacing", money(totals.dueSoonCost), totals.dueSoonCount ? `${totals.dueSoonCount} within a year or past usual life` : "Nothing due in the next year"],
-        ].map(([label, main, helper]) => (
-          <article key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          ["Real cost a year", money(rows.reduce((sum, row) => sum + row.ownershipPerYear, 0)), "Wear and tear + running"],
+        ].map(([label, main, helper], index) => (
+          <article key={label} className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${index === 4 ? "col-span-2 xl:col-span-1" : ""}`}>
             <p className="text-[10px] font-bold uppercase text-slate-400">{label}</p>
-            <p className="mt-2 text-2xl font-bold">{main}</p>
+            <p className="mt-2 text-2xl font-bold tabular-nums">{main}</p>
             <p className="mt-1 text-[11px] font-semibold text-slate-500">{helper}</p>
           </article>
         ))}
       </section>
 
+      <RatesBar rates={rates} homeId={homeId} onSaved={() => { announce(); setReloadKey((key) => key + 1); }} />
+
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <h2 className="text-lg font-bold">Add something</h2>
-        <ItemFields form={form} setForm={setForm} today={today} />
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button type="button" disabled={isPending || !form.input.trim()} onClick={() => submit(form, () => setForm(emptyForm()))} className="rounded-xl bg-slate-950 px-5 py-2.5 text-xs font-bold text-white disabled:bg-slate-300">{isPending && !editing ? "Adding…" : "Add"}</button>
+        <ItemFields form={form} setForm={setForm} today={today} preview={preview} rates={rates} />
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button type="button" disabled={isPending || !form.input.trim()} onClick={() => submit(form, () => { setForm(emptyForm()); setPreview(null); })} className="rounded-xl bg-slate-950 px-5 py-2.5 text-xs font-bold text-white disabled:bg-slate-300">{isPending && !editing ? "Adding…" : "Add"}</button>
           {message ? <p className={`text-xs font-bold ${message.tone === "ok" ? "text-emerald-700" : "text-rose-700"}`}>{message.text}</p> : null}
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
+      <section>
+        <div className="mb-3 flex items-center justify-between gap-3 px-1">
           <h2 className="text-lg font-bold">Your things</h2>
-          <span className="text-xs font-semibold text-slate-400">Most urgent first</span>
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
+            <span className={`h-2 w-2 rounded-full ${live ? "bg-emerald-500" : "bg-slate-300"}`} />{live ? "Live — updates as things change" : "Most urgent first"}
+          </span>
         </div>
-        {items === null ? <p className="p-5 text-sm text-slate-400">Loading…</p> : null}
-        {items !== null && !rows.length ? <p className="p-5 text-sm text-slate-500">Nothing yet. Add your dishwasher, washing machine, boiler, TV — anything you&apos;d have to replace.</p> : null}
-        {rows.length ? (
-          <div className="hidden grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,1.2fr)_auto] gap-3 border-b border-slate-100 px-5 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400 md:grid">
-            <span>Item</span><span>Bought</span><span className="text-right">Paid</span><span>Warranty</span><span>Replace around</span><span />
-          </div>
-        ) : null}
-        <ul className="divide-y divide-slate-100">
-          {rows.map(({ item, plan }) => {
-            const kind = KIND_BY_KEY.get(item.kind);
-            if (editing?.id === item.id) {
-              return (
-                <li key={item.id} className="bg-violet-50/40 px-4 py-4 sm:px-5">
-                  <ItemFields form={editing} setForm={(next) => setEditing(typeof next === "function" ? next(editing) : next)} today={today} expanded />
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <button type="button" disabled={isPending} onClick={() => submit(editing, () => setEditing(null))} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">{isPending ? "Saving…" : "Save"}</button>
-                    <button type="button" onClick={() => setEditing(null)} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Cancel</button>
-                    <button type="button" disabled={isPending} onClick={() => act(() => setHomeItemStatus(item.id, "replaced"))} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Replaced it</button>
-                    <button type="button" disabled={isPending} onClick={() => act(() => setHomeItemStatus(item.id, "gone"))} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Got rid of it</button>
-                    <button type="button" disabled={isPending} onClick={() => { if (window.confirm(`Delete ${item.label}? This can't be undone. (Use "Replaced it" to keep its history.)`)) act(() => deleteHomeItem(item.id)); }} className="ml-auto text-xs font-bold text-rose-700">Delete</button>
-                  </div>
-                </li>
-              );
-            }
-            return (
-              <li key={item.id} className="grid gap-2 px-4 py-3 sm:px-5 md:grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,1.2fr)_auto] md:items-center md:gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-50 text-base" style={{ boxShadow: `0 0 0 2px ${STATUS_STYLE[plan.status].dot}` }} aria-hidden>{kind?.icon || "📦"}</span>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-slate-950" title={item.label}>{item.label}</p>
-                    <p className="truncate text-[11px] font-semibold text-slate-500">
-                      {[kind && kind.key !== "other" ? kind.label : null, item.brand, item.retailer].filter(Boolean).join(" · ") || "—"}
-                      {item.product_url ? <> · <a href={item.product_url} target="_blank" rel="noopener noreferrer" className="text-violet-700 hover:underline">link</a></> : null}
-                    </p>
-                  </div>
-                </div>
-                <p className="text-xs font-semibold text-slate-600"><span className="font-bold text-slate-400 md:hidden">Bought </span>{monthYear(item.purchased_on)}</p>
-                <p className="text-xs font-bold text-slate-800 md:text-right"><span className="font-bold text-slate-400 md:hidden">Paid </span>{item.price != null ? money2(Number(item.price)) : "—"}</p>
-                <div>
-                  <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[plan.status].chip}`}>{STATUS_STYLE[plan.status].label}</span>
-                  <p className="mt-0.5 text-[11px] font-semibold text-slate-500">{plan.warrantyEnds ? `${plan.daysToWarrantyEnd != null && plan.daysToWarrantyEnd < 0 ? "Ended" : "Ends"} ${niceDate(plan.warrantyEnds)}` : item.warranty_months === 0 ? "No warranty" : "Add bought date + warranty"}</p>
-                </div>
-                <div className="text-xs">
-                  <p className="font-bold text-slate-800">{plan.lifeEnds ? monthYear(plan.lifeEnds) : "—"}<span className="font-semibold text-slate-500"> · {money(plan.replacementCost)}{plan.costIsGuess ? "*" : ""}</span></p>
-                  <p className="text-[11px] font-semibold text-slate-500">{plan.monthlySetAside > 0 ? `${money2(plan.monthlySetAside)}/mo to put aside` : plan.status === "past_life" ? "Could go any time" : plan.status === "nearing_end" ? "Due within a year" : ""}</p>
-                </div>
-                <button type="button" onClick={() => { setMessage(null); setEditing(formFromItem(item)); }} className="justify-self-start rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 md:justify-self-end">Edit</button>
-              </li>
-            );
-          })}
+        {items === null ? <p className="rounded-2xl bg-white p-5 text-sm text-slate-400 ring-1 ring-slate-200">Loading…</p> : null}
+        {items !== null && !rows.length ? <p className="rounded-2xl bg-white p-5 text-sm text-slate-500 ring-1 ring-slate-200">Nothing yet. Add your dishwasher, washing machine, boiler, TV — anything you&apos;d have to replace.</p> : null}
+        <ul className="grid gap-3 lg:grid-cols-2">
+          {rows.map(({ item, plan, run, ownershipPerYear }) => editing?.id === item.id ? (
+            <li key={item.id} className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm lg:col-span-2 sm:p-5">
+              <ItemFields form={editing} setForm={(next) => setEditing(next)} today={today} preview={null} rates={rates} expanded />
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button type="button" disabled={isPending} onClick={() => submit(editing, () => setEditing(null))} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">{isPending ? "Saving…" : "Save"}</button>
+                <button type="button" onClick={() => setEditing(null)} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Cancel</button>
+                <button type="button" disabled={isPending} onClick={() => act(() => setHomeItemStatus(item.id, "replaced"))} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Replaced it</button>
+                <button type="button" disabled={isPending} onClick={() => act(() => setHomeItemStatus(item.id, "gone"))} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Got rid of it</button>
+                <button type="button" disabled={isPending} onClick={() => { if (window.confirm(`Delete ${item.label}? This can't be undone. (Use "Replaced it" to keep its history.)`)) act(() => deleteHomeItem(item.id)); }} className="ml-auto text-xs font-bold text-rose-700">Delete</button>
+              </div>
+            </li>
+          ) : (
+            <ItemCard key={item.id} item={item} plan={plan} run={run} ownershipPerYear={ownershipPerYear} today={today} onEdit={() => { setMessage(null); setEditing(formFromItem(item)); }} />
+          ))}
         </ul>
-        {rows.length ? <p className="border-t border-slate-100 px-5 py-3 text-[11px] font-semibold leading-5 text-slate-400">Replace around uses a rough UK lifespan for each kind of item; * means a typical price, because no price was added. Change either under Edit → More details.</p> : null}
+        {rows.length ? <p className="mt-3 px-1 text-[11px] font-semibold leading-5 text-slate-400">Lifespans, typical prices and typical use are rough UK guides — add your own under Edit for sharper numbers. Running costs use {rates.own ? "your energy prices" : `the ${PRICE_CAP_RATES.label}`}.</p> : null}
       </section>
 
       {gone.length ? (
@@ -269,32 +302,141 @@ export function HomeItemsPlanner({ homeId }: { homeId: string | null; houseStyle
   );
 }
 
-function ItemFields({ form, setForm, today, expanded = false }: { form: Form; setForm: (next: Form | ((current: Form) => Form)) => void; today: string; expanded?: boolean }) {
+function ProductPicture({ image, kind, size = 72 }: { image: string | null | undefined; kind: string; size?: number }) {
+  const [broken, setBroken] = useState<string | null>(null);
+  const icon = KIND_BY_KEY.get(kind)?.icon || "📦";
+  const showImage = image && broken !== image;
+  return (
+    <span className="grid shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-slate-50 to-violet-50 ring-1 ring-slate-200" style={{ width: size, height: size }}>
+      {showImage ? (
+        // eslint-disable-next-line @next/next/no-img-element -- shop images come from many domains
+        <img src={image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(image)} className="h-full w-full bg-white object-contain p-1.5" />
+      ) : (
+        <span style={{ fontSize: size * 0.45 }} aria-hidden>{icon}</span>
+      )}
+    </span>
+  );
+}
+
+/** Bought → warranty → usual end of life, with today marked. */
+function Lifeline({ item, plan, today }: { item: HomeItem; plan: HomeItemPlan; today: string }) {
+  if (!item.purchased_on || !plan.lifeEnds) {
+    return <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500">Add the date you bought it to see its timeline.</p>;
+  }
+  const start = dayNumber(item.purchased_on);
+  const lifeEnd = dayNumber(plan.lifeEnds);
+  const now = dayNumber(today);
+  const end = Math.max(lifeEnd, now) + 1;
+  const pct = (d: number) => `${Math.max(0, Math.min(100, ((d - start) / (end - start)) * 100))}%`;
+  const warrantyEnd = plan.warrantyEnds ? Math.min(dayNumber(plan.warrantyEnds), end) : null;
+  return (
+    <div>
+      <div className="relative h-3 overflow-hidden rounded-full bg-slate-100">
+        {warrantyEnd ? <span className="absolute inset-y-0 left-0 bg-emerald-400" style={{ width: pct(warrantyEnd) }} /> : null}
+        <span className="absolute inset-y-0 bg-orange-300" style={{ left: pct(lifeEnd - 365.25), width: `calc(${pct(lifeEnd)} - ${pct(lifeEnd - 365.25)})` }} />
+        {now > lifeEnd ? <span className="absolute inset-y-0 bg-rose-400" style={{ left: pct(lifeEnd), right: 0 }} /> : null}
+        <span className="absolute -top-0.5 h-4 w-1 rounded-full bg-violet-700 ring-2 ring-white" style={{ left: `calc(${pct(now)} - 2px)` }} title="Today" />
+      </div>
+      <div className="mt-1.5 flex justify-between gap-2 text-[10px] font-semibold text-slate-500">
+        <span>Bought {monthYear(item.purchased_on)}</span>
+        {plan.warrantyEnds ? <span className="text-emerald-700">Warranty to {monthYear(plan.warrantyEnds)}</span> : <span>No warranty info</span>}
+        <span className={now > lifeEnd ? "text-rose-700" : "text-orange-700"}>Usually lasts to ~{monthYear(plan.lifeEnds)}</span>
+      </div>
+    </div>
+  );
+}
+
+function ItemCard({ item, plan, run, ownershipPerYear, today, onEdit }: { item: HomeItem; plan: HomeItemPlan; run: RunningCost | null; ownershipPerYear: number; today: string; onEdit: () => void }) {
+  const kind = KIND_BY_KEY.get(item.kind);
+  return (
+    <li className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md">
+      <div className="flex gap-3">
+        <ProductPicture image={item.image_url} kind={item.kind} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="line-clamp-2 text-sm font-bold leading-5 text-slate-950" title={item.label}>{item.label}</p>
+            <button type="button" onClick={onEdit} className="shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50">Edit</button>
+          </div>
+          <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-500">
+            {[kind && kind.key !== "other" ? kind.label : null, item.brand, item.retailer].filter(Boolean).join(" · ") || "—"}
+            {item.product_url ? <> · <a href={item.product_url} target="_blank" rel="noopener noreferrer" className="text-violet-700 hover:underline">view</a></> : null}
+          </p>
+          <span className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[plan.status].chip}`}>{STATUS_STYLE[plan.status].label}</span>
+        </div>
+      </div>
+      <Lifeline item={item} plan={plan} today={today} />
+      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="rounded-xl bg-slate-50 px-3 py-2"><dt className="text-[10px] font-bold uppercase text-slate-400">Paid</dt><dd className="text-sm font-bold tabular-nums">{item.price != null ? money(Number(item.price)) : "—"}</dd></div>
+        <div className="rounded-xl bg-slate-50 px-3 py-2" title={run ? `${run.basis}${run.typical ? " (typical)" : ""} · ${run.annualKwh.toLocaleString("en-GB")} kWh ${run.fuel === "gas" ? "gas" : "electricity"} a year` : undefined}>
+          <dt className="text-[10px] font-bold uppercase text-slate-400">To run</dt>
+          <dd className="text-sm font-bold tabular-nums">{run ? `${money(run.annualCost)}/yr` : "—"}</dd>
+          {run ? <dd className="text-[10px] font-semibold text-slate-500">{run.perUse != null ? `${pence(run.perUse)} a use` : `${pence(run.annualCost / 52)} a week`}{run.typical ? " · typical" : ""}</dd> : null}
+        </div>
+        <div className="rounded-xl bg-slate-50 px-3 py-2"><dt className="text-[10px] font-bold uppercase text-slate-400">Replace</dt><dd className="text-sm font-bold tabular-nums">{money(plan.replacementCost)}{plan.costIsGuess ? <span className="text-slate-400">*</span> : null}</dd><dd className="text-[10px] font-semibold text-slate-500">{plan.monthlySetAside > 0 ? `${money2(plan.monthlySetAside)}/mo aside` : plan.status === "past_life" ? "could go any time" : plan.status === "nearing_end" ? "within a year" : ""}</dd></div>
+        <div className="rounded-xl bg-violet-50 px-3 py-2"><dt className="text-[10px] font-bold uppercase text-violet-500">Real cost</dt><dd className="text-sm font-bold tabular-nums text-violet-950">{money(ownershipPerYear)}/yr</dd><dd className="text-[10px] font-semibold text-violet-700/70">wear + running</dd></div>
+      </dl>
+    </li>
+  );
+}
+
+function RatesBar({ rates, homeId, onSaved }: { rates: EnergyRates & { own: boolean }; homeId: string | null; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [electricity, setElectricity] = useState("");
+  const [gas, setGas] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  return (
+    <section className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-white px-4 py-3 text-xs ring-1 ring-slate-200">
+      <span className="font-bold text-slate-700">⚡ {rates.electricity}p/kWh electricity · 🔥 {rates.gas}p/kWh gas</span>
+      <span className="text-slate-400">{rates.own ? "Your prices" : PRICE_CAP_RATES.label}</span>
+      {!open ? <button type="button" onClick={() => { setOpen(true); setElectricity(String(rates.electricity)); setGas(String(rates.gas)); }} className="ml-auto font-bold text-violet-700">Use my tariff</button> : (
+        <span className="ml-auto flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1">Electricity <input inputMode="decimal" value={electricity} onChange={(e) => setElectricity(e.target.value)} className="w-16 rounded-lg border border-slate-200 px-2 py-1" />p</label>
+          <label className="flex items-center gap-1">Gas <input inputMode="decimal" value={gas} onChange={(e) => setGas(e.target.value)} className="w-16 rounded-lg border border-slate-200 px-2 py-1" />p</label>
+          <button type="button" disabled={pending || !homeId} onClick={() => startTransition(async () => { try { await saveEnergyRates(homeId!, electricity, gas); setOpen(false); setError(null); onSaved(); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't save."); } })} className="rounded-lg bg-slate-950 px-3 py-1.5 font-bold text-white disabled:bg-slate-300">Save</button>
+          {rates.own ? <button type="button" disabled={pending || !homeId} onClick={() => startTransition(async () => { try { await saveEnergyRates(homeId!, null, null); setOpen(false); onSaved(); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't save."); } })} className="font-bold text-slate-500">Use price cap</button> : null}
+          <button type="button" onClick={() => setOpen(false)} className="font-bold text-slate-500">Cancel</button>
+        </span>
+      )}
+      {error ? <span className="w-full text-rose-700">{error}</span> : null}
+    </section>
+  );
+}
+
+function ItemFields({ form, setForm, today, preview, rates, expanded = false }: { form: Form; setForm: (next: Form) => void; today: string; preview: Preview | null; rates: EnergyRates; expanded?: boolean }) {
   const set = (patch: Partial<Form>) => setForm({ ...form, ...patch });
-  const read = readInput(form, today);
+  const read = readInput(form, today, preview);
   const kind = KIND_BY_KEY.get(read.kind) || KIND_BY_KEY.get("other")!;
+  const usage = kind.usage;
+  const run = runningCost(usageOf(form, kind.key), rates);
+  const lookingUp = read.isLink && preview?.url === form.input.trim() && preview.loading;
   const input = "mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm";
   const label = "block text-xs font-bold text-slate-600";
+  const ownUsage = Boolean(form.energyPerUseKwh || form.usesPerWeek || form.powerWatts || form.hoursPerDay || form.annualKwh || form.fuel);
   return (
     <div className="mt-3 space-y-3">
-      <label className={label}>Product name or link
-        <input value={form.input} onChange={(event) => set({ input: event.target.value })} placeholder="e.g. Bosch Series 4 dishwasher — or paste the link from Currys, AO, Amazon…" className={input} />
-      </label>
-      {form.input.trim() ? (
-        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
-          {read.url ? <span className="rounded-full bg-violet-50 px-2 py-0.5 font-bold text-violet-800">Link saved{read.retailer ? ` · ${read.retailer}` : ""}</span> : null}
-          {read.url && read.name ? <span className="truncate">Name: <span className="font-bold text-slate-700">{read.name}</span></span> : null}
-          {read.linkUnreadable ? <span className="text-amber-700">Couldn&apos;t read a name from that link — pick what it is below.</span> : null}
-          <label className="inline-flex items-center gap-1">It&apos;s a
-            <select value={read.kind} onChange={(event) => set({ kind: event.target.value, kindTouched: true })} className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-bold text-slate-700">
-              {HOME_ITEM_KINDS.map((option) => <option key={option.key} value={option.key}>{option.icon} {option.label}</option>)}
-            </select>
-          </label>
-        </div>
-      ) : null}
+      <div className="flex gap-3">
+        {form.input.trim() ? <ProductPicture image={read.image} kind={kind.key} size={64} /> : null}
+        <label className={`${label} min-w-0 flex-1`}>Product name or link
+          <input value={form.input} onChange={(event) => set({ input: event.target.value })} placeholder="e.g. Bosch Series 4 dishwasher — or paste the link from Currys, AO, Amazon…" className={input} />
+          {form.input.trim() ? (
+            <span className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
+              {read.isLink ? <span className="rounded-full bg-violet-50 px-2 py-0.5 font-bold text-violet-800">{lookingUp ? "Looking it up…" : `Link saved${read.retailer ? ` · ${read.retailer}` : ""}`}</span> : null}
+              {read.isLink && read.name ? <span className="truncate">Name: <span className="font-bold text-slate-700">{read.name}</span></span> : null}
+              {read.isLink && !lookingUp && read.fetched?.price != null && !form.price ? <span>Price on the page: <span className="font-bold text-slate-700">{money2(read.fetched.price)}</span></span> : null}
+              {read.isLink && !lookingUp && read.fetched && !read.fetched.title && read.fetched.reason ? <span className="text-amber-700">{read.fetched.reason}{read.name ? " Name taken from the link." : ""}</span> : null}
+              <span className="inline-flex items-center gap-1">It&apos;s a
+                <select value={read.kind} onChange={(event) => set({ kind: event.target.value, kindTouched: true })} className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-bold text-slate-700">
+                  {HOME_ITEM_KINDS.map((option) => <option key={option.key} value={option.key}>{option.icon} {option.label}</option>)}
+                </select>
+              </span>
+            </span>
+          ) : null}
+        </label>
+      </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <label className={label}>Price paid (£)
-          <input inputMode="decimal" value={form.price} onChange={(event) => set({ price: event.target.value })} placeholder="e.g. 449" className={input} />
+          <input inputMode="decimal" value={form.price} onChange={(event) => set({ price: event.target.value })} placeholder={read.fetched?.price != null ? String(read.fetched.price) : "e.g. 449"} className={input} />
         </label>
         <label className={label}>Date bought
           <input type="date" value={form.boughtOn} max={today} onChange={(event) => set({ boughtOn: event.target.value })} className={input} />
@@ -310,8 +452,56 @@ function ItemFields({ form, setForm, today, expanded = false }: { form: Form; se
           <input inputMode="numeric" value={form.warrantyMonths} onChange={(event) => set({ warrantyMonths: event.target.value.replace(/\D/g, "").slice(0, 3) })} className={input} />
         </label>
       ) : null}
-      <details open={expanded && Boolean(form.extendedWarrantyEndsOn || form.warrantyProvider || form.expectedLifeYears || form.replacementCost || form.notes || form.brand || form.retailer)} className="rounded-xl bg-slate-50 p-3">
-        <summary className="cursor-pointer text-xs font-bold text-slate-600">More details (extended cover, brand, your own lifespan)</summary>
+
+      {kind.key === "sofa" || kind.key === "mattress" ? null : (
+        <details open={expanded && ownUsage} className="rounded-xl bg-emerald-50/60 p-3 ring-1 ring-emerald-100">
+          <summary className="cursor-pointer text-xs font-bold text-emerald-900">
+            How you use it <span className="font-semibold text-emerald-800/70">— {run ? `about ${money(run.annualCost)} a year to run${run.perUse != null ? `, ${pence(run.perUse)} a use` : ""}${run.typical ? " (typical)" : ""}` : "for running costs"}</span>
+          </summary>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <label className={label}>Runs on
+              <select value={form.fuel} onChange={(event) => set({ fuel: event.target.value })} className={input}>
+                <option value="">{usage?.fuel === "gas" ? "Gas (usual)" : "Electricity (usual)"}</option>
+                <option value="electric">Electricity</option>
+                <option value="gas">Gas</option>
+                <option value="none">Doesn&apos;t use energy</option>
+              </select>
+            </label>
+            {usage?.mode === "hours" || form.powerWatts || form.hoursPerDay ? (
+              <>
+                <label className={label}>Power (watts)
+                  <input inputMode="decimal" value={form.powerWatts} onChange={(event) => set({ powerWatts: event.target.value })} placeholder={usage?.mode === "hours" ? `About ${usage.watts}` : "e.g. 100"} className={input} />
+                </label>
+                <label className={label}>Hours a day
+                  <input inputMode="decimal" value={form.hoursPerDay} onChange={(event) => set({ hoursPerDay: event.target.value })} placeholder={usage?.mode === "hours" ? `About ${usage.hoursPerDay}` : "e.g. 3"} className={input} />
+                </label>
+              </>
+            ) : usage?.mode === "annual" ? (
+              <label className={`${label} sm:col-span-2`}>kWh a year (on the energy label)
+                <input inputMode="decimal" value={form.annualKwh} onChange={(event) => set({ annualKwh: event.target.value })} placeholder={`About ${usage.kwh.toLocaleString("en-GB")}`} className={input} />
+              </label>
+            ) : (
+              <>
+                <label className={label}>Times a week
+                  <input inputMode="decimal" value={form.usesPerWeek} onChange={(event) => set({ usesPerWeek: event.target.value })} placeholder={usage?.mode === "per_use" ? `About ${usage.perWeek}` : "e.g. 5"} className={input} />
+                </label>
+                <label className={label}>Energy per use (kWh)
+                  <input inputMode="decimal" value={form.energyPerUseKwh} onChange={(event) => set({ energyPerUseKwh: event.target.value })} placeholder={usage?.mode === "per_use" ? `About ${usage.kwh}` : "e.g. 0.8"} className={input} />
+                </label>
+              </>
+            )}
+          </div>
+          {usage?.mode !== "annual" ? (
+            <label className={`${label} mt-3 max-w-xs`}>Or kWh a year, if you know it
+              <input inputMode="decimal" value={form.annualKwh} onChange={(event) => set({ annualKwh: event.target.value })} placeholder="From the energy label or a smart plug" className={input} />
+            </label>
+          ) : null}
+          <p className="mt-2 text-[11px] font-semibold text-emerald-900/70">The energy label, the manual or a smart plug gives the most accurate figures. Blank boxes use the typical amounts shown.</p>
+        </details>
+      )}
+
+      <details open={expanded && Boolean(form.extendedWarrantyEndsOn || form.warrantyProvider || form.expectedLifeYears || form.replacementCost || form.notes || form.brand || form.retailer || form.imageUrl)} className="rounded-xl bg-slate-50 p-3">
+        <summary className="cursor-pointer text-xs font-bold text-slate-600">More details (extended cover, picture, your own lifespan)</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className={label}>Extended warranty or cover ends
             <input type="date" value={form.extendedWarrantyEndsOn} onChange={(event) => set({ extendedWarrantyEndsOn: event.target.value })} className={input} />
@@ -330,6 +520,9 @@ function ItemFields({ form, setForm, today, expanded = false }: { form: Form; se
           </label>
           <label className={label}>Cost to replace (£)
             <input inputMode="decimal" value={form.replacementCost} onChange={(event) => set({ replacementCost: event.target.value })} placeholder={form.price ? "Uses price paid" : kind.typicalCost ? `About ${money(kind.typicalCost)}` : "Optional"} className={input} />
+          </label>
+          <label className={`${label} sm:col-span-2`}>Picture link (https)
+            <input value={form.imageUrl} onChange={(event) => set({ imageUrl: event.target.value })} placeholder={read.fetched?.image ? "Using the picture from the shop page" : "Right-click a product photo → Copy image address"} className={input} />
           </label>
           <label className={`${label} sm:col-span-2`}>Notes
             <textarea value={form.notes} onChange={(event) => set({ notes: event.target.value })} rows={2} placeholder="Serial number, where the receipt is, repair history…" className={input} />
