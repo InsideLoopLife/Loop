@@ -94,6 +94,14 @@ export function PersonHealthDetails({ person, onDone }: { person: NutritionPerso
   }), [birthDate, person.relationship, sex, currentWeight, height, activity, goal, lowCaffeine]);
   const targets = targetsForPerson(draftProfile, todayIso());
   const estimate = targets.isChild ? null : estimateAdultCalories(draftProfile, targets.ageYears);
+  const missingParts = [
+    !birthDate ? "date of birth" : null,
+    !sex ? "reference values" : null,
+    !(Number(height) > 120) ? "height" : null,
+    !(currentWeight && currentWeight > 30) ? "weight" : null,
+    !activity ? "activity" : null,
+  ].filter((part): part is string => Boolean(part));
+  const missingForGuide = missingParts.length > 1 ? `${missingParts.slice(0, -1).join(", ")} and ${missingParts[missingParts.length - 1]}` : missingParts[0] || "your details";
 
   const weightTrend = useMemo(() => {
     const weights = snapshot?.weights || [];
@@ -155,7 +163,7 @@ export function PersonHealthDetails({ person, onDone }: { person: NutritionPerso
             ? `Uses UK targets for ${targets.bandLabel.toLowerCase()}. Children don't get calorie or weight goals.`
             : estimate
               ? `Personal calorie guide about ${estimate.kcal.toLocaleString("en-GB")} kcal a day (resting ${estimate.bmr.toLocaleString("en-GB")} kcal × activity ${estimate.factor}${estimate.goal === "lose" ? ", less 500 to lose weight" : estimate.goal === "gain" ? ", plus 300 to gain" : ""}).`
-              : `Using the UK average of ${targets.calories.toLocaleString("en-GB")} kcal. Add date of birth, reference values, height, weight and activity for a personal guide.`}
+              : `Using the UK average of ${targets.calories.toLocaleString("en-GB")} kcal. Add ${missingForGuide} for a personal guide.`}
         </p>
         {!canEdit ? <p className="mt-2 text-xs font-black text-amber-800">Only the person who added {person.name} can change these details.</p> : null}
       </div>
