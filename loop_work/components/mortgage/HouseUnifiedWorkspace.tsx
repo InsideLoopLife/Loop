@@ -6,6 +6,7 @@ import { WeeklyDealSearch, type MortgageDealSearchRow } from "@/components/mortg
 import { AreaPriceCard, CouncilTaxCheck, MortgageFacts, RenewalCountdown, RunningCosts, TermNote, type CouncilTaxBandQuote } from "@/components/mortgage/HouseOverviewExtras";
 import { HomeJourney, type HomeJourneyEvent } from "@/components/mortgage/HomeJourney";
 import { HouseStyleCard } from "@/components/mortgage/HouseStyleCard";
+import { HomeItemsPlanner } from "@/components/mortgage/HomeItemsPlanner";
 import type { HouseStyle } from "@/components/mortgage/HouseIllustration";
 import { saveCouncilTaxBand } from "@/app/mortgage/actions";
 import { useRouter } from "next/navigation";
@@ -83,7 +84,7 @@ import {
   valuationSummary,
 } from "@/lib/wealth/house-snapshot";
 
-type Tab = "overview" | "property" | "rates" | "affordability" | "overpayments" | "moving";
+type Tab = "overview" | "property" | "rates" | "affordability" | "overpayments" | "moving" | "things";
 type ModalState =
   | null
   | { type: "add_home" }
@@ -128,11 +129,13 @@ const TABS: [Tab, string][] = [
   ["rates", "Renewal"],
   ["overpayments", "Overpayments"],
   ["moving", "Moving"],
+  ["things", "In the home"],
 ];
 // Older links: Property now lives on Overview, Affordability on Moving.
 const TAB_ALIASES: Partial<Record<string, Tab>> = { property: "overview", affordability: "moving" };
 
 const TAB_META: Record<Tab, { eyebrow: string; title: string; description: string }> = {
+  things: { eyebrow: "In the home", title: "Appliances & warranties", description: "What's in each room, when the warranty runs out, and what to put aside for when things wear out." },
   overview: { eyebrow: "House overview", title: "Your home, in one place", description: "Property, mortgage, affordability and market context in one live view." },
   property: { eyebrow: "Property", title: "Your property", description: "The home record, valuation evidence and equity in one place." },
   rates: { eyebrow: "Renewal", title: "Your next mortgage deal", description: "The cheapest deals for your home this week, the best from your own lender, and where rates are heading." },
@@ -471,6 +474,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
             </div>
           ) : null}
 
+          {tab === "things" ? <HomeItemsPlanner homeId={home?.id ?? null} /> : null}
           {tab === "overpayments" ? (
             <div className="mx-auto w-full max-w-none"><MortgageOverpaymentPlanner deal={deal} currentBalance={mortgage.balance} currentPayment={mortgage.payment} benchmarkRate={planningRate} /></div>
           ) : null}

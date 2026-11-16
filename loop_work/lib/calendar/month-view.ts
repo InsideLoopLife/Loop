@@ -7,6 +7,7 @@ import { capRenewedLines, englandWalesBankHolidays, plannedItemDatesForMonth, pl
 import { UK_HOLIDAY_PERIODS } from "@/lib/calculations/childcareCalendar";
 import { addNutritionTotals, NUTRITION_TOTAL_KEYS, scoreNutritionDay, type NutritionTotals } from "@/lib/nutrition/scoring";
 import { ageInYears, scoringTargets, targetsForPerson } from "@/lib/nutrition/targets";
+import { planHomeItem, type HomeItem } from "@/lib/home/items";
 
 export type CalendarMoneyItem = { id: string; label: string; amount: number; direction: "in" | "out"; personId: string | null; personName: string | null; kind: string; href: string };
 export type CalendarDateItem = { id: string; kind: "birthday" | "school_holiday" | "bank_holiday" | "price_change" | "ending" | "deal_end" | "childcare"; label: string; detail?: string; personId?: string | null; href?: string };
@@ -78,7 +79,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
   const dayList: string[] = [];
   for (let d = first; d <= last; d = addDays(d, 1)) dayList.push(d);
 
-  const [planResult, peopleResult, itemsResult, childCostsResult, dealsResult, logsResult, eventsResult, accountsResult] = await Promise.all([
+  const [planResult, peopleResult, itemsResult, childCostsResult, dealsResult, logsResult, eventsResult, accountsResult, homeItemsResult] = await Promise.all([
     // Previous and next months too: a payment due on Sunday the 1st really leaves on Friday the 30th.
     loadMonthPlans(supabase, { userId: opts.dataOwnerUserId, filter, months: [shiftMonth(month, -1), month, shiftMonth(month, 1)] }).catch(() => null),
     supabase.from("people").select("id, name, relationship, avatar_url, birth_date, nutrition_reference_sex, weight_kg, caffeine_limit_mg, daily_calorie_target, height_cm, activity_level, nutrition_goal, diet_type, food_allergies, account_status").or(opts.peopleFilter).or("account_status.is.null,account_status.neq.duplicate_merged"),
@@ -88,6 +89,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
     supabase.from("food_logs").select(NUTRIENT_COLUMNS).eq("user_id", opts.userId).gte("eaten_on", first).lte("eaten_on", last).limit(3000),
     supabase.from("calendar_events").select("id, user_id, person_id, source, event_type, title, event_date").in("source", ["loop_manual", "google"]).gte("event_date", first).lte("event_date", last).limit(500),
     supabase.from("financial_accounts").select("id, current_balance, balance_last_confirmed_at, updated_at, is_liability, account_status").eq("account_type", "current_account").or(filter),
+    supabase.from("home_items").select("id, room, kind, label, purchased_on, warranty_months, extended_warranty_ends_on, expected_life_years, price, replacement_cost, status, home_id, brand, model, retailer, warranty_provider, notes").eq("status", "active").or(filter).limit(500),
   ]);
 
   const people: Array<any> = (peopleResult.data || []).filter((person: any, index: number, all: any[]) => all.findIndex((other) => other.id === person.id) === index);
@@ -254,6 +256,11 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
   }
 
   /* ---------------- Events ---------------- */
+  // Appliance warranties running out.
+  for (const item of ((homeItemsResult?.data || []) as HomeItem[])) {
+    const plan = planHomeItem(item, first);
+    if (plan.warrantyEnds) dayFor(plan.warrantyEnds)?.dates.push({ id: `warranty-${item.id}`, kind: "ending", label: `${item.label} warranty ends`, detail: item.warranty_provider ? `Cover from ${item.warranty_provider}` : "After this, repairs are on you", href: "/mortgage?tab=things" });
+  }
   for (const event of (eventsResult.data || []) as any[]) {
     dayFor(event.event_date)?.events.push({ id: event.id, title: event.title, source: event.source, personId: event.person_id, mine: event.user_id === opts.userId });
   }
