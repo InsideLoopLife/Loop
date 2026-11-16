@@ -17,7 +17,7 @@ const securityHeaders = [
       "img-src 'self' data: blob: https:",
       "style-src 'self' 'unsafe-inline'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-      "connect-src 'self' https://*.supabase.co https://*.tile.openstreetmap.org https://nominatim.openstreetmap.org",
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.tile.openstreetmap.org https://nominatim.openstreetmap.org",
       "upgrade-insecure-requests",
     ].join("; "),
   },
