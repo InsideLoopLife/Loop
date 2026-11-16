@@ -405,6 +405,8 @@ function RatesBar({ rates, homeId, onSaved }: { rates: EnergyRates & { own: bool
 
 function ItemFields({ form, setForm, today, preview, rates, expanded = false }: { form: Form; setForm: (next: Form) => void; today: string; preview: Preview | null; rates: EnergyRates; expanded?: boolean }) {
   const set = (patch: Partial<Form>) => setForm({ ...form, ...patch });
+  const [looking, setLooking] = useState(false);
+  const [lookupNote, setLookupNote] = useState<string | null>(null);
   const read = readInput(form, today, preview);
   const kind = KIND_BY_KEY.get(read.kind) || KIND_BY_KEY.get("other")!;
   const usage = kind.usage;
@@ -500,8 +502,8 @@ function ItemFields({ form, setForm, today, preview, rates, expanded = false }: 
         </details>
       )}
 
-      <details open={expanded && Boolean(form.extendedWarrantyEndsOn || form.warrantyProvider || form.expectedLifeYears || form.replacementCost || form.notes || form.brand || form.retailer || form.imageUrl)} className="rounded-xl bg-slate-50 p-3">
-        <summary className="cursor-pointer text-xs font-bold text-slate-600">More details (extended cover, picture, your own lifespan)</summary>
+      <details open={expanded} className="rounded-xl bg-slate-50 p-3">
+        <summary className="cursor-pointer text-xs font-bold text-slate-600">More details (picture, shop link, extended cover, your own lifespan)</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className={label}>Extended warranty or cover ends
             <input type="date" value={form.extendedWarrantyEndsOn} onChange={(event) => set({ extendedWarrantyEndsOn: event.target.value })} className={input} />
@@ -521,6 +523,17 @@ function ItemFields({ form, setForm, today, preview, rates, expanded = false }: 
           <label className={label}>Cost to replace (£)
             <input inputMode="decimal" value={form.replacementCost} onChange={(event) => set({ replacementCost: event.target.value })} placeholder={form.price ? "Uses price paid" : kind.typicalCost ? `About ${money(kind.typicalCost)}` : "Optional"} className={input} />
           </label>
+          {!read.isLink ? (
+            <div className="sm:col-span-2">
+              <label className={label}>Shop link
+                <input value={form.productUrl} onChange={(event) => set({ productUrl: event.target.value.trim() })} placeholder="Paste the product page from the shop" className={input} />
+              </label>
+              {/^https?:\/\/\S+\.\S+/i.test(form.productUrl) ? (
+                <button type="button" disabled={looking} onClick={() => { setLooking(true); setLookupNote(null); previewProductLink(form.productUrl).then((result) => { setForm({ ...form, imageUrl: form.imageUrl || result.image || "", brand: form.brand || result.brand || "", retailer: form.retailer || nameFromProductUrl(form.productUrl)?.retailer || "" }); setLookupNote(result.image ? "Picture found." : result.reason || "No picture on that page — paste a picture link below."); }).catch((error) => setLookupNote(error instanceof Error ? error.message : "Couldn't look that up.")).finally(() => setLooking(false)); }} className="mt-2 rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-violet-700 ring-1 ring-violet-200 disabled:opacity-50">{looking ? "Looking…" : "Get picture from the link"}</button>
+              ) : null}
+              {lookupNote ? <span className="ml-2 text-[11px] font-semibold text-slate-500">{lookupNote}</span> : null}
+            </div>
+          ) : null}
           <label className={`${label} sm:col-span-2`}>Picture link (https)
             <input value={form.imageUrl} onChange={(event) => set({ imageUrl: event.target.value })} placeholder={read.fetched?.image ? "Using the picture from the shop page" : "Right-click a product photo → Copy image address"} className={input} />
           </label>
