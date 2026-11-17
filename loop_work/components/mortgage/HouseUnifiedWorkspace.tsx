@@ -214,6 +214,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
     TABS.some(([id]) => id === requested) ? requested : "overview",
   );
   const [modal, setModal] = useState<ModalState>(null);
+  const [addThingRequest, setAddThingRequest] = useState(0);
   const router = useRouter();
   const [showMaps, setShowMaps] = useState(false);
 
@@ -385,6 +386,11 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
               <button onClick={() => setModal({ type: "add_mortgage", homeId: home?.id })} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">▣ Add mortgage</button>
               <button onClick={() => choose("rates")} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">⇄ Compare rates</button>
             </div>
+            {tab === "things" ? (
+              <button type="button" onClick={() => setAddThingRequest((n) => n + 1)} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5 hover:shadow-xl">
+                <span className="grid h-6 w-6 place-items-center rounded-full bg-white/15 text-base leading-none">＋</span> Add something
+              </button>
+            ) : null}
 
           </div>
         </aside>
@@ -394,6 +400,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
             <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-600">{pageMeta.eyebrow}</p><h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">{pageMeta.title}</h1><p className="mt-2 max-w-3xl text-sm text-slate-500">{pageMeta.description}</p></div>
             <div className="shrink-0 pt-1">
               {tab === "moving" ? <button onClick={() => setModal({ type: "add_move" })} className="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-bold text-white">+ Add move</button> : null}
+              {tab === "things" ? <button type="button" onClick={() => setAddThingRequest((n) => n + 1)} className="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-bold text-white lg:hidden">+ Add something</button> : null}
             </div>
           </header>
           {tab === "overview" ? (
@@ -474,7 +481,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
             </div>
           ) : null}
 
-          {tab === "things" ? <HomeItemsPlanner homeId={home?.id ?? null} houseStyle={((home as any)?.house_style as HouseStyle | null) ?? defaultHouseStyle((home as any)?.property_type ?? null)} /> : null}
+          {tab === "things" ? <HomeItemsPlanner homeId={home?.id ?? null} addRequest={addThingRequest} houseStyle={((home as any)?.house_style as HouseStyle | null) ?? defaultHouseStyle((home as any)?.property_type ?? null)} /> : null}
           {tab === "overpayments" ? (
             <div className="mx-auto w-full max-w-none"><MortgageOverpaymentPlanner deal={deal} currentBalance={mortgage.balance} currentPayment={mortgage.payment} benchmarkRate={planningRate} /></div>
           ) : null}

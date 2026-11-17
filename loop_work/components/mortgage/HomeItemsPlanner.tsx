@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { deleteHomeItem, listHomeItems, previewProductLink, saveEnergyRates, saveHomeItem, setHomeItemStatus, type HomeItemInput } from "@/app/mortgage/home-items-actions";
 import { HOME_ITEM_KINDS, KIND_BY_KEY, PRICE_CAP_RATES, STATUS_STYLE, nameFromProductUrl, parseHomeItemText, planHomeItem, runningCost, type EnergyRates, type HomeItem, type HomeItemPlan, type RunningCost } from "@/lib/home/items";
 import { createClient } from "@/lib/supabase/client";
+import { ModalFrame } from "@/components/ui/ModalFrame";
 import { UK_CONSUMER_LAW_NOTE, UK_CONSUMER_LAW_SOURCE, brandWarrantyFor } from "@/lib/home/brand-warranties";
 
 const money = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
@@ -100,12 +101,20 @@ function usageOf(form: Form, kind: string) {
   return { kind, fuel: (form.fuel || null) as HomeItem["fuel"], energy_per_use_kwh: n(form.energyPerUseKwh), uses_per_week: n(form.usesPerWeek), power_watts: n(form.powerWatts), hours_per_day: n(form.hoursPerDay), annual_kwh: n(form.annualKwh) };
 }
 
-export function HomeItemsPlanner({ homeId }: { homeId: string | null; houseStyle?: unknown }) {
+export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | null; houseStyle?: unknown; addRequest?: number }) {
   const [items, setItems] = useState<HomeItem[] | null>(null);
   const [rates, setRates] = useState<EnergyRates & { own: boolean }>({ electricity: PRICE_CAP_RATES.electricity, gas: PRICE_CAP_RATES.gas, own: false });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(emptyForm);
   const [editing, setEditing] = useState<Form | null>(null);
+  const [adding, setAdding] = useState(false);
+  // The "Add something" button lives in the House sidebar; each press bumps addRequest.
+  const [seenRequest, setSeenRequest] = useState(addRequest);
+  if (addRequest !== seenRequest) {
+    setSeenRequest(addRequest);
+    setAdding(true);
+    setEditing(null);
+  }
   const [preview, setPreview] = useState<Preview | null>(null);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [showGone, setShowGone] = useState(false);
@@ -189,6 +198,9 @@ export function HomeItemsPlanner({ homeId }: { homeId: string | null; houseStyle
     };
   }, [rows]);
 
+  const closeAdd = useCallback(() => setAdding(false), []);
+  const closeEdit = useCallback(() => setEditing(null), []);
+
   function announce() { channelRef.current?.postMessage("changed"); }
 
   function submit(current: Form, done: () => void) {
@@ -247,13 +259,28 @@ export function HomeItemsPlanner({ homeId }: { homeId: string | null; houseStyle
 
       <RatesBar rates={rates} homeId={homeId} onSaved={() => { announce(); setReloadKey((key) => key + 1); }} />
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-bold">Add something</h2>
-          <p className="text-[11px] font-semibold text-slate-400">Worth adding: anything that would cost £150+ to replace, or that you&apos;d need fixed fast.</p>
+      <section>
+        <div className="mb-3 flex items-center justify-between gap-3 px-1">
+          <h2 className="text-lg font-bold">Your things {message?.tone === "ok" && !adding && !editing ? <span className="ml-2 align-middle text-xs font-bold text-emerald-700">{message.text}</span> : null}</h2>
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
+            <span className={`h-2 w-2 rounded-full ${live ? "bg-emerald-500" : "bg-slate-300"}`} />{live ? "Live — updates as things change" : "Most urgent first"}
+          </span>
         </div>
+        {items === null ? <p className="rounded-2xl bg-white p-5 text-sm text-slate-400 ring-1 ring-slate-200">Loading…</p> : null}
+        {items !== null && !rows.length ? <p className="rounded-2xl bg-white p-5 text-sm text-slate-500 ring-1 ring-slate-200">Nothing yet. Press “Add something” to start with the big ones: boiler, fridge freezer, washing machine, dishwasher, oven.</p> : null}
+        <ul className="grid gap-3 lg:grid-cols-2">
+          {rows.map(({ item, plan, run, ownershipPerYear }) => (
+            <ItemCard key={item.id} item={item} plan={plan} run={run} ownershipPerYear={ownershipPerYear} today={today} onEdit={() => { setMessage(null); setEditing(formFromItem(item)); }} />
+          ))}
+        </ul>
+        {rows.length ? <p className="mt-3 px-1 text-[11px] font-semibold leading-5 text-slate-400">Lifespans, typical prices and typical use are rough UK guides — add your own under Edit for sharper numbers. Running costs use {rates.own ? "your energy prices" : `the ${PRICE_CAP_RATES.label}`}.</p> : null}
+      </section>
+
+      {adding ? (
+        <ModalFrame eyebrow="In the home" title="Add something" description="Worth adding: anything that would cost £150+ to replace, or that you'd need fixed fast." maxWidth="max-w-2xl" onClose={closeAdd}>
+      <div>
         {!form.input.trim() ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             {["boiler", "fridge_freezer", "washing_machine", "dishwasher", "tumble_dryer", "oven", "hob", "tv", "laptop", "mattress", "sofa", "ev_charger"]
               .filter((key) => !(items || []).some((item) => item.status === "active" && item.kind === key))
               .slice(0, 8)
@@ -262,38 +289,28 @@ export function HomeItemsPlanner({ homeId }: { homeId: string | null; houseStyle
         ) : null}
         <ItemFields form={form} setForm={setForm} today={today} preview={preview} rates={rates} />
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button type="button" disabled={isPending || !form.input.trim()} onClick={() => submit(form, () => { setForm(emptyForm()); setPreview(null); })} className="rounded-xl bg-slate-950 px-5 py-2.5 text-xs font-bold text-white disabled:bg-slate-300">{isPending && !editing ? "Adding…" : "Add"}</button>
+          <button type="button" disabled={isPending || !form.input.trim()} onClick={() => submit(form, () => { setForm(emptyForm()); setPreview(null); setAdding(false); })} className="rounded-xl bg-slate-950 px-5 py-2.5 text-xs font-bold text-white disabled:bg-slate-300">{isPending && !editing ? "Adding…" : "Add"}</button>
           {message ? <p className={`text-xs font-bold ${message.tone === "ok" ? "text-emerald-700" : "text-rose-700"}`}>{message.text}</p> : null}
         </div>
-      </section>
+      </div>
+        </ModalFrame>
+      ) : null}
 
-      <section>
-        <div className="mb-3 flex items-center justify-between gap-3 px-1">
-          <h2 className="text-lg font-bold">Your things</h2>
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
-            <span className={`h-2 w-2 rounded-full ${live ? "bg-emerald-500" : "bg-slate-300"}`} />{live ? "Live — updates as things change" : "Most urgent first"}
-          </span>
-        </div>
-        {items === null ? <p className="rounded-2xl bg-white p-5 text-sm text-slate-400 ring-1 ring-slate-200">Loading…</p> : null}
-        {items !== null && !rows.length ? <p className="rounded-2xl bg-white p-5 text-sm text-slate-500 ring-1 ring-slate-200">Nothing yet. Start with the big ones: boiler, fridge freezer, washing machine, dishwasher, oven.</p> : null}
-        <ul className="grid gap-3 lg:grid-cols-2">
-          {rows.map(({ item, plan, run, ownershipPerYear }) => editing?.id === item.id ? (
-            <li key={item.id} className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm lg:col-span-2 sm:p-5">
+      {editing ? (
+        <ModalFrame eyebrow="In the home" title={`Edit ${editing.input || "item"}`} maxWidth="max-w-2xl" onClose={closeEdit}>
+          <div>
               <ItemFields form={editing} setForm={(next) => setEditing(next)} today={today} preview={null} rates={rates} expanded />
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <button type="button" disabled={isPending} onClick={() => submit(editing, () => setEditing(null))} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">{isPending ? "Saving…" : "Save"}</button>
                 <button type="button" onClick={() => setEditing(null)} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Cancel</button>
-                <button type="button" disabled={isPending} onClick={() => act(() => setHomeItemStatus(item.id, "replaced"))} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Replaced it</button>
-                <button type="button" disabled={isPending} onClick={() => act(() => setHomeItemStatus(item.id, "gone"))} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Got rid of it</button>
-                <button type="button" disabled={isPending} onClick={() => { if (window.confirm(`Delete ${item.label}? This can't be undone. (Use "Replaced it" to keep its history.)`)) act(() => deleteHomeItem(item.id)); }} className="ml-auto text-xs font-bold text-rose-700">Delete</button>
+                <button type="button" disabled={isPending} onClick={() => act(() => setHomeItemStatus(editing.id!, "replaced"))} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Replaced it</button>
+                <button type="button" disabled={isPending} onClick={() => act(() => setHomeItemStatus(editing.id!, "gone"))} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Got rid of it</button>
+                <button type="button" disabled={isPending} onClick={() => { if (window.confirm(`Delete ${editing.input}? This can't be undone. (Use "Replaced it" to keep its history.)`)) act(() => deleteHomeItem(editing.id!)); }} className="ml-auto text-xs font-bold text-rose-700">Delete</button>
               </div>
-            </li>
-          ) : (
-            <ItemCard key={item.id} item={item} plan={plan} run={run} ownershipPerYear={ownershipPerYear} today={today} onEdit={() => { setMessage(null); setEditing(formFromItem(item)); }} />
-          ))}
-        </ul>
-        {rows.length ? <p className="mt-3 px-1 text-[11px] font-semibold leading-5 text-slate-400">Lifespans, typical prices and typical use are rough UK guides — add your own under Edit for sharper numbers. Running costs use {rates.own ? "your energy prices" : `the ${PRICE_CAP_RATES.label}`}.</p> : null}
-      </section>
+              {message?.tone === "error" ? <p className="mt-2 text-xs font-bold text-rose-700">{message.text}</p> : null}
+          </div>
+        </ModalFrame>
+      ) : null}
 
       {gone.length ? (
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
