@@ -250,23 +250,10 @@ export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | 
 
   return (
     <div className="space-y-5">
-      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-5">
-        {[
-          ["Things logged", String(totals.count), totals.count ? `${totals.outOfWarranty} out of warranty · ${totals.ending} ending soon` : "Add your first below"],
-          ["Running costs", `${money(totals.running)}/yr`, totals.runningTypical ? `${totals.runningTypical} using typical use — add yours` : "From how you use them"],
-          ["Put aside", `${money(totals.setAside)}/mo`, "So replacements are covered"],
-          ["Could need replacing", money(totals.dueSoonCost), totals.dueSoonCount ? `${totals.dueSoonCount} within a year or past usual life` : "Nothing due in the next year"],
-          ["Real cost a year", money(rows.reduce((sum, row) => sum + row.ownershipPerYear, 0)), "Wear and tear + running"],
-        ].map(([label, main, helper], index) => (
-          <article key={label} className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${index === 4 ? "col-span-2 xl:col-span-1" : ""}`}>
-            <p className="text-[10px] font-bold uppercase text-slate-400">{label}</p>
-            <p className="mt-2 text-2xl font-bold tabular-nums">{main}</p>
-            <p className="mt-1 text-[11px] font-semibold text-slate-500">{helper}</p>
-          </article>
-        ))}
-      </section>
-
-      <RatesBar rates={rates} energy={energy} homeId={homeId} onSaved={() => { announce(); setReloadKey((key) => key + 1); }} />
+      <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
+        <HomeSummary count={totals.count} perYear={rows.reduce((sum, row) => sum + row.ownershipPerYear, 0)} running={totals.running} setAside={totals.setAside} typical={totals.runningTypical} outOfWarranty={totals.outOfWarranty} ending={totals.ending} dueSoonCount={totals.dueSoonCount} dueSoonCost={totals.dueSoonCost} />
+        <EnergyCard rates={rates} energy={energy} homeId={homeId} onSaved={() => { announce(); setReloadKey((key) => key + 1); }} />
+      </div>
 
       <section>
         <div className="mb-3 flex items-center justify-between gap-3 px-1">
@@ -277,7 +264,7 @@ export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | 
         </div>
         {items === null ? <p className="rounded-2xl bg-white p-5 text-sm text-slate-400 ring-1 ring-slate-200">Loading…</p> : null}
         {items !== null && !rows.length ? <p className="rounded-2xl bg-white p-5 text-sm text-slate-500 ring-1 ring-slate-200">Nothing yet. Press “Add something” to start with the big ones: boiler, fridge freezer, washing machine, dishwasher, oven.</p> : null}
-        <ul className="grid gap-3 lg:grid-cols-2">
+        <ul className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
           {rows.map(({ item, plan, run, ownershipPerYear }) => (
             <ItemCard key={item.id} item={item} plan={plan} run={run} ownershipPerYear={ownershipPerYear} today={today} onEdit={() => { setMessage(null); setEditing(formFromItem(item)); }} />
           ))}
@@ -356,91 +343,196 @@ function ProductPicture({ image, kind, size = 72 }: { image: string | null | und
   );
 }
 
-/** Bought → warranty → usual end of life, with today marked. */
-function Lifeline({ item, plan, today }: { item: HomeItem; plan: HomeItemPlan; today: string }) {
+/** How far through its usual life it is, as a simple bar: "Year 2 of about 11". */
+function LifeBar({ item, plan, today }: { item: HomeItem; plan: HomeItemPlan; today: string }) {
   if (!item.purchased_on || !plan.lifeEnds) {
-    return <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500">Add the date you bought it to see its timeline.</p>;
+    return <p className="text-xs font-semibold text-slate-400">Add when you bought it to see how long it should last.</p>;
   }
   const start = dayNumber(item.purchased_on);
   const lifeEnd = dayNumber(plan.lifeEnds);
   const now = dayNumber(today);
-  const end = Math.max(lifeEnd, now) + 1;
-  const pct = (d: number) => `${Math.max(0, Math.min(100, ((d - start) / (end - start)) * 100))}%`;
-  const warrantyEnd = plan.warrantyEnds ? Math.min(dayNumber(plan.warrantyEnds), end) : null;
+  const used = Math.max(0.03, Math.min(1, (now - start) / Math.max(1, lifeEnd - start)));
+  const year = Math.max(1, Math.ceil((now - start) / 365.25));
+  const tone = plan.status === "past_life" ? "bg-rose-400" : plan.status === "nearing_end" ? "bg-orange-400" : plan.status === "in_warranty" || plan.status === "warranty_ending" ? "bg-emerald-400" : "bg-slate-400";
   return (
     <div>
-      <div className="relative h-3 overflow-hidden rounded-full bg-slate-100">
-        {warrantyEnd ? <span className="absolute inset-y-0 left-0 bg-emerald-400" style={{ width: pct(warrantyEnd) }} /> : null}
-        <span className="absolute inset-y-0 bg-orange-300" style={{ left: pct(lifeEnd - 365.25), width: `calc(${pct(lifeEnd)} - ${pct(lifeEnd - 365.25)})` }} />
-        {now > lifeEnd ? <span className="absolute inset-y-0 bg-rose-400" style={{ left: pct(lifeEnd), right: 0 }} /> : null}
-        <span className="absolute -top-0.5 h-4 w-1 rounded-full bg-violet-700 ring-2 ring-white" style={{ left: `calc(${pct(now)} - 2px)` }} title="Today" />
+      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.round(used * 100)}%` }} />
       </div>
-      <div className="mt-1.5 flex justify-between gap-2 text-[10px] font-semibold text-slate-500">
-        <span>Bought {monthYear(item.purchased_on)}</span>
-        {plan.warrantyEnds ? <span className="text-emerald-700">Warranty to {monthYear(plan.warrantyEnds)}</span> : <span>No warranty info</span>}
-        <span className={now > lifeEnd ? "text-rose-700" : "text-orange-700"}>Usually lasts to ~{monthYear(plan.lifeEnds)}</span>
-      </div>
+      <p className="mt-1.5 text-xs font-semibold text-slate-500">
+        {now > lifeEnd ? `Past its usual ${Math.round(plan.lifeYears)} years` : `Year ${year} of about ${Math.round(plan.lifeYears)}`}
+      </p>
     </div>
   );
 }
 
-function ItemCard({ item, plan, run, ownershipPerYear, today, onEdit }: { item: HomeItem; plan: HomeItemPlan; run: RunningCost | null; ownershipPerYear: number; today: string; onEdit: () => void }) {
-  const kind = KIND_BY_KEY.get(item.kind);
+function warrantyLine(item: HomeItem, plan: HomeItemPlan, today: string) {
+  if (!plan.warrantyEnds) return item.purchased_on ? "No warranty details yet" : null;
+  const ended = plan.warrantyEnds < today;
+  return ended ? `Warranty ended ${monthYear(plan.warrantyEnds)}` : `Covered until ${monthYear(plan.warrantyEnds)}${item.warranty_provider ? ` by ${item.warranty_provider}` : ""}`;
+}
+
+function ItemCard({ item, plan, run, today, onEdit }: { item: HomeItem; plan: HomeItemPlan; run: RunningCost | null; ownershipPerYear: number; today: string; onEdit: () => void }) {
+  const status = STATUS_STYLE[plan.status];
+  const bought = item.purchased_on ? `Bought ${monthYear(item.purchased_on)}${item.price != null ? ` for ${money(Number(item.price))}` : ""}` : item.price != null ? `Paid ${money(Number(item.price))}` : null;
+  const hint = item.warranty_months == null && !item.extended_warranty_ends_on ? brandWarrantyFor(`${item.brand || ""} ${item.label}`, item.kind) : null;
+  const warranty = warrantyLine(item, plan, today);
   return (
-    <li className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md">
-      <div className="flex gap-3">
-        <ProductPicture image={item.image_url} kind={item.kind} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p className="line-clamp-2 text-sm font-bold leading-5 text-slate-950" title={item.label}>{item.label}</p>
-            <button type="button" onClick={onEdit} className="shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50">Edit</button>
-          </div>
-          <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-500">
-            {[kind && kind.key !== "other" ? kind.label : null, item.brand, item.retailer].filter(Boolean).join(" · ") || "—"}
-            {item.product_url ? <> · <a href={item.product_url} target="_blank" rel="noopener noreferrer" className="text-violet-700 hover:underline">view</a></> : null}
+    <li className="group flex flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md">
+      <div className="relative">
+        <ProductPhoto image={item.image_url} kind={item.kind} />
+        <span className={`absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold shadow-sm ring-1 ring-black/5 ${status.chip.split(" ").filter((c) => c.startsWith("text-")).join(" ")}`}>
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: status.dot }} />{status.label}
+        </span>
+        <button type="button" onClick={onEdit} className="absolute right-3 top-3 rounded-full bg-white/95 px-3 py-1 text-[11px] font-bold text-slate-700 shadow-sm ring-1 ring-black/5 hover:bg-white">Edit</button>
+      </div>
+      <div className="flex flex-1 flex-col gap-3 p-4">
+        <div>
+          <p className="line-clamp-2 text-[15px] font-bold leading-5 text-slate-950" title={item.label}>{item.label}</p>
+          <p className="mt-1 truncate text-xs font-semibold text-slate-500">
+            {[item.brand, bought].filter(Boolean).join(" · ") || KIND_BY_KEY.get(item.kind)?.label}
+            {item.product_url ? <> · <a href={item.product_url} target="_blank" rel="noopener noreferrer" className="text-violet-700 hover:underline">Product page</a></> : null}
           </p>
-          <span className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[plan.status].chip}`}>{STATUS_STYLE[plan.status].label}</span>
-          {item.warranty_months == null && !item.extended_warranty_ends_on ? (() => {
-            const hint = brandWarrantyFor(`${item.brand || ""} ${item.label}`, item.kind);
-            return hint?.standardMonths ? <p className="mt-1 text-[10px] font-semibold text-violet-700">{hint.brand} usually gives {hint.standardMonths / 12} year{hint.standardMonths === 12 ? "" : "s"} — add it under Edit</p> : null;
-          })() : null}
+        </div>
+        <div className="space-y-1">
+          {warranty ? <p className="text-xs font-semibold text-slate-700">{warranty}</p> : null}
+          {hint?.standardMonths ? <p className="text-[11px] font-semibold text-violet-700">{hint.brand} usually gives {hint.standardMonths / 12} year{hint.standardMonths === 12 ? "" : "s"} — add it under Edit</p> : null}
+        </div>
+        <LifeBar item={item} plan={plan} today={today} />
+        <div className="mt-auto grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
+          <div title={run ? `${run.basis}${run.typical ? " (typical use)" : ""} · ${run.annualKwh.toLocaleString("en-GB")} kWh a year` : undefined}>
+            <p className="text-base font-bold tabular-nums text-slate-950">{run ? money(run.annualCost) : "—"}<span className="text-xs font-semibold text-slate-400"> a year</span></p>
+            <p className="text-[11px] font-semibold text-slate-500">to run{run?.typical ? " (typical use)" : ""}{run?.basis.endsWith("night rate") ? " · night rate" : ""}</p>
+          </div>
+          <div>
+            <p className="text-base font-bold tabular-nums text-slate-950">
+              {plan.monthlySetAside > 0 ? <>{money2(plan.monthlySetAside)}<span className="text-xs font-semibold text-slate-400"> a month</span></> : money(plan.replacementCost)}
+            </p>
+            <p className="text-[11px] font-semibold text-slate-500">
+              {plan.monthlySetAside > 0 ? `to put aside for a ${money(plan.replacementCost)} replacement` : plan.status === "past_life" ? "to replace — could go any time" : plan.status === "nearing_end" ? "to replace, likely within a year" : "to replace"}
+            </p>
+          </div>
         </div>
       </div>
-      <Lifeline item={item} plan={plan} today={today} />
-      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-xl bg-slate-50 px-3 py-2"><dt className="text-[10px] font-bold uppercase text-slate-400">Paid</dt><dd className="text-sm font-bold tabular-nums">{item.price != null ? money(Number(item.price)) : "—"}</dd></div>
-        <div className="rounded-xl bg-slate-50 px-3 py-2" title={run ? `${run.basis}${run.typical ? " (typical)" : ""} · ${run.annualKwh.toLocaleString("en-GB")} kWh ${run.fuel === "gas" ? "gas" : "electricity"} a year` : undefined}>
-          <dt className="text-[10px] font-bold uppercase text-slate-400">To run</dt>
-          <dd className="text-sm font-bold tabular-nums">{run ? `${money(run.annualCost)}/yr` : "—"}</dd>
-          {run ? <dd className="text-[10px] font-semibold text-slate-500">{run.perUse != null ? `${pence(run.perUse)} a use` : `${pence(run.annualCost / 52)} a week`}{run.typical ? " · typical" : ""}{run.basis.endsWith("night rate") ? " · night rate" : ""}</dd> : null}
-        </div>
-        <div className="rounded-xl bg-slate-50 px-3 py-2"><dt className="text-[10px] font-bold uppercase text-slate-400">Replace</dt><dd className="text-sm font-bold tabular-nums">{money(plan.replacementCost)}{plan.costIsGuess ? <span className="text-slate-400">*</span> : null}</dd><dd className="text-[10px] font-semibold text-slate-500">{plan.monthlySetAside > 0 ? `${money2(plan.monthlySetAside)}/mo aside` : plan.status === "past_life" ? "could go any time" : plan.status === "nearing_end" ? "within a year" : ""}</dd></div>
-        <div className="rounded-xl bg-violet-50 px-3 py-2"><dt className="text-[10px] font-bold uppercase text-violet-500">Real cost</dt><dd className="text-sm font-bold tabular-nums text-violet-950">{money(ownershipPerYear)}/yr</dd><dd className="text-[10px] font-semibold text-violet-700/70">wear + running</dd></div>
-      </dl>
     </li>
+  );
+}
+
+/** Product photo on a soft background; falls back to the kind's icon. */
+function ProductPhoto({ image, kind }: { image: string | null | undefined; kind: string }) {
+  const [broken, setBroken] = useState<string | null>(null);
+  const icon = KIND_BY_KEY.get(kind)?.icon || "📦";
+  const showImage = image && broken !== image;
+  return (
+    <div className="grid aspect-[4/3] place-items-center bg-gradient-to-b from-slate-50 to-slate-100/70">
+      {showImage ? (
+        // eslint-disable-next-line @next/next/no-img-element -- shop images come from many domains
+        <img src={image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(image)} className="h-full w-full object-contain p-6 mix-blend-multiply transition group-hover:scale-[1.02]" />
+      ) : (
+        <span className="text-6xl opacity-80" aria-hidden>{icon}</span>
+      )}
+    </div>
+  );
+}
+
+/** A friendly one-card summary instead of a row of figure tiles. */
+function HomeSummary({ count, perYear, running, setAside, typical, outOfWarranty, ending, dueSoonCount, dueSoonCost }: { count: number; perYear: number; running: number; setAside: number; typical: number; outOfWarranty: number; ending: number; dueSoonCount: number; dueSoonCost: number }) {
+  if (!count) {
+    return (
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <p className="text-xs font-bold text-slate-500">Your home</p>
+        <p className="mt-2 text-xl font-bold text-slate-950">Add the big things you own</p>
+        <p className="mt-1 text-sm font-semibold text-slate-500">Loop keeps an eye on warranties, what they cost to run, and when they&apos;re likely to need replacing.</p>
+      </section>
+    );
+  }
+  const notes = [
+    dueSoonCount ? { tone: "bg-orange-50 text-orange-900", text: `${dueSoonCount} may need replacing within a year (${money(dueSoonCost)})` } : { tone: "bg-emerald-50 text-emerald-800", text: "Nothing likely to need replacing this year" },
+    ending ? { tone: "bg-amber-50 text-amber-900", text: `${ending} warranty ending soon` } : null,
+    outOfWarranty ? { tone: "bg-slate-100 text-slate-700", text: `${outOfWarranty} out of warranty` } : null,
+  ].filter(Boolean) as Array<{ tone: string; text: string }>;
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <p className="text-xs font-bold text-slate-500">Your home</p>
+      <p className="mt-2 text-xl font-bold leading-snug text-slate-950 sm:text-2xl">
+        Your {count} thing{count === 1 ? "" : "s"} cost about <span className="text-violet-700">{money(perYear)} a year</span> to keep
+      </p>
+      <p className="mt-1.5 text-sm font-semibold text-slate-500">
+        {money(running)} a year to run{typical ? " (some on typical use)" : ""}, and {money2(setAside)} a month to put aside so replacements are covered.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {notes.map((note) => <span key={note.text} className={`rounded-full px-3 py-1 text-xs font-bold ${note.tone}`}>{note.text}</span>)}
+      </div>
+    </section>
   );
 }
 
 type RatesState = EnergyRates & { own: boolean; tariff: SavedTariff | null };
 const SUPPLIER_NAMES = ["Octopus Energy", "British Gas", "EDF", "E.ON Next", "OVO", "Scottish Power", "So Energy", "Outfox the Market", "Utility Warehouse", "Ecotricity", "Good Energy", "Utilita", "Sainsbury's Energy", "Co-op Energy", "Fuse Energy", "Other"];
 
-function RatesBar({ rates, energy, homeId, onSaved }: { rates: RatesState; energy: EffectiveEnergy | null; homeId: string | null; onSaved: () => void }) {
+const SUPPLIER_TINTS: Record<string, string> = {
+  octopus: "bg-fuchsia-100 text-fuchsia-800", "british gas": "bg-sky-100 text-sky-800", edf: "bg-orange-100 text-orange-800", "e.on": "bg-red-100 text-red-800",
+  ovo: "bg-emerald-100 text-emerald-800", "scottish power": "bg-lime-100 text-lime-800", "so energy": "bg-teal-100 text-teal-800", "utility warehouse": "bg-indigo-100 text-indigo-800",
+};
+
+function supplierTint(name: string) {
+  const key = Object.keys(SUPPLIER_TINTS).find((k) => name.toLowerCase().includes(k));
+  return key ? SUPPLIER_TINTS[key] : "bg-violet-100 text-violet-800";
+}
+
+function longDate(iso: string) {
+  return new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+/** "Your energy": who supplies you, the tariff, when the fix ends, and the rates — in plain words. */
+function EnergyCard({ rates, energy, homeId, onSaved }: { rates: RatesState; energy: EffectiveEnergy | null; homeId: string | null; onSaved: () => void }) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   const [pending, startTransition] = useTransition();
   const tariff = energy?.tariff;
-  const label = tariff
-    ? `${energy!.label}${tariff.fixed_until ? ` · fixed until ${new Date(`${tariff.fixed_until}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}` : ""}`
-    : energy?.label || PRICE_CAP_RATES.label;
+  const supplier = tariff?.supplier || "Ofgem price cap";
+  const fixed = tariff?.fixed_until || null;
+  const gasSeparate = Boolean(tariff?.gas_tariff_name || tariff?.gas_fixed_until);
+  const p = (n: number | null | undefined) => (n == null ? "—" : `${Number(n).toLocaleString("en-GB", { maximumFractionDigits: 2 })}p`);
   return (
-    <section className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-white px-4 py-3 text-xs ring-1 ring-slate-200">
-      <span className="font-bold text-slate-700">⚡ {rates.electricityNight != null ? `${rates.electricity}p day · ${rates.electricityNight}p night${energy?.offPeak ? ` (${energy.offPeak.start}–${energy.offPeak.end})` : ""}` : `${rates.electricity}p/kWh electricity`} · 🔥 {rates.gas}p/kWh gas</span>
-      <span className="text-slate-400">{label}{tariff?.gas_tariff_name ? ` · gas: ${tariff.gas_tariff_name}` : ""}</span>
-      <span className="ml-auto flex items-center gap-3">
-        {!tariff && energy?.lastSaved ? <ConfirmButton disabled={pending} question={`Use ${energy.lastSaved.supplier}${energy.lastSaved.tariffName ? ` · ${energy.lastSaved.tariffName}` : ""} again?`} detail="Running costs, money to put aside and calendar dates across Loop will switch to its rates. Check them with Change tariff afterwards." confirmLabel="Yes, restore it" onConfirm={() => startTransition(async () => { await restoreEnergyTariff(energy.lastSaved!.id); onSaved(); })} className="font-bold text-emerald-700">Restore {energy.lastSaved.supplier}{energy.lastSaved.tariffName ? ` · ${energy.lastSaved.tariffName}` : ""}</ConfirmButton> : null}
-        {tariff ? <ConfirmButton disabled={pending} question={`Stop using ${tariff.supplier}'s rates?`} detail={`Loop will use the Ofgem price cap for your region instead of ${energy!.label}. Running costs and calendar dates change. You can restore it afterwards.`} confirmLabel="Yes, use the price cap" onConfirm={() => startTransition(async () => { await clearEnergyTariff(); onSaved(); })} className="font-bold text-slate-500">Use price cap</ConfirmButton> : null}
-        <button type="button" onClick={() => setOpen(true)} className="font-bold text-violet-700">{tariff ? "Change tariff" : "Set my tariff"}</button>
-      </span>
+    <section className="flex flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="flex items-start gap-3">
+        <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-base font-bold ${tariff ? supplierTint(supplier) : "bg-slate-100 text-slate-700"}`}>{tariff ? supplier.slice(0, 1).toUpperCase() : "£"}</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-bold text-slate-500">Your energy</p>
+          <p className="truncate text-base font-bold text-slate-950">{tariff ? `${supplier}${tariff.tariff_name ? ` · ${tariff.tariff_name}` : ""}` : "Using the Ofgem price cap"}</p>
+          <p className="truncate text-xs font-semibold text-slate-500">
+            {tariff
+              ? fixed ? `Fixed until ${longDate(fixed)}${tariff.exit_fee_gbp ? ` · £${Number(tariff.exit_fee_gbp).toLocaleString("en-GB")} to leave early` : ""}` : "Variable rates"
+              : `${energy?.label?.replace("Ofgem price cap, ", "") || "Your region"} · add your tariff for exact costs`}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <div className="rounded-2xl bg-amber-50/70 p-3">
+          <p className="text-xs font-bold text-amber-900">⚡ Electricity</p>
+          <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">
+            {p(rates.electricity)}{rates.electricityNight != null ? <span className="text-sm font-semibold text-slate-500"> day · {p(rates.electricityNight)} night</span> : <span className="text-sm font-semibold text-slate-500"> per kWh</span>}
+          </p>
+          <p className="text-[11px] font-semibold text-slate-500">
+            {energy?.offPeak ? `Night rate ${energy.offPeak.start}–${energy.offPeak.end} · ` : ""}{p(energy?.electricityStanding)} a day standing charge
+          </p>
+        </div>
+        <div className="rounded-2xl bg-sky-50/70 p-3">
+          <p className="text-xs font-bold text-sky-900">🔥 Gas</p>
+          <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">{p(rates.gas)}<span className="text-sm font-semibold text-slate-500"> per kWh</span></p>
+          <p className="text-[11px] font-semibold text-slate-500">
+            {gasSeparate ? `${tariff?.gas_tariff_name || "Separate deal"}${tariff?.gas_fixed_until ? ` · fixed to ${longDate(tariff.gas_fixed_until)}` : ""} · ` : ""}{p(energy?.gasStanding)} a day standing charge
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+        <button type="button" onClick={() => setOpen(true)} className="rounded-full bg-slate-950 px-4 py-2 font-bold text-white hover:bg-slate-800">{tariff ? "Change tariff" : "Add my tariff"}</button>
+        {!tariff && energy?.lastSaved ? <ConfirmButton disabled={pending} question={`Use ${energy.lastSaved.supplier}${energy.lastSaved.tariffName ? ` · ${energy.lastSaved.tariffName}` : ""} again?`} detail="Running costs, money to put aside and calendar dates across Loop will switch to its rates. Check them with Change tariff afterwards." confirmLabel="Yes, restore it" onConfirm={() => startTransition(async () => { await restoreEnergyTariff(energy.lastSaved!.id); onSaved(); })} className="font-bold text-emerald-700">Restore {energy.lastSaved.supplier}</ConfirmButton> : null}
+        {tariff ? <ConfirmButton disabled={pending} question={`Stop using ${tariff.supplier}'s rates?`} detail={`Loop will use the Ofgem price cap for your region instead of ${energy!.label}. Running costs and calendar dates change. You can restore it afterwards.`} confirmLabel="Yes, use the price cap" onConfirm={() => startTransition(async () => { await clearEnergyTariff(); onSaved(); })} className="font-bold text-slate-500 hover:text-slate-800">Use price cap instead</ConfirmButton> : null}
+      </div>
       {open ? <TariffModal homeId={homeId} energy={energy} onClose={close} onSaved={() => { setOpen(false); onSaved(); }} /> : null}
     </section>
   );
