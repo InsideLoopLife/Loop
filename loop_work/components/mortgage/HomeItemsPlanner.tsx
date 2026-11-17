@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { deleteHomeItem, listHomeItems, previewProductLink, saveEnergyRates, saveHomeItem, setHomeItemStatus, type HomeItemInput } from "@/app/mortgage/home-items-actions";
 import { HOME_ITEM_KINDS, KIND_BY_KEY, PRICE_CAP_RATES, STATUS_STYLE, nameFromProductUrl, parseHomeItemText, planHomeItem, runningCost, type EnergyRates, type HomeItem, type HomeItemPlan, type RunningCost } from "@/lib/home/items";
 import { createClient } from "@/lib/supabase/client";
+import { UK_CONSUMER_LAW_NOTE, UK_CONSUMER_LAW_SOURCE, brandWarrantyFor } from "@/lib/home/brand-warranties";
 
 const money = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
 const money2 = (n: number) => `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -247,7 +248,18 @@ export function HomeItemsPlanner({ homeId }: { homeId: string | null; houseStyle
       <RatesBar rates={rates} homeId={homeId} onSaved={() => { announce(); setReloadKey((key) => key + 1); }} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <h2 className="text-lg font-bold">Add something</h2>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-lg font-bold">Add something</h2>
+          <p className="text-[11px] font-semibold text-slate-400">Worth adding: anything that would cost £150+ to replace, or that you&apos;d need fixed fast.</p>
+        </div>
+        {!form.input.trim() ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {["boiler", "fridge_freezer", "washing_machine", "dishwasher", "tumble_dryer", "oven", "hob", "tv", "laptop", "mattress", "sofa", "ev_charger"]
+              .filter((key) => !(items || []).some((item) => item.status === "active" && item.kind === key))
+              .slice(0, 8)
+              .map((key) => { const k = KIND_BY_KEY.get(key)!; return <button key={key} type="button" onClick={() => setForm({ ...form, input: k.label, kind: key, kindTouched: true })} className="rounded-full bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-violet-50">{k.icon} {k.label}</button>; })}
+          </div>
+        ) : null}
         <ItemFields form={form} setForm={setForm} today={today} preview={preview} rates={rates} />
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button type="button" disabled={isPending || !form.input.trim()} onClick={() => submit(form, () => { setForm(emptyForm()); setPreview(null); })} className="rounded-xl bg-slate-950 px-5 py-2.5 text-xs font-bold text-white disabled:bg-slate-300">{isPending && !editing ? "Adding…" : "Add"}</button>
@@ -263,7 +275,7 @@ export function HomeItemsPlanner({ homeId }: { homeId: string | null; houseStyle
           </span>
         </div>
         {items === null ? <p className="rounded-2xl bg-white p-5 text-sm text-slate-400 ring-1 ring-slate-200">Loading…</p> : null}
-        {items !== null && !rows.length ? <p className="rounded-2xl bg-white p-5 text-sm text-slate-500 ring-1 ring-slate-200">Nothing yet. Add your dishwasher, washing machine, boiler, TV — anything you&apos;d have to replace.</p> : null}
+        {items !== null && !rows.length ? <p className="rounded-2xl bg-white p-5 text-sm text-slate-500 ring-1 ring-slate-200">Nothing yet. Start with the big ones: boiler, fridge freezer, washing machine, dishwasher, oven.</p> : null}
         <ul className="grid gap-3 lg:grid-cols-2">
           {rows.map(({ item, plan, run, ownershipPerYear }) => editing?.id === item.id ? (
             <li key={item.id} className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm lg:col-span-2 sm:p-5">
@@ -362,6 +374,10 @@ function ItemCard({ item, plan, run, ownershipPerYear, today, onEdit }: { item: 
             {item.product_url ? <> · <a href={item.product_url} target="_blank" rel="noopener noreferrer" className="text-violet-700 hover:underline">view</a></> : null}
           </p>
           <span className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[plan.status].chip}`}>{STATUS_STYLE[plan.status].label}</span>
+          {item.warranty_months == null && !item.extended_warranty_ends_on ? (() => {
+            const hint = brandWarrantyFor(`${item.brand || ""} ${item.label}`, item.kind);
+            return hint?.standardMonths ? <p className="mt-1 text-[10px] font-semibold text-violet-700">{hint.brand} usually gives {hint.standardMonths / 12} year{hint.standardMonths === 12 ? "" : "s"} — add it under Edit</p> : null;
+          })() : null}
         </div>
       </div>
       <Lifeline item={item} plan={plan} today={today} />
@@ -449,6 +465,7 @@ function ItemFields({ form, setForm, today, preview, rates, expanded = false }: 
           </select>
         </label>
       </div>
+      <BrandPointer text={`${form.brand} ${read.brand || ""} ${read.name}`} kind={kind.key} warranty={form.warranty} onUse={(months) => set({ warranty: PRESET_MONTHS.has(String(months)) ? String(months) : "custom", warrantyMonths: String(months) })} />
       {form.warranty === "custom" ? (
         <label className={`${label} max-w-40`}>Warranty (months)
           <input inputMode="numeric" value={form.warrantyMonths} onChange={(event) => set({ warrantyMonths: event.target.value.replace(/\D/g, "").slice(0, 3) })} className={input} />
@@ -493,9 +510,10 @@ function ItemFields({ form, setForm, today, preview, rates, expanded = false }: 
               </>
             )}
           </div>
+          <EnergyLabelField kind={kind.key} form={form} set={set} className={label} inputClass={input} />
           {usage?.mode !== "annual" ? (
             <label className={`${label} mt-3 max-w-xs`}>Or kWh a year, if you know it
-              <input inputMode="decimal" value={form.annualKwh} onChange={(event) => set({ annualKwh: event.target.value })} placeholder="From the energy label or a smart plug" className={input} />
+              <input inputMode="decimal" value={form.annualKwh} onChange={(event) => set({ annualKwh: event.target.value })} placeholder="From a smart plug or your own reading" className={input} />
             </label>
           ) : null}
           <p className="mt-2 text-[11px] font-semibold text-emerald-900/70">The energy label, the manual or a smart plug gives the most accurate figures. Blank boxes use the typical amounts shown.</p>
@@ -542,6 +560,57 @@ function ItemFields({ form, setForm, today, preview, rates, expanded = false }: 
           </label>
         </div>
       </details>
+    </div>
+  );
+}
+
+function BrandPointer({ text, kind, warranty, onUse }: { text: string; kind: string; warranty: string; onUse: (months: number) => void }) {
+  const info = brandWarrantyFor(text, kind);
+  if (!info) {
+    if (warranty !== "" && warranty !== "0") return null;
+    return (
+      <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-semibold leading-5 text-slate-500">
+        {UK_CONSUMER_LAW_NOTE} <a href={UK_CONSUMER_LAW_SOURCE} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 hover:underline">More</a>
+      </p>
+    );
+  }
+  const months = info.standardMonths;
+  const already = months != null && (warranty === String(months));
+  return (
+    <div className="rounded-xl bg-violet-50 px-3 py-2.5 text-[11px] leading-5 text-violet-950 ring-1 ring-violet-100">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-bold">{info.brand}{months ? ` usually gives ${months % 12 === 0 ? `${months / 12} year${months === 12 ? "" : "s"}` : `${months} months`} as standard` : " warranty pointers"}</p>
+        {months && !already ? <button type="button" onClick={() => onUse(months)} className="rounded-lg bg-white px-2.5 py-1 text-[11px] font-bold text-violet-800 ring-1 ring-violet-200">Use {months % 12 === 0 ? `${months / 12} year${months === 12 ? "" : "s"}` : `${months} months`}</button> : null}
+      </div>
+      <ul className="mt-1 list-disc space-y-0.5 pl-4 font-semibold text-violet-900/80">
+        {info.notes.map((note) => <li key={note}>{note}</li>)}
+      </ul>
+      <p className="mt-1 text-[10px] font-semibold text-violet-700/70">From <a href={info.source} target="_blank" rel="noopener noreferrer" className="underline">{new URL(info.source).hostname.replace(/^www\./, "")}</a>, checked {info.checked}. Your receipt or registration is what counts.</p>
+    </div>
+  );
+}
+
+/** The figure printed on the item's own energy label, turned into the matching usage number. */
+function EnergyLabelField({ kind, form, set, className, inputClass }: { kind: string; form: Form; set: (patch: Partial<Form>) => void; className: string; inputClass: string }) {
+  const perCycle = ["dishwasher", "washing_machine", "tumble_dryer"].includes(kind);
+  const perYear = ["fridge_freezer", "freezer"].includes(kind);
+  const perThousandHours = kind === "tv";
+  if (!perCycle && !perYear && !perThousandHours) return null;
+  const value = perCycle ? (form.energyPerUseKwh ? String(Math.round(Number(form.energyPerUseKwh) * 100 * 10) / 10) : "") : perYear ? form.annualKwh : form.powerWatts;
+  const unit = perCycle ? "kWh per 100 cycles" : perYear ? "kWh per year" : "kWh per 1000h";
+  return (
+    <div className="mt-3 rounded-xl bg-white px-3 py-2.5 ring-1 ring-emerald-100">
+      <label className={className}>From this model&apos;s energy label ({unit})
+        <input inputMode="decimal" value={value} onChange={(event) => {
+          const raw = event.target.value.replace(/[^\d.]/g, "");
+          if (perCycle) set({ energyPerUseKwh: raw ? String(Math.round((Number(raw) / 100) * 1000) / 1000) : "", annualKwh: "" });
+          else if (perYear) set({ annualKwh: raw });
+          else set({ powerWatts: raw, annualKwh: "" });
+        }} placeholder={perCycle ? "e.g. 54 — the big number in the middle" : perYear ? "e.g. 213" : "e.g. 79"} className={`${inputClass} max-w-xs`} />
+      </label>
+      <p className="mt-1 text-[10px] font-semibold text-emerald-900/70">
+        {perCycle ? "Labels measure the Eco programme, so hotter or quicker washes use more." : perYear ? "Fridges and freezers are rated over a full year of normal use." : "kWh per 1000 hours is the same as the average watts while it's on."} Search the model number on the shop page or the QR code on the label.
+      </p>
     </div>
   );
 }
