@@ -7,7 +7,8 @@
 // (The room-map version is parked in HomeItemsMapPlanner.tsx.)
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { deleteHomeItem, listHomeItems, previewProductLink, saveEnergyRates, saveHomeItem, setHomeItemStatus, type HomeItemInput } from "@/app/mortgage/home-items-actions";
+import { deleteHomeItem, findTariffs, listHomeItems, previewProductLink, saveEnergyRates, saveHomeItem, setHomeItemStatus, type HomeItemInput, type SavedTariff } from "@/app/mortgage/home-items-actions";
+import type { TariffOption, TariffSearch } from "@/lib/home/tariffs";
 import { HOME_ITEM_KINDS, KIND_BY_KEY, PRICE_CAP_RATES, STATUS_STYLE, nameFromProductUrl, parseHomeItemText, planHomeItem, runningCost, type EnergyRates, type HomeItem, type HomeItemPlan, type RunningCost } from "@/lib/home/items";
 import { createClient } from "@/lib/supabase/client";
 import { ModalFrame } from "@/components/ui/ModalFrame";
@@ -103,7 +104,7 @@ function usageOf(form: Form, kind: string) {
 
 export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | null; houseStyle?: unknown; addRequest?: number }) {
   const [items, setItems] = useState<HomeItem[] | null>(null);
-  const [rates, setRates] = useState<EnergyRates & { own: boolean }>({ electricity: PRICE_CAP_RATES.electricity, gas: PRICE_CAP_RATES.gas, own: false });
+  const [rates, setRates] = useState<RatesState>({ electricity: PRICE_CAP_RATES.electricity, gas: PRICE_CAP_RATES.gas, own: false, tariff: null });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(emptyForm);
   const [editing, setEditing] = useState<Form | null>(null);
@@ -412,27 +413,140 @@ function ItemCard({ item, plan, run, ownershipPerYear, today, onEdit }: { item: 
   );
 }
 
-function RatesBar({ rates, homeId, onSaved }: { rates: EnergyRates & { own: boolean }; homeId: string | null; onSaved: () => void }) {
+type RatesState = EnergyRates & { own: boolean; tariff: SavedTariff | null };
+const SUPPLIER_NAMES = ["Octopus Energy", "British Gas", "EDF", "E.ON Next", "OVO", "Scottish Power", "So Energy", "Outfox the Market", "Utility Warehouse", "Ecotricity", "Good Energy", "Utilita", "Sainsbury's Energy", "Co-op Energy", "Fuse Energy", "Other"];
+
+function RatesBar({ rates, homeId, onSaved }: { rates: RatesState; homeId: string | null; onSaved: () => void }) {
   const [open, setOpen] = useState(false);
-  const [electricity, setElectricity] = useState("");
-  const [gas, setGas] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const close = useCallback(() => setOpen(false), []);
   const [pending, startTransition] = useTransition();
+  const label = rates.tariff ? `${rates.tariff.supplier} · ${rates.tariff.name}${rates.tariff.regionName ? ` (${rates.tariff.regionName})` : ""}` : rates.own ? "Your prices" : PRICE_CAP_RATES.label;
   return (
     <section className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-white px-4 py-3 text-xs ring-1 ring-slate-200">
       <span className="font-bold text-slate-700">⚡ {rates.electricity}p/kWh electricity · 🔥 {rates.gas}p/kWh gas</span>
-      <span className="text-slate-400">{rates.own ? "Your prices" : PRICE_CAP_RATES.label}</span>
-      {!open ? <button type="button" onClick={() => { setOpen(true); setElectricity(String(rates.electricity)); setGas(String(rates.gas)); }} className="ml-auto font-bold text-violet-700">Use my tariff</button> : (
-        <span className="ml-auto flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-1">Electricity <input inputMode="decimal" value={electricity} onChange={(e) => setElectricity(e.target.value)} className="w-16 rounded-lg border border-slate-200 px-2 py-1" />p</label>
-          <label className="flex items-center gap-1">Gas <input inputMode="decimal" value={gas} onChange={(e) => setGas(e.target.value)} className="w-16 rounded-lg border border-slate-200 px-2 py-1" />p</label>
-          <button type="button" disabled={pending || !homeId} onClick={() => startTransition(async () => { try { await saveEnergyRates(homeId!, electricity, gas); setOpen(false); setError(null); onSaved(); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't save."); } })} className="rounded-lg bg-slate-950 px-3 py-1.5 font-bold text-white disabled:bg-slate-300">Save</button>
-          {rates.own ? <button type="button" disabled={pending || !homeId} onClick={() => startTransition(async () => { try { await saveEnergyRates(homeId!, null, null); setOpen(false); onSaved(); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't save."); } })} className="font-bold text-slate-500">Use price cap</button> : null}
-          <button type="button" onClick={() => setOpen(false)} className="font-bold text-slate-500">Cancel</button>
-        </span>
-      )}
-      {error ? <span className="w-full text-rose-700">{error}</span> : null}
+      <span className="text-slate-400">{label}</span>
+      <span className="ml-auto flex items-center gap-3">
+        {rates.own ? <button type="button" disabled={pending || !homeId} onClick={() => startTransition(async () => { await saveEnergyRates(homeId!, null, null, null); onSaved(); })} className="font-bold text-slate-500">Use price cap</button> : null}
+        <button type="button" onClick={() => setOpen(true)} disabled={!homeId} className="font-bold text-violet-700 disabled:text-slate-300">{rates.own ? "Change tariff" : "Use my tariff"}</button>
+      </span>
+      {open && homeId ? <TariffModal homeId={homeId} rates={rates} onClose={close} onSaved={() => { setOpen(false); onSaved(); }} /> : null}
     </section>
+  );
+}
+
+function TariffModal({ homeId, rates, onClose, onSaved }: { homeId: string; rates: RatesState; onClose: () => void; onSaved: () => void }) {
+  const [supplier, setSupplier] = useState(rates.tariff?.supplier || "");
+  const [search, setSearch] = useState<TariffSearch | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [chosen, setChosen] = useState<TariffOption | null>(null);
+  const [electricity, setElectricity] = useState(String(rates.electricity));
+  const [gas, setGas] = useState(String(rates.gas));
+  const [tariffName, setTariffName] = useState(rates.tariff?.name || "");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const matches = supplier.trim() ? SUPPLIER_NAMES.filter((name) => name.toLowerCase().includes(supplier.trim().toLowerCase())) : SUPPLIER_NAMES;
+  const exact = SUPPLIER_NAMES.find((name) => name.toLowerCase() === supplier.trim().toLowerCase());
+
+  function pickSupplier(name: string) {
+    setSupplier(name);
+    setChosen(null);
+    setSearch(null);
+    setError(null);
+    setSearching(true);
+    findTariffs(homeId, name)
+      .then((result) => setSearch(result))
+      .catch((e) => setError(e instanceof Error ? e.message : "Couldn't look that up."))
+      .finally(() => setSearching(false));
+  }
+  function choose(option: TariffOption) {
+    setChosen(option);
+    setTariffName(option.name);
+    if (option.electricity != null) setElectricity(String(option.electricity));
+    if (option.gas != null) setGas(String(option.gas));
+  }
+  const options = (search?.options || []).filter((option) => !filter.trim() || option.name.toLowerCase().includes(filter.trim().toLowerCase()));
+
+  return (
+    <ModalFrame eyebrow="Energy prices" title="Your tariff" description="Pick your supplier and tariff and we'll fill in the rates — you can still adjust them to match your bill." maxWidth="max-w-2xl" onClose={onClose}>
+      <div className="space-y-4">
+        <label className="block text-xs font-bold text-slate-600">Supplier
+          <input value={supplier} onChange={(event) => { setSupplier(event.target.value); setSearch(null); setChosen(null); }} placeholder="Start typing, e.g. Octopus" className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" autoFocus />
+        </label>
+        {!search && !searching ? (
+          <div className="flex flex-wrap gap-1.5">
+            {matches.slice(0, 16).map((name) => (
+              <button key={name} type="button" onClick={() => pickSupplier(name)} className={`rounded-full px-3 py-1 text-[11px] font-bold ring-1 ${exact === name ? "bg-slate-950 text-white ring-slate-950" : "bg-slate-50 text-slate-700 ring-slate-200 hover:bg-violet-50"}`}>{name}</button>
+            ))}
+            {supplier.trim() && !matches.length ? <button type="button" onClick={() => pickSupplier(supplier.trim())} className="rounded-full bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-700 ring-1 ring-slate-200">Use “{supplier.trim()}”</button> : null}
+          </div>
+        ) : null}
+        {searching ? <p className="text-xs font-semibold text-slate-500">Looking up {supplier}&apos;s tariffs…</p> : null}
+        {error ? <p className="text-xs font-bold text-rose-700">{error}</p> : null}
+
+        {search ? (
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-bold text-slate-700">{search.supplier} tariffs{search.regionName ? <span className="font-semibold text-slate-500"> · rates for {search.regionName}</span> : null}{search.live ? <span className="ml-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">live</span> : null}</p>
+              <button type="button" onClick={() => { setSearch(null); setChosen(null); }} className="text-[11px] font-bold text-violet-700">Change supplier</button>
+            </div>
+            {search.message ? <p className="rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">{search.message}</p> : null}
+            {(search.options.length > 6) ? <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter tariffs, e.g. Fixed, Flexible, Go" className="block w-full rounded-xl border border-slate-200 px-3 py-2 text-xs" /> : null}
+            <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+              {options.map((option) => (
+                <li key={`${option.code || option.name}`}>
+                  <button type="button" onClick={() => choose(option)} className={`w-full rounded-xl px-3 py-2 text-left ring-1 transition ${chosen?.name === option.name && chosen?.code === option.code ? "bg-violet-50 ring-violet-300" : "bg-white ring-slate-200 hover:bg-slate-50"}`}>
+                    <span className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-bold text-slate-900">{option.name}</span>
+                      <span className="text-xs font-bold tabular-nums text-slate-700">{option.electricity != null ? `⚡ ${option.electricity}p` : ""}{option.gas != null ? ` · 🔥 ${option.gas}p` : ""}</span>
+                    </span>
+                    <span className="mt-0.5 flex flex-wrap gap-1.5 text-[10px] font-bold">
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">{option.fixed ? "Fixed" : "Variable"}</span>
+                      {option.green ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">Green</span> : null}
+                      {option.timeOfUse ? <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">Time of use</span> : null}
+                      {option.electricityStanding != null ? <span className="text-slate-400">Standing {option.electricityStanding}p/day</span> : null}
+                    </span>
+                    {option.note ? <span className="mt-1 block text-[10px] font-semibold text-slate-500">{option.note}</span> : null}
+                  </button>
+                </li>
+              ))}
+              {search.live && !options.length ? <li className="text-xs text-slate-500">No tariffs match that.</li> : null}
+            </ul>
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-3">
+          <label className="block text-xs font-bold text-slate-600">Tariff name
+            <input value={tariffName} onChange={(event) => setTariffName(event.target.value)} placeholder="e.g. Fixed 12M" className="mt-1 block w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+          </label>
+          <label className="block text-xs font-bold text-slate-600">Electricity (p/kWh)
+            <input inputMode="decimal" value={electricity} onChange={(event) => { setElectricity(event.target.value); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+          </label>
+          <label className="block text-xs font-bold text-slate-600">Gas (p/kWh)
+            <input inputMode="decimal" value={gas} onChange={(event) => { setGas(event.target.value); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+          </label>
+          <p className="text-[10px] font-semibold text-slate-500 sm:col-span-3">Unit rates include VAT. Standing charges aren&apos;t used here — they&apos;re paid whatever you switch on.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" disabled={pending || !supplier.trim()} onClick={() => startTransition(async () => {
+            try {
+              const edited = chosen && (String(chosen.electricity ?? "") !== electricity || (chosen.gas != null && String(chosen.gas) !== gas));
+              await saveEnergyRates(homeId, electricity, gas, {
+                supplier: search?.supplier || supplier.trim(),
+                name: tariffName.trim() || chosen?.name || "My tariff",
+                code: chosen?.code ?? null,
+                region: search?.region ?? null,
+                regionName: search?.regionName ?? null,
+                fixed: chosen?.fixed ?? false,
+                source: chosen && !edited ? (search?.live ? "octopus_api" : "price_cap") : "bill",
+              });
+              onSaved();
+            } catch (e) { setError(e instanceof Error ? e.message : "Couldn't save."); }
+          })} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">{pending ? "Saving…" : "Save tariff"}</button>
+          <button type="button" onClick={onClose} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Cancel</button>
+        </div>
+      </div>
+    </ModalFrame>
   );
 }
 
