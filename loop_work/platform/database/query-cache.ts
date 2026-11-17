@@ -30,10 +30,9 @@ const ENTRY_MAX_AGE_MS = 15 * 60 * 1000; // backstop only; correctness comes fro
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const MAX_ENTRY_BYTES = 2 * 1024 * 1024;
 
-/** Read-only database functions that are safe to cache, with the tables they read. */
-const CACHEABLE_RPCS: Record<string, string[]> = {
-  loop_active_household_context: ["app_user_profiles", "app_household_members", "app_households"],
-};
+// Database functions: the counter snapshot lists read-only ones as "rpc:<name>" — a version when it's
+// safe to cache (reads only tracked tables, no clock/randomness), -1 when it's a read that mustn't be
+// cached. Functions not listed may write, so they're treated as writes.
 
 const state = {
   entries: new Map<string, CachedResponse>(),
@@ -174,30 +173,38 @@ export function createCachingFetch(options: {
     const isRpc = path.startsWith("rpc/");
     const rpcName = isRpc ? path.slice(4) : null;
     const readMethod = method === "GET" || method === "HEAD";
-    const cacheableRpc = isRpc && method === "POST" && rpcName != null && rpcName in CACHEABLE_RPCS;
-
-    // Writes (and RPCs we don't know are read-only): pass through, then mark counters stale.
-    if (!(readMethod && !isRpc) && !cacheableRpc) {
-      const response = await base(input as RequestInfo, init);
-      if (!readMethod) { state.writeSeq += 1; state.stats.writes += 1; }
-      return response;
-    }
 
     const profile = headerValue(init, request, "accept-profile") || headerValue(init, request, "content-profile");
     const auth = headerValue(init, request, "authorization") || "";
     const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+    const headers = new Headers(request ? request.headers : (init?.headers as HeadersInit | undefined));
+
+    // Database functions: look them up in the counter snapshot to know whether they're reads.
+    let rpcVersion: number | undefined;
+    if (isRpc && token && !(profile && profile !== "public")) {
+      const known = await marks(headers);
+      rpcVersion = known?.[`rpc:${rpcName}`];
+    }
+    const cacheableRpc = isRpc && rpcVersion !== undefined && rpcVersion >= 0;
+    const readOnlyRpc = isRpc && rpcVersion !== undefined;
+
+    // Writes (and functions we can't prove are read-only): pass through, then mark counters stale.
+    if (!(readMethod && !isRpc) && !cacheableRpc) {
+      const response = await base(input as RequestInfo, init);
+      if (!readMethod && !readOnlyRpc) { state.writeSeq += 1; state.stats.writes += 1; }
+      else state.stats.bypass += 1;
+      return response;
+    }
+
     if ((profile && profile !== "public") || !token) {
       state.stats.bypass += 1;
       return base(input as RequestInfo, init);
     }
 
-    const tables = isRpc
-      ? CACHEABLE_RPCS[rpcName!]
-      : [path, ...embeddedTables(new URL(url).searchParams.get("select"))];
+    const tables = isRpc ? [`rpc:${rpcName}`] : [path, ...embeddedTables(new URL(url).searchParams.get("select"))];
 
-    const headers = new Headers(request ? request.headers : (init?.headers as HeadersInit | undefined));
     const [sub, currentMarks] = await Promise.all([verifiedSub(token), marks(headers)]);
-    if (!sub || !currentMarks || tables.some((t) => !(t in currentMarks))) {
+    if (!sub || !currentMarks || tables.some((t) => !(t in currentMarks) || currentMarks[t] < 0)) {
       state.stats.bypass += 1;
       return base(input as RequestInfo, init);
     }
