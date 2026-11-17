@@ -74,6 +74,8 @@ async function octopusOptions(region: string): Promise<TariffOption[]> {
   details.forEach((detail, index) => {
     if (!detail) return;
     const product = products[index];
+    // Restricted tariffs (e.g. Zero Bills homes) aren't open to most households.
+    if (detail.is_restricted || /ZERO/i.test(product.code)) return;
     const elec = pickPayment(detail.single_register_electricity_tariffs?.[region]);
     const gas = pickPayment(detail.single_register_gas_tariffs?.[region]);
     const electricity = round(elec?.standard_unit_rate_inc_vat);
@@ -91,7 +93,7 @@ async function octopusOptions(region: string): Promise<TariffOption[]> {
       fixed: !product.is_variable,
       green: Boolean(product.is_green),
       timeOfUse,
-      note: timeOfUse ? (product.is_tracker ? "Tracks wholesale prices day to day — today's rate shown." : "Cheaper at certain times — the standard/peak rate is shown.") : undefined,
+      note: timeOfUse ? (product.is_tracker ? "Tracks wholesale prices day to day — this is today's rate." : "The price changes through the day. This is the rate Octopus lists as standard; your bill's average depends on when you use power, so check it against your bill.") : undefined,
     });
   });
   // Plain tariffs first, then fixed before variable, then name.
