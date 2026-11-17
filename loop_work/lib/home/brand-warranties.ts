@@ -20,7 +20,7 @@ export const BRAND_WARRANTIES: BrandWarranty[] = [
   {
     brand: "Worcester Bosch",
     match: ["worcester"],
-    months: { boiler: 24, "*": 24 },
+    months: {},
     notes: [
       "Boiler guarantees depend on the model and who fits it — oil boilers start at 2 years.",
       "Greenstar 8000+ gas boilers get 12 years when fitted by a Worcester Bosch Accredited Installer with a Greenstar system filter.",
