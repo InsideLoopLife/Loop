@@ -139,7 +139,7 @@ export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | 
 
   useEffect(() => {
     let cancelled = false;
-    listHomeItems(homeId)
+    quietly(() => listHomeItems(homeId))
       .then((result) => { if (!cancelled) { setItems(result.items); setRates(result.rates); setEnergy(result.energy); } })
       .catch((error) => { if (!cancelled) setLoadError(error instanceof Error ? error.message : "Couldn't load your things."); });
     return () => { cancelled = true; };
