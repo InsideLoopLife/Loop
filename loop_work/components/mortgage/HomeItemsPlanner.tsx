@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { deleteHomeItem, findTariffs, listHomeItems, previewProductLink, saveHomeItem, setHomeItemStatus, type HomeItemInput, type SavedTariff } from "@/app/mortgage/home-items-actions";
+import { quietly } from "@/components/feedback/quiet-action";
 import { clearEnergyTariff, readEnergyBillUpload, restoreEnergyTariff, saveEnergyTariff } from "@/app/energy/actions";
 import type { BillReadResult } from "@/lib/energy/bill-reader";
 import type { EffectiveEnergy } from "@/lib/energy/tariff";
@@ -173,7 +174,7 @@ export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | 
     let cancelled = false;
     const timer = setTimeout(() => {
       setPreview({ url: linkInput, loading: true, title: null, image: null, price: null, brand: null });
-      previewProductLink(linkInput)
+      quietly(() => previewProductLink(linkInput))
         .then((result) => { if (!cancelled) setPreview({ url: linkInput, loading: false, title: result.title, image: result.image, price: result.price, brand: result.brand, reason: result.reason }); })
         .catch((error) => { if (!cancelled) setPreview({ url: linkInput, loading: false, title: null, image: null, price: null, brand: null, reason: error instanceof Error ? error.message : "Couldn't look that up." }); });
     }, 600);
@@ -520,7 +521,7 @@ function TariffFinder({ homeId, onPick, onManual }: { homeId: string | null; onP
   const matches = supplier.trim() ? SUPPLIER_NAMES.filter((name) => name.toLowerCase().includes(supplier.trim().toLowerCase())) : SUPPLIER_NAMES;
   function pickSupplier(name: string) {
     setSupplier(name); setSearch(null); setError(null); setSearching(true);
-    findTariffs(homeId, name).then(setSearch).catch((e) => setError(e instanceof Error ? e.message : "Couldn't look that up.")).finally(() => setSearching(false));
+    quietly(() => findTariffs(homeId, name)).then(setSearch).catch((e) => setError(e instanceof Error ? e.message : "Couldn't look that up.")).finally(() => setSearching(false));
   }
   const options = (search?.options || []).filter((option) => !filter.trim() || option.name.toLowerCase().includes(filter.trim().toLowerCase()));
   return (
@@ -601,7 +602,7 @@ function BillReader({ onRead }: { onRead: (result: BillReadResult, filename: str
           const form = new FormData();
           if (file) form.append("file", file);
           if (text.trim()) form.append("text", text);
-          onRead(await readEnergyBillUpload(form), file?.name || "pasted text");
+          onRead(await quietly(() => readEnergyBillUpload(form)), file?.name || "pasted text");
         } catch (e) { setError(e instanceof Error ? e.message : "Couldn't read that."); }
       })} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">{pending ? "Reading…" : "Read it"}</button>
     </div>
@@ -798,7 +799,7 @@ function ItemFields({ form, setForm, today, preview, rates, expanded = false }: 
                 <input value={form.productUrl} onChange={(event) => set({ productUrl: event.target.value.trim() })} placeholder="Paste the product page from the shop" className={input} />
               </label>
               {/^https?:\/\/\S+\.\S+/i.test(form.productUrl) ? (
-                <button type="button" disabled={looking} onClick={() => { setLooking(true); setLookupNote(null); previewProductLink(form.productUrl).then((result) => { setForm({ ...form, imageUrl: form.imageUrl || result.image || "", brand: form.brand || result.brand || "", retailer: form.retailer || nameFromProductUrl(form.productUrl)?.retailer || "" }); setLookupNote(result.image ? "Picture found." : result.reason || "No picture on that page — paste a picture link below."); }).catch((error) => setLookupNote(error instanceof Error ? error.message : "Couldn't look that up.")).finally(() => setLooking(false)); }} className="mt-2 rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-violet-700 ring-1 ring-violet-200 disabled:opacity-50">{looking ? "Looking…" : "Get picture from the link"}</button>
+                <button type="button" disabled={looking} onClick={() => { setLooking(true); setLookupNote(null); quietly(() => previewProductLink(form.productUrl)).then((result) => { setForm({ ...form, imageUrl: form.imageUrl || result.image || "", brand: form.brand || result.brand || "", retailer: form.retailer || nameFromProductUrl(form.productUrl)?.retailer || "" }); setLookupNote(result.image ? "Picture found." : result.reason || "No picture on that page — paste a picture link below."); }).catch((error) => setLookupNote(error instanceof Error ? error.message : "Couldn't look that up.")).finally(() => setLooking(false)); }} className="mt-2 rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-violet-700 ring-1 ring-violet-200 disabled:opacity-50">{looking ? "Looking…" : "Get picture from the link"}</button>
               ) : null}
               {lookupNote ? <span className="ml-2 text-[11px] font-semibold text-slate-500">{lookupNote}</span> : null}
             </div>

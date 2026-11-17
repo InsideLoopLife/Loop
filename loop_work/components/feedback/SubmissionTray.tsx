@@ -31,6 +31,8 @@ function hasActionHeader(init?: RequestInit) {
   return Object.keys(h).some((k) => k.toLowerCase() === "next-action");
 }
 
+import { consumeQuietAction } from "@/components/feedback/quiet-action";
+
 export function SubmissionTray() {
   const router = useRouter();
   const [items, setItems] = useState<Item[]>([]);
@@ -53,6 +55,8 @@ export function SubmissionTray() {
     const originalFetch = window.fetch;
     window.fetch = async function patched(input: RequestInfo | URL, init?: RequestInit) {
       if (!hasActionHeader(init)) return originalFetch(input as any, init);
+      // Reads (looking something up, reading a bill) run through server actions too, but save nothing.
+      if (consumeQuietAction()) return originalFetch(input as any, init);
       // Pair with a recent form submit; otherwise it's a button or background save.
       const recent = waiting.current.findIndex((w) => Date.now() - w.at < 2000);
       const fromForm = recent >= 0 ? waiting.current.splice(recent, 1)[0] : null;

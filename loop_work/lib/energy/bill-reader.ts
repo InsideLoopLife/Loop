@@ -106,6 +106,7 @@ function hhmm(value: unknown) {
 
 /** A best-effort read without AI: "27.86p per kWh", "Standing charge 54.83p per day", supplier names. */
 export function patternRead(text: string): BillDraft {
+  text = text.replace(/\r\n?/g, "\n");
   const lower = text.toLowerCase();
   const supplier = SUPPLIER_NAMES.find((name) => lower.includes(name.toLowerCase())) || null;
   // The first mention of the fuel that is followed by a p/kWh figure (so "British Gas" in a header doesn't count).
