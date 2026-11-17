@@ -236,8 +236,9 @@ async function addFinancialAccount__save(formData: FormData) {
     formData.get("ownership_scope") ||
       (ownerPersonId ? "personal" : "household"),
   );
+  // Joint accounts are always shared with the household; personal ones can be kept private.
   const visibilityScope =
-    String(formData.get("visibility_scope") || "household") === "private"
+    ownerPersonId && String(formData.get("visibility_scope") || "household") === "private"
       ? "private"
       : "household";
   const savingsLimitScope = String(
@@ -482,7 +483,8 @@ async function assignSavingsAccountOwner__save(formData: FormData) {
   const ownerPersonId = String(formData.get("owner_person_id") || "") || null;
   const ownershipScope = String(formData.get("ownership_scope") || (ownerPersonId ? "personal" : "household"));
   const savingsLimitScope = String(formData.get("savings_limit_scope") || (ownershipScope === "household" ? "household" : ownershipScope === "joint" ? "joint" : ownershipScope === "child" ? "child" : "individual"));
-  const visibilityScope = String(formData.get("visibility_scope") || "household") === "private" ? "private" : "household";
+  // Joint / household accounts are always shared with the household.
+  const visibilityScope = ownerPersonId && !["joint", "household"].includes(ownershipScope) && String(formData.get("visibility_scope") || "household") === "private" ? "private" : "household";
 
   const { data: existing } = await supabase
     .from("financial_accounts")
@@ -523,6 +525,60 @@ async function assignSavingsAccountOwner__save(formData: FormData) {
 
   revalidatePath("/accounts");
   revalidatePath("/spending");
+}
+
+/**
+ * Share a personal account with the household, or keep it private (only the person who added it and
+ * the account's owner can see it). Joint accounts are always shared. The account's own history
+ * (movements and balance snapshots) follows, so a private account doesn't leak through its history.
+ * Bills, pay and pots that point at the account keep their own sharing; others just won't see which
+ * account it is.
+ */
+async function setFinancialAccountSharing__save(formData: FormData) {
+  const { supabase, user, householdContext } = await requireUser();
+  const id = String(formData.get("id") || "");
+  const visibilityScope = String(formData.get("visibility_scope") || "") === "private" ? "private" : "household";
+
+  const { data: existing } = await supabase
+    .from("financial_accounts")
+    .select("id,name,provider,savings_product_name,start_date,end_date,is_liability,monthly_top_up_amount,top_up_day,owner_person_id,ownership_scope,account_type")
+    .eq("id", id)
+    .or(visibleDataOrFilter(householdContext))
+    .maybeSingle();
+  if (!existing?.id) throw new Error("Account not found or not yours to change.");
+  const joint = !existing.owner_person_id || ["joint", "household"].includes(String(existing.ownership_scope || ""));
+  if (joint && visibilityScope === "private") throw new Error("Joint accounts are shared with the household. Move it to one person first to keep it private.");
+  if (visibilityScope === "household" && !householdContext?.householdId) throw new Error("Join or create a household first to share accounts.");
+
+  const { error } = await changeRecord(
+    supabase.from("financial_accounts").update({ visibility_scope: visibilityScope, updated_at: new Date().toISOString() } as any),
+    id,
+    householdContext,
+  );
+  if (error) throw new Error(error.message);
+
+  // The account's own history follows it (only rows this person can change; RLS enforces that).
+  await supabase.from("savings_account_movements").update({ visibility_scope: visibilityScope } as any).eq("financial_account_id", id);
+  await supabase.from("account_balance_snapshots").update({ visibility_scope: visibilityScope } as any).eq("account_id", id);
+
+  if (!existing.is_liability && existing.account_type !== "current_account") {
+    await syncSavingsTopUpPlanner(supabase, user.id, id, householdContext, {
+      provider: existing.provider,
+      product: existing.savings_product_name,
+      name: existing.name,
+      monthlyTopUp: parseNumber((existing as any).monthly_top_up_amount),
+      topUpDay: parseNumber((existing as any).top_up_day),
+      startDate: existing.start_date || null,
+      endDate: existing.end_date || null,
+      personId: existing.owner_person_id || null,
+      visibilityScope,
+    });
+  }
+
+  revalidatePath("/accounts");
+  revalidatePath("/spending");
+  revalidatePath("/net-worth");
+  revalidatePath("/briefing");
 }
 
 async function deleteFinancialAccount__save(formData: FormData) {
@@ -1025,6 +1081,7 @@ export async function addFinancialAccount(formData: FormData): Promise<void> { r
 export async function quickAddFinancialAccount(formData: FormData) { return runFriendly(() => addFinancialAccount__save(formData)); }
 export async function updateFinancialAccount(...args: Parameters<typeof updateFinancialAccount__save>): ReturnType<typeof updateFinancialAccount__save> { return runFriendly(() => updateFinancialAccount__save(...args)); }
 export async function assignSavingsAccountOwner(...args: Parameters<typeof assignSavingsAccountOwner__save>): ReturnType<typeof assignSavingsAccountOwner__save> { return runFriendly(() => assignSavingsAccountOwner__save(...args)); }
+export async function setFinancialAccountSharing(...args: Parameters<typeof setFinancialAccountSharing__save>): ReturnType<typeof setFinancialAccountSharing__save> { return runFriendly(() => setFinancialAccountSharing__save(...args)); }
 export async function deleteFinancialAccount(...args: Parameters<typeof deleteFinancialAccount__save>): ReturnType<typeof deleteFinancialAccount__save> { return runFriendly(() => deleteFinancialAccount__save(...args)); }
 export async function addSavingsAccountMovement(...args: Parameters<typeof addSavingsAccountMovement__save>): ReturnType<typeof addSavingsAccountMovement__save> { return runFriendly(() => addSavingsAccountMovement__save(...args)); }
 export async function deleteSavingsAccountMovement(...args: Parameters<typeof deleteSavingsAccountMovement__save>): ReturnType<typeof deleteSavingsAccountMovement__save> { return runFriendly(() => deleteSavingsAccountMovement__save(...args)); }

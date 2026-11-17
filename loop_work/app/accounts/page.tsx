@@ -89,6 +89,7 @@ import {
   savePensionPerformanceAssumption,
   updateFinancialAccount,
   saveSavingsDealEligibility,
+  setFinancialAccountSharing,
 } from "./actions";
 import { getChildCostMonthlyAmount as sharedChildCostMonthlyAmount } from "@/lib/planning/month-plan";
 import { NewPotButton, PotMoneyButton } from "@/components/savings/SavingsPotQuickAdd";
@@ -1279,9 +1280,36 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     })),
   ];
 
-  const accountCards = (
-    <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-      {accountRows.map((account) => {
+  const isJointAccount = (account: { owner_person_id?: string | null; ownership_scope?: string | null }) =>
+    !account.owner_person_id || ["joint", "household"].includes(String(account.ownership_scope || "").toLowerCase());
+
+  // Joint accounts are always shared; a personal account can be shared with the household or kept private.
+  const sharingControl = (account: { id: string; owner_person_id?: string | null; ownership_scope?: string | null; visibility_scope?: string | null }) => {
+    if (isJointAccount(account)) {
+      return <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-black text-sky-800">Joint · shared with the household</span>;
+    }
+    const shared = account.visibility_scope === "household";
+    const ownerName = account.owner_person_id ? ownerById.get(account.owner_person_id)?.name : null;
+    return (
+      <form action={setFinancialAccountSharing} className="flex flex-wrap items-center gap-2">
+        <input type="hidden" name="id" value={account.id} />
+        <input type="hidden" name="visibility_scope" value={shared ? "private" : "household"} />
+        <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${shared ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>{shared ? "Shared with household" : "Private"}</span>
+        <ConfirmSubmit
+          question={shared ? "Make this account private?" : "Share this account with the household?"}
+          detail={shared
+            ? `Only ${ownerName || "its owner"} and whoever added it will see it, its balance and its history. It leaves other members' household totals. Bills and pay that use it stay shared.`
+            : "Everyone in the household will see it, its balance and its history, and it counts in household totals."}
+          confirmLabel={shared ? "Yes, make it private" : "Yes, share it"}
+          className="text-[11px] font-black text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-950"
+        >
+          {shared ? "Make private" : "Share with household"}
+        </ConfirmSubmit>
+      </form>
+    );
+  };
+
+  const savingsCard = (account: FinancialAccount) => {
         const institution = findInstitution(account.provider_slug || account.provider);
         const providerName = institution?.name || account.provider || "Savings provider";
         const owner = account.owner_person_id ? ownerById.get(account.owner_person_id) : null;
@@ -1298,6 +1326,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                   <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-black text-blue-700">Allowance: {(account.savings_limit_scope || "individual").replaceAll("_", " ")}</span>
                   {account.provider_slug ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-black text-emerald-700">Provider tracked</span> : null}
                 </div>
+                <div className="mt-2">{sharingControl(account)}</div>
                 {buildSavingsGoal(account) ? (
                   <div className="mt-4 rounded-2xl bg-emerald-50 p-3 ring-1 ring-emerald-100">
                     <div className="flex items-center justify-between gap-3">
@@ -1478,13 +1507,70 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
             </div>
           </div>
         );
-      })}
+  };
+  const everydayCard = (account: (typeof everydayAccountRows)[number]) => {
+    const owner = account.owner_person_id ? ownerById.get(account.owner_person_id) : null;
+    return (
+      <div key={account.id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <FinancialInstitutionLogo provider={account.provider_slug || account.provider} className="h-12 w-12 rounded-2xl" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-black uppercase tracking-wide text-slate-500">{account.provider || "Bank"}</p>
+            <h4 className="truncate text-lg font-black text-slate-950">{account.name}</h4>
+            <p className="mt-1 text-xs font-bold text-slate-400">{owner?.name || "Joint"} · everyday account</p>
+            <div className="mt-2">{sharingControl(account)}</div>
+          </div>
+        </div>
+        <p className="mt-3 text-2xl font-black text-slate-950">{formatMoney(account.current_balance)}</p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <form action={updateFinancialAccount}>
+            <input type="hidden" name="id" value={account.id} />
+            <input type="hidden" name="owner_person_id" value={account.owner_person_id || ""} />
+            <input type="hidden" name="ownership_scope" value={account.ownership_scope || (account.owner_person_id ? "personal" : "household")} />
+            <input type="hidden" name="visibility_scope" value={account.visibility_scope || "household"} />
+            <input type="hidden" name="savings_limit_scope" value={account.savings_limit_scope || "individual"} />
+            <input name="current_balance" type="number" step="0.01" defaultValue={account.current_balance ?? 0} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-950" />
+            <button className="mt-2 w-full rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-950 hover:text-white">Update balance</button>
+          </form>
+          <form action={deleteFinancialAccount} className="flex items-end">
+            <input type="hidden" name="id" value={account.id} />
+            <ConfirmSubmit question="Delete this account?" detail="Its balance and history go, and your totals change. This can't be undone." confirmLabel="Delete it" danger className="w-full rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-600 hover:bg-red-100">Delete</ConfirmSubmit>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  const jointSavings = accountRows.filter(isJointAccount);
+  const jointEveryday = everydayAccountRows.filter(isJointAccount);
+  const personalGroups = (() => {
+    const groups = new Map<string, { id: string; name: string; avatarUrl: string | null; savings: FinancialAccount[]; everyday: typeof everydayAccountRows; accounts: Array<{ visibility_scope?: string | null }>; shared: number }>();
+    const groupFor = (personId: string) => {
+      if (!groups.has(personId)) {
+        const person = ownerById.get(personId);
+        groups.set(personId, { id: personId, name: person?.name || "Someone else", avatarUrl: person?.avatar_url || null, savings: [], everyday: [], accounts: [], shared: 0 });
+      }
+      return groups.get(personId)!;
+    };
+    for (const account of everydayAccountRows.filter((row) => !isJointAccount(row))) groupFor(String(account.owner_person_id)).everyday.push(account);
+    for (const account of accountRows.filter((row) => !isJointAccount(row))) groupFor(String(account.owner_person_id)).savings.push(account);
+    for (const group of groups.values()) {
+      group.accounts = [...group.everyday, ...group.savings];
+      group.shared = group.accounts.filter((row) => row.visibility_scope === "household").length;
+    }
+    // People in the household's usual order (you first), then anyone else.
+    const order = ownerOptions.map((person) => person.id);
+    return [...groups.values()].sort((a, b) => (order.indexOf(a.id) + 1 || 999) - (order.indexOf(b.id) + 1 || 999));
+  })();
+
+  const savingsEmpty = (
+    <>
       {accountRows.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-emerald-200 bg-emerald-50/70 p-6 text-sm font-bold text-emerald-900">
           Add your first savings account above and LOOP will turn it into a goal-aware pot with progress, target dates and monthly gap checks.
         </div>
       ) : null}
-    </div>
+    </>
   );
 
   return (
@@ -1611,7 +1697,8 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                           <p className="truncate text-xs text-[var(--muted)]">
                             {Number(account.interest_rate || 0) > 0 ? `${Number(account.interest_rate).toFixed(2)}%` : "No interest"}
                             {Number(account.monthly_top_up_amount || 0) > 0 ? ` · ${formatMoney(Number(account.monthly_top_up_amount))}/mo in` : ""}
-                            {owner ? ` · ${owner.name}` : ""}
+                            {owner ? ` · ${owner.name}` : " · Joint"}
+                            {owner && account.visibility_scope === "private" ? " · Private" : ""}
                           </p>
                         </div>
                         <p className="shrink-0 text-[15px] font-semibold text-[var(--ink)]">{formatMoney(balance)}</p>
@@ -1853,47 +1940,37 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                 </div>
               </div>
             </SectionCard>
-            <SectionCard title="Your savings accounts" description="Tap Thread for each account's history, or Update to record a new balance.">
-              {accountCards}
-            </SectionCard>
-            <SectionCard title="Everyday accounts" description="Current/checking accounts don't earn a tracked rate, but adding them here means they show up as an option whenever you pick a 'paid into' or 'paid from' account across Money in & out — income, spending and childcare included.">
-              {everydayAccountRows.length === 0 ? (
-                <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm font-semibold text-slate-500">No everyday accounts added yet. Use the &ldquo;Add account&rdquo; tab and choose &ldquo;Current / everyday account&rdquo; to add the account your bills and salary actually move through.</p>
+            <SectionCard title="Joint accounts" description="Held together. Joint accounts are always shared with everyone in the household and count in household totals.">
+              {jointEveryday.length + jointSavings.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm font-semibold text-slate-500">No joint accounts yet. Add one from &ldquo;Add account&rdquo; and choose &ldquo;Joint&rdquo; as the owner.</p>
               ) : (
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {everydayAccountRows.map((account) => {
-                    const owner = account.owner_person_id ? ownerById.get(account.owner_person_id) : null;
-                    return (
-                      <div key={account.id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                        <div className="flex items-start gap-3">
-                          <FinancialInstitutionLogo provider={account.provider_slug || account.provider} className="h-12 w-12 rounded-2xl" />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-black uppercase tracking-wide text-slate-500">{account.provider || "Bank"}</p>
-                            <h4 className="truncate text-lg font-black text-slate-950">{account.name}</h4>
-                            <p className="mt-1 text-xs font-bold text-slate-400">{owner?.name || "Household / shared"}</p>
-                          </div>
-                        </div>
-                        <p className="mt-3 text-2xl font-black text-slate-950">{formatMoney(account.current_balance)}</p>
-                        <div className="mt-4 grid grid-cols-2 gap-2">
-                          <form action={updateFinancialAccount}>
-                            <input type="hidden" name="id" value={account.id} />
-                            <input type="hidden" name="owner_person_id" value={account.owner_person_id || ""} />
-                            <input type="hidden" name="ownership_scope" value={account.ownership_scope || (account.owner_person_id ? "personal" : "household")} />
-                            <input type="hidden" name="visibility_scope" value={account.visibility_scope || "household"} />
-                            <input type="hidden" name="savings_limit_scope" value={account.savings_limit_scope || "individual"} />
-                            <input name="current_balance" type="number" step="0.01" defaultValue={account.current_balance ?? 0} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-950" />
-                            <button className="mt-2 w-full rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-950 hover:text-white">Update balance</button>
-                          </form>
-                          <form action={deleteFinancialAccount} className="flex items-end">
-                            <input type="hidden" name="id" value={account.id} />
-                            <ConfirmSubmit question="Delete this account?" detail="Its balance and history go, and your totals change. This can't be undone." confirmLabel="Delete it" danger className="w-full rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-600 hover:bg-red-100">Delete</ConfirmSubmit>
-                          </form>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="grid items-start gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                  {jointEveryday.map(everydayCard)}
+                  {jointSavings.map(savingsCard)}
                 </div>
               )}
+            </SectionCard>
+            <SectionCard title="Personal accounts" description="In one person's name. Each one can be shared with the household or kept private — private accounts are only seen by their owner and whoever added them, and stay out of other members' totals.">
+              {personalGroups.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm font-semibold text-slate-500">No personal accounts yet. Add one from &ldquo;Add account&rdquo; and choose the person as the owner.</p>
+              ) : (
+                <div className="space-y-6">
+                  {personalGroups.map((group) => (
+                    <div key={group.id}>
+                      <div className="mb-3 flex flex-wrap items-center gap-3">
+                        <AvatarBubble imageUrl={group.avatarUrl} label={group.name} className="h-9 w-9" />
+                        <h3 className="text-base font-black text-slate-950">{group.name}</h3>
+                        <span className="text-xs font-bold text-slate-500">{group.accounts.length} account{group.accounts.length === 1 ? "" : "s"} · {group.shared} shared · {group.accounts.length - group.shared} private</span>
+                      </div>
+                      <div className="grid items-start gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                        {group.everyday.map(everydayCard)}
+                        {group.savings.map(savingsCard)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {savingsEmpty}
             </SectionCard>
           </div>
         ) : null}
@@ -1918,9 +1995,17 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
               <label className="text-sm font-bold text-slate-700">
                 Owner
                 <select name="owner_person_id" defaultValue={defaultOwnerPerson?.id || ""} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-950">
-                  <option value="">Household / shared</option>
+                  <option value="">Joint (shared with the household)</option>
                   {ownerOptions.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
                 </select>
+              </label>
+              <label className="text-sm font-bold text-slate-700">
+                Who can see it
+                <select name="visibility_scope" defaultValue="household" className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-950">
+                  <option value="household">Shared with the household</option>
+                  <option value="private">Private to the owner</option>
+                </select>
+                <span className="mt-1 block text-xs font-semibold text-slate-400">Joint accounts are always shared. A private personal account is only seen by its owner and you, and stays out of other members&apos; totals.</span>
               </label>
               <FormInput label="Current balance" name="current_balance" type="number" step="0.01" placeholder="0.00" />
               <FormInput label="Rate % (savings only)" name="interest_rate" type="number" step="0.001" placeholder="Leave blank for non-savings accounts" />
