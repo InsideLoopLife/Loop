@@ -37,6 +37,7 @@ import {
   updateHomeMortgageDeal,
   updateHomeValuationSource,
 } from "@/app/mortgage/actions";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 export type MortgageScenario = {
   id: string;
@@ -3754,9 +3755,9 @@ function MortgageDealsPanel({
                     </button>
                     <form action={deleteHomeMortgageDeal}>
                       <input type="hidden" name="id" value={deal.id} />
-                      <button className="rounded-full border border-red-200 px-3 py-1.5 text-xs font-black text-red-600">
+                      <ConfirmSubmit question="Delete this mortgage deal?" detail="Its payments and balance leave your plans and net worth." confirmLabel="Delete it" danger className="rounded-full border border-red-200 px-3 py-1.5 text-xs font-black text-red-600">
                         Delete
-                      </button>
+                      </ConfirmSubmit>
                     </form>
                   </div>
                 </article>
@@ -4026,13 +4027,13 @@ function MortgageDealsPanel({
                           : "true"
                       }
                     />
-                    <button
+                    <ConfirmSubmit question="Change your default deal?" detail="Loop's mortgage figures and plans use the default deal." confirmLabel="Yes, change it"
                       className={`rounded-full px-4 py-2 text-xs font-black ${preferenceFor("recommendation", deal.id)?.is_starred ? "bg-amber-400 text-slate-950" : "bg-slate-100 text-slate-700"}`}
                     >
                       {preferenceFor("recommendation", deal.id)?.is_starred
                         ? "★ Default"
                         : "☆ Make default"}
-                    </button>
+                    </ConfirmSubmit>
                   </form>
                   <button
                     type="button"
@@ -4148,13 +4149,13 @@ function MortgageDealsPanel({
                               : "true"
                           }
                         />
-                        <button
+                        <ConfirmSubmit question="Change your default deal?" detail="Loop's mortgage figures and plans use the default deal." confirmLabel="Yes, change it"
                           className={`rounded-full px-4 py-2 text-xs font-black ${preferenceFor("market", deal.id)?.is_starred ? "bg-amber-400 text-slate-950" : "bg-slate-100 text-slate-700"}`}
                         >
                           {preferenceFor("market", deal.id)?.is_starred
                             ? "★ Default"
                             : "☆ Make default"}
-                        </button>
+                        </ConfirmSubmit>
                       </form>
                       <button
                         type="button"
@@ -4365,9 +4366,9 @@ function MovingHomePanel({
                     ) : null}
                     <form action={archivePropertyMoveQuery}>
                       <input type="hidden" name="id" value={query.id} />
-                      <button className="rounded-full border border-red-200 px-3 py-1.5 text-xs font-black text-red-600">
+                      <ConfirmSubmit question="Archive this move?" detail="It stops showing in your moving plans." confirmLabel="Yes, archive" className="rounded-full border border-red-200 px-3 py-1.5 text-xs font-black text-red-600">
                         Archive
-                      </button>
+                      </ConfirmSubmit>
                     </form>
                   </div>
                 </div>
@@ -4480,9 +4481,9 @@ function ValuationSourcesPanel({
                   </button>
                   <form action={deleteHomeValuationSource}>
                     <input type="hidden" name="id" value={valuation.id} />
-                    <button className="text-sm font-medium text-red-600">
+                    <ConfirmSubmit question="Delete this valuation?" detail="The property's value and equity are worked out again without it." confirmLabel="Delete it" danger className="text-sm font-medium text-red-600">
                       Delete
-                    </button>
+                    </ConfirmSubmit>
                   </form>
                 </div>
               </div>
@@ -5621,9 +5622,9 @@ export function MortgagePlannerClient({
                     </div>
                     <form action={deleteMortgageScenario}>
                       <input type="hidden" name="id" value={scenario.id} />
-                      <button className="text-sm font-medium text-red-600">
+                      <ConfirmSubmit question="Delete this scenario?" detail="It's removed from your mortgage plans." confirmLabel="Delete it" danger className="text-sm font-medium text-red-600">
                         Delete
-                      </button>
+                      </ConfirmSubmit>
                     </form>
                   </div>
                   <dl className="mt-5 grid gap-3 sm:grid-cols-3">

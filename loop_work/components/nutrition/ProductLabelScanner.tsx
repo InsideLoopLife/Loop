@@ -3,6 +3,7 @@
 
 import { useState, useTransition } from "react";
 import { applyLabelImageCandidateToMeal } from "@/app/nutrition/actions";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -126,7 +127,7 @@ export function ProductLabelScanner({ mealId, label, sourceUrl }: { mealId: stri
           <form action={applyLabelImageCandidateToMeal} className="mt-3">
             <input type="hidden" name="meal_id" value={mealId} />
             <input type="hidden" name="candidate_json" value={JSON.stringify(candidate)} />
-            <button className="rounded-full bg-slate-950 px-3 py-2 font-black text-white">Apply corrected label data</button>
+            <ConfirmSubmit question="Replace this card's nutrition?" detail="Food logged with this card uses the corrected values." confirmLabel="Yes, replace" className="rounded-full bg-slate-950 px-3 py-2 font-black text-white">Apply corrected label data</ConfirmSubmit>
           </form>
         </div>
       ) : null}

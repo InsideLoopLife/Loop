@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureDefaultAssumptions } from "@/lib/assumptions/server";
 import { OFFICIAL_ASSUMPTION_DEFAULTS } from "@/lib/assumptions/catalog";
 import { clearAssumptionLog, deleteAssumption, runAssumptionHealthCheck, saveAssumption, seedOfficialAssumptions } from "./actions";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 type Assumption = {
   id: string;
@@ -233,7 +234,7 @@ export default async function AssumptionsPage() {
                         </form>
                         <form action={deleteAssumption} className="mt-3">
                           <input type="hidden" name="id" value={rate.id} />
-                          <button className="text-sm font-medium text-red-600">Delete assumption</button>
+                          <ConfirmSubmit question="Delete this assumption?" detail="Calculations that use it change." confirmLabel="Delete it" danger className="text-sm font-medium text-red-600">Delete assumption</ConfirmSubmit>
                         </form>
                       </div>
                     </details>

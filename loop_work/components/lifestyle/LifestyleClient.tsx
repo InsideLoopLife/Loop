@@ -9,6 +9,7 @@ import { MealWizard } from "@/components/lifestyle/MealWizard";
 import { SubmitButton } from "@/components/SubmitButton";
 import { formatMoney } from "@/lib/format/money";
 import { addDealBill, addMeal, addSupermarket, deleteDealBill, deleteMeal, updateDealBill, updateMeal } from "@/app/lifestyle/actions";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 type Person = { id: string; name: string; relationship: string };
 type DealBill = {
@@ -583,7 +584,7 @@ export function LifestyleClient({ people, bills, supermarkets, meals, foodLogs =
                 <div className="mt-4 flex flex-wrap gap-3">
                   <button onClick={() => setModal({ type: "edit-bill", bill })} className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-200">Edit</button>
                   {bill.comparison_url ? <a href={bill.comparison_url} target="_blank" rel="noreferrer" className="rounded-full bg-orange-100 px-4 py-2 text-sm font-black text-orange-700 hover:bg-orange-200">Compare/open source</a> : null}
-                  <form action={deleteDealBill}><input type="hidden" name="id" value={bill.id} /><button className="rounded-full bg-red-50 px-4 py-2 text-sm font-black text-red-600 hover:bg-red-100">Delete</button></form>
+                  <form action={deleteDealBill}><input type="hidden" name="id" value={bill.id} /><ConfirmSubmit question="Delete this bill?" detail="It leaves your spending and bill totals." confirmLabel="Delete it" danger className="rounded-full bg-red-50 px-4 py-2 text-sm font-black text-red-600 hover:bg-red-100">Delete</ConfirmSubmit></form>
                 </div>
               </article>
             );
@@ -617,7 +618,7 @@ export function LifestyleClient({ people, bills, supermarkets, meals, foodLogs =
                   <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-bold text-slate-500">Fat</p><p className="font-black">{Number(meal.fat_g).toFixed(0)}g</p></div>
                 </div>
                 {meal.ingredients ? <pre className="mt-4 whitespace-pre-wrap rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">{meal.ingredients}</pre> : null}
-                <div className="mt-4 flex gap-3"><form action={deleteMeal}><input type="hidden" name="id" value={meal.id} /><button className="rounded-full bg-red-50 px-4 py-2 text-sm font-black text-red-600 hover:bg-red-100">Delete</button></form>{meal.source_url ? <a href={meal.source_url} target="_blank" rel="noreferrer" className="rounded-full bg-orange-100 px-4 py-2 text-sm font-black text-orange-700 hover:bg-orange-200">Open recipe</a> : null}</div>
+                <div className="mt-4 flex gap-3"><form action={deleteMeal}><input type="hidden" name="id" value={meal.id} /><ConfirmSubmit question="Delete this meal?" detail="It's removed from your plan." confirmLabel="Delete it" danger className="rounded-full bg-red-50 px-4 py-2 text-sm font-black text-red-600 hover:bg-red-100">Delete</ConfirmSubmit></form>{meal.source_url ? <a href={meal.source_url} target="_blank" rel="noreferrer" className="rounded-full bg-orange-100 px-4 py-2 text-sm font-black text-orange-700 hover:bg-orange-200">Open recipe</a> : null}</div>
               </article>
             ))}
             {meals.length === 0 ? <div className="rounded-[2rem] border border-dashed border-slate-300 bg-white/70 p-8 text-center text-sm font-semibold text-slate-500">Add a recipe URL, meal photo reference or ingredients list to start building a grocery and health planner.</div> : null}

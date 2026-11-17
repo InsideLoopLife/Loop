@@ -12,6 +12,7 @@ import { ActivityBillingMode, BillingSchedule, DaySession, FundingMode, calculat
 import { addChildCost, addPayEvent, addPayEventMonthlyOverride, deleteChildCost, deletePayEvent, updateChildCost, updatePayEvent } from "@/app/household/actions";
 import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
 import { deductionsForMonth } from "@/lib/planning/month-plan";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 type Person = {
   id: string;
@@ -384,7 +385,7 @@ export function PersonCalendarPlanner({ person, payEvents, childCosts, incomeEnt
                       <button type="button" onClick={() => setModal({ type: "editPay", event })} className="text-sm font-bold text-slate-700 hover:text-slate-950">Edit</button>
                       <form action={deletePayEvent}>
                         <input type="hidden" name="id" value={event.id} />
-                        <button className="text-sm font-medium text-red-600">Delete</button>
+                        <ConfirmSubmit question="Delete this pay change?" detail="Income from that date is worked out again without it." confirmLabel="Delete it" danger className="text-sm font-medium text-red-600">Delete</ConfirmSubmit>
                       </form>
                     </div>
                   </div>
@@ -419,7 +420,7 @@ export function PersonCalendarPlanner({ person, payEvents, childCosts, incomeEnt
                       <button type="button" onClick={() => setModal({ type: "editChildCost", cost })} className="text-sm font-bold text-slate-700 hover:text-slate-950">Edit</button>
                       <form action={deleteChildCost}>
                         <input type="hidden" name="id" value={cost.id} />
-                        <button className="text-sm font-medium text-red-600">Delete</button>
+                        <ConfirmSubmit question="Delete this child cost?" detail="It leaves the spending plan." confirmLabel="Delete it" danger className="text-sm font-medium text-red-600">Delete</ConfirmSubmit>
                       </form>
                     </div>
                   </div>

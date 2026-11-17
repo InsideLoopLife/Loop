@@ -6,6 +6,7 @@ import { SnapTradeAccountImportPanel } from "@/components/integrations/SnapTrade
 import { createClient } from "@/lib/supabase/server";
 import { investmentDataEntitlementForProfile } from "@/lib/wealth/user-tiers";
 import { deleteIntegrationConnection } from "./actions";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 type IntegrationConnection = {
   id: string;
@@ -97,7 +98,7 @@ export default async function IntegrationsPage() {
                 </div>
                 <form action={deleteIntegrationConnection}>
                   <input type="hidden" name="id" value={connection.id} />
-                  <button className="rounded-full bg-slate-100 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-200">Remove</button>
+                  <ConfirmSubmit question="Remove this connection?" detail="Loop stops updating figures from it." confirmLabel="Yes, remove" danger className="rounded-full bg-slate-100 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-200">Remove</ConfirmSubmit>
                 </form>
               </div>
             ))}

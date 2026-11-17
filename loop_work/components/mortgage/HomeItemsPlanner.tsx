@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { deleteHomeItem, findTariffs, listHomeItems, previewProductLink, saveHomeItem, setHomeItemStatus, type HomeItemInput, type SavedTariff } from "@/app/mortgage/home-items-actions";
 import { quietly } from "@/components/feedback/quiet-action";
+import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { clearEnergyTariff, readEnergyBillUpload, restoreEnergyTariff, saveEnergyTariff } from "@/app/energy/actions";
 import type { BillReadResult } from "@/lib/energy/bill-reader";
 import type { EffectiveEnergy } from "@/lib/energy/tariff";
@@ -311,9 +312,9 @@ export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | 
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <button type="button" disabled={isPending} onClick={() => submit(editing, () => setEditing(null))} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">{isPending ? "Saving…" : "Save"}</button>
                 <button type="button" onClick={() => setEditing(null)} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Cancel</button>
-                <button type="button" disabled={isPending} onClick={() => act(() => setHomeItemStatus(editing.id!, "replaced"))} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Replaced it</button>
-                <button type="button" disabled={isPending} onClick={() => act(() => setHomeItemStatus(editing.id!, "gone"))} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Got rid of it</button>
-                <button type="button" disabled={isPending} onClick={() => { if (window.confirm(`Delete ${editing.input}? This can't be undone. (Use "Replaced it" to keep its history.)`)) act(() => deleteHomeItem(editing.id!)); }} className="ml-auto text-xs font-bold text-rose-700">Delete</button>
+                <ConfirmButton disabled={isPending} question={`Mark ${editing.input || "this"} as replaced?`} detail="It stops counting in running costs and money to put aside, and moves to “replaced or gone”. You can bring it back." confirmLabel="Yes, replaced" onConfirm={() => act(() => setHomeItemStatus(editing.id!, "replaced"))} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Replaced it</ConfirmButton>
+                <ConfirmButton disabled={isPending} question={`Mark ${editing.input || "this"} as got rid of?`} detail="It stops counting in running costs and money to put aside, and moves to “replaced or gone”. You can bring it back." confirmLabel="Yes, got rid of it" onConfirm={() => act(() => setHomeItemStatus(editing.id!, "gone"))} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Got rid of it</ConfirmButton>
+                <span className="ml-auto"><ConfirmButton danger disabled={isPending} question={`Delete ${editing.input || "this"}?`} detail="This can't be undone. Use “Replaced it” instead to keep its history." confirmLabel="Delete it" onConfirm={() => act(() => deleteHomeItem(editing.id!))} className="text-xs font-bold text-rose-700">Delete</ConfirmButton></span>
               </div>
               {message?.tone === "error" ? <p className="mt-2 text-xs font-bold text-rose-700">{message.text}</p> : null}
           </div>
@@ -328,7 +329,7 @@ export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | 
               {gone.map((item) => (
                 <li key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 text-sm">
                   <span className="truncate font-semibold text-slate-600">{KIND_BY_KEY.get(item.kind)?.icon} {item.label} · {item.status === "replaced" ? "replaced" : "gone"}</span>
-                  <button type="button" onClick={() => act(() => setHomeItemStatus(item.id, "active"))} className="shrink-0 text-xs font-bold text-violet-700">Bring back</button>
+                  <ConfirmButton question={`Bring back ${item.label}?`} detail="It counts in running costs and money to put aside again." confirmLabel="Yes, bring it back" onConfirm={() => act(() => setHomeItemStatus(item.id, "active"))} className="shrink-0 text-xs font-bold text-violet-700">Bring back</ConfirmButton>
                 </li>
               ))}
             </ul>
@@ -436,8 +437,8 @@ function RatesBar({ rates, energy, homeId, onSaved }: { rates: RatesState; energ
       <span className="font-bold text-slate-700">⚡ {rates.electricityNight != null ? `${rates.electricity}p day · ${rates.electricityNight}p night${energy?.offPeak ? ` (${energy.offPeak.start}–${energy.offPeak.end})` : ""}` : `${rates.electricity}p/kWh electricity`} · 🔥 {rates.gas}p/kWh gas</span>
       <span className="text-slate-400">{label}{tariff?.gas_tariff_name ? ` · gas: ${tariff.gas_tariff_name}` : ""}</span>
       <span className="ml-auto flex items-center gap-3">
-        {!tariff && energy?.lastSaved ? <button type="button" disabled={pending} onClick={() => startTransition(async () => { await restoreEnergyTariff(energy.lastSaved!.id); onSaved(); })} className="font-bold text-emerald-700">Restore {energy.lastSaved.supplier}{energy.lastSaved.tariffName ? ` · ${energy.lastSaved.tariffName}` : ""}</button> : null}
-        {tariff ? <button type="button" disabled={pending} onClick={() => startTransition(async () => { await clearEnergyTariff(); onSaved(); })} className="font-bold text-slate-500">Use price cap</button> : null}
+        {!tariff && energy?.lastSaved ? <ConfirmButton disabled={pending} question={`Use ${energy.lastSaved.supplier}${energy.lastSaved.tariffName ? ` · ${energy.lastSaved.tariffName}` : ""} again?`} detail="Running costs, money to put aside and calendar dates across Loop will switch to its rates. Check them with Change tariff afterwards." confirmLabel="Yes, restore it" onConfirm={() => startTransition(async () => { await restoreEnergyTariff(energy.lastSaved!.id); onSaved(); })} className="font-bold text-emerald-700">Restore {energy.lastSaved.supplier}{energy.lastSaved.tariffName ? ` · ${energy.lastSaved.tariffName}` : ""}</ConfirmButton> : null}
+        {tariff ? <ConfirmButton disabled={pending} question={`Stop using ${tariff.supplier}'s rates?`} detail={`Loop will use the Ofgem price cap for your region instead of ${energy!.label}. Running costs and calendar dates change. You can restore it afterwards.`} confirmLabel="Yes, use the price cap" onConfirm={() => startTransition(async () => { await clearEnergyTariff(); onSaved(); })} className="font-bold text-slate-500">Use price cap</ConfirmButton> : null}
         <button type="button" onClick={() => setOpen(true)} className="font-bold text-violet-700">{tariff ? "Change tariff" : "Set my tariff"}</button>
       </span>
       {open ? <TariffModal homeId={homeId} energy={energy} onClose={close} onSaved={() => { setOpen(false); onSaved(); }} /> : null}
@@ -460,6 +461,21 @@ function draftFromEnergy(energy: EffectiveEnergy | null): TariffDraft {
     annualGasKwh: v(t?.annual_gas_kwh), gasTariffName: t?.gas_tariff_name || "", gasFixedUntil: t?.gas_fixed_until || "", gasExitFeeGbp: v(t?.gas_exit_fee_gbp),
     offPeakStart: t?.off_peak_start || "", offPeakEnd: t?.off_peak_end || "", region: t?.region || energy?.region || "", source: "manual", sourceFilename: "",
   };
+}
+
+/** "Electricity 27.86p → 32.9p day / 6.66p night · Gas 7.91p → 7.9p", plus what else it changes. */
+function tariffChangeSummary(energy: EffectiveEnergy | null, draft: TariffDraft) {
+  const was = (n: number | null | undefined) => (n == null ? "—" : `${n}p`);
+  const now = (s: string) => (s.trim() ? `${Number(s)}p` : "—");
+  const parts: string[] = [];
+  if (draft.electricityUnitP.trim()) {
+    const before = energy?.electricityNight != null ? `${was(energy.electricity)} / ${was(energy.electricityNight)} night` : was(energy?.electricity);
+    const after = draft.electricityNightUnitP.trim() ? `${now(draft.electricityUnitP)} / ${now(draft.electricityNightUnitP)} night` : now(draft.electricityUnitP);
+    parts.push(`Electricity ${before} → ${after}`);
+  }
+  if (draft.gasUnitP.trim()) parts.push(`Gas ${was(energy?.gas)} → ${now(draft.gasUnitP)}`);
+  const ends = [draft.fixedUntil, draft.gasFixedUntil].filter(Boolean).length;
+  return `${parts.join(" · ")}. This replaces the rates used for running costs and money to put aside across Loop${ends ? ", and adds the fixed-deal end dates to your calendar" : ""}.`;
 }
 
 function TariffModal({ homeId, energy, onClose, onSaved }: { homeId: string | null; energy: EffectiveEnergy | null; onClose: () => void; onSaved: () => void }) {
@@ -500,10 +516,10 @@ function TariffModal({ homeId, energy, onClose, onSaved }: { homeId: string | nu
           <TariffConfirmFields draft={draft} setDraft={setDraft} />
           {error ? <p className="text-xs font-bold text-rose-700">{error}</p> : null}
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" disabled={pending || !draft.supplier.trim()} onClick={() => startTransition(async () => {
+            <ConfirmButton disabled={pending || !draft.supplier.trim()} question={`Save ${draft.supplier.trim() || "these rates"} for your household?`} detail={tariffChangeSummary(energy, draft)} confirmLabel="Yes, save it" onConfirm={() => startTransition(async () => {
               try { await saveEnergyTariff({ homeId, ...draft }); onSaved(); }
               catch (e) { setError(e instanceof Error ? e.message : "Couldn't save."); }
-            })} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">{pending ? "Saving…" : "Save for our household"}</button>
+            })} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">{pending ? "Saving…" : "Save for our household"}</ConfirmButton>
             <button type="button" onClick={() => setMode("find")} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Back</button>
           </div>
         </div>

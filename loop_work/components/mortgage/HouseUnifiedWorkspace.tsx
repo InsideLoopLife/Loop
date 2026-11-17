@@ -83,6 +83,7 @@ import {
   currentMortgageSnapshot,
   valuationSummary,
 } from "@/lib/wealth/house-snapshot";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 type Tab = "overview" | "property" | "rates" | "affordability" | "overpayments" | "moving" | "things";
 type ModalState =
@@ -621,9 +622,9 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
 
                       <form action={archivePropertyMoveQuery} className="mt-4">
                         <input type="hidden" name="id" value={query.id} />
-                        <button className="text-xs font-bold text-rose-600">
+                        <ConfirmSubmit question="Archive this scenario?" detail="It stops showing in your moving plans." confirmLabel="Yes, archive" className="text-xs font-bold text-rose-600">
                           Archive scenario
-                        </button>
+                        </ConfirmSubmit>
                       </form>
                     </article>
                   );
@@ -637,11 +638,11 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
       {modal ? (
         <ModalFrame title={modal.type === "add_home" ? "Add property" : modal.type === "edit_home" ? "Edit property" : modal.type === "add_mortgage" ? "Add mortgage" : modal.type === "edit_mortgage" ? "Edit mortgage" : modal.type === "add_valuation" ? "Add valuation" : modal.type === "edit_valuation" ? "Edit valuation" : modal.type === "move_score" ? "Why this move scores this way" : "Add move scenario"} onClose={() => setModal(null)}>
           {modal.type === "add_home" ? <HomeWizard people={props.people} owners={props.owners} action={addHome}/> : null}
-          {modal.type === "edit_home" ? <><HomeWizard people={props.people} owners={props.owners} home={modal.home} action={updateHome}/><form action={deleteHome} className="mt-4"><input type="hidden" name="id" value={modal.home.id}/><button className="text-xs font-bold text-rose-600">Delete property</button></form></> : null}
+          {modal.type === "edit_home" ? <><HomeWizard people={props.people} owners={props.owners} home={modal.home} action={updateHome}/><form action={deleteHome} className="mt-4"><input type="hidden" name="id" value={modal.home.id}/><ConfirmSubmit question="Delete this property?" detail="Its mortgage, valuations and costs go, and your net worth changes. This can't be undone." confirmLabel="Delete it" danger className="text-xs font-bold text-rose-600">Delete property</ConfirmSubmit></form></> : null}
           {modal.type === "add_mortgage" ? <MortgageWizard homes={props.homes} people={props.people} allocations={props.liabilityAllocations} homeId={modal.homeId} action={addHomeMortgageDeal}/> : null}
-          {modal.type === "edit_mortgage" ? <><MortgageWizard homes={props.homes} people={props.people} allocations={props.liabilityAllocations} deal={modal.deal} action={updateHomeMortgageDeal}/><form action={deleteHomeMortgageDeal} className="mt-4"><input type="hidden" name="id" value={modal.deal.id}/><button className="text-xs font-bold text-rose-600">Delete mortgage</button></form></> : null}
+          {modal.type === "edit_mortgage" ? <><MortgageWizard homes={props.homes} people={props.people} allocations={props.liabilityAllocations} deal={modal.deal} action={updateHomeMortgageDeal}/><form action={deleteHomeMortgageDeal} className="mt-4"><input type="hidden" name="id" value={modal.deal.id}/><ConfirmSubmit question="Delete this mortgage?" detail="Its payments and balance leave your plans and net worth." confirmLabel="Delete it" danger className="text-xs font-bold text-rose-600">Delete mortgage</ConfirmSubmit></form></> : null}
           {modal.type === "add_valuation" ? <ValuationWizard homes={props.homes} homeId={modal.homeId} action={addHomeValuationSource}/> : null}
-          {modal.type === "edit_valuation" ? <><ValuationWizard homes={props.homes} valuation={modal.valuation} action={updateHomeValuationSource}/><form action={deleteHomeValuationSource} className="mt-4"><input type="hidden" name="id" value={modal.valuation.id}/><button className="text-xs font-bold text-rose-600">Delete valuation</button></form></> : null}
+          {modal.type === "edit_valuation" ? <><ValuationWizard homes={props.homes} valuation={modal.valuation} action={updateHomeValuationSource}/><form action={deleteHomeValuationSource} className="mt-4"><input type="hidden" name="id" value={modal.valuation.id}/><ConfirmSubmit question="Delete this valuation?" detail="The property's value and equity are worked out again without it." confirmLabel="Delete it" danger className="text-xs font-bold text-rose-600">Delete valuation</ConfirmSubmit></form></> : null}
           {modal.type === "move_score" ? (
             <div className="space-y-5">
               <div className="rounded-2xl bg-slate-50 p-4">

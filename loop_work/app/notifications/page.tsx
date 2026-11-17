@@ -7,6 +7,7 @@ import { AreaIcon } from "@/components/notifications/AreaIcon";
 import { createClient } from "@/lib/supabase/server";
 import { AREAS, areaByKey, areaOf, needsDecision, timeAgo, type AreaKey } from "@/lib/notifications/areas";
 import { acceptNotificationRequest, createWeeklyPreview, declineNotificationRequest, dismissNotification, markAllReadForm, markNotificationRead } from "./actions";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 type Row = Record<string, any> & { id: string; area: AreaKey; decision: boolean };
 
@@ -57,13 +58,13 @@ function Item({ n, showArea = false }: { n: Row; showArea?: boolean }) {
           <div className="mt-3 flex flex-wrap gap-2">
             {writeOff ? (
               <>
-                <form action={acceptNotificationRequest}><input type="hidden" name="id" value={n.id} /><button className="rounded-lg bg-[var(--ink)] px-3 py-1.5 text-xs font-semibold text-white">{loss > 0 ? `Record £${loss.toFixed(2)} loss and archive` : "Archive it"}</button></form>
+                <form action={acceptNotificationRequest}><input type="hidden" name="id" value={n.id} /><ConfirmSubmit question="Archive this holding?" detail={loss > 0 ? `A £${loss.toFixed(2)} loss is recorded and it leaves your investment totals and net worth.` : "It leaves your investment totals and net worth."} confirmLabel="Yes, archive" className="rounded-lg bg-[var(--ink)] px-3 py-1.5 text-xs font-semibold text-white">{loss > 0 ? `Record £${loss.toFixed(2)} loss and archive` : "Archive it"}</ConfirmSubmit></form>
                 <form action={declineNotificationRequest}><input type="hidden" name="id" value={n.id} /><button className="rounded-lg border border-[var(--line)] bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">It&apos;s still trading</button></form>
               </>
             ) : (
               <>
                 <Link href={`/notifications/${n.id}`} className="rounded-lg border border-[var(--line)] bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">See details</Link>
-                <form action={acceptNotificationRequest}><input type="hidden" name="id" value={n.id} /><button className="rounded-lg bg-[var(--pine)] px-3 py-1.5 text-xs font-semibold text-white">Accept</button></form>
+                <form action={acceptNotificationRequest}><input type="hidden" name="id" value={n.id} /><ConfirmSubmit question="Accept this request?" detail="This changes what's on your profile and can change your totals." confirmLabel="Yes, accept" className="rounded-lg bg-[var(--pine)] px-3 py-1.5 text-xs font-semibold text-white">Accept</ConfirmSubmit></form>
                 <form action={declineNotificationRequest}><input type="hidden" name="id" value={n.id} /><button className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-500 hover:bg-white">Decline</button></form>
               </>
             )}

@@ -3,6 +3,7 @@ import type React from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { approveInboundImport, claimInboundAlias, rejectInboundImport } from "./actions";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 export const dynamic = "force-dynamic";
 
@@ -77,7 +78,7 @@ export default async function InboundEmailPage() {
                   {!["imported", "rejected", "blocked"].includes(item.status) && (
                     <form action={approveInboundImport}>
                       <input type="hidden" name="id" value={item.id} />
-                      <button className="rounded-full bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-sm">Approve</button>
+                      <ConfirmSubmit question="Add this to Loop?" detail="Its figures are added to your accounts and totals." confirmLabel="Yes, add it" className="rounded-full bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-sm">Approve</ConfirmSubmit>
                     </form>
                   )}
                   {!["imported", "rejected", "blocked"].includes(item.status) && (

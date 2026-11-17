@@ -92,6 +92,7 @@ import {
 } from "./actions";
 import { getChildCostMonthlyAmount as sharedChildCostMonthlyAmount } from "@/lib/planning/month-plan";
 import { NewPotButton, PotMoneyButton } from "@/components/savings/SavingsPotQuickAdd";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 type FinancialAccount = {
   id: string;
@@ -1402,7 +1403,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
 
                 <form action={deleteFinancialAccount} className="mt-4 border-t border-slate-100 pt-3">
                   <input type="hidden" name="id" value={account.id} />
-                  <button className="w-full rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600 hover:bg-red-100">Delete savings account</button>
+                  <ConfirmSubmit question="Delete this savings account?" detail="Its balance, movements and pots go, and your totals change. This can't be undone." confirmLabel="Delete it" danger className="w-full rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600 hover:bg-red-100">Delete savings account</ConfirmSubmit>
                 </form>
               </SavingsAccountModalShell>
             </div>
@@ -1466,7 +1467,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                       ) : (
                         <form action={deleteSavingsAccountMovement}>
                           <input type="hidden" name="id" value={movement.id} />
-                          <button className="rounded-full bg-red-50 px-3 py-1 font-black text-red-600">Remove</button>
+                          <ConfirmSubmit question="Remove this movement?" detail="The account's balance history changes." confirmLabel="Yes, remove" danger className="rounded-full bg-red-50 px-3 py-1 font-black text-red-600">Remove</ConfirmSubmit>
                         </form>
                       )}
                     </div>
@@ -1666,7 +1667,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                           <SavingsPotThread potId={pot.id} potName={pot.name} movements={potMovements} action={addSavingsPotMovement} />
                           <form action={deleteSavingsPot}>
                             <input type="hidden" name="id" value={pot.id} />
-                            <button className="rounded-2xl bg-red-50 px-3 py-3 text-xs font-black text-red-600">Delete</button>
+                            <ConfirmSubmit question="Delete this pot?" detail="Money in it goes back to unallocated, and pot totals change." confirmLabel="Delete it" danger className="rounded-2xl bg-red-50 px-3 py-3 text-xs font-black text-red-600">Delete</ConfirmSubmit>
                           </form>
                         </div>
                       </div>
@@ -1693,7 +1694,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                             return (
                               <div key={allocation.id} className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-50/70 p-3 text-xs font-bold text-slate-600">
                                 <span>{linked ? `${linked.provider || "Provider"} · ${linked.name}` : "Manual allocation"} · {Number(allocation.allocation_percent || 0) > 0 ? `${Number(allocation.allocation_percent).toFixed(1)}%` : formatMoney(allocation.amount)}</span>
-                                <form action={deleteSavingsPotAllocation}><input type="hidden" name="id" value={allocation.id} /><button className="rounded-full bg-white px-3 py-1 font-black text-red-600">Remove</button></form>
+                                <form action={deleteSavingsPotAllocation}><input type="hidden" name="id" value={allocation.id} /><ConfirmSubmit question="Remove this allocation?" detail="The amount goes back to unallocated in the account." confirmLabel="Yes, remove" danger className="rounded-full bg-white px-3 py-1 font-black text-red-600">Remove</ConfirmSubmit></form>
                               </div>
                             );
                           })}
@@ -1885,7 +1886,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                           </form>
                           <form action={deleteFinancialAccount} className="flex items-end">
                             <input type="hidden" name="id" value={account.id} />
-                            <button className="w-full rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-600 hover:bg-red-100">Delete</button>
+                            <ConfirmSubmit question="Delete this account?" detail="Its balance and history go, and your totals change. This can't be undone." confirmLabel="Delete it" danger className="w-full rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-600 hover:bg-red-100">Delete</ConfirmSubmit>
                           </form>
                         </div>
                       </div>

@@ -8,6 +8,7 @@ import { SubmitButton } from "@/components/SubmitButton";
 import { addAsset, addLiability, deleteAsset, deleteLiability } from "@/app/net-worth/actions";
 import { formatMoney } from "@/lib/format/money";
 import { writeRouteSnapshot } from "@/lib/client/route-snapshot-cache";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 type Person = {
   id: string;
@@ -282,7 +283,7 @@ export function NetWorthClient({ currentUserId, householdName, people, assets, l
                 <div className={`h-1.5 bg-gradient-to-r ${liabilityAccent(liability.type)}`} />
                 <div className="flex items-center justify-between gap-4 p-5">
                   <div><p className="font-black text-slate-950">{liability.name}</p><p className="mt-1 text-sm capitalize text-slate-500">{typeLabel(liability.type)} · <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-black">{ownerLabel(peopleById, liability.person_id)}</span>{liability.source_type === "mortgage" ? " · auto from mortgage" : ""}</p></div>
-                  <div className="text-right"><p className="text-xl font-black">{formatMoney(liability.balance)}</p>{liability.source_type === "mortgage" ? null : <form action={deleteLiability}><input type="hidden" name="id" value={liability.id} /><button className="inline-flex items-center gap-1 text-sm font-bold text-red-600"><Trash2 className="h-4 w-4" /> Delete</button></form>}</div>
+                  <div className="text-right"><p className="text-xl font-black">{formatMoney(liability.balance)}</p>{liability.source_type === "mortgage" ? null : <form action={deleteLiability}><input type="hidden" name="id" value={liability.id} /><ConfirmSubmit question="Delete this liability?" detail="Your net worth changes." confirmLabel="Delete it" danger className="inline-flex items-center gap-1 text-sm font-bold text-red-600"><Trash2 className="h-4 w-4" /> Delete</ConfirmSubmit></form>}</div>
                 </div>
               </div>
             ))}
@@ -298,7 +299,7 @@ export function NetWorthClient({ currentUserId, householdName, people, assets, l
                 <div className={`h-1.5 bg-gradient-to-r ${assetAccent(asset.type)}`} />
                 <div className="flex items-center justify-between gap-4 p-5">
                   <div><p className="font-black text-slate-950">{asset.name}</p><p className="mt-1 text-sm capitalize text-slate-500">{typeLabel(asset.type)} · <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-black">{ownerLabel(peopleById, asset.person_id)}</span>{asset.source_type ? ` · auto from ${asset.source_type}` : ""}</p></div>
-                  <div className="text-right"><p className="text-xl font-black">{formatMoney(asset.value)}</p>{asset.source_type ? null : <form action={deleteAsset}><input type="hidden" name="id" value={asset.id} /><button className="inline-flex items-center gap-1 text-sm font-bold text-red-600"><Trash2 className="h-4 w-4" /> Delete</button></form>}</div>
+                  <div className="text-right"><p className="text-xl font-black">{formatMoney(asset.value)}</p>{asset.source_type ? null : <form action={deleteAsset}><input type="hidden" name="id" value={asset.id} /><ConfirmSubmit question="Delete this asset?" detail="Your net worth changes." confirmLabel="Delete it" danger className="inline-flex items-center gap-1 text-sm font-bold text-red-600"><Trash2 className="h-4 w-4" /> Delete</ConfirmSubmit></form>}</div>
                 </div>
               </div>
             ))}

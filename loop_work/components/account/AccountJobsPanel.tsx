@@ -4,6 +4,7 @@ import { useState } from "react";
 import { BriefcaseBusiness, CalendarDays, FileText, ShieldCheck, Trash2, UploadCloud } from "lucide-react";
 import { SubmitButton } from "@/components/SubmitButton";
 import { saveEmploymentJob, deleteEmploymentJob } from "@/app/account/actions";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 type Person = { id: string; name: string; relationship: string | null };
 type EmploymentJob = {
@@ -245,9 +246,9 @@ export function AccountJobsPanel({ people, jobs }: { people: Person[]; jobs: Emp
               </div>
               <form action={deleteEmploymentJob}>
                 <input type="hidden" name="id" value={job.id} />
-                <button className="rounded-full bg-red-50 p-3 text-red-600" title="Delete job">
+                <ConfirmSubmit question="Delete this job?" detail="Its pay stops counting in your income and plans." confirmLabel="Delete it" danger className="rounded-full bg-red-50 p-3 text-red-600" title="Delete job">
                   <Trash2 className="h-4 w-4" />
-                </button>
+                </ConfirmSubmit>
               </form>
             </div>
             <div className="mt-5 grid gap-3 md:grid-cols-4">

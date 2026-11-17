@@ -110,6 +110,7 @@ import {
   pensionFundValue,
   totalPensionValue,
 } from "@/lib/investments/pension-valuation";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 type Person = {
   id: string;
@@ -8805,9 +8806,9 @@ export function PensionsInvestmentsClient({
                       </button>
                       <form action={deleteDefinedBenefitPension}>
                         <input type="hidden" name="id" value={scheme.id} />
-                        <button className="rounded-full bg-red-50 px-4 py-2 text-xs font-black text-red-600">
+                        <ConfirmSubmit question="Delete this pension?" detail="It leaves your retirement projections and net worth." confirmLabel="Delete it" danger className="rounded-full bg-red-50 px-4 py-2 text-xs font-black text-red-600">
                           Delete
-                        </button>
+                        </ConfirmSubmit>
                       </form>
                     </div>
                   </div>
@@ -8833,9 +8834,9 @@ export function PensionsInvestmentsClient({
                         </div>
                         <form action={deleteDbPensionServiceEvent}>
                           <input type="hidden" name="id" value={event.id} />
-                          <button className="text-xs font-black text-red-600">
+                          <ConfirmSubmit question="Delete this service period?" detail="The pension's projected income is worked out again." confirmLabel="Delete it" danger className="text-xs font-black text-red-600">
                             Delete
-                          </button>
+                          </ConfirmSubmit>
                         </form>
                       </div>
                     </div>

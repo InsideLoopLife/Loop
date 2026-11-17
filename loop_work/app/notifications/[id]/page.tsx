@@ -5,6 +5,7 @@ import { ArrowLeft, CheckCircle2, ExternalLink, Handshake, HeartPulse, PoundSter
 import { SectionCard } from "@/components/SectionCard";
 import { createClient } from "@/lib/supabase/server";
 import { acceptNotificationRequest, declineNotificationRequest } from "../actions";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 function labelFor(key: string) {
   return key
@@ -99,7 +100,7 @@ export default async function NotificationHandoverPage({ params }: { params: Pro
         <div className="flex flex-wrap gap-3">
           <form action={acceptNotificationRequest}>
             <input type="hidden" name="id" value={notification.id} />
-            <button disabled={!claimRequestId} className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-sm font-black text-white disabled:opacity-40"><CheckCircle2 className="h-4 w-4" /> Keep and add to my profile</button>
+            <ConfirmSubmit question="Add these records to your profile?" detail="They move to your profile and count in your totals." confirmLabel="Yes, add them" disabled={!claimRequestId} className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-sm font-black text-white disabled:opacity-40"><CheckCircle2 className="h-4 w-4" /> Keep and add to my profile</ConfirmSubmit>
           </form>
           <form action={declineNotificationRequest}>
             <input type="hidden" name="id" value={notification.id} />

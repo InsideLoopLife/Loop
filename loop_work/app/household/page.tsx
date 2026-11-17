@@ -27,6 +27,7 @@ import {
   removeHouseholdMember,
   updateHouseholdMemberRole,
 } from "./actions";
+import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
 type Person = {
   id: string;
@@ -457,8 +458,8 @@ export default async function HouseholdPage({ searchParams }: { searchParams?: P
                       </form>
                     )}
                     <div className="flex gap-2">
-                      {canManage && !isOwner && !isCurrentUser ? <form action={removeHouseholdMember}><input type="hidden" name="member_id" value={member.id} /><button className="rounded-xl px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50">Remove</button></form> : null}
-                      {isCurrentUser && !isOwner ? <form action={leaveHousehold}><input type="hidden" name="household_id" value={householdId} /><button className="rounded-xl px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50">Leave household</button></form> : null}
+                      {canManage && !isOwner && !isCurrentUser ? <form action={removeHouseholdMember}><input type="hidden" name="member_id" value={member.id} /><ConfirmSubmit question="Remove this person from the household?" detail="They stop seeing shared household data, and shared totals change." confirmLabel="Yes, remove" danger className="rounded-xl px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50">Remove</ConfirmSubmit></form> : null}
+                      {isCurrentUser && !isOwner ? <form action={leaveHousehold}><input type="hidden" name="household_id" value={householdId} /><ConfirmSubmit question="Leave this household?" detail="You stop seeing shared data, and your figures leave the household totals." confirmLabel="Yes, leave" danger className="rounded-xl px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50">Leave household</ConfirmSubmit></form> : null}
                     </div>
                   </div>
                 );
