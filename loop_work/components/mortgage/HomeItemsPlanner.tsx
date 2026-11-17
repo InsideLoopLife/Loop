@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { deleteHomeItem, findTariffs, listHomeItems, previewProductLink, saveHomeItem, setHomeItemStatus, type HomeItemInput, type SavedTariff } from "@/app/mortgage/home-items-actions";
-import { clearEnergyTariff, readEnergyBillUpload, saveEnergyTariff } from "@/app/energy/actions";
+import { clearEnergyTariff, readEnergyBillUpload, restoreEnergyTariff, saveEnergyTariff } from "@/app/energy/actions";
 import type { BillReadResult } from "@/lib/energy/bill-reader";
 import type { EffectiveEnergy } from "@/lib/energy/tariff";
 import type { TariffOption, TariffSearch } from "@/lib/home/tariffs";
@@ -55,9 +55,10 @@ type Form = {
   powerWatts: string;
   hoursPerDay: string;
   annualKwh: string;
+  usesOffPeak: boolean;
 };
 
-const emptyForm = (): Form => ({ input: "", kind: "", kindTouched: false, price: "", boughtOn: "", warranty: "12", warrantyMonths: "", brand: "", retailer: "", productUrl: "", imageUrl: "", extendedWarrantyEndsOn: "", warrantyProvider: "", expectedLifeYears: "", replacementCost: "", notes: "", fuel: "", energyPerUseKwh: "", usesPerWeek: "", powerWatts: "", hoursPerDay: "", annualKwh: "" });
+const emptyForm = (): Form => ({ input: "", kind: "", kindTouched: false, price: "", boughtOn: "", warranty: "12", warrantyMonths: "", brand: "", retailer: "", productUrl: "", imageUrl: "", extendedWarrantyEndsOn: "", warrantyProvider: "", expectedLifeYears: "", replacementCost: "", notes: "", fuel: "", energyPerUseKwh: "", usesPerWeek: "", powerWatts: "", hoursPerDay: "", annualKwh: "", usesOffPeak: false });
 
 const str = (value: unknown) => (value === null || value === undefined ? "" : String(value));
 
@@ -69,7 +70,7 @@ function formFromItem(item: HomeItem): Form {
     brand: item.brand || "", retailer: item.retailer || "", productUrl: item.product_url || "", imageUrl: item.image_url || "",
     extendedWarrantyEndsOn: item.extended_warranty_ends_on || "", warrantyProvider: item.warranty_provider || "",
     expectedLifeYears: str(item.expected_life_years), replacementCost: str(item.replacement_cost), notes: item.notes || "",
-    fuel: item.fuel || "", energyPerUseKwh: str(item.energy_per_use_kwh), usesPerWeek: str(item.uses_per_week), powerWatts: str(item.power_watts), hoursPerDay: str(item.hours_per_day), annualKwh: str(item.annual_kwh),
+    fuel: item.fuel || "", energyPerUseKwh: str(item.energy_per_use_kwh), usesPerWeek: str(item.uses_per_week), powerWatts: str(item.power_watts), hoursPerDay: str(item.hours_per_day), annualKwh: str(item.annual_kwh), usesOffPeak: Boolean(item.uses_off_peak),
   };
 }
 
@@ -102,7 +103,7 @@ function warrantyMonthsOf(form: Form) {
 /** The usage fields as an item, so the same running-cost maths drives the preview and the cards. */
 function usageOf(form: Form, kind: string) {
   const n = (value: string) => (value.trim() === "" ? null : Number(value));
-  return { kind, fuel: (form.fuel || null) as HomeItem["fuel"], energy_per_use_kwh: n(form.energyPerUseKwh), uses_per_week: n(form.usesPerWeek), power_watts: n(form.powerWatts), hours_per_day: n(form.hoursPerDay), annual_kwh: n(form.annualKwh) };
+  return { kind, fuel: (form.fuel || null) as HomeItem["fuel"], energy_per_use_kwh: n(form.energyPerUseKwh), uses_per_week: n(form.usesPerWeek), power_watts: n(form.powerWatts), hours_per_day: n(form.hoursPerDay), annual_kwh: n(form.annualKwh), uses_off_peak: form.usesOffPeak };
 }
 
 export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | null; houseStyle?: unknown; addRequest?: number }) {
@@ -221,7 +222,7 @@ export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | 
       retailer: current.retailer || read.retailer, productUrl: read.url || null, imageUrl: read.image || null,
       warrantyMonths: warrantyMonthsOf(current), extendedWarrantyEndsOn: current.extendedWarrantyEndsOn || null, warrantyProvider: current.warrantyProvider || null,
       expectedLifeYears: current.expectedLifeYears, replacementCost: current.replacementCost, notes: current.notes || null,
-      fuel: current.fuel || null, energyPerUseKwh: current.energyPerUseKwh, usesPerWeek: current.usesPerWeek, powerWatts: current.powerWatts, hoursPerDay: current.hoursPerDay, annualKwh: current.annualKwh,
+      fuel: current.fuel || null, energyPerUseKwh: current.energyPerUseKwh, usesPerWeek: current.usesPerWeek, powerWatts: current.powerWatts, hoursPerDay: current.hoursPerDay, annualKwh: current.annualKwh, usesOffPeak: current.usesOffPeak,
     };
     startTransition(async () => {
       try {
@@ -409,7 +410,7 @@ function ItemCard({ item, plan, run, ownershipPerYear, today, onEdit }: { item: 
         <div className="rounded-xl bg-slate-50 px-3 py-2" title={run ? `${run.basis}${run.typical ? " (typical)" : ""} · ${run.annualKwh.toLocaleString("en-GB")} kWh ${run.fuel === "gas" ? "gas" : "electricity"} a year` : undefined}>
           <dt className="text-[10px] font-bold uppercase text-slate-400">To run</dt>
           <dd className="text-sm font-bold tabular-nums">{run ? `${money(run.annualCost)}/yr` : "—"}</dd>
-          {run ? <dd className="text-[10px] font-semibold text-slate-500">{run.perUse != null ? `${pence(run.perUse)} a use` : `${pence(run.annualCost / 52)} a week`}{run.typical ? " · typical" : ""}</dd> : null}
+          {run ? <dd className="text-[10px] font-semibold text-slate-500">{run.perUse != null ? `${pence(run.perUse)} a use` : `${pence(run.annualCost / 52)} a week`}{run.typical ? " · typical" : ""}{run.basis.endsWith("night rate") ? " · night rate" : ""}</dd> : null}
         </div>
         <div className="rounded-xl bg-slate-50 px-3 py-2"><dt className="text-[10px] font-bold uppercase text-slate-400">Replace</dt><dd className="text-sm font-bold tabular-nums">{money(plan.replacementCost)}{plan.costIsGuess ? <span className="text-slate-400">*</span> : null}</dd><dd className="text-[10px] font-semibold text-slate-500">{plan.monthlySetAside > 0 ? `${money2(plan.monthlySetAside)}/mo aside` : plan.status === "past_life" ? "could go any time" : plan.status === "nearing_end" ? "within a year" : ""}</dd></div>
         <div className="rounded-xl bg-violet-50 px-3 py-2"><dt className="text-[10px] font-bold uppercase text-violet-500">Real cost</dt><dd className="text-sm font-bold tabular-nums text-violet-950">{money(ownershipPerYear)}/yr</dd><dd className="text-[10px] font-semibold text-violet-700/70">wear + running</dd></div>
@@ -431,9 +432,10 @@ function RatesBar({ rates, energy, homeId, onSaved }: { rates: RatesState; energ
     : energy?.label || PRICE_CAP_RATES.label;
   return (
     <section className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-white px-4 py-3 text-xs ring-1 ring-slate-200">
-      <span className="font-bold text-slate-700">⚡ {rates.electricity}p/kWh electricity · 🔥 {rates.gas}p/kWh gas</span>
-      <span className="text-slate-400">{label}</span>
+      <span className="font-bold text-slate-700">⚡ {rates.electricityNight != null ? `${rates.electricity}p day · ${rates.electricityNight}p night${energy?.offPeak ? ` (${energy.offPeak.start}–${energy.offPeak.end})` : ""}` : `${rates.electricity}p/kWh electricity`} · 🔥 {rates.gas}p/kWh gas</span>
+      <span className="text-slate-400">{label}{tariff?.gas_tariff_name ? ` · gas: ${tariff.gas_tariff_name}` : ""}</span>
       <span className="ml-auto flex items-center gap-3">
+        {!tariff && energy?.lastSaved ? <button type="button" disabled={pending} onClick={() => startTransition(async () => { await restoreEnergyTariff(energy.lastSaved!.id); onSaved(); })} className="font-bold text-emerald-700">Restore {energy.lastSaved.supplier}{energy.lastSaved.tariffName ? ` · ${energy.lastSaved.tariffName}` : ""}</button> : null}
         {tariff ? <button type="button" disabled={pending} onClick={() => startTransition(async () => { await clearEnergyTariff(); onSaved(); })} className="font-bold text-slate-500">Use price cap</button> : null}
         <button type="button" onClick={() => setOpen(true)} className="font-bold text-violet-700">{tariff ? "Change tariff" : "Set my tariff"}</button>
       </span>
@@ -445,7 +447,7 @@ function RatesBar({ rates, energy, homeId, onSaved }: { rates: RatesState; energ
 type TariffDraft = {
   supplier: string; tariffName: string; electricityUnitP: string; electricityNightUnitP: string; electricityStandingP: string;
   gasUnitP: string; gasStandingP: string; paymentMethod: string; fixedUntil: string; exitFeeGbp: string; monthlyPaymentGbp: string;
-  annualElectricityKwh: string; annualGasKwh: string; region: string; source: "bill_upload" | "octopus_api" | "price_cap" | "manual"; sourceFilename: string;
+  annualElectricityKwh: string; annualGasKwh: string; gasTariffName: string; gasFixedUntil: string; gasExitFeeGbp: string; offPeakStart: string; offPeakEnd: string; region: string; source: "bill_upload" | "octopus_api" | "price_cap" | "manual"; sourceFilename: string;
 };
 const v = (value: unknown) => (value === null || value === undefined ? "" : String(value));
 function draftFromEnergy(energy: EffectiveEnergy | null): TariffDraft {
@@ -454,7 +456,8 @@ function draftFromEnergy(energy: EffectiveEnergy | null): TariffDraft {
     supplier: t?.supplier || "", tariffName: t?.tariff_name || "", electricityUnitP: v(t?.electricity_unit_p), electricityNightUnitP: v(t?.electricity_night_unit_p),
     electricityStandingP: v(t?.electricity_standing_p), gasUnitP: v(t?.gas_unit_p), gasStandingP: v(t?.gas_standing_p), paymentMethod: t?.payment_method || "Direct Debit",
     fixedUntil: t?.fixed_until || "", exitFeeGbp: v(t?.exit_fee_gbp), monthlyPaymentGbp: v(t?.monthly_payment_gbp), annualElectricityKwh: v(t?.annual_electricity_kwh),
-    annualGasKwh: v(t?.annual_gas_kwh), region: t?.region || energy?.region || "", source: "manual", sourceFilename: "",
+    annualGasKwh: v(t?.annual_gas_kwh), gasTariffName: t?.gas_tariff_name || "", gasFixedUntil: t?.gas_fixed_until || "", gasExitFeeGbp: v(t?.gas_exit_fee_gbp),
+    offPeakStart: t?.off_peak_start || "", offPeakEnd: t?.off_peak_end || "", region: t?.region || energy?.region || "", source: "manual", sourceFilename: "",
   };
 }
 
@@ -486,7 +489,8 @@ function TariffModal({ homeId, energy, onClose, onSaved }: { homeId: string | nu
         electricityUnitP: v(result.draft.electricityUnitP), electricityNightUnitP: v(result.draft.electricityNightUnitP), electricityStandingP: v(result.draft.electricityStandingP),
         gasUnitP: v(result.draft.gasUnitP), gasStandingP: v(result.draft.gasStandingP), paymentMethod: result.draft.paymentMethod || "", fixedUntil: result.draft.fixedUntil || "",
         exitFeeGbp: v(result.draft.exitFeeGbp), monthlyPaymentGbp: v(result.draft.monthlyPaymentGbp), annualElectricityKwh: v(result.draft.annualElectricityKwh),
-        annualGasKwh: v(result.draft.annualGasKwh), region: energy?.region || "", source: "bill_upload", sourceFilename: filename,
+        annualGasKwh: v(result.draft.annualGasKwh), gasTariffName: result.draft.gasTariffName || "", gasFixedUntil: result.draft.gasFixedUntil || "", gasExitFeeGbp: v(result.draft.gasExitFeeGbp),
+        offPeakStart: result.draft.offPeakStart || "", offPeakEnd: result.draft.offPeakEnd || "", region: energy?.region || "", source: "bill_upload", sourceFilename: filename,
       }, result.warnings)} /> : null}
       {mode === "confirm" ? (
         <div className="space-y-4">
@@ -608,23 +612,35 @@ function TariffConfirmFields({ draft, setDraft }: { draft: TariffDraft; setDraft
   const set = (patch: Partial<TariffDraft>) => setDraft({ ...draft, ...patch });
   const input = "mt-1 block w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm";
   const label = "block text-xs font-bold text-slate-600";
-  const field = (key: keyof TariffDraft, text: string, placeholder = "", type = "text") => (
+  const field = (key: keyof TariffDraft, text: string, placeholder = "", type = "text", optional = false) => (
     <label className={label}>{text}
-      <input type={type} inputMode={type === "text" && /P$|Gbp|Kwh/.test(key) ? "decimal" : undefined} value={String(draft[key] ?? "")} onChange={(event) => set({ [key]: event.target.value } as Partial<TariffDraft>)} placeholder={placeholder} className={`${input} ${draft[key] === "" && draft.source === "bill_upload" ? "border-amber-300 bg-amber-50/40" : ""}`} />
+      <input type={type} inputMode={type === "text" && /P$|Gbp|Kwh/.test(key) ? "decimal" : undefined} value={String(draft[key] ?? "")} onChange={(event) => set({ [key]: event.target.value } as Partial<TariffDraft>)} placeholder={placeholder} className={`${input} ${draft[key] === "" && draft.source === "bill_upload" && !optional ? "border-amber-300 bg-amber-50/40" : ""}`} />
     </label>
   );
   return (
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
         {field("supplier", "Supplier", "e.g. British Gas")}
-        {field("tariffName", "Tariff name", "e.g. Fixed Tariff Dec27")}
+        {field("paymentMethod", "Paying by", "Direct Debit")}
       </div>
       <fieldset className="rounded-xl bg-slate-50 p-3">
         <legend className="px-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">⚡ Electricity (pence, inc VAT)</legend>
         <div className="grid gap-3 sm:grid-cols-3">
-          {field("electricityUnitP", "Unit rate p/kWh", "e.g. 27.86")}
-          {field("electricityNightUnitP", "Night / off-peak p/kWh", "Only if you have one")}
+          {field("electricityUnitP", draft.electricityNightUnitP ? "Day / peak p/kWh" : "Unit rate p/kWh", "e.g. 27.86")}
+          {field("electricityNightUnitP", "Night / off-peak p/kWh", "Only if you have one", "text", true)}
           {field("electricityStandingP", "Standing charge p/day", "e.g. 54.83")}
+        </div>
+        {draft.electricityNightUnitP ? (
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            {field("offPeakStart", "Night rate from", "", "time", true)}
+            {field("offPeakEnd", "Night rate until", "", "time", true)}
+            <p className="self-end pb-1 text-[11px] font-semibold text-slate-500">On the house page, tick the appliances you run overnight — they&apos;ll use the night rate.</p>
+          </div>
+        ) : null}
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          {field("tariffName", "Tariff name", "e.g. Fixed Tariff Dec27")}
+          {field("fixedUntil", "Fixed until", "", "date")}
+          {field("exitFeeGbp", "Exit fee £", "e.g. 50")}
         </div>
       </fieldset>
       <fieldset className="rounded-xl bg-slate-50 p-3">
@@ -633,14 +649,16 @@ function TariffConfirmFields({ draft, setDraft }: { draft: TariffDraft; setDraft
           {field("gasUnitP", "Unit rate p/kWh", "e.g. 7.91")}
           {field("gasStandingP", "Standing charge p/day", "e.g. 29.68")}
         </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          {field("gasTariffName", "Tariff name", "Blank = same deal as electricity", "text", true)}
+          {field("gasFixedUntil", "Fixed until", "", "date", true)}
+          {field("gasExitFeeGbp", "Exit fee £", "0 if none", "text", true)}
+        </div>
       </fieldset>
       <div className="grid gap-3 sm:grid-cols-3">
-        {field("fixedUntil", "Fixed until", "", "date")}
-        {field("exitFeeGbp", "Exit fee £ (per fuel)", "e.g. 50")}
         {field("monthlyPaymentGbp", "Monthly payment £", "e.g. 145")}
         {field("annualElectricityKwh", "Electricity kWh a year", "From the bill")}
         {field("annualGasKwh", "Gas kWh a year", "From the bill")}
-        {field("paymentMethod", "Paying by", "Direct Debit")}
       </div>
     </div>
   );
@@ -738,6 +756,12 @@ function ItemFields({ form, setForm, today, preview, rates, expanded = false }: 
             )}
           </div>
           <EnergyLabelField kind={kind.key} form={form} set={set} className={label} inputClass={input} />
+          {rates.electricityNight != null && (form.fuel || usage?.fuel || "electric") !== "gas" ? (
+            <label className="mt-3 flex items-start gap-2 text-xs font-bold text-slate-700">
+              <input type="checkbox" checked={form.usesOffPeak} onChange={(event) => set({ usesOffPeak: event.target.checked })} className="mt-0.5" />
+              <span>Usually run on the night rate ({rates.electricityNight}p instead of {rates.electricity}p)<span className="block font-semibold text-slate-500">Tick it if it&apos;s on a timer or you run it overnight.</span></span>
+            </label>
+          ) : null}
           {usage?.mode !== "annual" ? (
             <label className={`${label} mt-3 max-w-xs`}>Or kWh a year, if you know it
               <input inputMode="decimal" value={form.annualKwh} onChange={(event) => set({ annualKwh: event.target.value })} placeholder="From a smart plug or your own reading" className={input} />

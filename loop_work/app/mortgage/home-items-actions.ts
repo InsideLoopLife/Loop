@@ -10,7 +10,7 @@ import { searchTariffs, type TariffSearch } from "@/lib/home/tariffs";
 import { effectiveEnergy, type EffectiveEnergy } from "@/lib/energy/tariff";
 import { sanitisePlan, type FloorPlan } from "@/lib/home/floor-plan";
 
-const COLUMNS = "id, user_id, home_id, space_id, room, kind, label, brand, model, purchased_on, price, retailer, warranty_months, extended_warranty_ends_on, warranty_provider, expected_life_years, replacement_cost, notes, product_url, image_url, fuel, energy_per_use_kwh, uses_per_week, power_watts, hours_per_day, annual_kwh, status";
+const COLUMNS = "id, user_id, home_id, space_id, room, kind, label, brand, model, purchased_on, price, retailer, warranty_months, extended_warranty_ends_on, warranty_provider, expected_life_years, replacement_cost, notes, product_url, image_url, fuel, energy_per_use_kwh, uses_per_week, power_watts, hours_per_day, annual_kwh, uses_off_peak, status";
 
 async function context() {
   const supabase = await createClient();
@@ -43,7 +43,7 @@ export async function listHomeItems(homeId?: string | null): Promise<{ items: Ho
     floorPlan: raw ? sanitisePlan(raw) : null,
     // The household tariff (account-wide) wins; older per-home rates are only a fallback.
     rates: energy.basis === "tariff" || (electricity == null && gas == null)
-      ? { electricity: energy.electricity, gas: energy.gas, own: energy.basis === "tariff", tariff: null }
+      ? { electricity: energy.electricity, electricityNight: energy.electricityNight, gas: energy.gas, own: energy.basis === "tariff", tariff: null }
       : { electricity: electricity ?? energy.electricity, gas: gas ?? energy.gas, own: true, tariff: (home?.energy_tariff as SavedTariff | null) ?? null },
     energy,
   };
@@ -132,6 +132,7 @@ export type HomeItemInput = {
   powerWatts?: number | string | null;
   hoursPerDay?: number | string | null;
   annualKwh?: number | string | null;
+  usesOffPeak?: boolean | null;
   room: string;
   kind: string;
   label: string;
@@ -180,6 +181,7 @@ export async function saveHomeItem(input: HomeItemInput): Promise<{ ok: true; id
     power_watts: bounded(input.powerWatts, 0, 50000),
     hours_per_day: bounded(input.hoursPerDay, 0, 24),
     annual_kwh: bounded(input.annualKwh, 0, 100000),
+    uses_off_peak: Boolean(input.usesOffPeak),
     updated_at: new Date().toISOString(),
   };
   if (input.id) {

@@ -101,6 +101,7 @@ export type HomeItem = {
   power_watts?: number | null;
   hours_per_day?: number | null;
   annual_kwh?: number | null;
+  uses_off_peak?: boolean | null;
   status: "active" | "replaced" | "gone";
 };
 
@@ -248,7 +249,7 @@ export function nameFromProductUrl(raw: string): { url: string; name: string | n
 /** Ofgem price cap, 1 Oct–31 Dec 2026, Direct Debit averages (ofgem.gov.uk). Used until the household sets its own. */
 export const PRICE_CAP_RATES = { electricity: 26.32, gas: 7.97, label: "Ofgem price cap, Oct–Dec 2026" };
 
-export type EnergyRates = { electricity: number; gas: number };
+export type EnergyRates = { electricity: number; gas: number; electricityNight?: number | null };
 
 export type RunningCost = {
   fuel: "electric" | "gas";
@@ -265,11 +266,19 @@ export type RunningCost = {
 const num = (value: unknown) => (value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? null : Number(value));
 
 /** What it costs to run, from the person's own usage where given, otherwise the typical guide. */
-export function runningCost(item: Pick<HomeItem, "kind" | "fuel" | "energy_per_use_kwh" | "uses_per_week" | "power_watts" | "hours_per_day" | "annual_kwh">, rates: EnergyRates): RunningCost | null {
+export function runningCost(item: Pick<HomeItem, "kind" | "fuel" | "energy_per_use_kwh" | "uses_per_week" | "power_watts" | "hours_per_day" | "annual_kwh" | "uses_off_peak">, rates: EnergyRates): RunningCost | null {
+  const cost = baseRunningCost(item, rates);
+  if (cost && cost.fuel === "electric" && item.uses_off_peak && rates.electricityNight != null) cost.basis += " · night rate";
+  return cost;
+}
+
+function baseRunningCost(item: Pick<HomeItem, "kind" | "fuel" | "energy_per_use_kwh" | "uses_per_week" | "power_watts" | "hours_per_day" | "annual_kwh" | "uses_off_peak">, rates: EnergyRates): RunningCost | null {
   if (item.fuel === "none") return null;
   const usage = KIND_BY_KEY.get(item.kind)?.usage;
   const fuel: "electric" | "gas" = item.fuel === "gas" || item.fuel === "electric" ? item.fuel : usage?.fuel || "electric";
-  const rate = (fuel === "gas" ? rates.gas : rates.electricity) / 100;
+  // Things set to run overnight (timers, EV, storage heaters) use the night rate when the tariff has one.
+  const electricRate = item.uses_off_peak && rates.electricityNight != null ? rates.electricityNight : rates.electricity;
+  const rate = (fuel === "gas" ? rates.gas : electricRate) / 100;
   const own = { annual: num(item.annual_kwh), perUse: num(item.energy_per_use_kwh), perWeek: num(item.uses_per_week), watts: num(item.power_watts), hours: num(item.hours_per_day) };
   const round = (n: number) => Math.round(n * 100) / 100;
 

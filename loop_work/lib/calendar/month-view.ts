@@ -90,7 +90,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
     supabase.from("calendar_events").select("id, user_id, person_id, source, event_type, title, event_date").in("source", ["loop_manual", "google"]).gte("event_date", first).lte("event_date", last).limit(500),
     supabase.from("financial_accounts").select("id, current_balance, balance_last_confirmed_at, updated_at, is_liability, account_status").eq("account_type", "current_account").or(filter),
     supabase.from("home_items").select("id, room, kind, label, purchased_on, warranty_months, extended_warranty_ends_on, expected_life_years, price, replacement_cost, status, home_id, brand, model, retailer, warranty_provider, notes").eq("status", "active").or(filter).limit(500),
-    supabase.from("household_energy_tariffs").select("id, supplier, tariff_name, fixed_until, exit_fee_gbp").eq("is_current", true).not("fixed_until", "is", null).or(filter).limit(5),
+    supabase.from("household_energy_tariffs").select("id, supplier, tariff_name, fixed_until, exit_fee_gbp, fuel, gas_tariff_name, gas_fixed_until").eq("is_current", true).or(filter).limit(5),
   ]);
 
   const people: Array<any> = (peopleResult.data || []).filter((person: any, index: number, all: any[]) => all.findIndex((other) => other.id === person.id) === index);
@@ -264,12 +264,22 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
   }
   // Fixed energy deal ending — worth knowing ~7 weeks ahead (exit fees stop in the last 49 days).
   for (const tariff of ((tariffResult?.data || []) as any[])) {
-    const end = String(tariff.fixed_until || "");
-    dayFor(end)?.dates.push({ id: `energy-fix-${tariff.id}`, kind: "ending", label: `${tariff.supplier} energy fix ends`, detail: `${tariff.tariff_name ? `${tariff.tariff_name} · ` : ""}compare deals before this — exit fees usually stop in the last 49 days`, href: "/mortgage?tab=things" });
-    const timestamp = Date.parse(`${end}T00:00:00Z`);
-    if (Number.isFinite(timestamp)) {
-      const window = new Date(timestamp - 49 * 86_400_000).toISOString().slice(0, 10);
-      dayFor(window)?.dates.push({ id: `energy-switch-${tariff.id}`, kind: "ending", label: "Energy: free to switch from today", detail: `${tariff.supplier} fix ends ${end} — no exit fee from now`, href: "/mortgage?tab=things" });
+    // Electricity and gas can be on different deals (e.g. a fixed EV tariff with gas on the standard variable).
+    // Blank gas contract details mean gas is on the same deal as electricity.
+    const sameDeal = !tariff.gas_tariff_name && !tariff.gas_fixed_until;
+    const fixes = [
+      { key: "e", end: tariff.fixed_until, name: tariff.tariff_name, what: tariff.fuel === "gas" ? "gas" : sameDeal || tariff.fuel !== "dual" ? "energy" : "electricity" },
+      ...(!sameDeal && tariff.fuel === "dual" ? [{ key: "g", end: tariff.gas_fixed_until, name: tariff.gas_tariff_name, what: "gas" }] : []),
+    ];
+    for (const fix of fixes) {
+      const end = String(fix.end || "");
+      if (!end) continue;
+      dayFor(end)?.dates.push({ id: `energy-fix-${tariff.id}-${fix.key}`, kind: "ending", label: `${tariff.supplier} ${fix.what} fix ends`, detail: `${fix.name ? `${fix.name} · ` : ""}compare deals before this — exit fees usually stop in the last 49 days`, href: "/mortgage?tab=things" });
+      const timestamp = Date.parse(`${end}T00:00:00Z`);
+      if (Number.isFinite(timestamp)) {
+        const window = new Date(timestamp - 49 * 86_400_000).toISOString().slice(0, 10);
+        dayFor(window)?.dates.push({ id: `energy-switch-${tariff.id}-${fix.key}`, kind: "ending", label: `${fix.what === "energy" ? "Energy" : fix.what === "gas" ? "Gas" : "Electricity"}: free to switch from today`, detail: `${tariff.supplier} fix ends ${end} — no exit fee from now`, href: "/mortgage?tab=things" });
+      }
     }
   }
   for (const event of (eventsResult.data || []) as any[]) {

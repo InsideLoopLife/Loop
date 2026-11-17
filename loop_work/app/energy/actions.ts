@@ -63,6 +63,11 @@ export type TariffInput = {
   monthlyPaymentGbp?: number | string | null;
   annualElectricityKwh?: number | string | null;
   annualGasKwh?: number | string | null;
+  gasTariffName?: string | null;
+  gasFixedUntil?: string | null;
+  gasExitFeeGbp?: number | string | null;
+  offPeakStart?: string | null;
+  offPeakEnd?: string | null;
   region?: string | null;
   source: "bill_upload" | "octopus_api" | "price_cap" | "manual";
   sourceFilename?: string | null;
@@ -98,18 +103,40 @@ export async function saveEnergyTariff(input: TariffInput) {
     monthly_payment_gbp: n(input.monthlyPaymentGbp, 0, 5000),
     annual_electricity_kwh: n(input.annualElectricityKwh, 0, 100000),
     annual_gas_kwh: n(input.annualGasKwh, 0, 200000),
+    gas_tariff_name: t(input.gasTariffName),
+    gas_fixed_until: typeof input.gasFixedUntil === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.gasFixedUntil) ? input.gasFixedUntil : null,
+    gas_exit_fee_gbp: n(input.gasExitFeeGbp, 0, 1000),
+    off_peak_start: time(input.offPeakStart),
+    off_peak_end: time(input.offPeakEnd),
     region: t(input.region, 4),
     source: ["bill_upload", "octopus_api", "price_cap", "manual"].includes(input.source) ? input.source : "manual",
     source_filename: t(input.sourceFilename, 120),
     is_current: true,
     confirmed_at: new Date().toISOString(),
   };
-  // Retire the previous current tariff(s) the person can change, then save the new one.
-  await supabase.from("household_energy_tariffs").update({ is_current: false, updated_at: new Date().toISOString() }).eq("is_current", true).or(filter);
-  const { error } = await supabase.from("household_energy_tariffs").insert({ ...householdWriteFields(household, user.id), ...row });
-  if (error) throw new Error(error.message);
+  // Save the new one first, then retire the others — so a failed save never leaves the household without its tariff.
+  const { data: saved, error } = await supabase.from("household_energy_tariffs").insert({ ...householdWriteFields(household, user.id), ...row }).select("id").single();
+  if (error || !saved) throw new Error(error?.message || "Couldn't save the tariff.");
+  await supabase.from("household_energy_tariffs").update({ is_current: false, updated_at: new Date().toISOString() }).eq("is_current", true).neq("id", saved.id).or(filter);
   revalidateEverywhere();
   return { ok: true };
+}
+
+/** Bring back a previously saved tariff (e.g. after "Use price cap"). */
+export async function restoreEnergyTariff(id: string) {
+  const { supabase, household, filter } = await context();
+  const { data: row } = await supabase.from("household_energy_tariffs").select("id").eq("id", id).or(filter).maybeSingle();
+  if (!row) throw new Error("That tariff isn't available.");
+  const { error } = await changeRecord(supabase.from("household_energy_tariffs").update({ is_current: true, updated_at: new Date().toISOString() }), id, household);
+  if (error) throw new Error(error.message);
+  await supabase.from("household_energy_tariffs").update({ is_current: false, updated_at: new Date().toISOString() }).eq("is_current", true).neq("id", id).or(filter);
+  revalidateEverywhere();
+  return { ok: true };
+}
+
+function time(value: unknown) {
+  const s = String(value ?? "").trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(s) ? s : null;
 }
 
 export async function clearEnergyTariff() {
