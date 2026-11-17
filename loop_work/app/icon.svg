@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100" role="img" aria-label="LOOP">
+  <defs>
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="10" y1="0" x2="190" y2="0">
+      <stop offset="0" stop-color="#5DD46B"/>
+      <stop offset=".3" stop-color="#2FB862"/>
+      <stop offset=".5" stop-color="#17B3C2"/>
+      <stop offset=".74" stop-color="#0F58CC"/>
+      <stop offset="1" stop-color="#0E8CF2"/>
+    </linearGradient>
+    <linearGradient id="shade" gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="90">
+      <stop offset="0" stop-color="#fff" stop-opacity=".18"/>
+      <stop offset=".5" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".14"/>
+    </linearGradient>
+    <linearGradient id="fade" gradientUnits="userSpaceOnUse" x1="62" y1="0" x2="138" y2="0">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset=".3" stop-color="#fff"/>
+      <stop offset=".7" stop-color="#fff"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="mid" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="100"><rect x="0" y="0" width="200" height="100" fill="url(#fade)"/></mask>
+    <filter id="drop" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#06301f" flood-opacity=".45"/></filter>
+  </defs>
+  <g fill="none" stroke-width="17" stroke-linecap="round">
+    <path stroke="url(#g)" d="M100 50C120 22 135 17 150 17c19 0 33 15 33 33s-14 33-33 33c-15 0-30-5-50-33C80 22 65 17 50 17 31 17 17 32 17 50s14 33 33 33c15 0 30-5 50-33"/>
+    <path stroke="url(#shade)" d="M100 50C120 22 135 17 150 17c19 0 33 15 33 33s-14 33-33 33c-15 0-30-5-50-33C80 22 65 17 50 17 31 17 17 32 17 50s14 33 33 33c15 0 30-5 50-33"/>
+    <path mask="url(#mid)" stroke="#05261c" stroke-opacity=".38" d="M50 17c15 0 30 5 50 33s35 33 50 33"/>
+    <g mask="url(#mid)">
+      <path stroke="#06301f" stroke-opacity=".28" stroke-width="20" d="M50 83c15 0 30-5 50-33C120 22 135 17 150 17" filter="url(#drop)"/>
+      <path stroke="url(#g)" d="M50 83c15 0 30-5 50-33C120 22 135 17 150 17"/>
+      <path stroke="url(#shade)" d="M50 83c15 0 30-5 50-33C120 22 135 17 150 17"/>
+    </g>
+  </g>
+</svg>

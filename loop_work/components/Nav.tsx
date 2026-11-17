@@ -37,6 +37,7 @@ import {
 import { signOut } from "@/app/actions";
 import { CalendarQuickAccessButton } from "@/components/calendar/CalendarQuickAccessButton";
 import { warmQuickCalendarSummary } from "@/lib/calendar/useQuickCalendarSummary";
+import { LoopLogo } from "@/components/brand/LoopLogo";
 
 type NavigationLayout = "top" | "side";
 type MobileNavigationLayout = "cards" | "bar";
@@ -182,17 +183,8 @@ function Brand({
   dark?: boolean;
 }) {
   return (
-    <Link href="/briefing" className="group flex items-center gap-3">
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[var(--pine)] text-white">
-        <span className="text-lg font-semibold leading-none">∞</span>
-      </span>
-      {!compact ? (
-        <span
-          className={`text-xl font-semibold tracking-[-0.03em] ${dark ? "text-white" : "text-[var(--ink)]"}`}
-        >
-          LOOP
-        </span>
-      ) : null}
+    <Link href="/briefing" aria-label="LOOP home" className={`group flex h-9 items-center ${dark ? "text-white" : "text-[var(--ink)]"}`}>
+      <LoopLogo compact={compact} markClassName="h-7 w-14" wordmarkClassName="h-[15px] w-auto" />
     </Link>
   );
 }

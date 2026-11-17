@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { SocialAuthButtons, socialAuthAnyEnabled } from "@/components/auth/SocialAuthButtons";
+import { LoopLogo } from "@/components/brand/LoopLogo";
 
 type Message = { text: string; tone: "success" | "error" };
 
@@ -226,12 +227,7 @@ function LoginForm() {
 
 function LoopWordmark({ dark = false }: { dark?: boolean }) {
   return (
-    <div className="flex items-center gap-3" aria-label="LOOP">
-      <span className={`grid h-9 w-9 place-items-center rounded-full border ${dark ? "border-slate-200 bg-white" : "border-white/15 bg-white/[0.07]"}`}>
-        <span className={`h-3.5 w-5 rounded-full border-[3px] ${dark ? "border-slate-950" : "border-white"}`} />
-      </span>
-      <span className={`text-lg font-black tracking-[0.12em] ${dark ? "text-slate-950" : "text-white"}`}>LOOP</span>
-    </div>
+    <LoopLogo className={dark ? "text-slate-950" : "text-white"} markClassName="h-8 w-16" wordmarkClassName="h-4 w-auto" />
   );
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LoopLogo, LoopMark } from "@/components/brand/LoopLogo";
 
 const FLOW_ITEMS = [
   ["Income calendar", "Pay dates and regular household inflows."],
@@ -226,10 +227,7 @@ export function IntroductionPage() {
 
 function LoopWordmark() {
   return (
-    <span className="flex items-center gap-3" aria-label="LOOP">
-      <span className="grid h-9 w-9 place-items-center rounded-xl border border-emerald-300/20 bg-emerald-300/5 text-3xl font-black leading-none text-emerald-300">∞</span>
-      <span className="text-base font-black tracking-[0.2em]">LOOP</span>
-    </span>
+    <LoopLogo markClassName="h-8 w-16" wordmarkClassName="h-4 w-auto" />
   );
 }
 
@@ -239,7 +237,7 @@ function OverviewPreview() {
       <div className="overflow-hidden rounded-[28px] border border-white/15 bg-[#f4f7fb] p-3 shadow-[0_40px_120px_rgba(0,0,0,.48)] sm:p-4">
         <div className="mb-3 flex items-center justify-between rounded-2xl bg-white/85 px-4 py-3 text-slate-950 shadow-sm">
           <div className="flex items-center gap-3">
-            <span className="grid h-7 w-7 place-items-center rounded-lg bg-slate-950 text-xs font-black text-white">∞</span>
+            <LoopMark className="h-5 w-10" />
             <div><b className="block text-[11px]">Overview</b><small className="text-[8px] text-slate-400">Your household</small></div>
           </div>
           <div className="flex gap-1.5">{["D","A","O","M"].map(x=><span key={x} className="grid h-6 w-6 place-items-center rounded-full bg-slate-100 text-[8px] font-black text-slate-600">{x}</span>)}</div>

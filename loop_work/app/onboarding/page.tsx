@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { GuidedSetup } from "@/components/onboarding/GuidedSetup";
 import { skipOnboarding } from "./actions";
+import { LoopLogo } from "@/components/brand/LoopLogo";
 
 export const metadata = { title: "Set up LOOP" };
 
@@ -68,7 +69,7 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 to-white px-4 py-8 md:py-14">
       <div className="mx-auto mb-8 flex max-w-xl items-center justify-between">
-        <span className="text-lg font-black tracking-tight text-slate-950">LOOP</span>
+        <LoopLogo className="text-slate-950" markClassName="h-7 w-14" wordmarkClassName="h-[15px] w-auto" />
         <form action={skipOnboarding}>
           <button className="text-sm font-black text-slate-500 hover:text-slate-950">Skip for now</button>
         </form>
