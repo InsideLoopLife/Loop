@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { SmartFinancialFlowAdd } from "@/components/financial-flow/SmartFinancialFlowAdd";
 import { useFinancialFlowRetained } from "@/components/financial-flow/FinancialFlowRetainedStore";
 import {
@@ -58,14 +58,7 @@ export function FinancialFlowWorkspaceNav({
   const router = useRouter();
   const { beginTransition } = useFinancialFlowRetained();
 
-  useEffect(() => {
-    const id = window.setTimeout(() => {
-      for (const item of ITEMS) {
-        router.prefetch(hrefFor(item.key, month));
-      }
-    }, 40);
-    return () => window.clearTimeout(id);
-  }, [router, month]);
+  // Tabs preload on hover/focus (below) rather than all at once on arrival.
   const monthQuery = month ? `&month=${encodeURIComponent(month)}` : "";
 
   return (

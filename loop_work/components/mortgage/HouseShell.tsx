@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { formatMoney } from "@/lib/format/money";
 import type { Home, HomeMortgageDeal, HomeValuationSource } from "@/components/mortgage/MortgagePlannerClient";
 
@@ -25,7 +24,6 @@ function valueFor(home: Home | undefined, valuations: HomeValuationSource[]) {
 
 export function HouseShell({ homes, deals, valuations, children }: Props) {
   const pathname = usePathname();
-  const router = useRouter();
   const home = homes.find((h) => h.ownership_status === "current_home") ?? homes[0];
   const deal = deals.find((d) => d.home_id === home?.id) ?? deals[0];
   const value = valueFor(home, valuations);
@@ -39,11 +37,6 @@ export function HouseShell({ homes, deals, valuations, children }: Props) {
     ["/mortgage/moving-costs", "Move", "▣"],
   ] as const;
 
-  useEffect(() => {
-    links.forEach(([href]) => {
-      if (href !== pathname) router.prefetch(href);
-    });
-  }, [pathname, router]);
 
   const active = (href: string) =>
     href === "/mortgage"

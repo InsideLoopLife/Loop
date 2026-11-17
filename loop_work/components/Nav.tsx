@@ -81,7 +81,6 @@ const healthLinks: NavLink[] = [
   // view. Add them back here when those features exist.
 ];
 
-const eagerWealthRoutes = ["/briefing", "/dashboard", "/financial-flow", "/investments", "/mortgage"];
 
 type NavAiUsage = { usedThisMonth: number; monthlyLimit: number | null; tierKey: string };
 
@@ -712,11 +711,8 @@ function NavInner() {
     let cancelled = false;
     const warmRoutes = () => {
       if (cancelled) return;
-      eagerWealthRoutes.forEach((href, index) => {
-        window.setTimeout(() => {
-          if (!cancelled && href !== pathname) prefetchRoute(href);
-        }, index * 180);
-      });
+      // Pages used to be preloaded here on every page view. Each preload is a full server render, so
+      // they competed with the page being opened; pages now preload when a link is hovered instead.
       // Same idle-time budget, same "cheap, unlikely to change" rationale
       // as route warming — gets the popover's data ready before anyone
       // has actually clicked the calendar icon.
