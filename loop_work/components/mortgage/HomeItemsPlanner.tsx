@@ -424,12 +424,12 @@ function ProductPhoto({ image, kind }: { image: string | null | undefined; kind:
   const icon = KIND_BY_KEY.get(kind)?.icon || "📦";
   const showImage = image && broken !== image;
   return (
-    <div className="grid aspect-[4/3] place-items-center bg-gradient-to-b from-slate-50 to-slate-100/70">
+    <div className="relative aspect-[16/10] overflow-hidden bg-gradient-to-b from-slate-50 to-slate-100/70">
       {showImage ? (
         // eslint-disable-next-line @next/next/no-img-element -- shop images come from many domains
-        <img src={image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(image)} className="h-full w-full object-contain p-6 mix-blend-multiply transition group-hover:scale-[1.02]" />
+        <img src={image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(image)} className="absolute inset-0 h-full w-full object-contain p-5 mix-blend-multiply transition group-hover:scale-[1.02]" />
       ) : (
-        <span className="text-6xl opacity-80" aria-hidden>{icon}</span>
+        <span className="absolute inset-0 grid place-items-center text-6xl opacity-80" aria-hidden>{icon}</span>
       )}
     </div>
   );
