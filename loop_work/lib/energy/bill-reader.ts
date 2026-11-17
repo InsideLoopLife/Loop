@@ -96,20 +96,67 @@ export function patternRead(text: string): BillDraft {
   const standing = (chunk: string) => { const m = chunk.match(/standing charge[^0-9]{0,40}(\d{1,3}(?:\.\d{1,4})?)\s*p/); return m ? Number(m[1]) : null; };
   const elec = section("electricity");
   const gas = section("gas");
-  return clean({ supplier, electricityUnitP: unit(elec), electricityStandingP: standing(elec), gasUnitP: unit(gas), gasStandingP: standing(gas) });
+  const annual = (chunk: string) => {
+    const m = chunk.match(/(?:annual|a year|per year|yearly)[^0-9]{0,30}(\d[\d,]{2,6})\s*kwh/) || chunk.match(/(\d[\d,]{2,6})\s*kwh\s*(?:a|per)\s*year/);
+    return m ? m[1].replace(/,/g, "") : null;
+  };
+  const tariffName = text.match(/(?:your tariff|tariff name|tariff)\s*[:\-]\s*([^\n.]{3,60})/i)?.[1]?.trim() || null;
+  const exitFee = lower.match(/exit fees?[^£\d]{0,25}£\s*(\d+(?:\.\d{1,2})?)/)?.[1] ?? null;
+  const monthly = lower.match(/(?:monthly (?:direct debit|payment)|direct debit (?:amount|of))[^£]{0,25}£\s*(\d+(?:\.\d{1,2})?)/)?.[1] ?? null;
+  const paymentMethod = /direct debit/.test(lower) ? "Direct Debit" : /prepay|pay as you go/.test(lower) ? "Prepayment" : /receipt of bill|pay on receipt/.test(lower) ? "On receipt of bill" : null;
+  return clean({
+    supplier, tariffName, paymentMethod,
+    fixedUntil: endDate(lower),
+    exitFeeGbp: exitFee, monthlyPaymentGbp: monthly,
+    electricityUnitP: unit(elec), electricityStandingP: standing(elec), annualElectricityKwh: annual(elec),
+    gasUnitP: unit(gas), gasStandingP: standing(gas), annualGasKwh: annual(gas),
+  });
+}
+
+const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+
+/** "ends 31 October 2027", "fixed until 31/10/2027", "end date: 31 Oct 2027" → 2027-10-31 */
+export function endDate(lower: string): string | null {
+  const lead = String.raw`(?:ends?(?: on)?|end date|fixed until|until|expires?(?: on)?)\s*[:\-]?\s*`;
+  const named = lower.match(new RegExp(lead + String.raw`(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3,9})\s+(\d{4})`));
+  if (named) {
+    const month = MONTHS.findIndex((m) => m.startsWith(named[2].slice(0, 3)));
+    if (month >= 0) return iso(Number(named[3]), month + 1, Number(named[1]));
+  }
+  const numeric = lower.match(new RegExp(lead + String.raw`(\d{1,2})\/(\d{1,2})\/(\d{4})`));
+  if (numeric) return iso(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
+  return null;
+}
+
+function iso(y: number, m: number, d: number) {
+  if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2000 || y > 2100) return null;
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 async function callOpenAi(messages: unknown[], supabase: any, userId: string, component: string) {
   const key = aiKey();
-  if (!key || process.env.LOOP_AI_DISABLED === "true") return null;
+  if (!key || process.env.LOOP_AI_DISABLED === "true") {
+    console.warn(JSON.stringify({ event: "energy_bill_ai_skipped", reason: key ? "disabled" : "no_key" }));
+    return null;
+  }
   const model = process.env.LOOP_DOCUMENT_VISION_MODEL || process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    signal: AbortSignal.timeout(45000),
-    headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-    body: JSON.stringify({ model, temperature: 0, response_format: { type: "json_object" }, messages }),
-  });
-  if (!response.ok) return null;
+  let response: Response;
+  try {
+    response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      signal: AbortSignal.timeout(45000),
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify({ model, temperature: 0, response_format: { type: "json_object" }, messages }),
+    });
+  } catch (error) {
+    console.warn(JSON.stringify({ event: "energy_bill_ai_failed", status: "network", model, detail: String((error as Error)?.message || error).slice(0, 200) }));
+    return null;
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    console.warn(JSON.stringify({ event: "energy_bill_ai_failed", status: response.status, model, detail: detail.slice(0, 300) }));
+    return null;
+  }
   const payload = await response.json();
   await recordOpenAiUsageFromPayload(supabase, payload, { model, scope: "energy_bill_reader", component, userId });
   try { return JSON.parse(String(payload?.choices?.[0]?.message?.content || "{}")) as Record<string, unknown>; } catch { return null; }
@@ -144,6 +191,7 @@ export async function readEnergyBill(input: { file?: File | null; text?: string 
   ], supabase, userId, file ? "pdf" : "text");
   if (ai) return { draft: clean(ai), method: "ai_text", warnings };
   const pattern = patternRead(text);
+  warnings.push("Read with Loop's simple reader rather than AI, so check every figure — some may be missed.");
   if (!pattern.electricityUnitP && !pattern.gasUnitP) warnings.push("Couldn't find the rates — check the numbers below or type them in.");
   return { draft: pattern, method: "pattern", warnings };
 }
