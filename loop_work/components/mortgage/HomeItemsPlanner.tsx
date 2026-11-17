@@ -7,7 +7,10 @@
 // (The room-map version is parked in HomeItemsMapPlanner.tsx.)
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { deleteHomeItem, findTariffs, listHomeItems, previewProductLink, saveEnergyRates, saveHomeItem, setHomeItemStatus, type HomeItemInput, type SavedTariff } from "@/app/mortgage/home-items-actions";
+import { deleteHomeItem, findTariffs, listHomeItems, previewProductLink, saveHomeItem, setHomeItemStatus, type HomeItemInput, type SavedTariff } from "@/app/mortgage/home-items-actions";
+import { clearEnergyTariff, readEnergyBillUpload, saveEnergyTariff } from "@/app/energy/actions";
+import type { BillReadResult } from "@/lib/energy/bill-reader";
+import type { EffectiveEnergy } from "@/lib/energy/tariff";
 import type { TariffOption, TariffSearch } from "@/lib/home/tariffs";
 import { HOME_ITEM_KINDS, KIND_BY_KEY, PRICE_CAP_RATES, STATUS_STYLE, nameFromProductUrl, parseHomeItemText, planHomeItem, runningCost, type EnergyRates, type HomeItem, type HomeItemPlan, type RunningCost } from "@/lib/home/items";
 import { createClient } from "@/lib/supabase/client";
@@ -105,6 +108,7 @@ function usageOf(form: Form, kind: string) {
 export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | null; houseStyle?: unknown; addRequest?: number }) {
   const [items, setItems] = useState<HomeItem[] | null>(null);
   const [rates, setRates] = useState<RatesState>({ electricity: PRICE_CAP_RATES.electricity, gas: PRICE_CAP_RATES.gas, own: false, tariff: null });
+  const [energy, setEnergy] = useState<EffectiveEnergy | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(emptyForm);
   const [editing, setEditing] = useState<Form | null>(null);
@@ -134,7 +138,7 @@ export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | 
   useEffect(() => {
     let cancelled = false;
     listHomeItems(homeId)
-      .then((result) => { if (!cancelled) { setItems(result.items); setRates(result.rates); } })
+      .then((result) => { if (!cancelled) { setItems(result.items); setRates(result.rates); setEnergy(result.energy); } })
       .catch((error) => { if (!cancelled) setLoadError(error instanceof Error ? error.message : "Couldn't load your things."); });
     return () => { cancelled = true; };
   }, [reloadKey, homeId]);
@@ -148,6 +152,7 @@ export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | 
     const channel = supabase
       .channel(`home-items-${homeId || "all"}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "home_items" }, () => refreshSoon())
+      .on("postgres_changes", { event: "*", schema: "public", table: "household_energy_tariffs" }, () => refreshSoon())
       .subscribe((status) => setLive(status === "SUBSCRIBED"));
     const onFocus = () => { if (document.visibilityState === "visible") refreshSoon(); };
     document.addEventListener("visibilitychange", onFocus);
@@ -258,7 +263,7 @@ export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | 
         ))}
       </section>
 
-      <RatesBar rates={rates} homeId={homeId} onSaved={() => { announce(); setReloadKey((key) => key + 1); }} />
+      <RatesBar rates={rates} energy={energy} homeId={homeId} onSaved={() => { announce(); setReloadKey((key) => key + 1); }} />
 
       <section>
         <div className="mb-3 flex items-center justify-between gap-3 px-1">
@@ -274,7 +279,7 @@ export function HomeItemsPlanner({ homeId, addRequest = 0 }: { homeId: string | 
             <ItemCard key={item.id} item={item} plan={plan} run={run} ownershipPerYear={ownershipPerYear} today={today} onEdit={() => { setMessage(null); setEditing(formFromItem(item)); }} />
           ))}
         </ul>
-        {rows.length ? <p className="mt-3 px-1 text-[11px] font-semibold leading-5 text-slate-400">Lifespans, typical prices and typical use are rough UK guides — add your own under Edit for sharper numbers. Running costs use {rates.own ? "your energy prices" : `the ${PRICE_CAP_RATES.label}`}.</p> : null}
+        {rows.length ? <p className="mt-3 px-1 text-[11px] font-semibold leading-5 text-slate-400">Lifespans, typical prices and typical use are rough UK guides — add your own under Edit for sharper numbers. Running costs use {energy?.label || PRICE_CAP_RATES.label}.</p> : null}
       </section>
 
       {adding ? (
@@ -416,137 +421,228 @@ function ItemCard({ item, plan, run, ownershipPerYear, today, onEdit }: { item: 
 type RatesState = EnergyRates & { own: boolean; tariff: SavedTariff | null };
 const SUPPLIER_NAMES = ["Octopus Energy", "British Gas", "EDF", "E.ON Next", "OVO", "Scottish Power", "So Energy", "Outfox the Market", "Utility Warehouse", "Ecotricity", "Good Energy", "Utilita", "Sainsbury's Energy", "Co-op Energy", "Fuse Energy", "Other"];
 
-function RatesBar({ rates, homeId, onSaved }: { rates: RatesState; homeId: string | null; onSaved: () => void }) {
+function RatesBar({ rates, energy, homeId, onSaved }: { rates: RatesState; energy: EffectiveEnergy | null; homeId: string | null; onSaved: () => void }) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   const [pending, startTransition] = useTransition();
-  const label = rates.tariff ? `${rates.tariff.supplier} · ${rates.tariff.name}${rates.tariff.regionName ? ` (${rates.tariff.regionName})` : ""}` : rates.own ? "Your prices" : PRICE_CAP_RATES.label;
+  const tariff = energy?.tariff;
+  const label = tariff
+    ? `${energy!.label}${tariff.fixed_until ? ` · fixed until ${new Date(`${tariff.fixed_until}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}` : ""}`
+    : energy?.label || PRICE_CAP_RATES.label;
   return (
     <section className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-white px-4 py-3 text-xs ring-1 ring-slate-200">
       <span className="font-bold text-slate-700">⚡ {rates.electricity}p/kWh electricity · 🔥 {rates.gas}p/kWh gas</span>
       <span className="text-slate-400">{label}</span>
       <span className="ml-auto flex items-center gap-3">
-        {rates.own ? <button type="button" disabled={pending || !homeId} onClick={() => startTransition(async () => { await saveEnergyRates(homeId!, null, null, null); onSaved(); })} className="font-bold text-slate-500">Use price cap</button> : null}
-        <button type="button" onClick={() => setOpen(true)} disabled={!homeId} className="font-bold text-violet-700 disabled:text-slate-300">{rates.own ? "Change tariff" : "Use my tariff"}</button>
+        {tariff ? <button type="button" disabled={pending} onClick={() => startTransition(async () => { await clearEnergyTariff(); onSaved(); })} className="font-bold text-slate-500">Use price cap</button> : null}
+        <button type="button" onClick={() => setOpen(true)} className="font-bold text-violet-700">{tariff ? "Change tariff" : "Set my tariff"}</button>
       </span>
-      {open && homeId ? <TariffModal homeId={homeId} rates={rates} onClose={close} onSaved={() => { setOpen(false); onSaved(); }} /> : null}
+      {open ? <TariffModal homeId={homeId} energy={energy} onClose={close} onSaved={() => { setOpen(false); onSaved(); }} /> : null}
     </section>
   );
 }
 
-function TariffModal({ homeId, rates, onClose, onSaved }: { homeId: string; rates: RatesState; onClose: () => void; onSaved: () => void }) {
-  const [supplier, setSupplier] = useState(rates.tariff?.supplier || "");
+type TariffDraft = {
+  supplier: string; tariffName: string; electricityUnitP: string; electricityNightUnitP: string; electricityStandingP: string;
+  gasUnitP: string; gasStandingP: string; paymentMethod: string; fixedUntil: string; exitFeeGbp: string; monthlyPaymentGbp: string;
+  annualElectricityKwh: string; annualGasKwh: string; region: string; source: "bill_upload" | "octopus_api" | "price_cap" | "manual"; sourceFilename: string;
+};
+const v = (value: unknown) => (value === null || value === undefined ? "" : String(value));
+function draftFromEnergy(energy: EffectiveEnergy | null): TariffDraft {
+  const t = energy?.tariff;
+  return {
+    supplier: t?.supplier || "", tariffName: t?.tariff_name || "", electricityUnitP: v(t?.electricity_unit_p), electricityNightUnitP: v(t?.electricity_night_unit_p),
+    electricityStandingP: v(t?.electricity_standing_p), gasUnitP: v(t?.gas_unit_p), gasStandingP: v(t?.gas_standing_p), paymentMethod: t?.payment_method || "Direct Debit",
+    fixedUntil: t?.fixed_until || "", exitFeeGbp: v(t?.exit_fee_gbp), monthlyPaymentGbp: v(t?.monthly_payment_gbp), annualElectricityKwh: v(t?.annual_electricity_kwh),
+    annualGasKwh: v(t?.annual_gas_kwh), region: t?.region || energy?.region || "", source: "manual", sourceFilename: "",
+  };
+}
+
+function TariffModal({ homeId, energy, onClose, onSaved }: { homeId: string | null; energy: EffectiveEnergy | null; onClose: () => void; onSaved: () => void }) {
+  const [mode, setMode] = useState<"find" | "bill" | "confirm">("find");
+  const [draft, setDraft] = useState<TariffDraft>(() => draftFromEnergy(energy));
+  const [notes, setNotes] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function toConfirm(next: TariffDraft, readNotes: string[] = []) { setDraft(next); setNotes(readNotes); setError(null); setMode("confirm"); }
+
+  return (
+    <ModalFrame eyebrow="Energy" title={mode === "confirm" ? "Check and save your tariff" : "Your energy tariff"} description={mode === "confirm" ? "These rates are used across Loop — appliance running costs, your calendar and budgeting." : "Find your tariff, read it from a bill, or type it in."} maxWidth="max-w-2xl" onClose={onClose}>
+      {mode !== "confirm" ? (
+        <div className="mb-4 inline-flex rounded-full bg-slate-100 p-1 ring-1 ring-slate-200">
+          {([["find", "Find my tariff"], ["bill", "From a bill or screenshot"]] as const).map(([key, label]) => (
+            <button key={key} type="button" onClick={() => setMode(key)} className={`rounded-full px-4 py-1.5 text-xs font-bold ${mode === key ? "bg-slate-950 text-white" : "text-slate-600"}`}>{label}</button>
+          ))}
+        </div>
+      ) : null}
+      {mode === "find" ? <TariffFinder homeId={homeId} onPick={(option, search) => toConfirm({
+        ...draftFromEnergy(null), supplier: search.supplier, tariffName: option.name, electricityUnitP: v(option.electricity), gasUnitP: v(option.gas),
+        electricityStandingP: v(option.electricityStanding), gasStandingP: v(option.gasStanding), region: search.region || "",
+        source: search.live ? "octopus_api" : "price_cap",
+      }, option.note ? [option.note] : [])} onManual={() => toConfirm({ ...draftFromEnergy(energy), source: "manual" })} /> : null}
+      {mode === "bill" ? <BillReader onRead={(result, filename) => toConfirm({
+        ...draftFromEnergy(null), supplier: result.draft.supplier || "", tariffName: result.draft.tariffName || "",
+        electricityUnitP: v(result.draft.electricityUnitP), electricityNightUnitP: v(result.draft.electricityNightUnitP), electricityStandingP: v(result.draft.electricityStandingP),
+        gasUnitP: v(result.draft.gasUnitP), gasStandingP: v(result.draft.gasStandingP), paymentMethod: result.draft.paymentMethod || "", fixedUntil: result.draft.fixedUntil || "",
+        exitFeeGbp: v(result.draft.exitFeeGbp), monthlyPaymentGbp: v(result.draft.monthlyPaymentGbp), annualElectricityKwh: v(result.draft.annualElectricityKwh),
+        annualGasKwh: v(result.draft.annualGasKwh), region: energy?.region || "", source: "bill_upload", sourceFilename: filename,
+      }, result.warnings)} /> : null}
+      {mode === "confirm" ? (
+        <div className="space-y-4">
+          {draft.source === "bill_upload" ? <p className="rounded-xl bg-violet-50 px-3 py-2 text-[11px] font-semibold text-violet-900">Read from {draft.sourceFilename || "your text"}. Check each figure against the bill — anything blank wasn&apos;t found. The file itself isn&apos;t kept.</p> : null}
+          {notes.filter(Boolean).map((note) => <p key={note} className="rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">{note}</p>)}
+          <TariffConfirmFields draft={draft} setDraft={setDraft} />
+          {error ? <p className="text-xs font-bold text-rose-700">{error}</p> : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" disabled={pending || !draft.supplier.trim()} onClick={() => startTransition(async () => {
+              try { await saveEnergyTariff({ homeId, ...draft }); onSaved(); }
+              catch (e) { setError(e instanceof Error ? e.message : "Couldn't save."); }
+            })} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">{pending ? "Saving…" : "Save for our household"}</button>
+            <button type="button" onClick={() => setMode("find")} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Back</button>
+          </div>
+        </div>
+      ) : null}
+    </ModalFrame>
+  );
+}
+
+function TariffFinder({ homeId, onPick, onManual }: { homeId: string | null; onPick: (option: TariffOption, search: TariffSearch) => void; onManual: () => void }) {
+  const [supplier, setSupplier] = useState("");
   const [search, setSearch] = useState<TariffSearch | null>(null);
   const [searching, setSearching] = useState(false);
   const [filter, setFilter] = useState("");
-  const [chosen, setChosen] = useState<TariffOption | null>(null);
-  const [electricity, setElectricity] = useState(String(rates.electricity));
-  const [gas, setGas] = useState(String(rates.gas));
-  const [tariffName, setTariffName] = useState(rates.tariff?.name || "");
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
   const matches = supplier.trim() ? SUPPLIER_NAMES.filter((name) => name.toLowerCase().includes(supplier.trim().toLowerCase())) : SUPPLIER_NAMES;
-  const exact = SUPPLIER_NAMES.find((name) => name.toLowerCase() === supplier.trim().toLowerCase());
-
   function pickSupplier(name: string) {
-    setSupplier(name);
-    setChosen(null);
-    setSearch(null);
-    setError(null);
-    setSearching(true);
-    findTariffs(homeId, name)
-      .then((result) => setSearch(result))
-      .catch((e) => setError(e instanceof Error ? e.message : "Couldn't look that up."))
-      .finally(() => setSearching(false));
-  }
-  function choose(option: TariffOption) {
-    setChosen(option);
-    setTariffName(option.name);
-    if (option.electricity != null) setElectricity(String(option.electricity));
-    if (option.gas != null) setGas(String(option.gas));
+    setSupplier(name); setSearch(null); setError(null); setSearching(true);
+    findTariffs(homeId, name).then(setSearch).catch((e) => setError(e instanceof Error ? e.message : "Couldn't look that up.")).finally(() => setSearching(false));
   }
   const options = (search?.options || []).filter((option) => !filter.trim() || option.name.toLowerCase().includes(filter.trim().toLowerCase()));
-
   return (
-    <ModalFrame eyebrow="Energy prices" title="Your tariff" description="Pick your supplier and tariff and we'll fill in the rates — you can still adjust them to match your bill." maxWidth="max-w-2xl" onClose={onClose}>
-      <div className="space-y-4">
-        <label className="block text-xs font-bold text-slate-600">Supplier
-          <input value={supplier} onChange={(event) => { setSupplier(event.target.value); setSearch(null); setChosen(null); }} placeholder="Start typing, e.g. Octopus" className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" autoFocus />
-        </label>
-        {!search && !searching ? (
+    <div className="space-y-3">
+      {!search ? (
+        <>
+          <label className="block text-xs font-bold text-slate-600">Supplier
+            <input value={supplier} onChange={(event) => setSupplier(event.target.value)} placeholder="Start typing, e.g. Octopus" className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" autoFocus />
+          </label>
           <div className="flex flex-wrap gap-1.5">
-            {matches.slice(0, 16).map((name) => (
-              <button key={name} type="button" onClick={() => pickSupplier(name)} className={`rounded-full px-3 py-1 text-[11px] font-bold ring-1 ${exact === name ? "bg-slate-950 text-white ring-slate-950" : "bg-slate-50 text-slate-700 ring-slate-200 hover:bg-violet-50"}`}>{name}</button>
-            ))}
+            {matches.map((name) => <button key={name} type="button" onClick={() => pickSupplier(name)} className="rounded-full bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-violet-50">{name}</button>)}
             {supplier.trim() && !matches.length ? <button type="button" onClick={() => pickSupplier(supplier.trim())} className="rounded-full bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-700 ring-1 ring-slate-200">Use “{supplier.trim()}”</button> : null}
           </div>
-        ) : null}
-        {searching ? <p className="text-xs font-semibold text-slate-500">Looking up {supplier}&apos;s tariffs…</p> : null}
-        {error ? <p className="text-xs font-bold text-rose-700">{error}</p> : null}
-
-        {search ? (
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-bold text-slate-700">{search.supplier} tariffs{search.regionName ? <span className="font-semibold text-slate-500"> · rates for {search.regionName}</span> : null}{search.live ? <span className="ml-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">live</span> : null}</p>
-              <button type="button" onClick={() => { setSearch(null); setChosen(null); }} className="text-[11px] font-bold text-violet-700">Change supplier</button>
-            </div>
-            {search.message ? <p className="rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">{search.message}</p> : null}
-            {(search.options.length > 6) ? <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter tariffs, e.g. Fixed, Flexible, Go" className="block w-full rounded-xl border border-slate-200 px-3 py-2 text-xs" /> : null}
-            <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
-              {options.map((option) => (
-                <li key={`${option.code || option.name}`}>
-                  <button type="button" onClick={() => choose(option)} className={`w-full rounded-xl px-3 py-2 text-left ring-1 transition ${chosen?.name === option.name && chosen?.code === option.code ? "bg-violet-50 ring-violet-300" : "bg-white ring-slate-200 hover:bg-slate-50"}`}>
-                    <span className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-bold text-slate-900">{option.name}</span>
-                      <span className="text-xs font-bold tabular-nums text-slate-700">{option.electricity != null ? `⚡ ${option.electricity}p` : ""}{option.gas != null ? ` · 🔥 ${option.gas}p` : ""}</span>
-                    </span>
-                    <span className="mt-0.5 flex flex-wrap gap-1.5 text-[10px] font-bold">
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">{option.fixed ? "Fixed" : "Variable"}</span>
-                      {option.green ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">Green</span> : null}
-                      {option.timeOfUse ? <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">Time of use</span> : null}
-                      {option.electricityStanding != null ? <span className="text-slate-400">Standing {option.electricityStanding}p/day</span> : null}
-                    </span>
-                    {option.note ? <span className="mt-1 block text-[10px] font-semibold text-slate-500">{option.note}</span> : null}
-                  </button>
-                </li>
-              ))}
-              {search.live && !options.length ? <li className="text-xs text-slate-500">No tariffs match that.</li> : null}
-            </ul>
+        </>
+      ) : null}
+      {searching ? <p className="text-xs font-semibold text-slate-500">Looking up {supplier}&apos;s tariffs…</p> : null}
+      {error ? <p className="text-xs font-bold text-rose-700">{error}</p> : null}
+      {search ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-bold text-slate-700">{search.supplier}{search.regionName ? <span className="font-semibold text-slate-500"> · rates for {search.regionName}</span> : null}{search.live ? <span className="ml-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">live</span> : null}</p>
+            <button type="button" onClick={() => { setSearch(null); setSupplier(""); }} className="text-[11px] font-bold text-violet-700">Change supplier</button>
           </div>
-        ) : null}
+          {search.message ? <p className="rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">{search.message}</p> : null}
+          {search.options.length > 6 ? <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter tariffs, e.g. Fixed, Flexible, Go" className="block w-full rounded-xl border border-slate-200 px-3 py-2 text-xs" /> : null}
+          <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+            {options.map((option) => (
+              <li key={`${option.code || option.name}`}>
+                <button type="button" onClick={() => onPick(option, search)} className="w-full rounded-xl bg-white px-3 py-2 text-left ring-1 ring-slate-200 hover:bg-violet-50">
+                  <span className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-bold text-slate-900">{option.name}</span>
+                    <span className="text-xs font-bold tabular-nums text-slate-700">{option.electricity != null ? `⚡ ${option.electricity}p` : ""}{option.gas != null ? ` · 🔥 ${option.gas}p` : ""}</span>
+                  </span>
+                  <span className="mt-0.5 flex flex-wrap gap-1.5 text-[10px] font-bold">
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">{option.fixed ? "Fixed" : "Variable"}</span>
+                    {option.green ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">Green</span> : null}
+                    {option.timeOfUse ? <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">Time of use</span> : null}
+                    {option.electricityStanding != null ? <span className="text-slate-400">Standing {option.electricityStanding}p/day</span> : null}
+                  </span>
+                  {option.note ? <span className="mt-1 block text-[10px] font-semibold text-slate-500">{option.note}</span> : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <button type="button" onClick={onManual} className="text-[11px] font-bold text-slate-500 hover:text-slate-800">Or type the rates in yourself →</button>
+    </div>
+  );
+}
 
-        <div className="grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-3">
-          <label className="block text-xs font-bold text-slate-600">Tariff name
-            <input value={tariffName} onChange={(event) => setTariffName(event.target.value)} placeholder="e.g. Fixed 12M" className="mt-1 block w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-          </label>
-          <label className="block text-xs font-bold text-slate-600">Electricity (p/kWh)
-            <input inputMode="decimal" value={electricity} onChange={(event) => { setElectricity(event.target.value); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-          </label>
-          <label className="block text-xs font-bold text-slate-600">Gas (p/kWh)
-            <input inputMode="decimal" value={gas} onChange={(event) => { setGas(event.target.value); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-          </label>
-          <p className="text-[10px] font-semibold text-slate-500 sm:col-span-3">Unit rates include VAT. Standing charges aren&apos;t used here — they&apos;re paid whatever you switch on.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" disabled={pending || !supplier.trim()} onClick={() => startTransition(async () => {
-            try {
-              const edited = chosen && (String(chosen.electricity ?? "") !== electricity || (chosen.gas != null && String(chosen.gas) !== gas));
-              await saveEnergyRates(homeId, electricity, gas, {
-                supplier: search?.supplier || supplier.trim(),
-                name: tariffName.trim() || chosen?.name || "My tariff",
-                code: chosen?.code ?? null,
-                region: search?.region ?? null,
-                regionName: search?.regionName ?? null,
-                fixed: chosen?.fixed ?? false,
-                source: chosen && !edited ? (search?.live ? "octopus_api" : "price_cap") : "bill",
-              });
-              onSaved();
-            } catch (e) { setError(e instanceof Error ? e.message : "Couldn't save."); }
-          })} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">{pending ? "Saving…" : "Save tariff"}</button>
-          <button type="button" onClick={onClose} className="rounded-xl bg-white px-3 py-2 text-xs font-bold ring-1 ring-slate-200">Cancel</button>
-        </div>
+function BillReader({ onRead }: { onRead: (result: BillReadResult, filename: string) => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const [dragging, setDragging] = useState(false);
+  return (
+    <div className="space-y-3">
+      <label
+        onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(event) => { event.preventDefault(); setDragging(false); const dropped = event.dataTransfer.files?.[0]; if (dropped) setFile(dropped); }}
+        className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed px-4 py-8 text-center ${dragging ? "border-violet-400 bg-violet-50" : "border-slate-200 bg-slate-50 hover:bg-violet-50/50"}`}
+      >
+        <span className="text-2xl" aria-hidden>🧾</span>
+        <span className="text-sm font-bold text-slate-800">{file ? file.name : "Add a bill, tariff email or app screenshot"}</span>
+        <span className="text-[11px] font-semibold text-slate-500">{file ? `${Math.round(file.size / 1024)} KB — tap to change` : "Photo, screenshot or PDF · up to 10MB"}</span>
+        <input type="file" accept="image/*,application/pdf" className="sr-only" onChange={(event) => setFile(event.target.files?.[0] || null)} />
+      </label>
+      <label className="block text-xs font-bold text-slate-600">Or paste the text
+        <textarea value={text} onChange={(event) => setText(event.target.value)} rows={3} placeholder="e.g. the tariff section of a confirmation email — unit rates, standing charges, end date" className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+      </label>
+      <p className="text-[10px] font-semibold text-slate-400">Loop reads the tariff figures only — not account numbers, meter numbers or your address — and doesn&apos;t keep the file.</p>
+      {error ? <p className="text-xs font-bold text-rose-700">{error}</p> : null}
+      <button type="button" disabled={pending || (!file && !text.trim())} onClick={() => startTransition(async () => {
+        try {
+          const form = new FormData();
+          if (file) form.append("file", file);
+          if (text.trim()) form.append("text", text);
+          onRead(await readEnergyBillUpload(form), file?.name || "pasted text");
+        } catch (e) { setError(e instanceof Error ? e.message : "Couldn't read that."); }
+      })} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">{pending ? "Reading…" : "Read it"}</button>
+    </div>
+  );
+}
+
+function TariffConfirmFields({ draft, setDraft }: { draft: TariffDraft; setDraft: (next: TariffDraft) => void }) {
+  const set = (patch: Partial<TariffDraft>) => setDraft({ ...draft, ...patch });
+  const input = "mt-1 block w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm";
+  const label = "block text-xs font-bold text-slate-600";
+  const field = (key: keyof TariffDraft, text: string, placeholder = "", type = "text") => (
+    <label className={label}>{text}
+      <input type={type} inputMode={type === "text" && /P$|Gbp|Kwh/.test(key) ? "decimal" : undefined} value={String(draft[key] ?? "")} onChange={(event) => set({ [key]: event.target.value } as Partial<TariffDraft>)} placeholder={placeholder} className={`${input} ${draft[key] === "" && draft.source === "bill_upload" ? "border-amber-300 bg-amber-50/40" : ""}`} />
+    </label>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        {field("supplier", "Supplier", "e.g. British Gas")}
+        {field("tariffName", "Tariff name", "e.g. Fixed Tariff Dec27")}
       </div>
-    </ModalFrame>
+      <fieldset className="rounded-xl bg-slate-50 p-3">
+        <legend className="px-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">⚡ Electricity (pence, inc VAT)</legend>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {field("electricityUnitP", "Unit rate p/kWh", "e.g. 27.86")}
+          {field("electricityNightUnitP", "Night / off-peak p/kWh", "Only if you have one")}
+          {field("electricityStandingP", "Standing charge p/day", "e.g. 54.83")}
+        </div>
+      </fieldset>
+      <fieldset className="rounded-xl bg-slate-50 p-3">
+        <legend className="px-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">🔥 Gas (pence, inc VAT)</legend>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {field("gasUnitP", "Unit rate p/kWh", "e.g. 7.91")}
+          {field("gasStandingP", "Standing charge p/day", "e.g. 29.68")}
+        </div>
+      </fieldset>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {field("fixedUntil", "Fixed until", "", "date")}
+        {field("exitFeeGbp", "Exit fee £ (per fuel)", "e.g. 50")}
+        {field("monthlyPaymentGbp", "Monthly payment £", "e.g. 145")}
+        {field("annualElectricityKwh", "Electricity kWh a year", "From the bill")}
+        {field("annualGasKwh", "Gas kWh a year", "From the bill")}
+        {field("paymentMethod", "Paying by", "Direct Debit")}
+      </div>
+    </div>
   );
 }
 

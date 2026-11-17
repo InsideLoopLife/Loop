@@ -4,7 +4,7 @@ import "server-only";
 // public API, so those come back live. Other suppliers don't publish theirs, so we offer their
 // standard variable tariff at the Ofgem cap and ask for the rates from the bill otherwise.
 
-import { PRICE_CAP_RATES } from "@/lib/home/items";
+import { capFor, PRICE_CAP_PERIOD } from "@/lib/energy/price-cap";
 
 const OCTOPUS = "https://api.octopus.energy/v1";
 const CACHE_MS = 6 * 60 * 60 * 1000;
@@ -104,18 +104,21 @@ export async function searchTariffs(supplier: string, postcode: string | null | 
   const name = SUPPLIERS.find((s) => s.toLowerCase() === supplier.trim().toLowerCase()) || supplier.trim();
   const region = await regionForPostcode(postcode);
   const regionName = region ? REGION_NAMES[region] : null;
+  const cap = capFor(region);
   const capOption: TariffOption = {
     supplier: name,
     name: "Standard variable tariff",
     code: null,
-    electricity: PRICE_CAP_RATES.electricity,
-    gas: PRICE_CAP_RATES.gas,
-    electricityStanding: null,
-    gasStanding: null,
+    electricity: cap.electricity,
+    gas: cap.gas,
+    electricityStanding: cap.electricityStanding,
+    gasStanding: cap.gasStanding,
     fixed: false,
     green: false,
     timeOfUse: false,
-    note: `Capped by Ofgem — these are the national average cap rates (${PRICE_CAP_RATES.label}). Your region and payment method can differ slightly; your bill has the exact figures.`,
+    note: cap.regional
+      ? `${PRICE_CAP_PERIOD.label} for ${cap.name}, paying by Direct Debit. Standard variable tariffs are capped at these rates; some suppliers charge a little less.`
+      : `${PRICE_CAP_PERIOD.label}, GB average — add your home's postcode for your region's rates.`,
   };
   if (/octopus/i.test(name)) {
     if (!region) return { supplier: "Octopus Energy", region: null, regionName: null, live: false, options: [], message: "Add your home's postcode so we can look up the rates for your region." };
@@ -132,6 +135,6 @@ export async function searchTariffs(supplier: string, postcode: string | null | 
     regionName,
     live: false,
     options: [capOption],
-    message: `${name === "Other" ? "Most suppliers" : name} don't publish tariff rates for apps to read. If you're on a fixed or special tariff, type the unit rates from your bill or app.`,
+    message: `${name === "Other" ? "Most suppliers" : name} don't publish tariff rates for apps to read. On a fixed or special deal? Use "From a bill" to read the rates from a bill, email or app screenshot.`,
   };
 }

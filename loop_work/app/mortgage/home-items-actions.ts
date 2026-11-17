@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { changeRecord, getActiveHouseholdContext, householdMemberDataOrFilter, householdWriteFields } from "@/lib/auth/household-context";
-import { KIND_BY_KEY, PRICE_CAP_RATES, ROOM_LABELS, type EnergyRates, type HomeItem, type HomeRoom } from "@/lib/home/items";
+import { KIND_BY_KEY, ROOM_LABELS, type EnergyRates, type HomeItem, type HomeRoom } from "@/lib/home/items";
 import { enforceUserRateLimit } from "@/lib/security/rate-limit";
 import { lookupProductPage, type ProductPreview } from "@/lib/home/product-preview";
 import { searchTariffs, type TariffSearch } from "@/lib/home/tariffs";
+import { effectiveEnergy, type EffectiveEnergy } from "@/lib/energy/tariff";
 import { sanitisePlan, type FloorPlan } from "@/lib/home/floor-plan";
 
 const COLUMNS = "id, user_id, home_id, space_id, room, kind, label, brand, model, purchased_on, price, retailer, warranty_months, extended_warranty_ends_on, warranty_provider, expected_life_years, replacement_cost, notes, product_url, image_url, fuel, energy_per_use_kwh, uses_per_week, power_watts, hours_per_day, annual_kwh, status";
@@ -19,7 +20,7 @@ async function context() {
   return { supabase, user, household };
 }
 
-export async function listHomeItems(homeId?: string | null): Promise<{ items: HomeItem[]; userId: string; floorPlan: FloorPlan | null; rates: EnergyRates & { own: boolean; tariff: SavedTariff | null } }> {
+export async function listHomeItems(homeId?: string | null): Promise<{ items: HomeItem[]; userId: string; floorPlan: FloorPlan | null; rates: EnergyRates & { own: boolean; tariff: SavedTariff | null }; energy: EffectiveEnergy }> {
   const { supabase, user, household } = await context();
   const [{ data, error }, planResult] = await Promise.all([
     supabase
@@ -28,10 +29,11 @@ export async function listHomeItems(homeId?: string | null): Promise<{ items: Ho
       .or(householdMemberDataOrFilter(household))
       .order("created_at", { ascending: true })
       .limit(500),
-    homeId ? supabase.from("homes").select("floor_plan, electricity_rate_pence, gas_rate_pence, energy_tariff").eq("id", homeId).maybeSingle() : Promise.resolve({ data: null }),
+    homeId ? supabase.from("homes").select("floor_plan, postcode, electricity_rate_pence, gas_rate_pence, energy_tariff").eq("id", homeId).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   if (error) throw new Error(error.message);
   const home = (planResult as any)?.data;
+  const energy = await effectiveEnergy(supabase, householdMemberDataOrFilter(household), home?.postcode ?? null);
   const raw = home?.floor_plan;
   const electricity = home?.electricity_rate_pence != null ? Number(home.electricity_rate_pence) : null;
   const gas = home?.gas_rate_pence != null ? Number(home.gas_rate_pence) : null;
@@ -39,7 +41,11 @@ export async function listHomeItems(homeId?: string | null): Promise<{ items: Ho
     items: (data || []) as HomeItem[],
     userId: user.id,
     floorPlan: raw ? sanitisePlan(raw) : null,
-    rates: { electricity: electricity ?? PRICE_CAP_RATES.electricity, gas: gas ?? PRICE_CAP_RATES.gas, own: electricity != null || gas != null, tariff: (home?.energy_tariff as SavedTariff | null) ?? null },
+    // The household tariff (account-wide) wins; older per-home rates are only a fallback.
+    rates: energy.basis === "tariff" || (electricity == null && gas == null)
+      ? { electricity: energy.electricity, gas: energy.gas, own: energy.basis === "tariff", tariff: null }
+      : { electricity: electricity ?? energy.electricity, gas: gas ?? energy.gas, own: true, tariff: (home?.energy_tariff as SavedTariff | null) ?? null },
+    energy,
   };
 }
 

@@ -79,7 +79,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
   const dayList: string[] = [];
   for (let d = first; d <= last; d = addDays(d, 1)) dayList.push(d);
 
-  const [planResult, peopleResult, itemsResult, childCostsResult, dealsResult, logsResult, eventsResult, accountsResult, homeItemsResult] = await Promise.all([
+  const [planResult, peopleResult, itemsResult, childCostsResult, dealsResult, logsResult, eventsResult, accountsResult, homeItemsResult, tariffResult] = await Promise.all([
     // Previous and next months too: a payment due on Sunday the 1st really leaves on Friday the 30th.
     loadMonthPlans(supabase, { userId: opts.dataOwnerUserId, filter, months: [shiftMonth(month, -1), month, shiftMonth(month, 1)] }).catch(() => null),
     supabase.from("people").select("id, name, relationship, avatar_url, birth_date, nutrition_reference_sex, weight_kg, caffeine_limit_mg, daily_calorie_target, height_cm, activity_level, nutrition_goal, diet_type, food_allergies, account_status").or(opts.peopleFilter).or("account_status.is.null,account_status.neq.duplicate_merged"),
@@ -90,6 +90,7 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
     supabase.from("calendar_events").select("id, user_id, person_id, source, event_type, title, event_date").in("source", ["loop_manual", "google"]).gte("event_date", first).lte("event_date", last).limit(500),
     supabase.from("financial_accounts").select("id, current_balance, balance_last_confirmed_at, updated_at, is_liability, account_status").eq("account_type", "current_account").or(filter),
     supabase.from("home_items").select("id, room, kind, label, purchased_on, warranty_months, extended_warranty_ends_on, expected_life_years, price, replacement_cost, status, home_id, brand, model, retailer, warranty_provider, notes").eq("status", "active").or(filter).limit(500),
+    supabase.from("household_energy_tariffs").select("id, supplier, tariff_name, fixed_until, exit_fee_gbp").eq("is_current", true).not("fixed_until", "is", null).or(filter).limit(5),
   ]);
 
   const people: Array<any> = (peopleResult.data || []).filter((person: any, index: number, all: any[]) => all.findIndex((other) => other.id === person.id) === index);
@@ -260,6 +261,16 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
   for (const item of ((homeItemsResult?.data || []) as HomeItem[])) {
     const plan = planHomeItem(item, first);
     if (plan.warrantyEnds) dayFor(plan.warrantyEnds)?.dates.push({ id: `warranty-${item.id}`, kind: "ending", label: `${item.label} warranty ends`, detail: item.warranty_provider ? `Cover from ${item.warranty_provider}` : "After this, repairs are on you", href: "/mortgage?tab=things" });
+  }
+  // Fixed energy deal ending — worth knowing ~7 weeks ahead (exit fees stop in the last 49 days).
+  for (const tariff of ((tariffResult?.data || []) as any[])) {
+    const end = String(tariff.fixed_until || "");
+    dayFor(end)?.dates.push({ id: `energy-fix-${tariff.id}`, kind: "ending", label: `${tariff.supplier} energy fix ends`, detail: `${tariff.tariff_name ? `${tariff.tariff_name} · ` : ""}compare deals before this — exit fees usually stop in the last 49 days`, href: "/mortgage?tab=things" });
+    const timestamp = Date.parse(`${end}T00:00:00Z`);
+    if (Number.isFinite(timestamp)) {
+      const window = new Date(timestamp - 49 * 86_400_000).toISOString().slice(0, 10);
+      dayFor(window)?.dates.push({ id: `energy-switch-${tariff.id}`, kind: "ending", label: "Energy: free to switch from today", detail: `${tariff.supplier} fix ends ${end} — no exit fee from now`, href: "/mortgage?tab=things" });
+    }
   }
   for (const event of (eventsResult.data || []) as any[]) {
     dayFor(event.event_date)?.events.push({ id: event.id, title: event.title, source: event.source, personId: event.person_id, mine: event.user_id === opts.userId });
