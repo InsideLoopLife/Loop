@@ -48,6 +48,9 @@ import {
 import { addChildCost, deleteChildCost, updateChildCost } from "@/app/household/actions";
 import { monthStepFor, monthSteppedDate } from "@/lib/planning/recurrence";
 import { SpendingQuickAdd } from "@/components/spending/SpendingQuickAdd";
+import { SplitView } from "@/components/spending/SplitView";
+import type { SplitConfig } from "@/app/spending/split-actions";
+import type { SplitLine } from "@/lib/spending/split";
 import { deductionsForMonth, mortgageDealMonthlyPayment, type HomeMortgageDealForPlan } from "@/lib/planning/month-plan";
 
 const SUMMARY_COLOURS = ["#1f6a50", "#c08a3e", "#5b6fa8", "#7fa886", "#b46a55", "#8a7fb0", "#3e8a99", "#a59a5c", "#6b7570", "#c9a7a0"];
@@ -276,6 +279,8 @@ type Props = {
   householdPets?: HouseholdPet[];
   homeProfile?: HomeProfile | null;
   categoryGroups?: { id: string; name: string; icon?: string | null }[];
+  /** Split groups and settings (loaded with the deferred context). */
+  splitConfig?: SplitConfig | null;
   /** Mortgage deals, so the mortgage shows here exactly as on the overview. */
   mortgageDeals?: Array<HomeMortgageDealForPlan & { payment_day_of_month?: number | null; payment_account_id?: string | null }>;
   initialAddMode?: AddMode;
@@ -1617,7 +1622,7 @@ function AccountsBalanceCard({ monthLabel, items, people, personFiltered, money,
   );
 }
 
-export function SpendingPlannerClient({ shareContext = null, people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], mortgageDeals = [], initialAddMode, initialAddTemplate }: Props) {
+export function SpendingPlannerClient({ shareContext = null, people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], mortgageDeals = [], initialAddMode, initialAddTemplate, splitConfig = null }: Props) {
   const initialMonthValue = initialMonth && /^\d{4}-\d{2}$/.test(initialMonth) ? initialMonth : currentMonth();
   const [selectedPersonId, setSelectedPersonId] = useState(initialPersonId || "");
   const [directionFilter, setDirectionFilter] = useState<"all" | "income" | "outgoing">(initialDirectionFilter);
@@ -1631,7 +1636,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
   const [quickModeOverride, setQuickModeOverride] = useState<AddMode | null>(null);
   const [modal, setModal] = useState<ModalState>(initialAddMode ? { type: "add", mode: initialAddMode, template: initialAddTemplate } : null);
   const [editingEnabled, setEditingEnabled] = useState(false);
-  const [linesView, setLinesView] = useState<"lines" | "accounts">("lines");
+  const [linesView, setLinesView] = useState<"lines" | "accounts" | "split">("lines");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -2161,12 +2166,41 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
       <div id="month-lines" className="scroll-mt-28" />
       <div className="mb-3 flex justify-end">
         <div role="tablist" aria-label="Show this month by" className="inline-flex rounded-full bg-slate-100 p-1 ring-1 ring-slate-200">
-          {([["lines", "By date"], ["accounts", "By account"]] as const).map(([key, label]) => (
+          {([["lines", "By date"], ["accounts", "By account"], ["split", "Split"]] as const).map(([key, label]) => (
             <button key={key} type="button" role="tab" aria-selected={linesView === key} onClick={() => setLinesView(key)} className={`rounded-full px-4 py-1.5 text-xs font-black ${linesView === key ? "bg-slate-950 text-white shadow-sm" : "text-slate-600 hover:text-slate-950"}`}>{label}</button>
           ))}
         </div>
       </div>
-      {linesView === "accounts" ? (
+      {linesView === "split" ? (
+        <SplitView
+          monthLabel={formatMonthLabel(selectedSummary.month)}
+          lines={allMonthItems.map((item): SplitLine => {
+            const anyItem = item as any;
+            const categoryId: string | null = anyItem.item?.category_id ?? anyItem.entry?.category_id ?? null;
+            const account = "paymentAccount" in item && item.paymentAccount ? item.paymentAccount : null;
+            return {
+              key: item.selectableId,
+              title: item.title,
+              amount: Number(item.amount || 0),
+              direction: item.direction === "income" ? "income" : "outgoing",
+              personId: item.personId ?? null,
+              categoryId,
+              categoryGroupId: categoryId ? categoriesById.get(categoryId)?.group_id ?? null : null,
+              isChildCost: item.selectableId.startsWith("child:"),
+              isMortgage: item.selectableId.startsWith("mortgage:"),
+              isSavings: isSavingsFlowLine(item),
+              isPay: item.selectableId.startsWith("pay:"),
+              account: account ? { id: account.id, name: account.name, ownerPersonId: account.owner_person_id ?? null, joint: !account.owner_person_id || ["joint", "household"].includes(String(account.ownership_scope || "")) } : null,
+            };
+          })}
+          adults={people.filter((person) => person.relationship !== "child").map((person) => ({ id: person.id, name: person.name }))}
+          childIds={new Set(people.filter((person) => person.relationship === "child").map((person) => person.id))}
+          categories={categories}
+          categoryGroups={categoryGroups}
+          config={splitConfig}
+          money={money}
+        />
+      ) : linesView === "accounts" ? (
         <AccountsBalanceCard
           monthLabel={formatMonthLabel(selectedSummary.month)}
           items={allMonthItems.map((item) => ({ id: item.id, title: item.title, date: item.date, amount: Number(item.amount || 0), direction: item.direction === "income" ? "income" as const : "outgoing" as const, personId: item.personId ?? null, account: "paymentAccount" in item && item.paymentAccount ? item.paymentAccount : null }))}

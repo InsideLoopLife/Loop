@@ -19,6 +19,7 @@ type DeferredPayload = {
   householdPets?: PlannerProps["householdPets"];
   homeProfile?: PlannerProps["homeProfile"];
   categoryGroups?: PlannerProps["categoryGroups"];
+  splitConfig?: PlannerProps["splitConfig"];
 };
 
 export function SpendingPlannerDeferredClient(props: PlannerProps) {
@@ -61,6 +62,7 @@ export function SpendingPlannerDeferredClient(props: PlannerProps) {
       householdPets={deferred.householdPets ?? props.householdPets}
       homeProfile={deferred.homeProfile ?? props.homeProfile}
       categoryGroups={deferred.categoryGroups ?? props.categoryGroups}
+      splitConfig={deferred.splitConfig ?? props.splitConfig}
     />
   );
 }

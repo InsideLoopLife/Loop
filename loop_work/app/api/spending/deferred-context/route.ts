@@ -16,7 +16,7 @@ export async function GET() {
   const dataOwnerUserId = householdContext.dataOwnerUserId || user.id;
   const visibleFilter = householdMemberDataOrFilter(householdContext);
 
-  const [bankImports, regularCandidates, studentLoans, paymentAccounts, pets, homeProfile, categoryGroups] = await Promise.all([
+  const [bankImports, regularCandidates, studentLoans, paymentAccounts, pets, homeProfile, categoryGroups, splitGroups, splitSettings] = await Promise.all([
     supabase.from("bank_imports")
       .select("id, person_id, account_name, provider_name, original_filename, imported_rows, detected_rows, status, created_at")
       .or(visibleFilter).order("created_at", { ascending: false }).limit(8),
@@ -41,7 +41,14 @@ export async function GET() {
     supabase.from("spending_category_groups")
       .select("id, name, icon")
       .or(visibleFilter).order("sort_order").order("name"),
+    supabase.from("household_split_groups")
+      .select("id, name, method, custom_shares, payer_person_id, members, sort_order")
+      .is("archived_at", null).or(visibleFilter).order("sort_order").order("created_at"),
+    supabase.from("household_split_settings")
+      .select("savings_mode, low_earner_mode, updated_at")
+      .or(visibleFilter).order("updated_at", { ascending: false }).limit(1),
   ]);
+  const settingsRow = (splitSettings.data || [])[0] as any;
 
   return NextResponse.json({
     bankImports: bankImports.data || [],
@@ -51,6 +58,16 @@ export async function GET() {
     householdPets: pets.data || [],
     homeProfile: homeProfile.data || null,
     categoryGroups: categoryGroups.data || [],
+    splitConfig: {
+      groups: (splitGroups.data || []).map((row: any) => ({
+        id: row.id, name: row.name, method: row.method, customShares: row.custom_shares || {}, payerPersonId: row.payer_person_id || null,
+        members: Array.isArray(row.members) ? row.members : [], sortOrder: Number(row.sort_order || 0),
+      })),
+      settings: {
+        savingsMode: settingsRow?.savings_mode === "first" ? "first" : "separate",
+        lowEarnerMode: settingsRow?.low_earner_mode === "top_up" ? "top_up" : "zero",
+      },
+    },
   }, {
     headers: { "Cache-Control": "private, max-age=90, stale-while-revalidate=600" },
   });
