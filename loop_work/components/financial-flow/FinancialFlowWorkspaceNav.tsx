@@ -8,6 +8,7 @@ import { useFinancialFlowRetained } from "@/components/financial-flow/FinancialF
 import {
   ArrowRightLeft,
   Banknote,
+  Landmark,
   CreditCard,
   PiggyBank,
   Plus,
@@ -20,6 +21,7 @@ export type FinancialFlowWorkspaceSection =
   | "flow"
   | "income"
   | "spending"
+  | "accounts"
   | "savings";
 
 const ITEMS: Array<{
@@ -31,6 +33,7 @@ const ITEMS: Array<{
   { key: "flow", label: "Overview", copy: "Your whole month", icon: ArrowRightLeft },
   { key: "income", label: "Income", copy: "Pay and money in", icon: Banknote },
   { key: "spending", label: "Spending", copy: "Bills and money out", icon: CreditCard },
+  { key: "accounts", label: "Accounts", copy: "Where your money sits", icon: Landmark },
   { key: "savings", label: "Savings & pots", copy: "Cash building forward", icon: PiggyBank },
 ];
 
@@ -39,6 +42,7 @@ function hrefFor(section: FinancialFlowWorkspaceSection, month?: string | null) 
   if (section === "flow") return monthSuffix ? `/financial-flow?${monthSuffix}` : "/financial-flow";
   if (section === "income") return monthSuffix ? `/income?${monthSuffix}` : "/income";
   if (section === "spending") return monthSuffix ? `/spending?${monthSuffix}` : "/spending";
+  if (section === "accounts") return monthSuffix ? `/bank-accounts?${monthSuffix}` : "/bank-accounts";
   const query = new URLSearchParams({ tab: "savings" });
   if (month) query.set("month", month);
   return `/financial-flow?${query.toString()}`;

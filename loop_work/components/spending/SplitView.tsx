@@ -104,6 +104,23 @@ export function SplitView({
 
           <Transfers result={result} money={money} nameOf={nameOf} month={month} standing={standingTransfers.filter((t) => t.person_id && adults.some((a) => a.id === t.person_id))} accountNames={accountNames} />
 
+          {result.ownedFromJoint.length ? (
+            <details className="rounded-3xl border border-slate-200 bg-white p-4">
+              <summary className="cursor-pointer text-sm font-black text-slate-950">
+                Paid from a joint account, covered by one of you <span className="ml-1 font-semibold text-slate-500">· {result.ownedFromJoint.length} payment{result.ownedFromJoint.length === 1 ? "" : "s"}</span>
+              </summary>
+              <p className="mt-1 text-xs font-semibold text-slate-500">These are marked for one person, so that person covers them and they&apos;re added to what they move into the joint account. Change this under Split settings, or add a payment to a group by hand.</p>
+              <ul className="mt-2 divide-y divide-slate-100">
+                {result.ownedFromJoint.map((line) => (
+                  <li key={line.key} className="flex items-baseline justify-between gap-3 py-2 text-sm">
+                    <span className="min-w-0 truncate font-bold text-slate-800">{line.title}<span className="ml-2 text-xs font-semibold text-slate-500">{nameOf(String(line.personId))} · from {line.account?.name}</span></span>
+                    <span className="shrink-0 font-black tabular-nums text-slate-900">{money(line.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+
           <div>
             <div className="mb-2 flex items-center justify-between gap-3">
               <p className="text-sm font-black text-slate-950">Groups</p>
@@ -220,7 +237,7 @@ function PeopleCards({ result, settings, groups, money, nameOf }: { result: Spli
             <div className="border-t border-slate-100 pt-1.5">
               <Row label="For personal spending" value={money(p.leftover)} strong badge={!evenBefore && even ? "Even" : undefined} />
             </div>
-            {p.personalSpending ? <Row label="Already planned (car, phone…)" value={`−${money(p.personalSpending)}`} muted /> : null}
+            {p.personalSpending ? <Row label="Already planned (car, phone…)" value={`−${money(p.personalSpending)}`} hint={p.ownFromJoint > 0.5 ? `incl. ${money(p.ownFromJoint)} of ${p.name}'s own paid from a joint account` : undefined} muted /> : null}
             {p.personalSpending ? <Row label="Still free" value={money(p.free)} tone={p.free < 0 ? "text-rose-700" : "text-emerald-700"} /> : null}
           </dl>
         </div>
@@ -248,6 +265,8 @@ type TransferRow = {
   needed: number | null;
   reason: string;
   setUp: Array<{ id: string; amount: number; schedule: string; dates: string[] }>;
+  /** Money that flows back from the account to this person (e.g. their pay lands in Joint). */
+  back?: number;
 };
 
 function Transfers({ result, money, nameOf, month, standing, accountNames }: {
@@ -257,8 +276,14 @@ function Transfers({ result, money, nameOf, month, standing, accountNames }: {
   const rows = new Map<string, TransferRow>();
   for (const t of result.transfers) {
     const toId = t.to.kind === "account" ? `a:${t.to.account.id}` : `p:${t.to.personId}`;
+    const toName = t.to.kind === "account" ? t.to.account.name : nameOf(t.to.personId);
+    if (t.back) {
+      const key = `back|${t.fromPersonId}|${toId}`;
+      rows.set(key, { key, fromPersonId: t.fromPersonId, toName, needed: null, reason: t.reason, setUp: [], back: t.amount });
+      continue;
+    }
     const key = `${t.fromPersonId}|${toId}`;
-    rows.set(key, { key, fromPersonId: t.fromPersonId, toName: t.to.kind === "account" ? t.to.account.name : nameOf(t.to.personId), needed: t.amount, reason: t.reason, setUp: [] });
+    rows.set(key, { key, fromPersonId: t.fromPersonId, toName, needed: t.amount, reason: t.reason, setUp: [] });
   }
   for (const s of standing) {
     const key = `${s.person_id}|a:${s.to_account_id}`;
@@ -272,6 +297,7 @@ function Transfers({ result, money, nameOf, month, standing, accountNames }: {
 
   const status = (row: TransferRow) => {
     const set = row.setUp.reduce((sum, e) => sum + e.amount, 0);
+    if (row.back != null) return { text: `More of ${nameOf(row.fromPersonId)}'s money lands here than their share — this much could move back`, tone: "text-sky-300" };
     if (row.needed == null) return { text: "Set up · not needed by your groups", tone: "text-white/60" };
     if (!row.setUp.length) return { text: "Not set up yet", tone: "text-amber-300" };
     const diff = Math.round((set - row.needed) * 100) / 100;
@@ -295,8 +321,8 @@ function Transfers({ result, money, nameOf, month, standing, accountNames }: {
           return (
             <li key={row.key} className="rounded-2xl bg-white/5 p-3">
               <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-                <span className="font-bold">{nameOf(row.fromPersonId)} → {row.toName}{row.reason ? <span className="ml-2 text-xs font-semibold text-white/60">{row.reason}</span> : null}</span>
-                <span className="font-black tabular-nums">{row.needed != null ? `${money(row.needed)} needed` : money(set)}</span>
+                <span className="font-bold">{row.back != null ? `${row.toName} → ${nameOf(row.fromPersonId)}` : `${nameOf(row.fromPersonId)} → ${row.toName}`}{row.reason ? <span className="ml-2 text-xs font-semibold text-white/60">{row.reason}</span> : null}</span>
+                <span className="font-black tabular-nums">{row.back != null ? money(row.back) : row.needed != null ? `${money(row.needed)} needed` : money(set)}</span>
               </div>
               {row.setUp.map((e) => (
                 <p key={e.id} className="mt-1 text-xs font-semibold text-white/70">
@@ -315,11 +341,12 @@ function Transfers({ result, money, nameOf, month, standing, accountNames }: {
 
 function SettingsCard({ settings, pending, onSave }: { settings: SplitSettings; pending: boolean; onSave: (next: SplitSettings) => void }) {
   const [draft, setDraft] = useState(settings);
-  const changed = draft.savingsMode !== settings.savingsMode || draft.lowEarnerMode !== settings.lowEarnerMode;
+  const ownerCovers = draft.ownerCovers ?? "owner";
+  const changed = draft.savingsMode !== settings.savingsMode || draft.lowEarnerMode !== settings.lowEarnerMode || ownerCovers !== (settings.ownerCovers ?? "owner");
   const option = (active: boolean) => `flex cursor-pointer items-start gap-2 rounded-2xl p-3 ring-1 ${active ? "bg-violet-50 ring-violet-200" : "bg-white ring-slate-200"}`;
   return (
     <details className="rounded-3xl border border-slate-200 bg-white p-4">
-      <summary className="cursor-pointer text-sm font-black text-slate-950">Equal leftover settings</summary>
+      <summary className="cursor-pointer text-sm font-black text-slate-950">Split settings</summary>
       <div className="mt-3 grid gap-4 md:grid-cols-2">
         <fieldset className="space-y-2">
           <legend className="text-xs font-black text-slate-500">Savings</legend>
@@ -343,9 +370,23 @@ function SettingsCard({ settings, pending, onSave }: { settings: SplitSettings; 
             <span className="text-sm font-semibold text-slate-700"><span className="font-black text-slate-950">Top them up.</span> The other also sends them the difference, so you&apos;re fully even.</span>
           </label>
         </fieldset>
+        <fieldset className="space-y-2 md:col-span-2">
+          <legend className="text-xs font-black text-slate-500">A payment for one of you that comes out of a joint account</legend>
+          <div className="grid gap-2 md:grid-cols-2">
+            <label className={option(ownerCovers === "owner")}>
+              <input type="radio" checked={ownerCovers === "owner"} onChange={() => setDraft({ ...draft, ownerCovers: "owner" })} className="mt-1" />
+              <span className="text-sm font-semibold text-slate-700"><span className="font-black text-slate-950">That person covers it.</span> It comes off their side and is added to what they move into the joint account — even if its category is in a group.</span>
+            </label>
+            <label className={option(ownerCovers === "group")}>
+              <input type="radio" checked={ownerCovers === "group"} onChange={() => setDraft({ ...draft, ownerCovers: "group" })} className="mt-1" />
+              <span className="text-sm font-semibold text-slate-700"><span className="font-black text-slate-950">Follow its group.</span> If its category is in a group, it&apos;s shared like everything else in that group.</span>
+            </label>
+          </div>
+          <p className="text-[11px] font-semibold text-slate-500">Adding a single payment to a group by hand always wins. Anything of yours paid from the other person&apos;s own account is always yours to pay back.</p>
+        </fieldset>
       </div>
       <div className="mt-3">
-        <ConfirmButton disabled={!changed || pending} question="Save these settings?" detail="This changes how equal-leftover groups are split, and what each of you is shown as having left." confirmLabel="Yes, save" onConfirm={() => onSave(draft)} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white disabled:bg-slate-300">Save settings</ConfirmButton>
+        <ConfirmButton disabled={!changed || pending} question="Save these settings?" detail="This changes how payments are split, what each of you moves into joint accounts, and what you're each shown as having left." confirmLabel="Yes, save" onConfirm={() => onSave(draft)} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white disabled:bg-slate-300">Save settings</ConfirmButton>
       </div>
     </details>
   );

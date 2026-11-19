@@ -12,6 +12,10 @@
  * savingsMode "first", savings come off before evening out, so whoever saves more pays less.
  * If someone can't reach the equal leftover even paying nothing: lowEarnerMode "zero" means they
  * pay £0 and the gap is shown; "top_up" means the others also transfer money to them.
+ * A payment marked for one adult but paid from a joint account is theirs to cover (ownerCovers
+ * "owner", the default): it leaves any group and becomes a transfer from them to the joint account.
+ * With "group" it follows its group like any other shared payment. Adding the single payment to a
+ * group by hand always wins. Anything personal paid from someone else's own account is owed to them.
  */
 
 export type SplitMethod = "equal_leftover" | "equal" | "income_share" | "custom" | "one_person";
@@ -26,8 +30,8 @@ export type SplitGroup = {
   members: SplitMember[];
   sortOrder: number;
 };
-export type SplitSettings = { savingsMode: "separate" | "first"; lowEarnerMode: "zero" | "top_up" };
-export const DEFAULT_SPLIT_SETTINGS: SplitSettings = { savingsMode: "separate", lowEarnerMode: "zero" };
+export type SplitSettings = { savingsMode: "separate" | "first"; lowEarnerMode: "zero" | "top_up"; ownerCovers?: "owner" | "group" };
+export const DEFAULT_SPLIT_SETTINGS: SplitSettings = { savingsMode: "separate", lowEarnerMode: "zero", ownerCovers: "owner" };
 
 export type SplitAccount = { id: string; name: string; ownerPersonId: string | null; joint: boolean };
 export type SplitLine = {
@@ -60,6 +64,8 @@ export type PersonResult = {
   /** Left for personal spending after savings: own − savings. */
   leftover: number;
   personalSpending: number;
+  /** Their own payments that come out of a joint account (part of personalSpending). */
+  ownFromJoint: number;
   free: number;
   evenUp: number;
 };
@@ -71,11 +77,14 @@ export type GroupResult = {
   total: number;
   shares: Record<string, number>;
 };
-export type Transfer = { fromPersonId: string; to: { kind: "account"; account: SplitAccount } | { kind: "person"; personId: string }; amount: number; reason: string };
+/** Money a person moves. With `back`, it flows the other way: from the account to the person (e.g. their pay lands in Joint). */
+export type Transfer = { fromPersonId: string; to: { kind: "account"; account: SplitAccount } | { kind: "person"; personId: string }; amount: number; reason: string; back?: boolean };
 export type SplitResult = {
   people: PersonResult[];
   groups: GroupResult[];
   ungrouped: SplitLine[];
+  /** Lines marked for one adult and paid from a joint account, which that adult covers. */
+  ownedFromJoint: SplitLine[];
   transfers: Transfer[];
   /** Difference between the highest and lowest leftover (0 when fully even). */
   gap: number;
@@ -145,13 +154,26 @@ export function computeSplit(input: {
   const groupLines = new Map<string, SplitLine[]>();
   const ungrouped: SplitLine[] = [];
 
+  const isJointAccount = (account: SplitAccount | null) => Boolean(account && (account.joint || !account.ownerPersonId || !adultIds.has(account.ownerPersonId)));
+  const handPicked = (line: SplitLine) => input.groups.some((g) => g.members.some((m) => m.kind === "line" && m.include && m.ref === line.key));
+  const ownFromJoint = zero();
+  const ownedFromJoint: SplitLine[] = [];
+  const personalLines: Array<{ owner: string; line: SplitLine }> = [];
+
   for (const line of input.lines) {
     if (!line.amount) continue;
     const owner = line.personId && adultIds.has(line.personId) ? line.personId : null;
+    if (owner && line.direction === "outgoing" && !line.isSavings && isJointAccount(line.account) && (settings.ownerCovers ?? "owner") === "owner" && !handPicked(line)) {
+      personal[owner] += line.amount;
+      ownFromJoint[owner] += line.amount;
+      ownedFromJoint.push(line);
+      personalLines.push({ owner, line });
+      continue;
+    }
     const group = groupForLine(line, input.groups, input.childIds);
     if (group) { groupLines.set(group.id, [...(groupLines.get(group.id) || []), line]); continue; }
     if (line.direction === "income") {
-      if (owner) income[owner] += line.amount;
+      if (owner) { income[owner] += line.amount; personalLines.push({ owner, line }); }
       else for (const a of adults) sharedIncome[a.id] += line.amount / Math.max(1, adults.length);
       continue;
     }
@@ -160,7 +182,7 @@ export function computeSplit(input: {
       else for (const a of adults) savings[a.id] += line.amount / Math.max(1, adults.length);
       continue;
     }
-    if (owner) personal[owner] += line.amount;
+    if (owner) { personal[owner] += line.amount; personalLines.push({ owner, line }); }
     else ungrouped.push(line);
   }
 
@@ -233,6 +255,7 @@ export function computeSplit(input: {
       own: round2(own),
       leftover: round2(leftover),
       personalSpending: round2(personal[a.id]),
+      ownFromJoint: round2(ownFromJoint[a.id]),
       free: round2(leftover - personal[a.id]),
       evenUp: round2(evenUp[a.id]),
     };
@@ -261,6 +284,17 @@ export function computeSplit(input: {
       }
     }
   }
+  // One person's own money that sits in the wrong place: their payments from Joint (or from someone
+  // else's account) are theirs to cover, and their pay landing in Joint counts towards what they put in.
+  for (const { owner, line } of personalLines) {
+    const account = line.account;
+    if (!account) continue;
+    const sign = line.direction === "outgoing" ? 1 : -1;
+    const reason = line.direction === "outgoing" ? "Own payments" : "Pay into it";
+    if (isJointAccount(account)) addTransfer(owner, { kind: "account", account }, sign * line.amount, reason);
+    else if (account.ownerPersonId !== owner) addTransfer(owner, { kind: "person", personId: String(account.ownerPersonId) }, sign * line.amount, reason);
+  }
+
   // Evening-up transfers between people.
   const receivers = adults.filter((a) => evenUp[a.id] > 0.005);
   const givers = adults.filter((a) => evenUp[a.id] < -0.005);
@@ -280,6 +314,7 @@ export function computeSplit(input: {
       if (net > 0.5) transfers.push({ ...t, amount: round2(net) });
       else if (net < -0.5 && reverse) transfers.push({ ...reverse, amount: round2(-net) });
     } else if (t.amount > 0.5) transfers.push({ ...t, amount: round2(t.amount) });
+    else if (t.amount < -0.5) transfers.push({ ...t, amount: round2(-t.amount), back: true });
     seen.add(key);
   }
 
@@ -297,6 +332,7 @@ export function computeSplit(input: {
     people,
     groups: groups.map((g) => ({ ...g, outgoing: round2(g.outgoing), incoming: round2(g.incoming), total: round2(g.total), shares: Object.fromEntries(Object.entries(g.shares).map(([k, v]) => [k, round2(v)])) })),
     ungrouped,
+    ownedFromJoint,
     transfers: transfers.sort((a, b) => b.amount - a.amount),
     gap,
     notes,

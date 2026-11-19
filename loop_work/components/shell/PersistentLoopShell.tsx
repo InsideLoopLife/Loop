@@ -7,7 +7,7 @@ import { PersistentNavProvider } from "@/components/shell/PersistentNavContext";
 import { FinancialFlowRetainedProvider } from "@/components/financial-flow/FinancialFlowRetainedStore";
 
 const APP_ROUTE_PREFIXES = [
-  "/briefing", "/dashboard", "/financial-flow", "/income", "/spending",
+  "/briefing", "/dashboard", "/financial-flow", "/income", "/spending", "/bank-accounts",
   "/accounts", "/savings", "/pots", "/investments", "/pensions",
   "/mortgage", "/house", "/affordability", "/net-worth", "/retirement",
   "/nutrition", "/lifestyle", "/account", "/notifications", "/help",

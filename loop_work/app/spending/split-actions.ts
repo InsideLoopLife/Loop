@@ -36,12 +36,12 @@ export async function listSplitConfig(): Promise<SplitConfig> {
   const { supabase, filter } = await context();
   const [{ data: groups }, { data: settings }] = await Promise.all([
     supabase.from("household_split_groups").select("id, name, method, custom_shares, payer_person_id, members, sort_order").is("archived_at", null).or(filter).order("sort_order").order("created_at"),
-    supabase.from("household_split_settings").select("savings_mode, low_earner_mode, updated_at").or(filter).order("updated_at", { ascending: false }).limit(1),
+    supabase.from("household_split_settings").select("savings_mode, low_earner_mode, owner_covers, updated_at").or(filter).order("updated_at", { ascending: false }).limit(1),
   ]);
   const s = settings?.[0] as any;
   return {
     groups: (groups || []).map(toGroup),
-    settings: s ? { savingsMode: s.savings_mode === "first" ? "first" : "separate", lowEarnerMode: s.low_earner_mode === "top_up" ? "top_up" : "zero" } : DEFAULT_SPLIT_SETTINGS,
+    settings: s ? { savingsMode: s.savings_mode === "first" ? "first" : "separate", lowEarnerMode: s.low_earner_mode === "top_up" ? "top_up" : "zero", ownerCovers: s.owner_covers === "group" ? "group" : "owner" } : DEFAULT_SPLIT_SETTINGS,
   };
 }
 
@@ -128,6 +128,7 @@ export async function saveSplitSettings(input: SplitSettings): Promise<SplitConf
   const row = {
     savings_mode: input.savingsMode === "first" ? "first" : "separate",
     low_earner_mode: input.lowEarnerMode === "top_up" ? "top_up" : "zero",
+    owner_covers: input.ownerCovers === "group" ? "group" : "owner",
     updated_at: new Date().toISOString(),
   };
   const { data: existing } = await supabase.from("household_split_settings").select("id").or(filter).order("updated_at", { ascending: false }).limit(1);

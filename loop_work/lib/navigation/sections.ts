@@ -16,6 +16,7 @@ export const wealthSections: LoopSection[] = [
   { key: "financial-flow", label: "Financial Flow", href: "/financial-flow", area: "wealth", icon: "accounts", description: "Income, spending, savings and pots in one consolidated view." },
   { key: "savings", label: "Savings", href: "/accounts", area: "wealth", icon: "accounts", hidden: true, description: "Savings accounts, fixed-rate ladders and cash-growth tracking." },
   { key: "income", label: "Income", href: "/income", area: "wealth", icon: "income", hidden: true, description: "Salary, maternity, dividends and household income." },
+  { key: "bank-accounts", label: "Accounts", href: "/bank-accounts", area: "wealth", icon: "accounts", hidden: true, description: "Joint and personal accounts: balances, who owns them, and what goes in and out." },
   { key: "spending", label: "Spending", href: "/spending", area: "wealth", icon: "spending", hidden: true, description: "Bills, planned outgoings and renewal tracking." },
   { key: "loopwatch", label: "LoopWatch", href: "/loopwatch", area: "wealth", icon: "documents", description: "Document intelligence for contracts, insurance, renewal dates and deal-watch triggers." },
   { key: "net-worth", label: "Net worth", href: "/net-worth", area: "wealth", icon: "net-worth", hidden: true, description: "Hidden until the wealth summary is rebuilt." },

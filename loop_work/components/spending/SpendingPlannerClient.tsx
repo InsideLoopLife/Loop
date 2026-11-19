@@ -1,5 +1,5 @@
 "use client";
-import type { StandingTransfer } from "@/lib/accounts/standing-transfers";
+import { transferDatesInMonth, transferScheduleLabel, type StandingTransfer } from "@/lib/accounts/standing-transfers";
 import { capRenewedLines } from "@/lib/planning/summary-plan";
 import { isLoopError } from "@/lib/actions/friendly";
 import { knownBrandForLabel } from "@/lib/brands/uk-brands";
@@ -9,7 +9,7 @@ import { canChange, lockNote, type ShareContext } from "@/lib/household/permissi
 import { Lock } from "lucide-react";
 
 import { getChildCostMonthlyAmount as sharedChildCostMonthlyAmount } from "@/lib/planning/month-plan";
-import { useEffect, useMemo, useState, useTransition, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { Fragment, useEffect, useMemo, useState, useTransition, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import Link from "next/link";
 import { NurseryCostForm } from "@/components/household/NurseryCostForm";
 import { CareTypeEditForm } from "@/components/household/CareTypeEditForm";
@@ -1876,6 +1876,48 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
     .filter((item) => directionFilter === "all" || item.direction === directionFilter)
     .filter((item) => !categoryFilter || (item.categoryLabel || "Other") === categoryFilter);
 
+  // Regular transfers between accounts sit in the timeline as their own kind of row. They only move
+  // money between your own accounts, so they never count as money in or out.
+  const timelineTransfers = (() => {
+    if (directionFilter !== "all" || categoryFilter) return new Map<number, Array<{ key: string; date: string; transfer: StandingTransfer }>>();
+    const accountName = (id: string | null) => (id ? paymentAccounts.find((account) => account.id === id)?.name : null) || null;
+    const rows = standingTransfers
+      .filter((transfer) => !selectedPersonId || transfer.person_id === selectedPersonId)
+      .flatMap((transfer) => transferDatesInMonth(transfer, selectedSummary.month).map((date) => ({ key: `transfer:${transfer.id}:${date}`, date, transfer, from: accountName(transfer.from_account_id), to: accountName(transfer.to_account_id) })))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const byIndex = new Map<number, typeof rows>();
+    for (const row of rows) {
+      let index = timelineItems.findIndex((item) => item.date > row.date);
+      if (index < 0) index = timelineItems.length;
+      byIndex.set(index, [...(byIndex.get(index) || []), row]);
+    }
+    return byIndex;
+  })();
+  const renderTransferRows = (index: number) => (timelineTransfers.get(index) || []).map((row) => {
+    const transferRow = row as { key: string; date: string; transfer: StandingTransfer; from?: string | null; to?: string | null };
+    const who = transferRow.transfer.person_id ? personName(peopleById, transferRow.transfer.person_id) : "Someone";
+    return (
+      <div key={transferRow.key} className="relative rounded-[12px] border border-dashed border-sky-200 bg-sky-50/50 px-4 py-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="w-24 shrink-0"><p className="text-sm font-black uppercase tracking-wide text-slate-600">{formatFlowDate(transferRow.date, flowDateFormat)}</p></div>
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-sky-700 ring-1 ring-sky-200" aria-hidden="true">
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="4" cy="12" r="1.2" fill="currentColor" /><circle cx="8" cy="12" r="1.2" fill="currentColor" /><path d="M12 12h8" /><path d="m16 8 4 4-4 4" /></svg>
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-sky-700">Transfer</p>
+              <p className="truncate text-sm font-black text-slate-950">
+                {who}: {transferRow.from || "own money"} <span className="text-sky-600">→</span> {transferRow.to || "joint account"}
+              </p>
+              <p className="text-xs font-semibold text-slate-500">{transferScheduleLabel(transferRow.transfer)} · moves money between your accounts, not counted as spending</p>
+            </div>
+          </div>
+          <p className="shrink-0 text-right text-lg font-black tabular-nums text-sky-800">{money(Number(transferRow.transfer.amount || 0))}</p>
+        </div>
+      </div>
+    );
+  });
+
   // Bulk edit: the lines that can be edited, grouped by category and by the card or
   // account they're paid from, so one tap selects all of them.
   const bulkGroups = (() => {
@@ -2297,12 +2339,14 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
           </form>
         ) : null}
         <div className="space-y-3">
-          {timelineItems.map((item) => {
+          {timelineItems.map((item, timelineIndex) => {
             const selectableId = "selectableId" in item ? item.selectableId : null;
             const isSelected = selectableId ? selectedLineIds.includes(selectableId) : false;
             const avatarUrl = personAvatarUrl(peopleById, item.personId);
             return (
-              <div key={item.id} title={("lifecycleHint" in item && item.lifecycleHint) ? item.lifecycleHint : undefined} className={`${selectableId && optimisticDeletedLineIds.includes(selectableId) ? "hidden" : ""} ${justAdded && item.title.trim() === justAdded.label && item.date === firstArrivalDate(timelineItems, justAdded) ? "loop-row-arrive" : ""} group/line relative rounded-[12px] border border-slate-200 bg-white px-4 py-3`}>
+              <Fragment key={item.id}>
+              {renderTransferRows(timelineIndex)}
+              <div title={("lifecycleHint" in item && item.lifecycleHint) ? item.lifecycleHint : undefined} className={`${selectableId && optimisticDeletedLineIds.includes(selectableId) ? "hidden" : ""} ${justAdded && item.title.trim() === justAdded.label && item.date === firstArrivalDate(timelineItems, justAdded) ? "loop-row-arrive" : ""} group/line relative rounded-[12px] border border-slate-200 bg-white px-4 py-3`}>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
                     {editingEnabled && selectableId && !("item" in item && item.item && !canChange(shareContext, item.item as any)) ? (
@@ -2399,8 +2443,10 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
                   </div>
                 ) : null}
               </div>
+              </Fragment>
             );
           })}
+          {renderTransferRows(timelineItems.length)}
           {timelineItems.length === 0 ? <p className="text-sm text-slate-500">Nothing here for this month or filter. Press + to add something.</p> : null}
         </div>
       </SectionCard>

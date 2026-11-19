@@ -1949,6 +1949,10 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                 </div>
               </div>
             </SectionCard>
+            <Link href="/bank-accounts" className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-sky-50 px-4 py-3 text-sm font-bold text-sky-900 ring-1 ring-sky-100 hover:bg-sky-100">
+              <span>Everyday and joint accounts are simpler to manage in <span className="font-black">Accounts</span> — balances, who owns them and what goes in and out.</span>
+              <span className="font-black">Open Accounts →</span>
+            </Link>
             <SectionCard title="Joint accounts" description="Held together. Joint accounts are always shared with everyone in the household and count in household totals.">
               {jointEveryday.length + jointSavings.length === 0 ? (
                 <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm font-semibold text-slate-500">No joint accounts yet. Add one from &ldquo;Add account&rdquo; and choose &ldquo;Joint&rdquo; as the owner.</p>

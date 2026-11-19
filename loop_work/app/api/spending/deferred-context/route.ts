@@ -45,7 +45,7 @@ export async function GET() {
       .select("id, name, method, custom_shares, payer_person_id, members, sort_order")
       .is("archived_at", null).or(visibleFilter).order("sort_order").order("created_at"),
     supabase.from("household_split_settings")
-      .select("savings_mode, low_earner_mode, updated_at")
+      .select("savings_mode, low_earner_mode, owner_covers, updated_at")
       .or(visibleFilter).order("updated_at", { ascending: false }).limit(1),
     supabase.from("household_account_transfers")
       .select("id, person_id, from_account_id, to_account_id, amount, frequency, weekday, day_of_month, start_date, end_date, note")
@@ -70,6 +70,7 @@ export async function GET() {
       settings: {
         savingsMode: settingsRow?.savings_mode === "first" ? "first" : "separate",
         lowEarnerMode: settingsRow?.low_earner_mode === "top_up" ? "top_up" : "zero",
+        ownerCovers: settingsRow?.owner_covers === "group" ? "group" : "owner",
       },
     },
   }, {
