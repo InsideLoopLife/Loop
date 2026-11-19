@@ -94,6 +94,8 @@ import {
 import { getChildCostMonthlyAmount as sharedChildCostMonthlyAmount } from "@/lib/planning/month-plan";
 import { NewPotButton, PotMoneyButton } from "@/components/savings/SavingsPotQuickAdd";
 import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
+import { JointPayIns } from "@/components/accounts/JointPayIns";
+import { removeAccountTransfer, saveAccountTransfer } from "./transfer-actions";
 
 type FinancialAccount = {
   id: string;
@@ -680,6 +682,7 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
     { data: savingsPotAllocations },
     { data: dealEligibilityRows },
     { data: investmentIsaAccounts },
+    { data: standingTransferRows },
   ] = await Promise.all([
     supabase
       .from("financial_accounts")
@@ -794,6 +797,12 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
       .in("user_id", memberUserIds)
       .neq("record_status", "archived")
       .returns<InvestmentIsaAccount[]>(),
+    supabase
+      .from("household_account_transfers")
+      .select("id, person_id, from_account_id, to_account_id, amount, frequency, weekday, day_of_month, start_date, end_date, note")
+      .is("archived_at", null)
+      .or(householdMemberFilter)
+      .order("created_at"),
   ]);
 
   let payEvents = payEventsInitial ?? [];
@@ -1949,6 +1958,16 @@ export default async function AccountsPage({ searchParams }: { searchParams?: Pr
                   {jointSavings.map(savingsCard)}
                 </div>
               )}
+              <JointPayIns
+                transfers={(standingTransferRows || []).map((row: any) => ({ ...row, amount: Number(row.amount || 0) }))}
+                people={ownerOptions.filter((person) => String(person.relationship || "").toLowerCase() !== "child").map((person) => ({ id: person.id, name: person.name || "Someone", avatarUrl: person.avatar_url || null }))}
+                jointAccounts={[...jointEveryday, ...jointSavings].map((account) => ({ id: account.id, name: account.name || account.savings_product_name || "Joint account", provider: account.provider || null }))}
+                personalAccounts={[...everydayAccountRows, ...accountRows].filter((account) => !isJointAccount(account)).map((account) => ({ id: account.id, name: account.name || account.savings_product_name || "Account", provider: account.provider || null, ownerPersonId: account.owner_person_id || null }))}
+                today={intelligence.today}
+                defaultPersonId={defaultOwnerPerson?.id || null}
+                saveAction={saveAccountTransfer}
+                removeAction={removeAccountTransfer}
+              />
             </SectionCard>
             <SectionCard title="Personal accounts" description="In one person's name. Each one can be shared with the household or kept private — private accounts are only seen by their owner and whoever added them, and stay out of other members' totals.">
               {personalGroups.length === 0 ? (

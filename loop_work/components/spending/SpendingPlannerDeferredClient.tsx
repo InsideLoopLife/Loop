@@ -20,6 +20,7 @@ type DeferredPayload = {
   homeProfile?: PlannerProps["homeProfile"];
   categoryGroups?: PlannerProps["categoryGroups"];
   splitConfig?: PlannerProps["splitConfig"];
+  standingTransfers?: PlannerProps["standingTransfers"];
 };
 
 export function SpendingPlannerDeferredClient(props: PlannerProps) {
@@ -63,6 +64,7 @@ export function SpendingPlannerDeferredClient(props: PlannerProps) {
       homeProfile={deferred.homeProfile ?? props.homeProfile}
       categoryGroups={deferred.categoryGroups ?? props.categoryGroups}
       splitConfig={deferred.splitConfig ?? props.splitConfig}
+      standingTransfers={deferred.standingTransfers ?? props.standingTransfers}
     />
   );
 }

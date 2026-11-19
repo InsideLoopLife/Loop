@@ -16,7 +16,7 @@ export async function GET() {
   const dataOwnerUserId = householdContext.dataOwnerUserId || user.id;
   const visibleFilter = householdMemberDataOrFilter(householdContext);
 
-  const [bankImports, regularCandidates, studentLoans, paymentAccounts, pets, homeProfile, categoryGroups, splitGroups, splitSettings] = await Promise.all([
+  const [bankImports, regularCandidates, studentLoans, paymentAccounts, pets, homeProfile, categoryGroups, splitGroups, splitSettings, standingTransfers] = await Promise.all([
     supabase.from("bank_imports")
       .select("id, person_id, account_name, provider_name, original_filename, imported_rows, detected_rows, status, created_at")
       .or(visibleFilter).order("created_at", { ascending: false }).limit(8),
@@ -47,6 +47,9 @@ export async function GET() {
     supabase.from("household_split_settings")
       .select("savings_mode, low_earner_mode, updated_at")
       .or(visibleFilter).order("updated_at", { ascending: false }).limit(1),
+    supabase.from("household_account_transfers")
+      .select("id, person_id, from_account_id, to_account_id, amount, frequency, weekday, day_of_month, start_date, end_date, note")
+      .is("archived_at", null).or(visibleFilter).order("created_at"),
   ]);
   const settingsRow = (splitSettings.data || [])[0] as any;
 
@@ -58,6 +61,7 @@ export async function GET() {
     householdPets: pets.data || [],
     homeProfile: homeProfile.data || null,
     categoryGroups: categoryGroups.data || [],
+    standingTransfers: (standingTransfers.data || []).map((row) => ({ ...row, amount: Number(row.amount || 0) })),
     splitConfig: {
       groups: (splitGroups.data || []).map((row: any) => ({
         id: row.id, name: row.name, method: row.method, customShares: row.custom_shares || {}, payerPersonId: row.payer_person_id || null,

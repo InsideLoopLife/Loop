@@ -1,4 +1,5 @@
 "use client";
+import type { StandingTransfer } from "@/lib/accounts/standing-transfers";
 import { capRenewedLines } from "@/lib/planning/summary-plan";
 import { isLoopError } from "@/lib/actions/friendly";
 import { knownBrandForLabel } from "@/lib/brands/uk-brands";
@@ -281,6 +282,7 @@ type Props = {
   categoryGroups?: { id: string; name: string; icon?: string | null }[];
   /** Split groups and settings (loaded with the deferred context). */
   splitConfig?: SplitConfig | null;
+  standingTransfers?: StandingTransfer[];
   /** Mortgage deals, so the mortgage shows here exactly as on the overview. */
   mortgageDeals?: Array<HomeMortgageDealForPlan & { payment_day_of_month?: number | null; payment_account_id?: string | null }>;
   initialAddMode?: AddMode;
@@ -1622,7 +1624,7 @@ function AccountsBalanceCard({ monthLabel, items, people, personFiltered, money,
   );
 }
 
-export function SpendingPlannerClient({ shareContext = null, people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], mortgageDeals = [], initialAddMode, initialAddTemplate, splitConfig = null }: Props) {
+export function SpendingPlannerClient({ shareContext = null, people, categories, entries, plannedItems, payEvents, childCosts, bankImports, regularCandidates, studentLoanAccounts = [], studentLoanEnabled = false, flowSettings, initialMonth, initialPersonId, initialDirectionFilter = "all", hasHousehold = false, compactPage = false, paymentAccounts = [], householdPets = [], homeProfile = null, categoryGroups = [], mortgageDeals = [], initialAddMode, initialAddTemplate, splitConfig = null, standingTransfers = [] }: Props) {
   const initialMonthValue = initialMonth && /^\d{4}-\d{2}$/.test(initialMonth) ? initialMonth : currentMonth();
   const [selectedPersonId, setSelectedPersonId] = useState(initialPersonId || "");
   const [directionFilter, setDirectionFilter] = useState<"all" | "income" | "outgoing">(initialDirectionFilter);
@@ -2199,6 +2201,9 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
           categoryGroups={categoryGroups}
           config={splitConfig}
           money={money}
+          month={selectedSummary.month}
+          standingTransfers={standingTransfers}
+          accountNames={Object.fromEntries(paymentAccounts.map((account) => [account.id, account.name]))}
         />
       ) : linesView === "accounts" ? (
         <AccountsBalanceCard

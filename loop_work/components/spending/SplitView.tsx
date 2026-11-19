@@ -9,6 +9,7 @@ import {
   computeSplit, DEFAULT_SPLIT_SETTINGS, groupForLine,
   type SplitAdult, type SplitGroup, type SplitLine, type SplitMember, type SplitMethod, type SplitResult, type SplitSettings,
 } from "@/lib/spending/split";
+import { shortDate, transferAmountInMonth, transferDatesInMonth, transferScheduleLabel, type StandingTransfer } from "@/lib/accounts/standing-transfers";
 
 type Category = { id: string; name: string; group_id?: string | null };
 type CategoryGroup = { id: string; name: string };
@@ -24,7 +25,7 @@ const METHOD_LABELS: Record<SplitMethod, { label: string; help: string }> = {
 type Draft = { id?: string; name: string; method: SplitMethod; customShares: Record<string, number>; payerPersonId: string | null; members: SplitMember[]; sortOrder: number };
 
 export function SplitView({
-  monthLabel, lines, adults, childIds, categories, categoryGroups, config, money,
+  monthLabel, lines, adults, childIds, categories, categoryGroups, config, money, month, standingTransfers = [], accountNames = {},
 }: {
   monthLabel: string;
   lines: SplitLine[];
@@ -34,6 +35,9 @@ export function SplitView({
   categoryGroups: CategoryGroup[];
   config: SplitConfig | null | undefined;
   money: (value: number) => string;
+  month: string;
+  standingTransfers?: StandingTransfer[];
+  accountNames?: Record<string, string>;
 }) {
   const [saved, setSaved] = useState<SplitConfig | null>(null);
   const current = useMemo<SplitConfig>(() => saved || config || { groups: [], settings: DEFAULT_SPLIT_SETTINGS }, [saved, config]);
@@ -98,7 +102,7 @@ export function SplitView({
           <PeopleCards result={result} settings={current.settings} groups={current.groups} money={money} nameOf={nameOf} />
           {result.notes.length ? <div className="space-y-1">{result.notes.map((note) => <p key={note} className="rounded-2xl bg-amber-50 px-4 py-2 text-xs font-bold text-amber-900">{note}</p>)}</div> : null}
 
-          <Transfers result={result} money={money} nameOf={nameOf} />
+          <Transfers result={result} money={money} nameOf={nameOf} month={month} standing={standingTransfers.filter((t) => t.person_id && adults.some((a) => a.id === t.person_id))} accountNames={accountNames} />
 
           <div>
             <div className="mb-2 flex items-center justify-between gap-3">
@@ -237,20 +241,74 @@ function Row({ label, value, hint, muted, strong, tone, badge }: { label: string
   );
 }
 
-function Transfers({ result, money, nameOf }: { result: SplitResult; money: (v: number) => string; nameOf: (id: string) => string }) {
-  if (!result.transfers.length) return null;
+type TransferRow = {
+  key: string;
+  fromPersonId: string;
+  toName: string;
+  needed: number | null;
+  reason: string;
+  setUp: Array<{ id: string; amount: number; schedule: string; dates: string[] }>;
+};
+
+function Transfers({ result, money, nameOf, month, standing, accountNames }: {
+  result: SplitResult; money: (v: number) => string; nameOf: (id: string) => string;
+  month: string; standing: StandingTransfer[]; accountNames: Record<string, string>;
+}) {
+  const rows = new Map<string, TransferRow>();
+  for (const t of result.transfers) {
+    const toId = t.to.kind === "account" ? `a:${t.to.account.id}` : `p:${t.to.personId}`;
+    const key = `${t.fromPersonId}|${toId}`;
+    rows.set(key, { key, fromPersonId: t.fromPersonId, toName: t.to.kind === "account" ? t.to.account.name : nameOf(t.to.personId), needed: t.amount, reason: t.reason, setUp: [] });
+  }
+  for (const s of standing) {
+    const key = `${s.person_id}|a:${s.to_account_id}`;
+    const dates = transferDatesInMonth(s, month);
+    const entry = { id: s.id, amount: transferAmountInMonth(s, month), schedule: `${money(s.amount)} ${transferScheduleLabel(s)}`, dates };
+    const row = rows.get(key);
+    if (row) row.setUp.push(entry);
+    else rows.set(key, { key, fromPersonId: String(s.person_id), toName: accountNames[s.to_account_id] || "Joint account", needed: null, reason: "", setUp: [entry] });
+  }
+  if (!rows.size) return null;
+
+  const status = (row: TransferRow) => {
+    const set = row.setUp.reduce((sum, e) => sum + e.amount, 0);
+    if (row.needed == null) return { text: "Set up · not needed by your groups", tone: "text-white/60" };
+    if (!row.setUp.length) return { text: "Not set up yet", tone: "text-amber-300" };
+    const diff = Math.round((set - row.needed) * 100) / 100;
+    if (Math.abs(diff) < 1) return { text: "Covered", tone: "text-emerald-300" };
+    if (diff < 0) {
+      const single = row.setUp.length === 1 && row.setUp[0].dates.length > 1 ? row.setUp[0] : null;
+      const hint = single ? ` · about ${money(Math.ceil(row.needed / single.dates.length))} each time would cover it` : "";
+      return { text: `${money(-diff)} short${hint}`, tone: "text-amber-300" };
+    }
+    return { text: `${money(diff)} more than needed`, tone: "text-sky-300" };
+  };
+
   return (
     <div className="rounded-3xl bg-slate-950 p-4 text-white">
-      <p className="text-sm font-black">To make this work this month</p>
-      <ul className="mt-2 space-y-1.5">
-        {result.transfers.map((t, i) => (
-          <li key={i} className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-            <span className="font-bold">{nameOf(t.fromPersonId)} → {t.to.kind === "account" ? t.to.account.name : nameOf(t.to.personId)}<span className="ml-2 text-xs font-semibold text-white/60">{t.reason}</span></span>
-            <span className="font-black tabular-nums">{money(t.amount)}</span>
-          </li>
-        ))}
+      <p className="text-sm font-black">Money moving this month</p>
+      <p className="mt-0.5 text-[11px] font-semibold text-white/50">What your groups need from each of you, against the regular transfers you&apos;ve set up in Accounts.</p>
+      <ul className="mt-3 space-y-3">
+        {[...rows.values()].map((row) => {
+          const set = row.setUp.reduce((sum, e) => sum + e.amount, 0);
+          const st = status(row);
+          return (
+            <li key={row.key} className="rounded-2xl bg-white/5 p-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                <span className="font-bold">{nameOf(row.fromPersonId)} → {row.toName}{row.reason ? <span className="ml-2 text-xs font-semibold text-white/60">{row.reason}</span> : null}</span>
+                <span className="font-black tabular-nums">{row.needed != null ? `${money(row.needed)} needed` : money(set)}</span>
+              </div>
+              {row.setUp.map((e) => (
+                <p key={e.id} className="mt-1 text-xs font-semibold text-white/70">
+                  {e.schedule} · {e.dates.length ? `${e.dates.map(shortDate).join(", ")} = ${money(e.amount)}` : "nothing this month"}
+                </p>
+              ))}
+              <p className={`mt-1 text-xs font-black ${st.tone}`}>{st.text}</p>
+            </li>
+          );
+        })}
       </ul>
-      <p className="mt-2 text-[11px] font-semibold text-white/50">Based on the account each payment comes from. Payments with no account set aren&apos;t included.</p>
+      <p className="mt-3 text-[11px] font-semibold text-white/50">Needed amounts are based on the account each payment comes from; payments with no account set aren&apos;t included. Set up regular transfers under Accounts → Joint accounts.</p>
     </div>
   );
 }
