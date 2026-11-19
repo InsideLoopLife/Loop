@@ -11,7 +11,6 @@ import { withPayOverrides } from "@/lib/planning/pay-overrides";
 import { buildAccountActivity } from "@/lib/accounts/account-activity";
 import type { StandingTransfer } from "@/lib/accounts/standing-transfers";
 import { carryAnchor, carryBackAnchor, type BalanceAnchor } from "@/lib/accounts/daily-balance";
-import { trackingStartFor, upcomingPayDates } from "@/lib/accounts/paydays";
 
 export const metadata = { title: "Accounts · Loop" };
 
@@ -107,7 +106,6 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
   };
   const { activity, unassigned } = activityFor(month);
   const today = todayIso();
-  const pays = upcomingPayDates(payWithOverrides, today);
 
   // Where each account's balance is known from, moved to the month being looked at.
   const anchorFor = (a: any): { anchor: BalanceAnchor; trackedFrom: string | null } => {
@@ -133,7 +131,6 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
       balance: Number(a.current_balance || 0),
       balanceConfirmedAt: a.balance_last_confirmed_at || a.updated_at || null,
       ...(() => { const { anchor, trackedFrom } = anchorFor(a); return { anchor, trackedFrom }; })(),
-      suggestedStart: a.account_type === "current_account" && !(a.balance_tracked_from) ? trackingStartFor({ id: a.id, joint, ownerPersonId: joint ? null : a.owner_person_id }, pays) : null,
       interestRate: a.interest_rate == null ? null : Number(a.interest_rate),
       rateEndsOn: a.interest_rate_end_date || null,
       monthlyTopUp: Number(a.monthly_top_up_amount || 0),

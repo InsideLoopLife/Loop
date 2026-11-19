@@ -14,7 +14,7 @@ import type { StandingTransfer } from "@/lib/accounts/standing-transfers";
 import { balanceTimeline, type BalanceAnchor, type BalanceTimeline } from "@/lib/accounts/daily-balance";
 import { deleteFinancialAccount, quickAddFinancialAccount, updateFinancialAccount } from "@/app/accounts/actions";
 import { removeAccountTransfer, saveAccountTransfer } from "@/app/accounts/transfer-actions";
-import { changeAccountOwner, renameAccount, trackFromPayday } from "@/app/bank-accounts/actions";
+import { changeAccountOwner, renameAccount } from "@/app/bank-accounts/actions";
 
 export type AccountsHomeAccount = {
   id: string;
@@ -36,7 +36,6 @@ export type AccountsHomeAccount = {
   ownershipScope: string;
   anchor: BalanceAnchor;
   trackedFrom: string | null;
-  suggestedStart: { date: string; reason: string } | null;
   activity: AccountActivity;
 };
 
@@ -147,7 +146,6 @@ export function AccountsHome({
             <Link href={`/bank-accounts?month=${shiftMonth(month, 1)}`} className="rounded-full p-1.5 hover:bg-white" aria-label="Next month"><ChevronRight className="h-4 w-4" /></Link>
           </span>
         </div>
-        <PaydayStart accounts={accounts} />
         {unassignedCount > 0 ? (
           <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
             {unassignedCount} payment{unassignedCount === 1 ? "" : "s"} in {monthLabel(month)} {unassignedCount === 1 ? "doesn't" : "don't"} say which account {unassignedCount === 1 ? "it comes" : "they come"} from, so {unassignedCount === 1 ? "it isn't" : "they aren't"} counted below.{" "}
@@ -218,53 +216,6 @@ export function AccountsHome({
         document.body,
       ) : null}
     </div>
-  );
-}
-
-/** One confirmed step: track these accounts from their next payday instead of typing balances in. */
-function PaydayStart({ accounts }: { accounts: AccountsHomeAccount[] }) {
-  const candidates = accounts.filter((a) => a.kind === "everyday" && !a.trackedFrom && a.suggestedStart);
-  const [chosen, setChosen] = useState<Set<string>>(() => new Set(candidates.filter((a) => a.balance === 0).map((a) => a.id)));
-  const [error, setError] = useState<string | null>(null);
-  if (!candidates.length) return null;
-  const picked = candidates.filter((a) => chosen.has(a.id));
-  return (
-    <form
-      action={async (fd) => { setError(null); const r = (await trackFromPayday(fd)) as unknown; if (isLoopError(r)) setError(r.__loopError); }}
-      className="mt-4 rounded-2xl border border-sky-100 bg-sky-50/60 p-4"
-    >
-      <p className="text-sm font-black text-slate-950">Start balances from payday</p>
-      <p className="mt-0.5 text-xs font-semibold text-slate-600">No need to type balances in. Each account starts at its current Loop balance on payday, then Loop works it out from your pay, bills and transfers. You can still correct one any time.</p>
-      <ul className="mt-3 space-y-1.5">
-        {candidates.map((a) => (
-          <li key={a.id}>
-            <label className="flex cursor-pointer items-center gap-3 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
-              <input type="checkbox" checked={chosen.has(a.id)} onChange={() => setChosen((prev) => { const next = new Set(prev); if (next.has(a.id)) next.delete(a.id); else next.add(a.id); return next; })} className="h-4 w-4" />
-              <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-900">{a.name}</span>
-              <span className="text-xs font-bold text-slate-500">{gbp(a.balance)} on {niceDate(a.suggestedStart!.date)} <span className="text-slate-400">· {a.suggestedStart!.reason}</span></span>
-            </label>
-          </li>
-        ))}
-      </ul>
-      {picked.map((a) => (
-        <span key={a.id}>
-          <input type="hidden" name="account_id" value={a.id} />
-          <input type="hidden" name="tracked_from" value={a.suggestedStart!.date} />
-        </span>
-      ))}
-      {error ? <p role="alert" className="mt-2 text-xs font-bold text-rose-700">{error}</p> : null}
-      <div className="mt-3 flex justify-end">
-        <ConfirmSubmit
-          disabled={!picked.length}
-          question={`Start ${picked.length === 1 ? "this account" : `these ${picked.length} accounts`} from payday?`}
-          detail="Balances, the day-by-day line and the month-end forecast are worked out from payday on. Nothing is shown before then."
-          confirmLabel="Yes, start from payday"
-          className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white disabled:opacity-40"
-        >
-          Start from payday
-        </ConfirmSubmit>
-      </div>
-    </form>
   );
 }
 
@@ -438,7 +389,7 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
               <input type="hidden" name="visibility_scope" value={account.shared ? "household" : "private"} />
               <input type="hidden" name="savings_limit_scope" value={account.joint ? "joint" : "individual"} />
               <input name="current_balance" type="number" step="0.01" defaultValue={account.balance || ""} placeholder="Today's balance" autoFocus className="w-36 rounded-xl border border-slate-200 px-3 py-2 text-sm font-black" aria-label="Balance today" />
-              <ConfirmSubmit question="Update the balance?" detail="Loop works the balance out from this figure, as of today, instead of from payday." confirmLabel="Yes, update" className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white">Save</ConfirmSubmit>
+              <ConfirmSubmit question="Update the balance?" detail="Loop works the balance out from this figure, as of today." confirmLabel="Yes, update" className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white">Save</ConfirmSubmit>
               <button type="button" onClick={() => setEditingBalance(false)} className="text-xs font-bold text-slate-500">Cancel</button>
             </form>
           ) : (
@@ -446,9 +397,7 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
           )}
         </div>
 
-        {unset && account.suggestedStart ? (
-          <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">Balance is £0 in Loop. Start it from payday ({niceDate(account.suggestedStart.date)}) using the button at the top, or type today&apos;s balance.</p>
-        ) : unset ? (
+        {unset ? (
           <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">This account&apos;s balance is £0 in Loop, so the line below starts from nothing. Add today&apos;s balance for a real picture.</p>
         ) : null}
 
