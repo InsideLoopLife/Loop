@@ -65,6 +65,35 @@ async function changeAccountOwner__save(formData: FormData) {
   revalidate();
 }
 
+/**
+ * Track these accounts' balances from a start day (normally the next payday): the balance Loop
+ * already holds is the opening balance at the start of that day, and pay, bills and transfers move it
+ * on from there. Nothing else about the account changes.
+ */
+async function trackFromPayday__save(formData: FormData) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Sign in again to continue.");
+  const household = await getActiveHouseholdContext(supabase, user);
+  const ids = formData.getAll("account_id").map(String);
+  const dates = formData.getAll("tracked_from").map(String);
+  if (!ids.length || ids.length !== dates.length || ids.length > 30) throw new Error("Choose the accounts to track.");
+  for (let i = 0; i < ids.length; i += 1) {
+    if (!UUID.test(ids[i]) || !/^\d{4}-\d{2}-\d{2}$/.test(dates[i])) throw new Error("Something's wrong with those dates.");
+  }
+  const { data: visible } = await supabase.from("financial_accounts").select("id").in("id", ids).or(visibleDataOrFilter(household));
+  if ((visible || []).length !== new Set(ids).size) throw new Error("One of those accounts isn't available.");
+  for (let i = 0; i < ids.length; i += 1) {
+    const { error } = await changeRecord(supabase.from("financial_accounts").update({ balance_tracked_from: dates[i], updated_at: new Date().toISOString() } as any), ids[i], household);
+    if (error) throw new Error(error.message);
+  }
+  revalidate();
+}
+
+export async function trackFromPayday(formData: FormData): Promise<void> {
+  return runFriendly(() => trackFromPayday__save(formData)) as unknown as Promise<void>;
+}
+
 export async function renameAccount(formData: FormData): Promise<void> {
   return runFriendly(() => renameAccount__save(formData)) as unknown as Promise<void>;
 }

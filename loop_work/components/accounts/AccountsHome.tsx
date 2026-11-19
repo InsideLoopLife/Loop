@@ -11,10 +11,10 @@ import { JointPayIns } from "@/components/accounts/JointPayIns";
 import { isLoopError } from "@/lib/actions/friendly";
 import type { AccountActivity, AccountLine } from "@/lib/accounts/account-activity";
 import type { StandingTransfer } from "@/lib/accounts/standing-transfers";
-import { balanceTimeline, type BalanceTimeline } from "@/lib/accounts/daily-balance";
+import { balanceTimeline, type BalanceAnchor, type BalanceTimeline } from "@/lib/accounts/daily-balance";
 import { deleteFinancialAccount, quickAddFinancialAccount, updateFinancialAccount } from "@/app/accounts/actions";
 import { removeAccountTransfer, saveAccountTransfer } from "@/app/accounts/transfer-actions";
-import { changeAccountOwner, renameAccount } from "@/app/bank-accounts/actions";
+import { changeAccountOwner, renameAccount, trackFromPayday } from "@/app/bank-accounts/actions";
 
 export type AccountsHomeAccount = {
   id: string;
@@ -34,6 +34,9 @@ export type AccountsHomeAccount = {
   ownerPersonId: string | null;
   shared: boolean;
   ownershipScope: string;
+  anchor: BalanceAnchor;
+  trackedFrom: string | null;
+  suggestedStart: { date: string; reason: string } | null;
   activity: AccountActivity;
 };
 
@@ -144,6 +147,7 @@ export function AccountsHome({
             <Link href={`/bank-accounts?month=${shiftMonth(month, 1)}`} className="rounded-full p-1.5 hover:bg-white" aria-label="Next month"><ChevronRight className="h-4 w-4" /></Link>
           </span>
         </div>
+        <PaydayStart accounts={accounts} />
         {unassignedCount > 0 ? (
           <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
             {unassignedCount} payment{unassignedCount === 1 ? "" : "s"} in {monthLabel(month)} {unassignedCount === 1 ? "doesn't" : "don't"} say which account {unassignedCount === 1 ? "it comes" : "they come"} from, so {unassignedCount === 1 ? "it isn't" : "they aren't"} counted below.{" "}
@@ -217,6 +221,53 @@ export function AccountsHome({
   );
 }
 
+/** One confirmed step: track these accounts from their next payday instead of typing balances in. */
+function PaydayStart({ accounts }: { accounts: AccountsHomeAccount[] }) {
+  const candidates = accounts.filter((a) => a.kind === "everyday" && !a.trackedFrom && a.suggestedStart);
+  const [chosen, setChosen] = useState<Set<string>>(() => new Set(candidates.filter((a) => a.balance === 0).map((a) => a.id)));
+  const [error, setError] = useState<string | null>(null);
+  if (!candidates.length) return null;
+  const picked = candidates.filter((a) => chosen.has(a.id));
+  return (
+    <form
+      action={async (fd) => { setError(null); const r = (await trackFromPayday(fd)) as unknown; if (isLoopError(r)) setError(r.__loopError); }}
+      className="mt-4 rounded-2xl border border-sky-100 bg-sky-50/60 p-4"
+    >
+      <p className="text-sm font-black text-slate-950">Start balances from payday</p>
+      <p className="mt-0.5 text-xs font-semibold text-slate-600">No need to type balances in. Each account starts at its current Loop balance on payday, then Loop works it out from your pay, bills and transfers. You can still correct one any time.</p>
+      <ul className="mt-3 space-y-1.5">
+        {candidates.map((a) => (
+          <li key={a.id}>
+            <label className="flex cursor-pointer items-center gap-3 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+              <input type="checkbox" checked={chosen.has(a.id)} onChange={() => setChosen((prev) => { const next = new Set(prev); if (next.has(a.id)) next.delete(a.id); else next.add(a.id); return next; })} className="h-4 w-4" />
+              <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-900">{a.name}</span>
+              <span className="text-xs font-bold text-slate-500">{gbp(a.balance)} on {niceDate(a.suggestedStart!.date)} <span className="text-slate-400">· {a.suggestedStart!.reason}</span></span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      {picked.map((a) => (
+        <span key={a.id}>
+          <input type="hidden" name="account_id" value={a.id} />
+          <input type="hidden" name="tracked_from" value={a.suggestedStart!.date} />
+        </span>
+      ))}
+      {error ? <p role="alert" className="mt-2 text-xs font-bold text-rose-700">{error}</p> : null}
+      <div className="mt-3 flex justify-end">
+        <ConfirmSubmit
+          disabled={!picked.length}
+          question={`Start ${picked.length === 1 ? "this account" : `these ${picked.length} accounts`} from payday?`}
+          detail="Balances, the day-by-day line and the month-end forecast are worked out from payday on. Nothing is shown before then."
+          confirmLabel="Yes, start from payday"
+          className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white disabled:opacity-40"
+        >
+          Start from payday
+        </ConfirmSubmit>
+      </div>
+    </form>
+  );
+}
+
 function Group({ title, subtitle, icon, children }: { title: string; subtitle: string; icon: ReactNode; children: ReactNode }) {
   return (
     <section>
@@ -265,30 +316,34 @@ function LineRow({ line, after, scale, past }: { line: AccountLine; after: numbe
   );
 }
 
-/** Balance at the end of each day: solid up to today, dashed after; hover a day to read it. */
+/** Balance at the end of each day: solid up to today, dashed after, nothing where it isn't known yet. */
 function BalanceChart({ timeline, today, onPick, picked }: { timeline: BalanceTimeline; today: string; onPick: (date: string | null) => void; picked: string | null }) {
   const W = 320;
   const H = 96;
   const pad = 6;
-  const values = timeline.days.map((d) => d.balance);
-  const startOfMonth = timeline.days[0] ? timeline.days[0].balance - timeline.days[0].lines.reduce((s, l) => s + (l.direction === "in" ? l.amount : -l.amount), 0) : 0;
-  const lo = Math.min(0, startOfMonth, ...values);
-  const hi = Math.max(0, startOfMonth, ...values);
-  const span = hi - lo || 1;
   const n = timeline.days.length;
+  const k = timeline.days.findIndex((d) => d.balance != null);
+  const known = k < 0 ? [] : timeline.days.slice(k).map((d) => d.balance as number);
+  const firstDay = k >= 0 ? timeline.days[k] : null;
+  const opening = firstDay ? (firstDay.balance as number) - firstDay.lines.reduce((s, l) => s + (l.direction === "in" ? l.amount : -l.amount), 0) : 0;
+  const lo = Math.min(0, opening, ...known);
+  const hi = Math.max(0, opening, ...known);
+  const span = hi - lo || 1;
   const x = (i: number) => pad + (i / Math.max(1, n - 1)) * (W - pad * 2);
   const y = (v: number) => pad + (1 - (v - lo) / span) * (H - pad * 2);
+  const bal = (i: number) => timeline.days[i].balance as number;
   const todayIndex = timeline.days.findIndex((d) => d.date === today);
-  const point = (i: number) => `${x(i).toFixed(1)},${y(timeline.days[i].balance).toFixed(1)}`;
+  const split = todayIndex >= 0 ? todayIndex : today < (timeline.days[0]?.date || "") ? 0 : n - 1;
   const pathFor = (from: number, to: number) => {
-    if (to < from) return "";
-    let d = `M${point(from)}`;
-    for (let i = from + 1; i <= to; i += 1) d += ` H${x(i).toFixed(1)} V${y(timeline.days[i].balance).toFixed(1)}`;
+    const start = Math.max(from, k);
+    if (k < 0 || to < start) return "";
+    let d = start === k ? `M${x(k).toFixed(1)},${y(opening).toFixed(1)} V${y(bal(k)).toFixed(1)}` : `M${x(start).toFixed(1)},${y(bal(start)).toFixed(1)}`;
+    for (let i = start + 1; i <= to; i += 1) d += ` H${x(i).toFixed(1)} V${y(bal(i)).toFixed(1)}`;
     return d;
   };
-  const split = todayIndex >= 0 ? todayIndex : today < (timeline.days[0]?.date || "") ? 0 : n - 1;
   const zeroY = y(0);
   const pickedIndex = picked ? timeline.days.findIndex((d) => d.date === picked) : -1;
+  const lowIndex = timeline.low && timeline.low.balance < 0 ? timeline.days.findIndex((d) => d.date === timeline.low!.date) : -1;
 
   return (
     <svg
@@ -304,19 +359,17 @@ function BalanceChart({ timeline, today, onPick, picked }: { timeline: BalanceTi
       }}
       onPointerLeave={() => onPick(null)}
     >
-      <rect x={pad} y={zeroY} width={W - pad * 2} height={Math.max(0, H - pad - zeroY)} className="fill-rose-50" />
+      {k > 0 ? <rect x={pad} y={pad} width={Math.max(0, x(k) - pad)} height={H - pad * 2} className="fill-slate-100" /> : null}
+      <rect x={pad} y={zeroY} width={W - pad * 2} height={Math.max(0, H - pad - zeroY)} className="fill-rose-50/80" />
       <line x1={pad} x2={W - pad} y1={zeroY} y2={zeroY} className="stroke-rose-300" strokeWidth="1" strokeDasharray="2 3" />
       <path d={pathFor(0, split)} fill="none" className="stroke-slate-800" strokeWidth="2" />
       <path d={pathFor(split, n - 1)} fill="none" className="stroke-sky-500" strokeWidth="2" strokeDasharray="4 3" />
       {todayIndex >= 0 ? <line x1={x(todayIndex)} x2={x(todayIndex)} y1={pad} y2={H - pad} className="stroke-slate-300" strokeWidth="1" /> : null}
-      {timeline.low && timeline.low.balance < 0 ? (() => {
-        const i = timeline.days.findIndex((d) => d.date === timeline.low!.date);
-        return i >= 0 ? <circle cx={x(i)} cy={y(timeline.low!.balance)} r="3.5" className="fill-rose-600" /> : null;
-      })() : null}
-      {pickedIndex >= 0 ? (
+      {lowIndex >= 0 ? <circle cx={x(lowIndex)} cy={y(timeline.low!.balance)} r="3.5" className="fill-rose-600" /> : null}
+      {pickedIndex >= 0 && timeline.days[pickedIndex].balance != null ? (
         <>
           <line x1={x(pickedIndex)} x2={x(pickedIndex)} y1={pad} y2={H - pad} className="stroke-slate-400" strokeWidth="1" />
-          <circle cx={x(pickedIndex)} cy={y(timeline.days[pickedIndex].balance)} r="3.5" className="fill-slate-950" />
+          <circle cx={x(pickedIndex)} cy={y(bal(pickedIndex))} r="3.5" className="fill-slate-950" />
         </>
       ) : null}
     </svg>
@@ -328,17 +381,33 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
   const [editingBalance, setEditingBalance] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
   const { activity } = account;
-  const timeline = useMemo(() => balanceTimeline({ month, balance: account.balance, checkedAt: account.balanceConfirmedAt, lines: activity.lines, today }), [month, account.balance, account.balanceConfirmedAt, activity.lines, today]);
+  const timeline = useMemo(() => balanceTimeline({ month, anchor: account.anchor, lines: activity.lines, today }), [month, account.anchor, activity.lines, today]);
   const allLines = timeline.days.flatMap((d) => d.lines);
   const upcoming = isCurrentMonth ? allLines.filter((l) => !l.date || l.date >= today) : allLines;
   const shown = showAll ? allLines : upcoming.slice(0, 5);
-  const scale = Math.max(1, ...timeline.days.map((d) => Math.abs(d.balance)), ...allLines.map((l) => Math.abs(l.after)));
+  const scale = Math.max(1, ...timeline.days.map((d) => Math.abs(d.balance ?? 0)), ...allLines.map((l) => Math.abs(l.after ?? 0)));
   const pickedDay = picked ? timeline.days.find((d) => d.date === picked) : null;
-  const unset = account.balance === 0;
-  const stale = account.balanceConfirmedAt ? Date.parse(`${today}T12:00:00Z`) - Date.parse(account.balanceConfirmedAt) > 7 * 86_400_000 : true;
+  const tracked = account.trackedFrom;
+  const trackingAhead = Boolean(tracked && tracked > today);
+  const unset = !tracked && account.balance === 0;
+  const stale = !tracked && (account.balanceConfirmedAt ? Date.parse(`${today}T12:00:00Z`) - Date.parse(account.balanceConfirmedAt) > 7 * 86_400_000 : true);
   const nextIn = upcoming.find((l) => l.direction === "in");
   const low = timeline.low;
   const max = Math.max(activity.in, activity.out, 1);
+  const shownBalance = isCurrentMonth && timeline.today != null ? timeline.today : account.balance;
+
+  let balanceLabel = "Balance";
+  let balanceNote = checkedAgo(account.balanceConfirmedAt, today);
+  if (tracked && trackingAhead) {
+    balanceLabel = "Starts on payday";
+    balanceNote = `Loop starts this account at ${gbp(account.balance)} on ${niceDate(tracked)}, then works it out from your pay, bills and transfers.`;
+  } else if (tracked) {
+    balanceLabel = isCurrentMonth ? "Worked out for today" : "Balance";
+    balanceNote = `From ${gbp(account.balance)} on payday, ${niceDate(tracked)}, plus everything since. No need to type it in.`;
+  } else if (isCurrentMonth && timeline.today != null && account.anchor.date !== today) {
+    balanceLabel = "Estimated today";
+    balanceNote = `${checkedAgo(account.balanceConfirmedAt, today)} at ${gbp(account.balance)}, plus what's gone in and out since`;
+  }
 
   return (
     <article className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -356,12 +425,10 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
         </div>
 
         <div className="mt-4 flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <p className="text-[11px] font-black uppercase tracking-wide text-slate-400">{isCurrentMonth && timeline.today != null && timeline.anchor !== today ? "Estimated today" : "Balance"}</p>
-            <p className={`text-3xl font-black tabular-nums ${(isCurrentMonth && timeline.today != null ? timeline.today : account.balance) < 0 ? "text-rose-700" : "text-slate-950"}`}>{gbp(isCurrentMonth && timeline.today != null ? timeline.today : account.balance)}</p>
-            <p className="text-[11px] font-semibold text-slate-500">
-              {checkedAgo(account.balanceConfirmedAt, today)}{isCurrentMonth && timeline.today != null && timeline.anchor !== today ? ` at ${gbp(account.balance)}, plus what's gone in and out since` : ""}
-            </p>
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-wide text-slate-400">{balanceLabel}</p>
+            <p className={`text-3xl font-black tabular-nums ${trackingAhead ? "text-slate-400" : shownBalance < 0 ? "text-rose-700" : "text-slate-950"}`}>{gbp(trackingAhead ? account.balance : shownBalance)}</p>
+            <p className="max-w-sm text-[11px] font-semibold text-slate-500">{balanceNote}</p>
           </div>
           {editingBalance ? (
             <form action={async (fd) => { const r = (await updateFinancialAccount(fd)) as unknown; if (!isLoopError(r)) setEditingBalance(false); }} className="flex flex-wrap items-center gap-2">
@@ -371,15 +438,17 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
               <input type="hidden" name="visibility_scope" value={account.shared ? "household" : "private"} />
               <input type="hidden" name="savings_limit_scope" value={account.joint ? "joint" : "individual"} />
               <input name="current_balance" type="number" step="0.01" defaultValue={account.balance || ""} placeholder="Today's balance" autoFocus className="w-36 rounded-xl border border-slate-200 px-3 py-2 text-sm font-black" aria-label="Balance today" />
-              <ConfirmSubmit question="Update the balance?" detail="Totals and the forecast start from this figure, as of today." confirmLabel="Yes, update" className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white">Save</ConfirmSubmit>
+              <ConfirmSubmit question="Update the balance?" detail="Loop works the balance out from this figure, as of today, instead of from payday." confirmLabel="Yes, update" className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white">Save</ConfirmSubmit>
               <button type="button" onClick={() => setEditingBalance(false)} className="text-xs font-bold text-slate-500">Cancel</button>
             </form>
           ) : (
-            <button type="button" onClick={() => setEditingBalance(true)} className={`rounded-full px-3 py-1.5 text-xs font-black ${unset || stale ? "bg-amber-100 text-amber-900 hover:bg-amber-200" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>Update balance</button>
+            <button type="button" onClick={() => setEditingBalance(true)} className={`rounded-full px-3 py-1.5 text-xs font-black ${(unset || stale) && !tracked ? "bg-amber-100 text-amber-900 hover:bg-amber-200" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{tracked ? "Correct balance" : "Update balance"}</button>
           )}
         </div>
 
-        {unset ? (
+        {unset && account.suggestedStart ? (
+          <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">Balance is £0 in Loop. Start it from payday ({niceDate(account.suggestedStart.date)}) using the button at the top, or type today&apos;s balance.</p>
+        ) : unset ? (
           <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">This account&apos;s balance is £0 in Loop, so the line below starts from nothing. Add today&apos;s balance for a real picture.</p>
         ) : null}
 
@@ -387,7 +456,9 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
           <div className="mt-4 rounded-2xl bg-slate-50/80 p-3">
             <div className="flex items-baseline justify-between gap-2 text-xs">
               <p className="font-black text-slate-700">{pickedDay ? niceDate(pickedDay.date) : `Balance each day · ${monthLabel(month)}`}</p>
-              <p className={`font-black tabular-nums ${pickedDay && pickedDay.balance < 0 ? "text-rose-700" : "text-slate-900"}`}>{pickedDay ? gbp(pickedDay.balance) : `ends ${gbp(timeline.end)}`}</p>
+              <p className={`font-black tabular-nums ${pickedDay && (pickedDay.balance ?? 0) < 0 ? "text-rose-700" : "text-slate-900"}`}>
+                {pickedDay ? (pickedDay.balance == null ? "not tracked yet" : gbp(pickedDay.balance)) : timeline.end != null ? `ends ${gbp(timeline.end)}` : "not tracked yet"}
+              </p>
             </div>
             <BalanceChart timeline={timeline} today={today} picked={picked} onPick={setPicked} />
             {pickedDay ? (
@@ -396,6 +467,7 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
               <p className="flex flex-wrap gap-x-3 text-[11px] font-semibold text-slate-500">
                 <span><span className="mr-1 inline-block h-0.5 w-3 bg-slate-800 align-middle" />so far</span>
                 <span><span className="mr-1 inline-block h-0.5 w-3 border-t-2 border-dashed border-sky-500 align-middle" />expected</span>
+                {timeline.knownFrom && timeline.knownFrom > timeline.days[0].date ? <span><span className="mr-1 inline-block h-2 w-3 rounded-sm bg-slate-200 align-middle" />before tracking starts</span> : null}
                 <span>hover or drag to see a day</span>
               </p>
             )}
@@ -408,7 +480,7 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
             {" "}{nextIn && nextIn.date && nextIn.date > low.date ? `Nothing comes in until ${nextIn.label} on ${niceDate(nextIn.date)}.` : !nextIn ? "Nothing is set to come into this account this month." : ""}
             {unset ? " The balance is £0 in Loop, which is probably why." : account.joint && !activity.lines.some((l) => l.kind === "transfer") ? " No regular transfers into it are set up yet — add them under Who pays in." : ""}
           </p>
-        ) : activity.lines.length ? (
+        ) : activity.lines.length && timeline.end != null ? (
           <p className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
             {isCurrentMonth ? "On track to end" : "Ends"} {monthLabel(month)} with about <span className="font-black text-slate-950">{gbp(timeline.end)}</span>{low ? `; lowest ${gbp(low.balance)} on ${niceDate(low.date)}` : ""}.
           </p>
@@ -431,7 +503,7 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
         {activity.lines.length ? (
           <>
             <p className="text-xs font-black text-slate-500">{showAll ? `Everything in ${monthLabel(month)}, with the balance after each` : isCurrentMonth ? "Coming up, with the balance after each" : `In ${monthLabel(month)}`}</p>
-            {shown.length ? <ul className="divide-y divide-slate-100">{shown.map((line) => <LineRow key={line.key} line={line} after={line.after} scale={scale} past={isCurrentMonth && Boolean(line.date && line.date < today)} />)}</ul> : <p className="py-2 text-xs font-semibold text-slate-500">Nothing else this month.</p>}
+            {shown.length ? <ul className="divide-y divide-slate-100">{shown.map((line) => <LineRow key={line.key} line={line} after={line.after ?? undefined} scale={scale} past={isCurrentMonth && Boolean(line.date && line.date < today)} />)}</ul> : <p className="py-2 text-xs font-semibold text-slate-500">Nothing else this month.</p>}
             {allLines.length > shown.length || showAll ? (
               <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-1 text-xs font-black text-sky-700">{showAll ? "Show less" : `See all ${allLines.length} for ${monthLabel(month)}`}</button>
             ) : null}

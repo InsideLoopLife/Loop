@@ -10,6 +10,8 @@ import {
 import { withPayOverrides } from "@/lib/planning/pay-overrides";
 import { buildAccountActivity } from "@/lib/accounts/account-activity";
 import type { StandingTransfer } from "@/lib/accounts/standing-transfers";
+import { carryAnchor, carryBackAnchor, type BalanceAnchor } from "@/lib/accounts/daily-balance";
+import { trackingStartFor, upcomingPayDates } from "@/lib/accounts/paydays";
 
 export const metadata = { title: "Accounts · Loop" };
 
@@ -20,6 +22,12 @@ function currentMonth() {
 function nextMonthStart(month: string) {
   const [y, m] = month.split("-").map(Number);
   return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+}
+
+function shiftMonth(month: string, by: number) {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + by, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 function todayIso() {
@@ -47,7 +55,7 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
     { data: mortgageDeals },
   ] = await Promise.all([
     supabase.from("financial_accounts")
-      .select("id, name, provider, provider_slug, savings_product_name, account_type, current_balance, balance_last_confirmed_at, interest_rate, interest_rate_end_date, monthly_top_up_amount, top_up_day, savings_goal_name, savings_goal_target_amount, owner_person_id, ownership_scope, visibility_scope, user_id, updated_at")
+      .select("id, name, provider, provider_slug, savings_product_name, account_type, current_balance, balance_last_confirmed_at, balance_tracked_from, interest_rate, interest_rate_end_date, monthly_top_up_amount, top_up_day, savings_goal_name, savings_goal_target_amount, owner_person_id, ownership_scope, visibility_scope, user_id, updated_at")
       .or(visibleDataOrFilter(household)).eq("is_liability", false).order("created_at"),
     supabase.from("people")
       .select("id, user_id, linked_user_id, name, relationship, birth_date, account_status, active_until, avatar_url")
@@ -63,7 +71,7 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
       .or(memberFilter),
     supabase.from("spending_entries")
       .select("id, person_id, label, amount, spent_at, payment_account_id")
-      .or(memberFilter).gte("spent_at", `${month}-01`).lt("spent_at", nextMonthStart(month)),
+      .or(memberFilter).gte("spent_at", `${shiftMonth(month, -12)}-01`).lt("spent_at", nextMonthStart(month)),
     supabase.from("household_account_transfers")
       .select("id, person_id, from_account_id, to_account_id, amount, frequency, weekday, day_of_month, start_date, end_date, note")
       .is("archived_at", null).or(memberFilter).order("created_at"),
@@ -79,17 +87,40 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
   const transfers = (transferRows || []).map((row: any) => ({ ...row, amount: Number(row.amount || 0) })) as StandingTransfer[];
   const accountNames = Object.fromEntries((accountRows || []).map((a: any) => [a.id, a.name || a.savings_product_name || "Account"]));
   const personNames = Object.fromEntries(people.map((p) => [p.id, p.name]));
-  const { activity, unassigned } = buildAccountActivity({
-    month,
-    plannedItems: (plannedItems || []) as any,
-    payEvents: (await withPayOverrides(supabase, payEvents || [])) as any,
-    childCosts: (childCosts || []) as any,
-    entries: (entries || []) as any,
-    mortgageDeals: (mortgageDeals || []) as any,
-    transfers,
-    accountNames,
-    personNames,
-  });
+  const payWithOverrides = (await withPayOverrides(supabase, payEvents || [])) as any[];
+  const activityCache = new Map<string, ReturnType<typeof buildAccountActivity>>();
+  const activityFor = (m: string) => {
+    if (!activityCache.has(m)) {
+      activityCache.set(m, buildAccountActivity({
+        month: m,
+        plannedItems: (plannedItems || []) as any,
+        payEvents: payWithOverrides,
+        childCosts: (childCosts || []) as any,
+        entries: (entries || []) as any,
+        mortgageDeals: (mortgageDeals || []) as any,
+        transfers,
+        accountNames,
+        personNames,
+      }));
+    }
+    return activityCache.get(m)!;
+  };
+  const { activity, unassigned } = activityFor(month);
+  const today = todayIso();
+  const pays = upcomingPayDates(payWithOverrides, today);
+
+  // Where each account's balance is known from, moved to the month being looked at.
+  const anchorFor = (a: any): { anchor: BalanceAnchor; trackedFrom: string | null } => {
+    const balance = Number(a.current_balance || 0);
+    const checked = String(a.balance_last_confirmed_at || a.updated_at || today).slice(0, 10);
+    const tracked = a.balance_tracked_from ? String(a.balance_tracked_from).slice(0, 10) : null;
+    const raw: BalanceAnchor = tracked && checked < tracked ? { date: tracked, balance, mode: "start" } : { date: checked, balance, mode: "end" };
+    const oldest = `${shiftMonth(month, -12)}-01`;
+    const usable = raw.date < oldest ? { ...raw, date: oldest, mode: "start" as const } : raw;
+    const lines = (m: string) => activityFor(m).activity[a.id]?.lines || [];
+    const anchor = usable.date < `${month}-01` ? carryAnchor(usable, month, lines) : usable.mode === "end" && usable.date > `${month}-31` ? carryBackAnchor(usable, month, lines) : usable;
+    return { anchor, trackedFrom: tracked && checked < tracked ? tracked : null };
+  };
 
   const accounts: AccountsHomeAccount[] = (accountRows || []).map((a: any) => {
     const joint = !a.owner_person_id || ["joint", "household"].includes(String(a.ownership_scope || "").toLowerCase());
@@ -101,6 +132,8 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
       kind: a.account_type === "current_account" ? "everyday" : "savings",
       balance: Number(a.current_balance || 0),
       balanceConfirmedAt: a.balance_last_confirmed_at || a.updated_at || null,
+      ...(() => { const { anchor, trackedFrom } = anchorFor(a); return { anchor, trackedFrom }; })(),
+      suggestedStart: a.account_type === "current_account" && !(a.balance_tracked_from) ? trackingStartFor({ id: a.id, joint, ownerPersonId: joint ? null : a.owner_person_id }, pays) : null,
       interestRate: a.interest_rate == null ? null : Number(a.interest_rate),
       rateEndsOn: a.interest_rate_end_date || null,
       monthlyTopUp: Number(a.monthly_top_up_amount || 0),
@@ -122,7 +155,7 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
       <main className="mx-auto w-[95vw] max-w-[1240px] px-4 py-6">
         <AccountsHome
           month={month}
-          today={todayIso()}
+          today={today}
           accounts={accounts}
           people={adults.map((p) => ({ id: p.id, name: p.name, avatarUrl: p.avatar_url || null }))}
           meId={me?.id || null}
