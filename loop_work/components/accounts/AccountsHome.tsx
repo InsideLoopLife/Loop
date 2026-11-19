@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, Plus, Settings2 } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, PiggyBank, Plus, Settings2 } from "lucide-react";
 import { ModalFrame } from "@/components/ui/ModalFrame";
 import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 import { FinancialInstitutionLogo } from "@/components/savings/FinancialInstitutionLogo";
@@ -11,6 +11,7 @@ import { JointPayIns } from "@/components/accounts/JointPayIns";
 import { isLoopError } from "@/lib/actions/friendly";
 import type { AccountActivity, AccountLine } from "@/lib/accounts/account-activity";
 import type { StandingTransfer } from "@/lib/accounts/standing-transfers";
+import { balanceTimeline, type BalanceTimeline } from "@/lib/accounts/daily-balance";
 import { deleteFinancialAccount, quickAddFinancialAccount, updateFinancialAccount } from "@/app/accounts/actions";
 import { removeAccountTransfer, saveAccountTransfer } from "@/app/accounts/transfer-actions";
 import { changeAccountOwner, renameAccount } from "@/app/bank-accounts/actions";
@@ -24,6 +25,11 @@ export type AccountsHomeAccount = {
   balance: number;
   balanceConfirmedAt: string | null;
   interestRate: number | null;
+  rateEndsOn: string | null;
+  monthlyTopUp: number;
+  topUpDay: number | null;
+  goalName: string | null;
+  goalTarget: number | null;
   joint: boolean;
   ownerPersonId: string | null;
   shared: boolean;
@@ -71,20 +77,6 @@ function Avatar({ person, size = "h-9 w-9" }: { person?: Person | null; size?: s
   return <span className={`grid ${size} place-items-center rounded-full bg-slate-900 text-sm font-black text-white`}>{(person?.name || "?").slice(0, 1).toUpperCase()}</span>;
 }
 
-/** Where the balance is heading for the rest of the month, and the lowest point on the way. */
-function forecast(account: AccountsHomeAccount, today: string, isCurrentMonth: boolean) {
-  if (!isCurrentMonth) return null;
-  let running = account.balance;
-  let low = running;
-  let lowDate: string | null = null;
-  for (const line of account.activity.lines) {
-    if (line.date && line.date < today) continue;
-    running += line.direction === "in" ? line.amount : -line.amount;
-    if (running < low) { low = running; lowDate = line.date; }
-  }
-  return { end: Math.round(running * 100) / 100, low: Math.round(low * 100) / 100, lowDate };
-}
-
 export function AccountsHome({
   month, today, accounts, people, meId, hasHousehold, transfers, unassignedCount,
 }: {
@@ -109,9 +101,27 @@ export function AccountsHome({
   const everydayTotal = accounts.filter((a) => a.kind === "everyday").reduce((s, a) => s + a.balance, 0);
   const savingsTotal = accounts.filter((a) => a.kind === "savings").reduce((s, a) => s + a.balance, 0);
 
-  const card = (account: AccountsHomeAccount) => (
-    <AccountCard key={account.id} account={account} today={today} isCurrentMonth={isCurrentMonth} month={month} onSettings={() => setSettingsFor(account)} />
-  );
+  const grid = (list: AccountsHomeAccount[]) => {
+    const everyday = list.filter((a) => a.kind === "everyday");
+    const savings = list.filter((a) => a.kind === "savings");
+    return (
+      <div className="space-y-4">
+        {everyday.length ? (
+          <div className="grid items-start gap-4 xl:grid-cols-2">
+            {everyday.map((account) => <AccountCard key={account.id} account={account} today={today} isCurrentMonth={isCurrentMonth} month={month} onSettings={() => setSettingsFor(account)} />)}
+          </div>
+        ) : null}
+        {savings.length ? (
+          <div>
+            <p className="mb-2 text-xs font-black uppercase tracking-[0.14em] text-emerald-700">Savings · {gbp(savings.reduce((sum, a) => sum + a.balance, 0))}</p>
+            <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {savings.map((account) => <SavingsCard key={account.id} account={account} today={today} onSettings={() => setSettingsFor(account)} />)}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -152,7 +162,7 @@ export function AccountsHome({
 
       {joint.length ? (
         <Group title="Joint" subtitle="Held together. Everyone in the household can see these." icon={<span className="grid h-9 w-9 place-items-center rounded-full bg-sky-100 text-sm font-black text-sky-800">J</span>}>
-          <div className="grid items-start gap-4 lg:grid-cols-2">{joint.map(card)}</div>
+          {grid(joint)}
           <JointPayIns
             transfers={transfers}
             people={people}
@@ -173,13 +183,13 @@ export function AccountsHome({
           subtitle={`In ${person.name}'s name. ${list.filter((a) => a.shared).length} of ${list.length} shared with the household.`}
           icon={<Avatar person={person} />}
         >
-          <div className="grid items-start gap-4 lg:grid-cols-2">{list.map(card)}</div>
+          {grid(list)}
         </Group>
       ))}
 
       {other.length ? (
         <Group title="Other accounts" subtitle="Belonging to someone not listed as an adult in your household." icon={<Avatar person={null} />}>
-          <div className="grid items-start gap-4 lg:grid-cols-2">{other.map(card)}</div>
+          {grid(other)}
         </Group>
       ) : null}
 
@@ -229,29 +239,105 @@ function ownershipChip(account: AccountsHomeAccount) {
     : <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black text-slate-700">Private</span>;
 }
 
-function LineRow({ line }: { line: AccountLine }) {
+function LineRow({ line, after, scale, past }: { line: AccountLine; after: number | undefined; scale: number; past: boolean }) {
   const isIn = line.direction === "in";
+  const negative = (after ?? 0) < 0;
+  const width = after == null || scale <= 0 ? 0 : Math.min(100, (Math.abs(after) / scale) * 100);
   return (
-    <li className="flex items-center gap-3 py-2">
-      <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${isIn ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+    <li className={`grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 py-2 ${past ? "opacity-55" : ""}`}>
+      <span className={`grid h-7 w-7 place-items-center rounded-full ${line.kind === "transfer" ? "bg-sky-50 text-sky-700" : isIn ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
         {isIn ? <ArrowDownLeft className="h-3.5 w-3.5" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
       </span>
-      <span className="min-w-0 flex-1">
+      <span className="min-w-0">
         <span className="block truncate text-sm font-bold text-slate-900">{line.label}</span>
-        <span className="block text-[11px] font-semibold text-slate-500">{niceDate(line.date)}{line.note ? ` · ${line.note}` : ""}</span>
+        <span className="block text-[11px] font-semibold text-slate-500">{niceDate(line.date)}{line.kind === "transfer" ? " · transfer" : ""}{line.note ? ` · ${line.note}` : ""}</span>
       </span>
-      <span className={`text-sm font-black tabular-nums ${isIn ? "text-emerald-700" : "text-slate-900"}`}>{isIn ? "+" : "−"}{gbp(line.amount)}</span>
+      <span className={`text-right text-sm font-black tabular-nums ${isIn ? "text-emerald-700" : "text-slate-900"}`}>{isIn ? "+" : "−"}{gbp(line.amount)}</span>
+      {after != null ? (
+        <span className="col-start-2 col-end-4 mt-1 flex items-center gap-2">
+          <span className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+            <span className={`absolute inset-y-0 left-0 rounded-full ${negative ? "bg-rose-500" : "bg-sky-400"}`} style={{ width: `${width}%` }} />
+          </span>
+          <span className={`w-24 text-right text-[11px] font-black tabular-nums ${negative ? "text-rose-700" : "text-slate-500"}`}>{gbp(after)} after</span>
+        </span>
+      ) : null}
     </li>
+  );
+}
+
+/** Balance at the end of each day: solid up to today, dashed after; hover a day to read it. */
+function BalanceChart({ timeline, today, onPick, picked }: { timeline: BalanceTimeline; today: string; onPick: (date: string | null) => void; picked: string | null }) {
+  const W = 320;
+  const H = 96;
+  const pad = 6;
+  const values = timeline.days.map((d) => d.balance);
+  const startOfMonth = timeline.days[0] ? timeline.days[0].balance - timeline.days[0].lines.reduce((s, l) => s + (l.direction === "in" ? l.amount : -l.amount), 0) : 0;
+  const lo = Math.min(0, startOfMonth, ...values);
+  const hi = Math.max(0, startOfMonth, ...values);
+  const span = hi - lo || 1;
+  const n = timeline.days.length;
+  const x = (i: number) => pad + (i / Math.max(1, n - 1)) * (W - pad * 2);
+  const y = (v: number) => pad + (1 - (v - lo) / span) * (H - pad * 2);
+  const todayIndex = timeline.days.findIndex((d) => d.date === today);
+  const point = (i: number) => `${x(i).toFixed(1)},${y(timeline.days[i].balance).toFixed(1)}`;
+  const pathFor = (from: number, to: number) => {
+    if (to < from) return "";
+    let d = `M${point(from)}`;
+    for (let i = from + 1; i <= to; i += 1) d += ` H${x(i).toFixed(1)} V${y(timeline.days[i].balance).toFixed(1)}`;
+    return d;
+  };
+  const split = todayIndex >= 0 ? todayIndex : today < (timeline.days[0]?.date || "") ? 0 : n - 1;
+  const zeroY = y(0);
+  const pickedIndex = picked ? timeline.days.findIndex((d) => d.date === picked) : -1;
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="h-24 w-full touch-none select-none"
+      role="img"
+      aria-label="Balance through the month"
+      onPointerMove={(e) => {
+        const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+        const ratio = (e.clientX - rect.left) / rect.width;
+        const i = Math.max(0, Math.min(n - 1, Math.round(((ratio * W - pad) / (W - pad * 2)) * (n - 1))));
+        onPick(timeline.days[i]?.date || null);
+      }}
+      onPointerLeave={() => onPick(null)}
+    >
+      <rect x={pad} y={zeroY} width={W - pad * 2} height={Math.max(0, H - pad - zeroY)} className="fill-rose-50" />
+      <line x1={pad} x2={W - pad} y1={zeroY} y2={zeroY} className="stroke-rose-300" strokeWidth="1" strokeDasharray="2 3" />
+      <path d={pathFor(0, split)} fill="none" className="stroke-slate-800" strokeWidth="2" />
+      <path d={pathFor(split, n - 1)} fill="none" className="stroke-sky-500" strokeWidth="2" strokeDasharray="4 3" />
+      {todayIndex >= 0 ? <line x1={x(todayIndex)} x2={x(todayIndex)} y1={pad} y2={H - pad} className="stroke-slate-300" strokeWidth="1" /> : null}
+      {timeline.low && timeline.low.balance < 0 ? (() => {
+        const i = timeline.days.findIndex((d) => d.date === timeline.low!.date);
+        return i >= 0 ? <circle cx={x(i)} cy={y(timeline.low!.balance)} r="3.5" className="fill-rose-600" /> : null;
+      })() : null}
+      {pickedIndex >= 0 ? (
+        <>
+          <line x1={x(pickedIndex)} x2={x(pickedIndex)} y1={pad} y2={H - pad} className="stroke-slate-400" strokeWidth="1" />
+          <circle cx={x(pickedIndex)} cy={y(timeline.days[pickedIndex].balance)} r="3.5" className="fill-slate-950" />
+        </>
+      ) : null}
+    </svg>
   );
 }
 
 function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { account: AccountsHomeAccount; today: string; isCurrentMonth: boolean; month: string; onSettings: () => void }) {
   const [showAll, setShowAll] = useState(false);
   const [editingBalance, setEditingBalance] = useState(false);
+  const [picked, setPicked] = useState<string | null>(null);
   const { activity } = account;
-  const ahead = forecast(account, today, isCurrentMonth);
-  const upcoming = isCurrentMonth ? activity.lines.filter((l) => !l.date || l.date >= today) : activity.lines;
-  const shown = showAll ? activity.lines : upcoming.slice(0, 4);
+  const timeline = useMemo(() => balanceTimeline({ month, balance: account.balance, checkedAt: account.balanceConfirmedAt, lines: activity.lines, today }), [month, account.balance, account.balanceConfirmedAt, activity.lines, today]);
+  const allLines = timeline.days.flatMap((d) => d.lines);
+  const upcoming = isCurrentMonth ? allLines.filter((l) => !l.date || l.date >= today) : allLines;
+  const shown = showAll ? allLines : upcoming.slice(0, 5);
+  const scale = Math.max(1, ...timeline.days.map((d) => Math.abs(d.balance)), ...allLines.map((l) => Math.abs(l.after)));
+  const pickedDay = picked ? timeline.days.find((d) => d.date === picked) : null;
+  const unset = account.balance === 0;
+  const stale = account.balanceConfirmedAt ? Date.parse(`${today}T12:00:00Z`) - Date.parse(account.balanceConfirmedAt) > 7 * 86_400_000 : true;
+  const nextIn = upcoming.find((l) => l.direction === "in");
+  const low = timeline.low;
   const max = Math.max(activity.in, activity.out, 1);
 
   return (
@@ -261,7 +347,7 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
           <FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-11 w-11 rounded-2xl" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-base font-black text-slate-950">{account.name}</p>
-            <p className="text-xs font-bold text-slate-500">{account.provider || "Bank"} · {account.kind === "everyday" ? "everyday account" : `savings${account.interestRate != null ? ` · ${account.interestRate.toFixed(2)}%` : ""}`}</p>
+            <p className="text-xs font-bold text-slate-500">{account.provider || "Bank"} · {account.joint ? "joint everyday account" : "everyday account"}</p>
           </div>
           <div className="flex items-center gap-1.5">
             {ownershipChip(account)}
@@ -271,66 +357,128 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
 
         <div className="mt-4 flex flex-wrap items-end justify-between gap-2">
           <div>
-            <p className="text-3xl font-black tabular-nums text-slate-950">{gbp(account.balance)}</p>
-            <p className="text-[11px] font-semibold text-slate-500">{checkedAgo(account.balanceConfirmedAt, today)}</p>
+            <p className="text-[11px] font-black uppercase tracking-wide text-slate-400">{isCurrentMonth && timeline.today != null && timeline.anchor !== today ? "Estimated today" : "Balance"}</p>
+            <p className={`text-3xl font-black tabular-nums ${(isCurrentMonth && timeline.today != null ? timeline.today : account.balance) < 0 ? "text-rose-700" : "text-slate-950"}`}>{gbp(isCurrentMonth && timeline.today != null ? timeline.today : account.balance)}</p>
+            <p className="text-[11px] font-semibold text-slate-500">
+              {checkedAgo(account.balanceConfirmedAt, today)}{isCurrentMonth && timeline.today != null && timeline.anchor !== today ? ` at ${gbp(account.balance)}, plus what's gone in and out since` : ""}
+            </p>
           </div>
-          {account.kind === "everyday" ? (
-            editingBalance ? (
-              <form action={async (fd) => { const r = (await updateFinancialAccount(fd)) as unknown; if (!isLoopError(r)) setEditingBalance(false); }} className="flex flex-wrap items-center gap-2">
-                <input type="hidden" name="id" value={account.id} />
-                <input type="hidden" name="owner_person_id" value={account.ownerPersonId || ""} />
-                <input type="hidden" name="ownership_scope" value={account.ownershipScope} />
-                <input type="hidden" name="visibility_scope" value={account.shared ? "household" : "private"} />
-                <input type="hidden" name="savings_limit_scope" value={account.joint ? "joint" : "individual"} />
-                <input name="current_balance" type="number" step="0.01" defaultValue={account.balance} autoFocus className="w-32 rounded-xl border border-slate-200 px-3 py-2 text-sm font-black" aria-label="Balance today" />
-                <ConfirmSubmit question="Update the balance?" detail="Totals and forecasts use the new figure." confirmLabel="Yes, update" className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white">Save</ConfirmSubmit>
-                <button type="button" onClick={() => setEditingBalance(false)} className="text-xs font-bold text-slate-500">Cancel</button>
-              </form>
-            ) : (
-              <button type="button" onClick={() => setEditingBalance(true)} className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-200">Update balance</button>
-            )
+          {editingBalance ? (
+            <form action={async (fd) => { const r = (await updateFinancialAccount(fd)) as unknown; if (!isLoopError(r)) setEditingBalance(false); }} className="flex flex-wrap items-center gap-2">
+              <input type="hidden" name="id" value={account.id} />
+              <input type="hidden" name="owner_person_id" value={account.ownerPersonId || ""} />
+              <input type="hidden" name="ownership_scope" value={account.ownershipScope} />
+              <input type="hidden" name="visibility_scope" value={account.shared ? "household" : "private"} />
+              <input type="hidden" name="savings_limit_scope" value={account.joint ? "joint" : "individual"} />
+              <input name="current_balance" type="number" step="0.01" defaultValue={account.balance || ""} placeholder="Today's balance" autoFocus className="w-36 rounded-xl border border-slate-200 px-3 py-2 text-sm font-black" aria-label="Balance today" />
+              <ConfirmSubmit question="Update the balance?" detail="Totals and the forecast start from this figure, as of today." confirmLabel="Yes, update" className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white">Save</ConfirmSubmit>
+              <button type="button" onClick={() => setEditingBalance(false)} className="text-xs font-bold text-slate-500">Cancel</button>
+            </form>
           ) : (
-            <Link href="/accounts?tab=accounts" className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-200">Rates & top-ups →</Link>
+            <button type="button" onClick={() => setEditingBalance(true)} className={`rounded-full px-3 py-1.5 text-xs font-black ${unset || stale ? "bg-amber-100 text-amber-900 hover:bg-amber-200" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>Update balance</button>
           )}
         </div>
 
+        {unset ? (
+          <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">This account&apos;s balance is £0 in Loop, so the line below starts from nothing. Add today&apos;s balance for a real picture.</p>
+        ) : null}
+
         {activity.lines.length ? (
-          <div className="mt-4 space-y-1.5">
-            <div className="flex items-center gap-2 text-xs font-bold">
-              <span className="w-16 text-slate-500">In</span>
-              <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full bg-emerald-400" style={{ width: `${(activity.in / max) * 100}%` }} /></span>
-              <span className="w-20 text-right font-black tabular-nums text-slate-900">{gbp(activity.in)}</span>
+          <div className="mt-4 rounded-2xl bg-slate-50/80 p-3">
+            <div className="flex items-baseline justify-between gap-2 text-xs">
+              <p className="font-black text-slate-700">{pickedDay ? niceDate(pickedDay.date) : `Balance each day · ${monthLabel(month)}`}</p>
+              <p className={`font-black tabular-nums ${pickedDay && pickedDay.balance < 0 ? "text-rose-700" : "text-slate-900"}`}>{pickedDay ? gbp(pickedDay.balance) : `ends ${gbp(timeline.end)}`}</p>
             </div>
-            <div className="flex items-center gap-2 text-xs font-bold">
-              <span className="w-16 text-slate-500">Out</span>
-              <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full bg-slate-700" style={{ width: `${(activity.out / max) * 100}%` }} /></span>
-              <span className="w-20 text-right font-black tabular-nums text-slate-900">{gbp(activity.out)}</span>
-            </div>
-            <p className="pt-1 text-[11px] font-semibold text-slate-500">Planned for {monthLabel(month)}</p>
+            <BalanceChart timeline={timeline} today={today} picked={picked} onPick={setPicked} />
+            {pickedDay ? (
+              <p className="text-[11px] font-semibold text-slate-500">{pickedDay.lines.length ? pickedDay.lines.map((l) => `${l.direction === "in" ? "+" : "−"}${gbp(l.amount)} ${l.label}`).join(" · ") : "Nothing in or out that day"}</p>
+            ) : (
+              <p className="flex flex-wrap gap-x-3 text-[11px] font-semibold text-slate-500">
+                <span><span className="mr-1 inline-block h-0.5 w-3 bg-slate-800 align-middle" />so far</span>
+                <span><span className="mr-1 inline-block h-0.5 w-3 border-t-2 border-dashed border-sky-500 align-middle" />expected</span>
+                <span>hover or drag to see a day</span>
+              </p>
+            )}
           </div>
         ) : null}
 
-        {ahead && activity.lines.length ? (
-          ahead.low < 0 ? (
-            <p className="mt-3 rounded-2xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800">Could go {gbp(-ahead.low)} overdrawn around {niceDate(ahead.lowDate)} unless more goes in first.</p>
-          ) : (
-            <p className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">On track to end {monthLabel(month)} with about <span className="font-black text-slate-950">{gbp(ahead.end)}</span>.</p>
-          )
+        {activity.lines.length && low && low.balance < 0 ? (
+          <p className="mt-3 rounded-2xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800">
+            Lowest point: <span className="font-black">{gbp(low.balance)}</span> on {niceDate(low.date)}{low.line ? `, after ${low.line.label} (−${gbp(low.line.amount)})` : ""}.
+            {" "}{nextIn && nextIn.date && nextIn.date > low.date ? `Nothing comes in until ${nextIn.label} on ${niceDate(nextIn.date)}.` : !nextIn ? "Nothing is set to come into this account this month." : ""}
+            {unset ? " The balance is £0 in Loop, which is probably why." : account.joint && !activity.lines.some((l) => l.kind === "transfer") ? " No regular transfers into it are set up yet — add them under Who pays in." : ""}
+          </p>
+        ) : activity.lines.length ? (
+          <p className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
+            {isCurrentMonth ? "On track to end" : "Ends"} {monthLabel(month)} with about <span className="font-black text-slate-950">{gbp(timeline.end)}</span>{low ? `; lowest ${gbp(low.balance)} on ${niceDate(low.date)}` : ""}.
+          </p>
+        ) : null}
+
+        {activity.lines.length ? (
+          <div className="mt-3 space-y-1">
+            {([["In", activity.in, "bg-emerald-400"], ["Out", activity.out, "bg-slate-700"]] as const).map(([label, value, tone]) => (
+              <div key={label} className="flex items-center gap-2 text-xs font-bold">
+                <span className="w-10 text-slate-500">{label}</span>
+                <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100"><span className={`block h-full rounded-full ${tone}`} style={{ width: `${(value / max) * 100}%` }} /></span>
+                <span className="w-20 text-right font-black tabular-nums text-slate-900">{gbp(value)}</span>
+              </div>
+            ))}
+          </div>
         ) : null}
       </div>
 
       <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-3">
         {activity.lines.length ? (
           <>
-            <p className="text-xs font-black text-slate-500">{showAll ? `Everything in ${monthLabel(month)}` : isCurrentMonth ? "Coming up" : `In ${monthLabel(month)}`}</p>
-            {shown.length ? <ul className="divide-y divide-slate-100">{shown.map((line) => <LineRow key={line.key} line={line} />)}</ul> : <p className="py-2 text-xs font-semibold text-slate-500">Nothing else this month.</p>}
-            {activity.lines.length > shown.length || showAll ? (
-              <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-1 text-xs font-black text-sky-700">{showAll ? "Show less" : `See all ${activity.lines.length} for ${monthLabel(month)}`}</button>
+            <p className="text-xs font-black text-slate-500">{showAll ? `Everything in ${monthLabel(month)}, with the balance after each` : isCurrentMonth ? "Coming up, with the balance after each" : `In ${monthLabel(month)}`}</p>
+            {shown.length ? <ul className="divide-y divide-slate-100">{shown.map((line) => <LineRow key={line.key} line={line} after={line.after} scale={scale} past={isCurrentMonth && Boolean(line.date && line.date < today)} />)}</ul> : <p className="py-2 text-xs font-semibold text-slate-500">Nothing else this month.</p>}
+            {allLines.length > shown.length || showAll ? (
+              <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-1 text-xs font-black text-sky-700">{showAll ? "Show less" : `See all ${allLines.length} for ${monthLabel(month)}`}</button>
             ) : null}
           </>
         ) : (
           <p className="text-xs font-semibold text-slate-500">Nothing planned in or out of this account yet. Choose it as the account when you add pay or a bill in <Link href="/spending" className="font-black text-slate-800 underline">Spending</Link>.</p>
         )}
+      </div>
+    </article>
+  );
+}
+
+/** Savings work differently: no bills, just what's there, what it earns and what's going in. */
+function SavingsCard({ account, today, onSettings }: { account: AccountsHomeAccount; today: string; onSettings: () => void }) {
+  const monthlyInterest = account.interestRate ? (account.balance * account.interestRate) / 100 / 12 : 0;
+  const goalPct = account.goalTarget && account.goalTarget > 0 ? Math.min(100, (account.balance / account.goalTarget) * 100) : null;
+  const rateEnds = account.rateEndsOn ? new Date(`${account.rateEndsOn}T12:00:00Z`) : null;
+  const rateEndsSoon = rateEnds ? rateEnds.getTime() - Date.parse(`${today}T12:00:00Z`) < 60 * 86_400_000 : false;
+  return (
+    <article className="rounded-3xl border border-emerald-100 bg-gradient-to-br from-emerald-50/80 via-white to-white p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <span className="relative">
+          <FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-9 w-9 rounded-xl" />
+          <PiggyBank className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-white p-0.5 text-emerald-700 ring-1 ring-emerald-100" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-black text-slate-950">{account.name}</p>
+          <p className="truncate text-[11px] font-bold text-slate-500">{account.provider || "Savings"}{account.joint ? " · joint" : account.shared ? "" : " · private"}</p>
+        </div>
+        <button type="button" onClick={onSettings} className="rounded-full p-1 text-slate-400 hover:bg-white hover:text-slate-900" aria-label={`Settings for ${account.name}`}><Settings2 className="h-4 w-4" /></button>
+      </div>
+      <p className="mt-3 text-2xl font-black tabular-nums text-slate-950">{gbp(account.balance)}</p>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-black">
+        {account.interestRate != null ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800">{account.interestRate.toFixed(2)}%</span> : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">No rate set</span>}
+        {monthlyInterest > 0.005 ? <span className="rounded-full bg-white px-2 py-0.5 text-emerald-800 ring-1 ring-emerald-100">≈ {gbp(Math.round(monthlyInterest * 100) / 100)} a month</span> : null}
+        {account.monthlyTopUp > 0 ? <span className="rounded-full bg-white px-2 py-0.5 text-slate-700 ring-1 ring-slate-200">+{gbp(account.monthlyTopUp)}{account.topUpDay ? ` on the ${account.topUpDay}${[, "st", "nd", "rd"][account.topUpDay % 10 > 3 || [11, 12, 13].includes(account.topUpDay) ? 0 : account.topUpDay % 10] || "th"}` : " a month"}</span> : null}
+      </div>
+      {goalPct != null ? (
+        <div className="mt-3">
+          <div className="flex justify-between text-[11px] font-bold text-slate-500"><span>{account.goalName || "Goal"}</span><span>{Math.round(goalPct)}% of {gbp(account.goalTarget || 0)}</span></div>
+          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-emerald-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${goalPct}%` }} /></div>
+        </div>
+      ) : null}
+      {rateEnds ? <p className={`mt-2 text-[11px] font-bold ${rateEndsSoon ? "text-amber-800" : "text-slate-500"}`}>Rate ends {new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(rateEnds)}</p> : null}
+      <div className="mt-3 flex items-center justify-between text-[11px] font-semibold text-slate-500">
+        <span>{checkedAgo(account.balanceConfirmedAt, today)}</span>
+        <Link href="/accounts?tab=accounts" className="font-black text-emerald-800 hover:underline">Manage →</Link>
       </div>
     </article>
   );

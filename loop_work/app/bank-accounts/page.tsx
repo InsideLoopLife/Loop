@@ -47,7 +47,7 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
     { data: mortgageDeals },
   ] = await Promise.all([
     supabase.from("financial_accounts")
-      .select("id, name, provider, provider_slug, savings_product_name, account_type, current_balance, balance_last_confirmed_at, interest_rate, owner_person_id, ownership_scope, visibility_scope, user_id, updated_at")
+      .select("id, name, provider, provider_slug, savings_product_name, account_type, current_balance, balance_last_confirmed_at, interest_rate, interest_rate_end_date, monthly_top_up_amount, top_up_day, savings_goal_name, savings_goal_target_amount, owner_person_id, ownership_scope, visibility_scope, user_id, updated_at")
       .or(visibleDataOrFilter(household)).eq("is_liability", false).order("created_at"),
     supabase.from("people")
       .select("id, user_id, linked_user_id, name, relationship, birth_date, account_status, active_until, avatar_url")
@@ -102,6 +102,11 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
       balance: Number(a.current_balance || 0),
       balanceConfirmedAt: a.balance_last_confirmed_at || a.updated_at || null,
       interestRate: a.interest_rate == null ? null : Number(a.interest_rate),
+      rateEndsOn: a.interest_rate_end_date || null,
+      monthlyTopUp: Number(a.monthly_top_up_amount || 0),
+      topUpDay: a.top_up_day == null ? null : Number(a.top_up_day),
+      goalName: a.savings_goal_name || null,
+      goalTarget: a.savings_goal_target_amount == null ? null : Number(a.savings_goal_target_amount),
       joint,
       ownerPersonId: joint ? null : a.owner_person_id,
       shared: a.visibility_scope !== "private",
