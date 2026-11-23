@@ -9,12 +9,12 @@ import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 import { FinancialInstitutionLogo } from "@/components/savings/FinancialInstitutionLogo";
 import { JointPayIns } from "@/components/accounts/JointPayIns";
 import { isLoopError } from "@/lib/actions/friendly";
-import type { AccountActivity, AccountLine } from "@/lib/accounts/account-activity";
+import type { AccountActivity, AccountLine, UnassignedLine } from "@/lib/accounts/account-activity";
 import type { StandingTransfer } from "@/lib/accounts/standing-transfers";
 import { balanceTimeline, type BalanceAnchor, type BalanceTimeline } from "@/lib/accounts/daily-balance";
 import { deleteFinancialAccount, quickAddFinancialAccount, updateFinancialAccount } from "@/app/accounts/actions";
 import { removeAccountTransfer, saveAccountTransfer } from "@/app/accounts/transfer-actions";
-import { changeAccountOwner, renameAccount } from "@/app/bank-accounts/actions";
+import { changeAccountOwner, renameAccount, setPaymentAccount } from "@/app/bank-accounts/actions";
 
 export type AccountsHomeAccount = {
   id: string;
@@ -80,7 +80,7 @@ function Avatar({ person, size = "h-9 w-9" }: { person?: Person | null; size?: s
 }
 
 export function AccountsHome({
-  month, today, accounts, people, meId, hasHousehold, transfers, unassignedCount,
+  month, today, accounts, people, meId, hasHousehold, transfers, unassignedCount, unassignedLines = [],
 }: {
   month: string;
   today: string;
@@ -90,6 +90,7 @@ export function AccountsHome({
   hasHousehold: boolean;
   transfers: StandingTransfer[];
   unassignedCount: number;
+  unassignedLines?: UnassignedLine[];
 }) {
   const [adding, setAdding] = useState(false);
   const [settingsFor, setSettingsFor] = useState<AccountsHomeAccount | null>(null);
@@ -147,10 +148,7 @@ export function AccountsHome({
           </span>
         </div>
         {unassignedCount > 0 ? (
-          <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
-            {unassignedCount} payment{unassignedCount === 1 ? "" : "s"} in {monthLabel(month)} {unassignedCount === 1 ? "doesn't" : "don't"} say which account {unassignedCount === 1 ? "it comes" : "they come"} from, so {unassignedCount === 1 ? "it isn't" : "they aren't"} counted below.{" "}
-            <Link href={`/spending?month=${month}`} className="font-black underline">Set them in Spending</Link>
-          </p>
+          <Unassigned lines={unassignedLines} count={unassignedCount} month={month} accounts={accounts} />
         ) : null}
       </section>
 
@@ -219,6 +217,54 @@ export function AccountsHome({
   );
 }
 
+/** Payments that don't say which account they go through, each with a confirmed pick. */
+function Unassigned({ lines, count, month, accounts }: { lines: UnassignedLine[]; count: number; month: string; accounts: AccountsHomeAccount[] }) {
+  const everyday = accounts.filter((a) => a.kind === "everyday");
+  const unique = [...new Map(lines.map((l) => [`${l.ref.table}:${l.ref.id}`, l])).values()];
+  const [error, setError] = useState<string | null>(null);
+  const suggest = (line: UnassignedLine) => {
+    const own = everyday.filter((a) => !a.joint && line.personId && a.ownerPersonId === line.personId);
+    if (own.length === 1) return own[0].id;
+    if (!line.personId || line.kind === "child" || line.kind === "mortgage") return everyday.find((a) => a.joint)?.id || "";
+    return "";
+  };
+  return (
+    <details className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900" open={unique.length <= 4}>
+      <summary className="cursor-pointer font-semibold">
+        <span className="font-black">{count} payment{count === 1 ? "" : "s"}</span> in {monthLabel(month)} {count === 1 ? "doesn't" : "don't"} say which account {count === 1 ? "it goes" : "they go"} through, so {count === 1 ? "it isn't" : "they aren't"} counted below.
+      </summary>
+      {error ? <p role="alert" className="mt-2 text-xs font-bold text-rose-700">{error}</p> : null}
+      {unique.length && everyday.length ? (
+        <ul className="mt-3 space-y-2">
+          {unique.map((line) => (
+            <li key={`${line.ref.table}:${line.ref.id}`}>
+              <form
+                action={async (fd) => { setError(null); const r = (await setPaymentAccount(fd)) as unknown; if (isLoopError(r)) setError(r.__loopError); }}
+                className="flex flex-wrap items-center gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-amber-100"
+              >
+                <input type="hidden" name="table" value={line.ref.table} />
+                <input type="hidden" name="id" value={line.ref.id} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-black text-slate-950">{line.label}</span>
+                  <span className="block text-[11px] font-semibold text-slate-500">{niceDate(line.date)} · {line.direction === "in" ? "+" : "−"}{gbp(line.amount)}</span>
+                </span>
+                <span className="text-xs font-bold text-slate-500">{line.direction === "in" ? "Lands in" : "Paid from"}</span>
+                <select name="payment_account_id" defaultValue={suggest(line)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-bold text-slate-900" aria-label={`Account for ${line.label}`}>
+                  <option value="" disabled>Choose…</option>
+                  {everyday.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+                <ConfirmSubmit question={`Use this account for ${line.label}?`} detail="Balances, the day-by-day line and Split's transfers will include it." confirmLabel="Yes, save" className="rounded-lg bg-slate-950 px-3 py-1.5 text-xs font-black text-white">Save</ConfirmSubmit>
+              </form>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-xs font-semibold"><Link href={`/spending?month=${month}`} className="font-black underline">Set them in Spending</Link></p>
+      )}
+    </details>
+  );
+}
+
 function Group({ title, subtitle, icon, children }: { title: string; subtitle: string; icon: ReactNode; children: ReactNode }) {
   return (
     <section>
@@ -247,7 +293,7 @@ function LineRow({ line, after, scale, past }: { line: AccountLine; after: numbe
   const width = after == null || scale <= 0 ? 0 : Math.min(100, (Math.abs(after) / scale) * 100);
   return (
     <li className={`grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 py-2 ${past ? "opacity-55" : ""}`}>
-      <span className={`grid h-7 w-7 place-items-center rounded-full ${line.kind === "transfer" ? "bg-sky-50 text-sky-700" : isIn ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+      <span className={`grid h-7 w-7 place-items-center rounded-full ${line.kind === "transfer" || line.kind === "topup" ? "bg-sky-50 text-sky-700" : isIn ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
         {isIn ? <ArrowDownLeft className="h-3.5 w-3.5" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
       </span>
       <span className="min-w-0">
@@ -426,7 +472,7 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
         {activity.lines.length && low && low.balance < 0 ? (
           <p className="mt-3 rounded-2xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800">
             Lowest point: <span className="font-black">{gbp(low.balance)}</span> on {niceDate(low.date)}{low.line ? `, after ${low.line.label} (−${gbp(low.line.amount)})` : ""}.
-            {" "}{nextIn && nextIn.date && nextIn.date > low.date ? `Nothing comes in until ${nextIn.label} on ${niceDate(nextIn.date)}.` : !nextIn ? "Nothing is set to come into this account this month." : ""}
+            {" "}{nextIn && nextIn.date && nextIn.date > low.date ? `Nothing comes in until ${gbp(nextIn.amount)} ${nextIn.kind === "transfer" || nextIn.kind === "topup" ? nextIn.label.replace(/^From /, "from ") : `from ${nextIn.label}`} on ${niceDate(nextIn.date)}.` : !nextIn ? "Nothing is set to come into this account this month." : ""}
             {unset ? " The balance is £0 in Loop, which is probably why." : account.joint && !activity.lines.some((l) => l.kind === "transfer") ? " No regular transfers into it are set up yet — add them under Who pays in." : ""}
           </p>
         ) : activity.lines.length && timeline.end != null ? (
@@ -467,6 +513,7 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
 
 /** Savings work differently: no bills, just what's there, what it earns and what's going in. */
 function SavingsCard({ account, today, onSettings }: { account: AccountsHomeAccount; today: string; onSettings: () => void }) {
+  const nextTopUp = account.activity.lines.find((l) => l.direction === "in" && (l.kind === "topup" || l.kind === "transfer") && (!l.date || l.date >= today));
   const monthlyInterest = account.interestRate ? (account.balance * account.interestRate) / 100 / 12 : 0;
   const goalPct = account.goalTarget && account.goalTarget > 0 ? Math.min(100, (account.balance / account.goalTarget) * 100) : null;
   const rateEnds = account.rateEndsOn ? new Date(`${account.rateEndsOn}T12:00:00Z`) : null;
@@ -490,6 +537,9 @@ function SavingsCard({ account, today, onSettings }: { account: AccountsHomeAcco
         {monthlyInterest > 0.005 ? <span className="rounded-full bg-white px-2 py-0.5 text-emerald-800 ring-1 ring-emerald-100">≈ {gbp(Math.round(monthlyInterest * 100) / 100)} a month</span> : null}
         {account.monthlyTopUp > 0 ? <span className="rounded-full bg-white px-2 py-0.5 text-slate-700 ring-1 ring-slate-200">+{gbp(account.monthlyTopUp)}{account.topUpDay ? ` on the ${account.topUpDay}${[, "st", "nd", "rd"][account.topUpDay % 10 > 3 || [11, 12, 13].includes(account.topUpDay) ? 0 : account.topUpDay % 10] || "th"}` : " a month"}</span> : null}
       </div>
+      {nextTopUp ? (
+        <p className="mt-2 text-[11px] font-bold text-slate-600">Next in: <span className="font-black text-slate-900">+{gbp(nextTopUp.amount)}</span> on {niceDate(nextTopUp.date)}{/^From /.test(nextTopUp.label) ? ` ${nextTopUp.label.replace(/^From /, "from ")}` : ""}</p>
+      ) : null}
       {goalPct != null ? (
         <div className="mt-3">
           <div className="flex justify-between text-[11px] font-bold text-slate-500"><span>{account.goalName || "Goal"}</span><span>{Math.round(goalPct)}% of {gbp(account.goalTarget || 0)}</span></div>

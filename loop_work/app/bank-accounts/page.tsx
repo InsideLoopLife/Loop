@@ -60,7 +60,7 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
       .select("id, user_id, linked_user_id, name, relationship, birth_date, account_status, active_until, avatar_url")
       .or(householdPeopleOrFilter(household)),
     supabase.from("planned_items")
-      .select("id, person_id, category_id, direction, item_type, label, amount, recurrence, recurrence_interval_days, start_date, end_date, day_of_month, payment_timing, payment_adjustment, end_behavior, renewal_notice_days, early_upgrade_date, expected_refund_amount, payment_account_id")
+      .select("id, person_id, category_id, direction, item_type, label, amount, recurrence, recurrence_interval_days, start_date, end_date, day_of_month, payment_timing, payment_adjustment, end_behavior, renewal_notice_days, early_upgrade_date, expected_refund_amount, payment_account_id, notes")
       .or(memberFilter),
     supabase.from("pay_events")
       .select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_scheme, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, pay_timing, pay_day_of_month, pay_adjustment, tax_region, payment_account_id")
@@ -104,7 +104,7 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
     }
     return activityCache.get(m)!;
   };
-  const { activity, unassigned } = activityFor(month);
+  const { activity, unassigned, unassignedLines } = activityFor(month);
   const today = todayIso();
 
   // Where each account's balance is known from, moved to the month being looked at.
@@ -159,6 +159,7 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
           hasHousehold={Boolean(household.householdId)}
           transfers={transfers}
           unassignedCount={unassigned}
+          unassignedLines={unassignedLines}
         />
       </main>
     </>

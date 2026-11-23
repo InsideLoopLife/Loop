@@ -1,5 +1,7 @@
 // Regular transfers one person makes into another account (usually a joint account):
 // "Dan moves £150 into Joint every Friday". Pure date maths, shared by the server and the client.
+// Like a standing order, a transfer due on a weekend or bank holiday goes on the next working day.
+import { adjustedWorkday } from "@/lib/planning/summary-plan";
 
 export type TransferFrequency = "weekly" | "fortnightly" | "four_weekly" | "monthly";
 
@@ -41,8 +43,27 @@ function ordinal(n: number) {
   return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
 }
 
-/** Dates (YYYY-MM-DD) the transfer lands on within a month. `month` is "YYYY-MM". */
+function previousMonth(month: string) {
+  const [y, m] = month.split("-").map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+}
+
+function nextWorkingDay(isoDate: string) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const moved = adjustedWorkday(new Date(y, m - 1, d), "next_workday");
+  return `${moved.getFullYear()}-${String(moved.getMonth() + 1).padStart(2, "0")}-${String(moved.getDate()).padStart(2, "0")}`;
+}
+
+/** Dates (YYYY-MM-DD) the transfer actually lands on within a month, after moving off weekends and bank holidays. */
 export function transferDatesInMonth(transfer: Pick<StandingTransfer, "frequency" | "weekday" | "day_of_month" | "start_date" | "end_date">, month: string): string[] {
+  const shifted = [...scheduledDatesInMonth(transfer, previousMonth(month)), ...scheduledDatesInMonth(transfer, month)]
+    .map(nextWorkingDay)
+    .filter((date) => date.startsWith(month));
+  return [...new Set(shifted)].sort();
+}
+
+/** The scheduled dates before any working-day adjustment. */
+export function scheduledDatesInMonth(transfer: Pick<StandingTransfer, "frequency" | "weekday" | "day_of_month" | "start_date" | "end_date">, month: string): string[] {
   const [y, m] = month.split("-").map(Number);
   const monthStart = Date.UTC(y, m - 1, 1);
   const monthEnd = Date.UTC(y, m, 0);

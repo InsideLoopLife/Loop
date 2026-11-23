@@ -65,6 +65,32 @@ async function changeAccountOwner__save(formData: FormData) {
   revalidate();
 }
 
+const PAYMENT_TABLES = ["planned_items", "pay_events", "child_costs", "spending_entries", "home_mortgage_deals"] as const;
+
+/** Say which account a payment (or pay) goes through. */
+async function setPaymentAccount__save(formData: FormData) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Sign in again to continue.");
+  const household = await getActiveHouseholdContext(supabase, user);
+  const table = String(formData.get("table") || "") as (typeof PAYMENT_TABLES)[number];
+  const id = String(formData.get("id") || "");
+  const accountId = String(formData.get("payment_account_id") || "");
+  if (!PAYMENT_TABLES.includes(table) || !UUID.test(id)) throw new Error("That payment isn't available.");
+  if (!UUID.test(accountId)) throw new Error("Choose an account.");
+  const { data: account } = await supabase.from("financial_accounts").select("id").eq("id", accountId).or(visibleDataOrFilter(household)).maybeSingle();
+  if (!account) throw new Error("That account isn't available.");
+  const { data: existing } = await supabase.from(table).select("id").eq("id", id).maybeSingle();
+  if (!existing) throw new Error("That payment isn't available.");
+  const { error } = await changeRecord(supabase.from(table).update({ payment_account_id: accountId } as any), id, household);
+  if (error) throw new Error(error.message);
+  revalidate();
+}
+
+export async function setPaymentAccount(formData: FormData): Promise<void> {
+  return runFriendly(() => setPaymentAccount__save(formData)) as unknown as Promise<void>;
+}
+
 export async function renameAccount(formData: FormData): Promise<void> {
   return runFriendly(() => renameAccount__save(formData)) as unknown as Promise<void>;
 }

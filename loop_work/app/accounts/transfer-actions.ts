@@ -100,6 +100,23 @@ async function removeAccountTransfer__save(formData: FormData) {
   revalidate();
 }
 
+/** Change only how much moves each time (used by Split's "Set to £X"). */
+async function setAccountTransferAmount__save(id: string, amount: number) {
+  const { supabase, household, filter } = await context();
+  const rounded = Math.round(Number(amount) * 100) / 100;
+  if (!UUID.test(id)) throw new Error("That transfer isn't available.");
+  if (!Number.isFinite(rounded) || rounded <= 0 || rounded > 1_000_000) throw new Error("Enter how much moves each time.");
+  const { data: existing } = await supabase.from("household_account_transfers").select("id").eq("id", id).is("archived_at", null).or(filter).maybeSingle();
+  if (!existing) throw new Error("That transfer isn't available.");
+  const { error } = await changeRecord(supabase.from("household_account_transfers").update({ amount: rounded, updated_at: new Date().toISOString() }), id, household);
+  if (error) throw new Error(error.message);
+  revalidate();
+}
+
+export async function setAccountTransferAmount(id: string, amount: number): Promise<void> {
+  return runFriendly(() => setAccountTransferAmount__save(id, amount)) as unknown as Promise<void>;
+}
+
 export async function saveAccountTransfer(formData: FormData): Promise<void> {
   return runFriendly(() => saveAccountTransfer__save(formData)) as unknown as Promise<void>;
 }

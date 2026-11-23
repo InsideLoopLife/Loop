@@ -1,5 +1,7 @@
 "use client";
 
+import { isLoopError } from "@/lib/actions/friendly";
+import { setAccountTransferAmount } from "@/app/accounts/transfer-actions";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { SectionCard } from "@/components/SectionCard";
 import { ModalFrame } from "@/components/ui/ModalFrame";
@@ -330,6 +332,27 @@ function Transfers({ result, money, nameOf, month, standing, accountNames }: {
                 </p>
               ))}
               <p className={`mt-1 text-xs font-black ${st.tone}`}>{st.text}</p>
+              {(() => {
+                if (row.needed == null || row.setUp.length !== 1 || !row.setUp[0].dates.length) return null;
+                const only = row.setUp[0];
+                const each = Math.ceil((row.needed / only.dates.length) * 100) / 100;
+                const rounded = Math.ceil(each);
+                if (Math.abs(rounded * only.dates.length - only.amount) < 1) return null;
+                return (
+                  <ConfirmButton
+                    question={`Change this transfer to ${money(rounded)} each time?`}
+                    detail={`${nameOf(row.fromPersonId)}'s regular transfer into ${row.toName} changes from now on. Remember to change the standing order at the bank too.`}
+                    confirmLabel="Yes, change it"
+                    onConfirm={async () => {
+                      const result = (await setAccountTransferAmount(only.id, rounded)) as unknown;
+                      if (!isLoopError(result)) window.location.reload();
+                    }}
+                    className="mt-2 rounded-full bg-white/10 px-3 py-1 text-xs font-black text-white hover:bg-white/20"
+                  >
+                    Set to {money(rounded)}{only.dates.length > 1 ? " each time" : ""}
+                  </ConfirmButton>
+                );
+              })()}
             </li>
           );
         })}
