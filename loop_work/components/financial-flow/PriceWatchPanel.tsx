@@ -130,7 +130,7 @@ export function PriceWatchPanel({ alerts }: { alerts: PriceAlert[] }) {
           </p>
         </div>
       </div>
-      <ul className="mt-4 grid gap-3 lg:grid-cols-2">
+      <ul className="mt-4 grid gap-3 lg:grid-cols-2 min-[1700px]:grid-cols-1">
         {shown.map((alert) => <Alert key={alert.key} alert={alert} />)}
       </ul>
       {alerts.length > 4 ? (

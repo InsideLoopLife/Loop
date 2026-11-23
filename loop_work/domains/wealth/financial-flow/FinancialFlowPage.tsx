@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import { Nav } from "@/components/Nav";
 import { PriceWatchPanel } from "@/components/financial-flow/PriceWatchPanel";
+import { FlowChart } from "@/components/financial-flow/FlowChart";
+import { buildFlowCharts } from "@/lib/planning/flow-chart";
 import { priceWatch } from "@/lib/bills/price-watch";
 import { createClient } from "@/lib/supabase/server";
 import { PageLandingExperience } from "@/components/landing/PageLandingExperience";
@@ -267,6 +269,8 @@ type MonthModel = {
   savingsOnlyTotal: number;
   leftoverCash: number;
   spendByRealGroup: Map<string, number>;
+  /** Group → category → amount, for the expanded flow chart. */
+  spendByGroupCategory: Map<string, Map<string, number>>;
   hasAnyRealGroups: boolean;
   personTotals: PersonMonthTotal[];
 };
@@ -813,6 +817,40 @@ const FLOW_TONE_BADGE: Record<Tone, string> = {
   slate: "bg-slate-100 text-slate-500",
 };
 
+function FlowChartSection({ model, people }: { model: MonthModel; people: Person[] }) {
+  const evidenceOf = (keys: string[]) => model.savingsRows
+    .filter((row) => keys.includes(row.key))
+    .flatMap((row) => (row.evidence?.length ? row.evidence : [{ key: row.key, label: row.label, amount: row.amount }]))
+    .map((e) => ({ key: e.key, label: e.label, amount: e.amount }));
+  const otherSavingKeys = model.savingsRows.map((r) => r.key).filter((k) => k !== "investment-topups");
+  const charts = buildFlowCharts({
+    month: model.key,
+    totalIncome: model.totalIncome,
+    income: model.incomeLines.map((line) => ({
+      key: line.key,
+      label: line.label,
+      amount: line.amount,
+      personLabel: line.personId ? people.find((p) => p.id === line.personId)?.name ?? null : null,
+      colour: personColour(line.personId ?? null, people),
+    })),
+    spending: model.committedSpending,
+    savingsTotal: model.savingsOnlyTotal,
+    investmentsTotal: model.investmentsTotal,
+    savings: evidenceOf(otherSavingKeys),
+    investments: evidenceOf(["investment-topups"]),
+    cashflow: model.leftoverCash,
+    groups: model.hasAnyRealGroups
+      ? Array.from(model.spendByRealGroup.entries()).map(([label, amount]) => ({
+          label,
+          amount,
+          categories: Array.from(model.spendByGroupCategory.get(label)?.entries() || []).map(([category, value]) => ({ label: category, amount: value })),
+        }))
+      : [],
+  });
+  if (!charts.summary.nodes.length || model.totalIncome <= 0) return <FlowSankeyDiagram model={model} people={people} />;
+  return <FlowChart summary={charts.summary} detail={charts.detail} total={model.totalIncome} title={`Where ${formatMoney(model.totalIncome)} of income goes`} />;
+}
+
 function MainFlowDiagram({ model, people }: { model: MonthModel; people: Person[] }) {
   const detailRows: FlowLine[] = [
     ...model.spendRows.slice(0, 8),
@@ -822,7 +860,7 @@ function MainFlowDiagram({ model, people }: { model: MonthModel; people: Person[
 
   return (
     <>
-      <FlowSankeyDiagram model={model} people={people} />
+      <FlowChartSection model={model} people={people} />
     </>
   );
 }
@@ -844,7 +882,7 @@ function MoneyFlowCalendar({ months, selectedMonth, activeTab, scopeIds }: { mon
           <p className="mt-1 text-sm font-semibold text-slate-500">Colours show profile allocation. Hover each bar to see what is using what.</p>
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 min-[2200px]:grid-cols-6">
         {months.map((summary) => {
           const selected = summary.key === selectedMonth;
           const title = summary.personTotals.map((person) => `${person.label}: income ${formatMoney(person.income)}, spending ${formatMoney(person.spending)}, savings ${formatMoney(person.savings)}`).join("\n");
@@ -1070,27 +1108,34 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     // reflect the groups the household has actually set up on the "Manage categories and groups"
     // board rather than LOOP's best-guess category labels.
     const spendByRealGroup = new Map<string, number>();
+    const spendByGroupCategory = new Map<string, Map<string, number>>();
+    const addToGroup = (groupKey: string, categoryLabel: string, amount: number) => {
+      spendByRealGroup.set(groupKey, (spendByRealGroup.get(groupKey) || 0) + amount);
+      const cats = spendByGroupCategory.get(groupKey) || new Map<string, number>();
+      cats.set(categoryLabel, (cats.get(categoryLabel) || 0) + amount);
+      spendByGroupCategory.set(groupKey, cats);
+    };
     for (const item of (plannedResult.data || []).filter((row) => row.direction !== "income" && !isLinkedSavingsTransfer(row) && personOwned(row, activeScope) && plannedItemAppliesToMonth(row, rangeStart, rangeEnd))) {
-      const groupName = item.category_id ? groupById.get(categoryById.get(item.category_id)?.group_id || "")?.name : null;
-      const key = groupName || "__ungrouped";
-      spendByRealGroup.set(key, (spendByRealGroup.get(key) || 0) + n(item.amount) * plannedItemOccurrencesInRange(item, rangeStart, rangeEnd));
+      const category = item.category_id ? categoryById.get(item.category_id) : null;
+      const groupName = category ? groupById.get(category.group_id || "")?.name : null;
+      addToGroup(groupName || "__ungrouped", category?.name || "Uncategorised", n(item.amount) * plannedItemOccurrencesInRange(item, rangeStart, rangeEnd));
     }
     for (const cost of (childCostsResult.data || []).filter((row) => (!activeScope.length || activeScope.includes(row.child_id || "")) && isActiveInMonth(row.starts_on, row.ends_on, rangeStart, rangeEnd))) {
-      const groupName = cost.category_id ? groupById.get(categoryById.get(cost.category_id)?.group_id || "")?.name : null;
-      const key = groupName || "__ungrouped";
-      spendByRealGroup.set(key, (spendByRealGroup.get(key) || 0) + getChildCostMonthlyAmount(cost, monthKey));
+      const category = cost.category_id ? categoryById.get(cost.category_id) : null;
+      const groupName = category ? groupById.get(category.group_id || "")?.name : null;
+      addToGroup(groupName || "__ungrouped", category?.name || "Childcare", getChildCostMonthlyAmount(cost, monthKey));
     }
     for (const entry of monthSpendingEntries) {
-      const groupName = entry.category_id ? groupById.get(categoryById.get(entry.category_id)?.group_id || "")?.name : null;
-      const key = groupName || "__ungrouped";
-      spendByRealGroup.set(key, (spendByRealGroup.get(key) || 0) + n(entry.amount));
+      const category = entry.category_id ? categoryById.get(entry.category_id) : null;
+      const groupName = category ? groupById.get(category.group_id || "")?.name : null;
+      addToGroup(groupName || "__ungrouped", category?.name || "One-off spending", n(entry.amount));
     }
     // Mortgage payments come from Home & mortgage rather than a planned item, so
     // they have no category group. Name them here instead of leaving them in the
     // flow diagram's unexplained "Other spending" remainder.
     for (const deal of (mortgageDealRows || []).filter((row: any) => isActiveInMonth(row.start_date, row.end_date, rangeStart, rangeEnd))) {
       const amount = mortgageDealMonthlyPayment(deal as any);
-      if (amount > 0) spendByRealGroup.set("Mortgage", (spendByRealGroup.get("Mortgage") || 0) + amount);
+      if (amount > 0) addToGroup("Mortgage", deal.lender ? `Mortgage · ${deal.lender}` : "Mortgage", amount);
     }
     const hasAnyRealGroups = groupById.size > 0;
     const leftoverCash = Math.max(totalIncome - committedSpending - savingsTotal, 0);
@@ -1134,7 +1179,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     const investmentsTotal = savingsRows.filter((row) => row.key === "investment-topups").reduce((sum, row) => sum + row.amount, 0);
     const savingsOnlyTotal = Math.max(0, savingsTotal - investmentsTotal);
 
-    return { key: monthKey, incomeLines, spendRows, savingsRows, totalIncome, committedSpending, savingsTotal, investmentsTotal, savingsOnlyTotal, leftoverCash, personTotals, spendByRealGroup, hasAnyRealGroups };
+    return { key: monthKey, incomeLines, spendRows, savingsRows, totalIncome, committedSpending, savingsTotal, investmentsTotal, savingsOnlyTotal, leftoverCash, personTotals, spendByRealGroup, spendByGroupCategory, hasAnyRealGroups };
   }
 
   const model = buildModel(month.key, true);
@@ -1329,14 +1374,12 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
 
         {!hasFlowData ? <PageLandingExperience kind="financial-flow" /> : null}
 
-        {activeTab === "flow" && hasFlowData ? (
-          <Suspense fallback={null}>
-            <PriceWatchSection visibleFilter={visibleFilter} />
-          </Suspense>
-        ) : null}
 
-        {activeTab === "income" ? null : <div className="my-2 py-2"><ScopeSelector people={people} activeTab={activeTab} month={month.key} scopeIds={scopeIds} /></div>}
 
+        {(() => {
+          const scopeRow = activeTab === "income" ? null : <div className="my-2 py-2"><ScopeSelector people={people} activeTab={activeTab} month={month.key} scopeIds={scopeIds} /></div>;
+          const body = (
+            <>
         {activeTab === "savings" ? (
           <SavingsFlowDetail
             monthKey={month.key}
@@ -1381,6 +1424,21 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
             {yearMonths.length ? <MoneyFlowCalendar months={yearMonths} selectedMonth={month.key} activeTab={activeTab} scopeIds={scopeIds} /> : null}
           </>
         )}
+            </>
+          );
+          if (activeTab !== "flow" || !hasFlowData) return <>{scopeRow}{body}</>;
+          // Wide screens: bills heads-up sits in a side column next to the month, so the page uses the width.
+          return (
+            <div className="grid items-start gap-6 min-[1700px]:grid-cols-[minmax(0,1fr)_400px]">
+              <div className="min-w-0 space-y-6">{scopeRow}{body}</div>
+              <aside className="loop-flow-rail order-first min-w-0 min-[1700px]:sticky min-[1700px]:top-6 min-[1700px]:order-none">
+                <Suspense fallback={null}>
+                  <PriceWatchSection visibleFilter={visibleFilter} />
+                </Suspense>
+              </aside>
+            </div>
+          );
+        })()}
       </main>
     </>
   );

@@ -31,6 +31,21 @@ export function FinancialFlowHouseShell({ children, section }: Props) {
           margin: 1.25rem auto 0;
           padding-inline: 1rem;
         }
+        /* Big screens: the overview (Flow) uses more of the width; other tabs keep their width. */
+        @media (min-width: 1700px) {
+          .loop-financial-house-shell[data-flow-section="flow"] main[class*="w-[95vw]"],
+          .loop-financial-house-shell[data-flow-section="flow"] .loop-financial-workspace-nav {
+            width: min(100%, 1640px) !important;
+            max-width: 1640px !important;
+          }
+        }
+        @media (min-width: 2200px) {
+          .loop-financial-house-shell[data-flow-section="flow"] main[class*="w-[95vw]"],
+          .loop-financial-house-shell[data-flow-section="flow"] .loop-financial-workspace-nav {
+            width: min(100%, 1880px) !important;
+            max-width: 1880px !important;
+          }
+        }
         .loop-flow-nav-card {
           display: flex;
           flex-wrap: wrap;
