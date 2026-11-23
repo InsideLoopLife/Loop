@@ -7,12 +7,12 @@ import { ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, PiggyBank, Plus
 import { ModalFrame } from "@/components/ui/ModalFrame";
 import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 import { FinancialInstitutionLogo } from "@/components/savings/FinancialInstitutionLogo";
-import { JointPayIns } from "@/components/accounts/JointPayIns";
+import { JointPayIns, TransferForm } from "@/components/accounts/JointPayIns";
 import { isLoopError } from "@/lib/actions/friendly";
 import type { AccountActivity, AccountLine, UnassignedLine } from "@/lib/accounts/account-activity";
 import type { StandingTransfer } from "@/lib/accounts/standing-transfers";
 import { balanceTimeline, type BalanceAnchor, type BalanceTimeline } from "@/lib/accounts/daily-balance";
-import { deleteFinancialAccount, quickAddFinancialAccount, updateFinancialAccount } from "@/app/accounts/actions";
+import { createSavingsPot, deleteFinancialAccount, quickAddFinancialAccount, updateFinancialAccount } from "@/app/accounts/actions";
 import { removeAccountTransfer, saveAccountTransfer } from "@/app/accounts/transfer-actions";
 import { changeAccountOwner, renameAccount, setPaymentAccount } from "@/app/bank-accounts/actions";
 
@@ -35,11 +35,24 @@ export type AccountsHomeAccount = {
   shared: boolean;
   ownershipScope: string;
   anchor: BalanceAnchor;
+  pots?: AccountPot[];
   trackedFrom: string | null;
   activity: AccountActivity;
 };
 
 type Person = { id: string; name: string; avatarUrl: string | null };
+
+export type AccountPot = {
+  id: string;
+  name: string;
+  icon: string | null;
+  purpose: "saving" | "spending";
+  monthly: number;
+  day: number | null;
+  target: number | null;
+  targetDate: string | null;
+  current: number;
+};
 
 const UK_BANKS = ["Barclays", "Chase", "First Direct", "Halifax", "HSBC", "Lloyds", "Monzo", "Nationwide", "NatWest", "Santander", "Starling", "TSB", "Revolut", "Virgin Money", "Co-operative Bank", "Metro Bank", "Kroo", "Chase UK"];
 
@@ -94,6 +107,8 @@ export function AccountsHome({
 }) {
   const [adding, setAdding] = useState(false);
   const [settingsFor, setSettingsFor] = useState<AccountsHomeAccount | null>(null);
+  const [transferInto, setTransferInto] = useState<AccountsHomeAccount | null>(null);
+  const [potFor, setPotFor] = useState<AccountsHomeAccount | null>(null);
   const personById = new Map(people.map((p) => [p.id, p]));
   const isCurrentMonth = month === today.slice(0, 7);
 
@@ -111,14 +126,14 @@ export function AccountsHome({
       <div className="space-y-4">
         {everyday.length ? (
           <div className={`grid items-start gap-4 ${everyday.length > 1 ? "xl:grid-cols-2 min-[2200px]:grid-cols-3" : ""}`}>
-            {everyday.map((account) => <AccountCard key={account.id} account={account} today={today} isCurrentMonth={isCurrentMonth} month={month} wide={everyday.length === 1} onSettings={() => setSettingsFor(account)} />)}
+            {everyday.map((account) => <AccountCard key={account.id} account={account} today={today} isCurrentMonth={isCurrentMonth} month={month} wide={everyday.length === 1} onSettings={() => setSettingsFor(account)} onAddTransfer={() => setTransferInto(account)} onAddPot={() => setPotFor(account)} />)}
           </div>
         ) : null}
         {savings.length ? (
           <div>
             <p className="mb-2 text-xs font-black uppercase tracking-[0.14em] text-emerald-700">Savings · {gbp(savings.reduce((sum, a) => sum + a.balance, 0))}</p>
             <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 min-[1700px]:grid-cols-4 min-[2200px]:grid-cols-6">
-              {savings.map((account) => <SavingsCard key={account.id} account={account} today={today} onSettings={() => setSettingsFor(account)} />)}
+              {savings.map((account) => <SavingsCard key={account.id} account={account} today={today} onSettings={() => setSettingsFor(account)} onAddPot={() => setPotFor(account)} />)}
             </div>
           </div>
         ) : null}
@@ -203,6 +218,30 @@ export function AccountsHome({
       {adding ? createPortal(
         <ModalFrame title="Add an account" description="Three quick choices. You can change any of them later." eyebrow="Accounts" maxWidth="max-w-xl" onClose={() => setAdding(false)}>
           <AddAccountForm people={people} meId={meId} hasHousehold={hasHousehold} onDone={() => setAdding(false)} />
+        </ModalFrame>,
+        document.body,
+      ) : null}
+
+      {transferInto ? createPortal(
+        <ModalFrame title={`Regular transfer into ${transferInto.name}`} description="Money one of you moves into this account on a schedule." eyebrow="Accounts" maxWidth="max-w-xl" onClose={() => setTransferInto(null)}>
+          <TransferForm
+            initial={{ to_account_id: transferInto.id, person_id: meId || people[0]?.id, frequency: "monthly", day_of_month: 1, start_date: today }}
+            people={people}
+            jointAccounts={accounts.filter((a) => a.kind === "everyday" || a.id === transferInto.id).map((a) => ({ id: a.id, name: a.name, provider: a.provider }))}
+            personalAccounts={accounts.filter((a) => !a.joint && a.id !== transferInto.id).map((a) => ({ id: a.id, name: a.name, provider: a.provider, ownerPersonId: a.ownerPersonId }))}
+            today={today}
+            onSubmit={async (fd) => {
+              const result = (await saveAccountTransfer(fd)) as unknown;
+              if (!isLoopError(result)) setTransferInto(null);
+            }}
+          />
+        </ModalFrame>,
+        document.body,
+      ) : null}
+
+      {potFor ? createPortal(
+        <ModalFrame title={`New pot in ${potFor.name}`} description="Money set aside inside this account — for something you're saving for, or to spend." eyebrow="Pots" maxWidth="max-w-xl" onClose={() => setPotFor(null)}>
+          <PotForm account={potFor} today={today} onDone={() => setPotFor(null)} />
         </ModalFrame>,
         document.body,
       ) : null}
@@ -373,7 +412,7 @@ function BalanceChart({ timeline, today, onPick, picked }: { timeline: BalanceTi
   );
 }
 
-function AccountCard({ account, today, isCurrentMonth, month, onSettings, wide = false }: { account: AccountsHomeAccount; today: string; isCurrentMonth: boolean; month: string; onSettings: () => void; wide?: boolean }) {
+function AccountCard({ account, today, isCurrentMonth, month, onSettings, onAddTransfer, onAddPot, wide = false }: { account: AccountsHomeAccount; today: string; isCurrentMonth: boolean; month: string; onSettings: () => void; onAddTransfer: () => void; onAddPot: () => void; wide?: boolean }) {
   const [showAll, setShowAll] = useState(false);
   const [editingBalance, setEditingBalance] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
@@ -437,18 +476,25 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings, wide =
               <input type="hidden" name="ownership_scope" value={account.ownershipScope} />
               <input type="hidden" name="visibility_scope" value={account.shared ? "household" : "private"} />
               <input type="hidden" name="savings_limit_scope" value={account.joint ? "joint" : "individual"} />
-              <input name="current_balance" type="number" step="0.01" defaultValue={account.balance || ""} placeholder="Today's balance" autoFocus className="w-36 rounded-xl border border-slate-200 px-3 py-2 text-sm font-black" aria-label="Balance today" />
+              <input name="current_balance" type="number" step="0.01" defaultValue={account.balance || ""} placeholder={unset ? "Starting amount today" : "Today's balance"} autoFocus className="w-36 rounded-xl border border-slate-200 px-3 py-2 text-sm font-black" aria-label="Balance today" />
               <ConfirmSubmit question="Update the balance?" detail="Loop works the balance out from this figure, as of today." confirmLabel="Yes, update" className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white">Save</ConfirmSubmit>
               <button type="button" onClick={() => setEditingBalance(false)} className="text-xs font-bold text-slate-500">Cancel</button>
             </form>
           ) : (
-            <button type="button" onClick={() => setEditingBalance(true)} className={`rounded-full px-3 py-1.5 text-xs font-black ${(unset || stale) && !tracked ? "bg-amber-100 text-amber-900 hover:bg-amber-200" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{tracked ? "Correct balance" : "Update balance"}</button>
+            <button type="button" onClick={() => setEditingBalance(true)} className={`rounded-full px-3 py-1.5 text-xs font-black ${(unset || stale) && !tracked ? "bg-amber-100 text-amber-900 hover:bg-amber-200" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{tracked ? "Correct balance" : unset ? "Set starting amount" : "Update balance"}</button>
           )}
         </div>
 
         {unset ? (
           <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">Add today&apos;s balance to see the day-by-day line and where it ends the month. Until then, here&apos;s what&apos;s planned in and out.</p>
         ) : null}
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={onAddTransfer} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50"><Plus className="h-3.5 w-3.5" /> Regular transfer in</button>
+          <button type="button" onClick={onAddPot} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50"><Plus className="h-3.5 w-3.5" /> Pot</button>
+        </div>
+
+        <PotList pots={account.pots || []} />
 
         {activity.lines.length && !unset ? (
           <div className="mt-4 rounded-2xl bg-slate-50/80 p-3">
@@ -515,7 +561,7 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings, wide =
 }
 
 /** Savings work differently: no bills, just what's there, what it earns and what's going in. */
-function SavingsCard({ account, today, onSettings }: { account: AccountsHomeAccount; today: string; onSettings: () => void }) {
+function SavingsCard({ account, today, onSettings, onAddPot }: { account: AccountsHomeAccount; today: string; onSettings: () => void; onAddPot: () => void }) {
   const nextTopUp = account.activity.lines.find((l) => l.direction === "in" && (l.kind === "topup" || l.kind === "transfer") && (!l.date || l.date >= today));
   const monthlyInterest = account.interestRate ? (account.balance * account.interestRate) / 100 / 12 : 0;
   const goalPct = account.goalTarget && account.goalTarget > 0 ? Math.min(100, (account.balance / account.goalTarget) * 100) : null;
@@ -550,11 +596,104 @@ function SavingsCard({ account, today, onSettings }: { account: AccountsHomeAcco
         </div>
       ) : null}
       {rateEnds ? <p className={`mt-2 text-[11px] font-bold ${rateEndsSoon ? "text-amber-800" : "text-slate-500"}`}>Rate ends {new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(rateEnds)}</p> : null}
+      <PotList pots={account.pots || []} compact />
       <div className="mt-3 flex items-center justify-between text-[11px] font-semibold text-slate-500">
         <span>{checkedAgo(account.balanceConfirmedAt, today)}</span>
+        <button type="button" onClick={onAddPot} className="font-black text-slate-700 hover:underline">＋ Pot</button>
         <Link href="/accounts?tab=accounts" className="font-black text-emerald-800 hover:underline">Manage →</Link>
       </div>
     </article>
+  );
+}
+
+function ordinal(n: number) {
+  const v = n % 100;
+  return `${n}${(["th", "st", "nd", "rd"] as const)[(v - 20) % 10] || (["th", "st", "nd", "rd"] as const)[v] || "th"}`;
+}
+
+/** The pots that live in an account: what each is for, how much goes in and when, and progress to its target. */
+function PotList({ pots, compact = false }: { pots: AccountPot[]; compact?: boolean }) {
+  if (!pots.length) return null;
+  const monthly = pots.reduce((sum, p) => sum + p.monthly, 0);
+  return (
+    <div className={`${compact ? "mt-3" : "mt-4"} rounded-2xl border border-slate-100 bg-white`}>
+      <p className="flex items-center justify-between px-3 pt-2.5 text-[11px] font-black uppercase tracking-wide text-slate-400">
+        <span>Pots</span>
+        {monthly > 0 ? <span className="normal-case tracking-normal">{gbp(monthly)} a month set aside</span> : null}
+      </p>
+      <ul className="divide-y divide-slate-100">
+        {pots.map((pot) => {
+          const pct = pot.target ? Math.min(100, (pot.current / pot.target) * 100) : null;
+          return (
+            <li key={pot.id} className="px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="text-base" aria-hidden>{pot.icon || (pot.purpose === "spending" ? "🛍️" : "🎯")}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-bold text-slate-900">{pot.name}</span>
+                  <span className="block text-[11px] font-semibold text-slate-500">
+                    {pot.purpose === "spending" ? "Spending money" : "Saving"}
+                    {pot.monthly > 0 ? ` · ${gbp(pot.monthly)}${pot.day ? ` on the ${ordinal(pot.day)}` : " a month"}` : ""}
+                    {pot.target ? ` · target ${gbp(pot.target)}${pot.targetDate ? ` by ${new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric" }).format(new Date(`${pot.targetDate}T12:00:00Z`))}` : ""}` : ""}
+                  </span>
+                </span>
+                <span className="text-sm font-black tabular-nums text-slate-900">{gbp(pot.current)}</span>
+              </div>
+              {pct != null ? <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${pot.purpose === "spending" ? "bg-amber-400" : "bg-emerald-500"}`} style={{ width: `${pct}%` }} /></div> : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/** New pot inside an account: what it's for, how much and when, and an optional target. */
+function PotForm({ account, today, onDone }: { account: AccountsHomeAccount; today: string; onDone: () => void }) {
+  const [name, setName] = useState("");
+  const [purpose, setPurpose] = useState<"saving" | "spending">("saving");
+  const [monthly, setMonthly] = useState("");
+  const [day, setDay] = useState("1");
+  const [target, setTarget] = useState("");
+  const [targetDate, setTargetDate] = useState("");
+  const [already, setAlready] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const field = "mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-950";
+  const label = "text-xs font-black text-slate-600";
+  const months = targetDate && Number(target) > 0 ? Math.max(1, Math.round((Date.parse(`${targetDate}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / (30.44 * 86_400_000))) : null;
+  const suggested = months && !Number(monthly) ? Math.ceil(Math.max(0, Number(target) - Number(already || 0)) / months) : null;
+  return (
+    <form
+      action={async (fd) => { setError(null); const r = (await createSavingsPot(fd)) as unknown; if (isLoopError(r)) setError(r.__loopError); else onDone(); }}
+      className="space-y-4"
+    >
+      <input type="hidden" name="financial_account_id" value={account.id} />
+      <input type="hidden" name="pot_purpose" value={purpose} />
+      <input type="hidden" name="visibility_scope" value={account.shared || account.joint ? "household" : "private"} />
+      <input type="hidden" name="allocation_amount" value={already || "0"} />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Choice active={purpose === "saving"} onClick={() => setPurpose("saving")} title="Saving for something" help="e.g. Holiday, Christmas, a new car" />
+        <Choice active={purpose === "spending"} onClick={() => setPurpose("spending")} title="Spending money" help="e.g. ad-hoc spending, days out" />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className={`${label} sm:col-span-2`}>Name<input name="name" value={name} onChange={(e) => setName(e.target.value)} placeholder={purpose === "saving" ? "Holiday" : "Ad-hoc spending"} maxLength={60} className={field} /></label>
+        <label className={label}>How much each month<input name="monthly_target" type="number" step="0.01" min="0" inputMode="decimal" value={monthly} onChange={(e) => setMonthly(e.target.value)} placeholder={suggested ? String(suggested) : "100"} className={field} /></label>
+        <label className={label}>Day it goes in<input name="save_day_of_month" type="number" min="1" max="31" value={day} onChange={(e) => setDay(e.target.value)} className={field} /></label>
+        <label className={label}>Target (optional)<input name="target_amount" type="number" step="0.01" min="0" inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="1500" className={field} /></label>
+        <label className={label}>By (optional)<input name="target_date" type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className={field} /></label>
+        <label className={`${label} sm:col-span-2`}>Already in it (optional)<input type="number" step="0.01" min="0" inputMode="decimal" value={already} onChange={(e) => setAlready(e.target.value)} placeholder="0" className={field} /></label>
+      </div>
+      <div className="rounded-2xl bg-slate-950 p-4 text-white">
+        <p className="text-sm font-black">{name.trim() || (purpose === "saving" ? "Holiday" : "Ad-hoc spending")} · in {account.name}</p>
+        <p className="mt-0.5 text-xs font-semibold text-white/70">
+          {Number(monthly) > 0 ? `${gbp(Number(monthly))} set aside on the ${ordinal(Number(day) || 1)} of each month` : suggested ? `About ${gbp(suggested)} a month reaches the target in time` : "No monthly amount yet"}
+          {Number(target) > 0 ? ` · target ${gbp(Number(target))}` : ""}
+        </p>
+      </div>
+      {error ? <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-2 text-sm font-bold text-rose-800">{error}</p> : null}
+      <div className="flex justify-end">
+        <ConfirmSubmit disabled={!name.trim()} question="Create this pot?" detail="Its monthly amount shows as set aside in this account and in Flow." confirmLabel="Yes, create it" className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-black text-white disabled:opacity-40">Create pot</ConfirmSubmit>
+      </div>
+    </form>
   );
 }
 

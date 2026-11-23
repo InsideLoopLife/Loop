@@ -874,7 +874,7 @@ type AccountFlowView = (ReturnType<typeof buildAccountFlowCharts> & { names: str
 
 function AccountFlowSection({ flow }: { flow: NonNullable<AccountFlowView> }) {
   const missing = flow.unassigned > 0 ? ` ${flow.unassigned} payment${flow.unassigned === 1 ? " doesn't" : "s don't"} say which account ${flow.unassigned === 1 ? "it uses" : "they use"}, so ${flow.unassigned === 1 ? "it isn't" : "they aren't"} shown — set them on Accounts.` : "";
-  const note = `Only ${flow.names}: the money that goes in (transfers from each of you and household income) and the bills paid from it this month.${missing}`;
+  const note = `Only ${flow.names}: the money that goes in (transfers from each of you and household income), the bills paid from it, and what's set aside in its pots this month.${missing}`;
   return (
     <FlowChart
       summary={flow.summary}
@@ -1031,11 +1031,12 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     supabase.from("child_costs").select("id, child_id, label, cost_kind, category_id, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on, care_type, care_details, bill_person_id, payment_account_id").or(memberFilter).returns<ChildCostForPlan[]>(),
   ]));
   // Mortgage payments and exact monthly pay come from the same shared logic as Summary and the calendar.
-  const [{ data: mortgageDealRows }, payRows, { data: splitGroupRows }, { data: splitSettingRows }, { data: transferRows }] = await timer.time("mortgage_pay", Promise.all([
+  const [{ data: mortgageDealRows }, payRows, { data: splitGroupRows }, { data: splitSettingRows }, { data: accountPotRows }, { data: transferRows }] = await timer.time("mortgage_pay", Promise.all([
     supabase.from("home_mortgage_deals").select("id, lender, balance, interest_rate, term_years, monthly_payment_override, start_date, end_date, payment_account_id").or(visibleFilter),
     withPayOverrides(supabase, payResult.data || []),
     activeTab === "flow" ? supabase.from("household_split_groups").select("id, name, method, custom_shares, payer_person_id, members, sort_order").is("archived_at", null).or(visibleFilter).order("sort_order") : Promise.resolve({ data: [] as any[] }),
     activeTab === "flow" ? supabase.from("household_split_settings").select("savings_mode, low_earner_mode, owner_covers").or(visibleFilter).limit(1) : Promise.resolve({ data: [] as any[] }),
+    activeTab === "flow" ? supabase.from("savings_pots").select("id, name, account_id, monthly_target, pot_purpose, status").not("account_id", "is", null).neq("status", "archived").or(visibleFilter) : Promise.resolve({ data: [] as any[] }),
     activeTab === "flow" ? supabase.from("household_account_transfers").select("id, person_id, from_account_id, to_account_id, amount, frequency, weekday, day_of_month, start_date, end_date, note").is("archived_at", null).or(memberFilter) : Promise.resolve({ data: [] as any[] }),
   ]));
 
@@ -1301,7 +1302,11 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
       if (line.ref?.table === "spending_entries") return nameOfCategory(entryById.get(line.ref.id)?.category_id) || "One-off spending";
       return "Other";
     };
-    const charts = buildAccountFlowCharts({ month: month.key, accounts: jointAccounts.map((account) => ({ id: account.id, name: accountNames[account.id] })), activity, categoryOf });
+    const pots: Record<string, Array<{ id: string; name: string; monthly: number; purpose: "saving" | "spending" }>> = {};
+    for (const pot of (accountPotRows || []) as any[]) {
+      pots[pot.account_id] = [...(pots[pot.account_id] || []), { id: pot.id, name: pot.name, monthly: n(pot.monthly_target), purpose: pot.pot_purpose === "spending" ? "spending" : "saving" }];
+    }
+    const charts = buildAccountFlowCharts({ month: month.key, accounts: jointAccounts.map((account) => ({ id: account.id, name: accountNames[account.id] })), activity, categoryOf, pots });
     return { ...charts, names: jointAccounts.map((account) => accountNames[account.id]).join(" & "), unassigned };
   })() : null;
   // The detailed flow chart traces whose money pays for what, using Split's rules (whole household only).
@@ -1559,7 +1564,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
             {accountFlow ? (
               <section className="grid gap-4 md:grid-cols-3">
                 <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">Into {accountFlow.names}</p><p className="mt-1 text-[26px] font-semibold tracking-tight text-[var(--pine)]">{formatMoney(accountFlow.totalIn)}</p><p className="mt-1 text-xs text-[var(--muted)]">Transfers from each of you and household income</p></article>
-                <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">Out of {accountFlow.names}</p><p className="mt-1 text-[26px] font-semibold tracking-tight text-[var(--ink)]">{formatMoney(accountFlow.totalOut)}</p><p className="mt-1 text-xs text-[var(--muted)]">Bills and payments it pays</p></article>
+                <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">Out of {accountFlow.names}</p><p className="mt-1 text-[26px] font-semibold tracking-tight text-[var(--ink)]">{formatMoney(accountFlow.totalOut)}</p><p className="mt-1 text-xs text-[var(--muted)]">Bills, payments and pots</p></article>
                 <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">{accountFlow.totalIn >= accountFlow.totalOut ? "Stays in the account" : "Short this month"}</p><p className={`mt-1 text-[26px] font-semibold tracking-tight ${accountFlow.totalIn >= accountFlow.totalOut ? "text-[var(--ink)]" : "text-rose-700"}`}>{formatMoney(Math.abs(accountFlow.totalIn - accountFlow.totalOut))}</p><p className="mt-1 text-xs text-[var(--muted)]">{accountFlow.totalIn >= accountFlow.totalOut ? "More goes in than out" : "More goes out than comes in"}</p></article>
               </section>
             ) : (

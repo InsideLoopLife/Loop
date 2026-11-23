@@ -19,9 +19,11 @@ function inLabel(line: AccountLine) {
   return line.label;
 }
 
-export function buildAccountFlowCharts({ month, accounts, activity, categoryOf }: {
+export function buildAccountFlowCharts({ month, accounts, activity, categoryOf, pots = {} }: {
   month: string;
   accounts: Array<{ id: string; name: string }>;
+  /** Pots inside each account: their monthly amount is set aside there, so it shows as its own destination. */
+  pots?: Record<string, Array<{ id: string; name: string; monthly: number; purpose: "saving" | "spending" }>>;
   activity: Record<string, AccountActivity | undefined>;
   categoryOf: (line: AccountLine) => string;
 }): { summary: FlowChart; detail: FlowChart; totalIn: number; totalOut: number } {
@@ -33,8 +35,9 @@ export function buildAccountFlowCharts({ month, accounts, activity, categoryOf }
       const ins = sumBy(lines.filter((l) => l.direction === "in"), inLabel, (l) => l.amount);
       const outLines = lines.filter((l) => l.direction === "out");
       const cats = sumBy(outLines, categoryOf, (l) => l.amount);
+      const accountPots = (pots[account.id] || []).filter((p) => p.monthly > 0.5);
       const totalIn = ins.reduce((s, x) => s + x.value, 0);
-      const totalOut = cats.reduce((s, x) => s + x.value, 0);
+      const totalOut = cats.reduce((s, x) => s + x.value, 0) + accountPots.reduce((s, p) => s + p.monthly, 0);
       const acct = `acct:${account.id}`;
       nodes.push({ id: acct, label: account.name, value: r2(Math.max(totalIn, totalOut)), colour: "#0f172a", column: 1, href: "/bank-accounts" });
       for (const x of ins) {
@@ -68,14 +71,23 @@ export function buildAccountFlowCharts({ month, accounts, activity, categoryOf }
           links.push({ source: id, target: pid, value: r2(p.value), colour });
         }
       });
+      for (const pot of accountPots) {
+        const id = `pot:${pot.id}`;
+        const colour = pot.purpose === "spending" ? "#f59e0b" : "#10b981";
+        nodes.push({ id, label: `${pot.name} pot`, value: r2(pot.monthly), colour, column: 2, href: "/bank-accounts", note: pot.purpose === "spending" ? "spending money set aside" : "saving" });
+        links.push({ source: acct, target: id, value: r2(pot.monthly), colour });
+      }
       if (totalIn - totalOut > 0.5) {
         const id = `left:${account.id}`;
-        nodes.push({ id, label: "Stays in the account", value: r2(totalIn - totalOut), colour: "#334155", column: 2, note: "not planned to go out" });
+        nodes.push({ id, label: accountPots.length ? "Not in a pot" : "Stays in the account", value: r2(totalIn - totalOut), colour: "#334155", column: 2, note: "not planned to go out" });
         links.push({ source: acct, target: id, value: r2(totalIn - totalOut), colour: "#334155" });
       }
     }
     return { nodes, links, columns: withPayments ? ["Comes in", "Account", "Goes out on", "Payments"] : ["Comes in", "Account", "Goes out on"] };
   };
-  const totals = accounts.reduce((acc, a) => ({ in: acc.in + (activity[a.id]?.in || 0), out: acc.out + (activity[a.id]?.out || 0) }), { in: 0, out: 0 });
+  const totals = accounts.reduce((acc, a) => ({
+    in: acc.in + (activity[a.id]?.in || 0),
+    out: acc.out + (activity[a.id]?.out || 0) + (pots[a.id] || []).reduce((s, p) => s + (p.monthly > 0.5 ? p.monthly : 0), 0),
+  }), { in: 0, out: 0 });
   return { summary: build(false), detail: build(true), totalIn: r2(totals.in), totalOut: r2(totals.out) };
 }

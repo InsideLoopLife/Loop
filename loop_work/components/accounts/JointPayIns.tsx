@@ -141,7 +141,7 @@ export function JointPayIns({
   );
 }
 
-function TransferForm({ initial, people, jointAccounts, personalAccounts, today, onSubmit }: {
+export function TransferForm({ initial, people, jointAccounts, personalAccounts, today, onSubmit }: {
   initial: Partial<StandingTransfer>;
   people: Person[];
   jointAccounts: Account[];

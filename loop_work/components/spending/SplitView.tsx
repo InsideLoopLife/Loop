@@ -49,6 +49,25 @@ export function SplitView({
   const close = useCallback(() => setEditing(null), []);
 
   const result = useMemo(() => computeSplit({ lines, adults, childIds, groups: current.groups, settings: current.settings }), [lines, adults, childIds, current]);
+  // Regular transfers into accounts the groups don't need money in (e.g. Monzo Joint for ad-hoc spending
+  // or pots) come off that person's "Still free".
+  const setAsideByPerson = useMemo(() => {
+    const out: Record<string, Array<{ account: string; amount: number }>> = {};
+    if (!result) return out;
+    for (const t of standingTransfers) {
+      if (!t.person_id) continue;
+      const needed = result.transfers.some((x) => x.fromPersonId === t.person_id && x.to.kind === "account" && x.to.account.id === t.to_account_id);
+      if (needed) continue;
+      const amount = transferAmountInMonth(t, month);
+      if (amount < 0.5) continue;
+      const account = accountNames[t.to_account_id] || "another account";
+      const list = out[t.person_id] || [];
+      const existing = list.find((x) => x.account === account);
+      if (existing) existing.amount += amount; else list.push({ account, amount });
+      out[t.person_id] = list;
+    }
+    return out;
+  }, [result, standingTransfers, month, accountNames]);
   const nameOf = (id: string) => adults.find((a) => a.id === id)?.name || "Someone";
 
   function run(task: () => Promise<SplitConfig>, after?: () => void) {
@@ -101,7 +120,7 @@ export function SplitView({
         </div>
       ) : (
         <div className="space-y-5">
-          <PeopleCards result={result} settings={current.settings} groups={current.groups} money={money} nameOf={nameOf} />
+          <PeopleCards result={result} settings={current.settings} groups={current.groups} money={money} nameOf={nameOf} setAside={setAsideByPerson} />
           {result.notes.length ? <div className="space-y-1">{result.notes.map((note) => <p key={note} className="rounded-2xl bg-amber-50 px-4 py-2 text-xs font-bold text-amber-900">{note}</p>)}</div> : null}
 
           <Transfers result={result} money={money} nameOf={nameOf} month={month} standing={standingTransfers.filter((t) => t.person_id && adults.some((a) => a.id === t.person_id))} accountNames={accountNames} />
@@ -219,7 +238,7 @@ export function SplitView({
   );
 }
 
-function PeopleCards({ result, settings, groups, money, nameOf }: { result: SplitResult; settings: SplitSettings; groups: SplitGroup[]; money: (v: number) => string; nameOf: (id: string) => string }) {
+function PeopleCards({ result, settings, groups, money, nameOf, setAside }: { result: SplitResult; settings: SplitSettings; groups: SplitGroup[]; money: (v: number) => string; nameOf: (id: string) => string; setAside: Record<string, Array<{ account: string; amount: number }>> }) {
   const evenBefore = settings.savingsMode === "separate";
   const even = result.gap <= 1;
   return (
@@ -240,7 +259,13 @@ function PeopleCards({ result, settings, groups, money, nameOf }: { result: Spli
               <Row label="For personal spending" value={money(p.leftover)} strong badge={!evenBefore && even ? "Even" : undefined} />
             </div>
             {p.personalSpending ? <Row label="Already planned (car, phone…)" value={`−${money(p.personalSpending)}`} hint={p.ownFromJoint > 0.5 ? `incl. ${money(p.ownFromJoint)} of ${p.name}'s own paid from a joint account` : undefined} muted /> : null}
-            {p.personalSpending ? <Row label="Still free" value={money(p.free)} tone={p.free < 0 ? "text-rose-700" : "text-emerald-700"} /> : null}
+            {(setAside[p.personId] || []).map((s) => <Row key={s.account} label={`Into ${s.account}`} value={`−${money(s.amount)}`} hint="regular transfer for spending or pots" muted />)}
+            {(() => {
+              const aside = (setAside[p.personId] || []).reduce((sum, s) => sum + s.amount, 0);
+              if (!p.personalSpending && aside < 0.5) return null;
+              const free = p.free - aside;
+              return <Row label="Still free" value={money(free)} tone={free < 0 ? "text-rose-700" : "text-emerald-700"} />;
+            })()}
           </dl>
         </div>
       ))}
@@ -300,7 +325,7 @@ function Transfers({ result, money, nameOf, month, standing, accountNames }: {
   const status = (row: TransferRow) => {
     const set = row.setUp.reduce((sum, e) => sum + e.amount, 0);
     if (row.back != null) return { text: `More of ${nameOf(row.fromPersonId)}'s money lands here than their share — this much could move back`, tone: "text-sky-300" };
-    if (row.needed == null) return { text: "Set up · not needed by your groups", tone: "text-white/60" };
+    if (row.needed == null) return { text: "Set aside for spending or pots · comes off Still free", tone: "text-white/60" };
     if (!row.setUp.length) return { text: "Not set up yet", tone: "text-amber-300" };
     const diff = Math.round((set - row.needed) * 100) / 100;
     if (Math.abs(diff) < 1) return { text: "Covered", tone: "text-emerald-300" };

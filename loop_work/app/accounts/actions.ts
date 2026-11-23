@@ -886,6 +886,8 @@ async function createSavingsPot__save(formData: FormData) {
     : 0;
   const monthlyTarget = requestedMonthlyTarget > 0 ? requestedMonthlyTarget : monthsRemaining > 0 && targetAmount > 0 ? targetAmount / monthsRemaining : 0;
   const accountId = String(formData.get("financial_account_id") || "") || null;
+  const saveDay = Math.round(Number(parseNumber(formData.get("save_day_of_month")) || 0));
+  const potPurpose = String(formData.get("pot_purpose") || "saving") === "spending" ? "spending" : "saving";
   const allocationAmount = parseNumber(formData.get("allocation_amount"));
   const allocationPercent = parseNumber(formData.get("allocation_percent"));
   const uploadUrl = await uploadSavingsPotImage(supabase, user.id, formData.get("reference_image_file"));
@@ -913,7 +915,15 @@ async function createSavingsPot__save(formData: FormData) {
     visibility_scope: visibilityScope,
     notes: String(formData.get("notes") || "") || null,
     reference_image_url: referenceImageUrl,
+    // Where the pot lives and when it saves (pots on the Accounts page).
+    account_id: accountId,
+    save_day_of_month: saveDay >= 1 && saveDay <= 31 ? saveDay : null,
+    pot_purpose: potPurpose,
   } as any;
+  if (accountId) {
+    const { data: account } = await supabase.from("financial_accounts").select("id").eq("id", accountId).or(visibleDataOrFilter(householdContext)).maybeSingle();
+    if (!account) throw new Error("That account isn't available.");
+  }
   let result = await supabase.from("savings_pots").insert(fullPayload).select("id").single();
   if (result.error && /schema cache|reference_image_url|goal_type|priority_score|priority_is_important|person_id/i.test(result.error.message || "")) {
     // Keep pot creation working on databases that have not yet run the visual-pot migration.
@@ -954,6 +964,7 @@ async function createSavingsPot__save(formData: FormData) {
   }
 
   revalidatePath("/accounts");
+  revalidatePath("/bank-accounts");
   revalidatePath("/financial-flow");
 }
 

@@ -52,6 +52,8 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
     { data: entries },
     { data: transferRows },
     { data: mortgageDeals },
+    { data: potRows },
+    { data: potAllocationRows },
   ] = await Promise.all([
     supabase.from("financial_accounts")
       .select("id, name, provider, provider_slug, savings_product_name, account_type, current_balance, balance_last_confirmed_at, balance_tracked_from, interest_rate, interest_rate_end_date, monthly_top_up_amount, top_up_day, savings_goal_name, savings_goal_target_amount, owner_person_id, ownership_scope, visibility_scope, user_id, updated_at")
@@ -77,6 +79,12 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
     supabase.from("home_mortgage_deals")
       .select("id, lender, product_name, balance, balance_as_of_date, interest_rate, term_years, monthly_payment_override, start_date, end_date, payment_day_of_month, first_payment_date, initial_period_end, payment_account_id")
       .or(memberFilter),
+    supabase.from("savings_pots")
+      .select("id, name, icon, account_id, monthly_target, save_day_of_month, target_amount, target_date, current_allocated_amount, pot_purpose, status")
+      .or(visibleDataOrFilter(household)).not("account_id", "is", null).neq("status", "archived"),
+    supabase.from("savings_pot_allocations")
+      .select("savings_pot_id, financial_account_id, amount, effective_to")
+      .or(visibleDataOrFilter(household)),
   ]);
 
   const people = dedupeHouseholdPeople((peopleRows ?? []) as any[], user.id) as Array<{ id: string; name: string; relationship?: string | null; avatar_url?: string | null; user_id?: string | null; linked_user_id?: string | null }>;
@@ -142,6 +150,17 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
       shared: a.visibility_scope !== "private",
       ownershipScope: a.ownership_scope || (joint ? "household" : "personal"),
       activity: activity[a.id] || { in: 0, out: 0, lines: [] },
+      pots: (potRows || []).filter((pot: any) => pot.account_id === a.id).map((pot: any) => ({
+        id: pot.id,
+        name: pot.name,
+        icon: pot.icon || null,
+        purpose: pot.pot_purpose === "spending" ? "spending" as const : "saving" as const,
+        monthly: Number(pot.monthly_target || 0),
+        day: pot.save_day_of_month == null ? null : Number(pot.save_day_of_month),
+        target: pot.target_amount == null || Number(pot.target_amount) <= 0 ? null : Number(pot.target_amount),
+        targetDate: pot.target_date || null,
+        current: Number(pot.current_allocated_amount || 0) + (potAllocationRows || []).filter((row: any) => row.savings_pot_id === pot.id && !row.effective_to).reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0),
+      })),
     };
   });
 
