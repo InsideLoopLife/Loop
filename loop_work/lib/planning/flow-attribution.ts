@@ -49,13 +49,18 @@ export function buildTracedFlow(input: {
 
   const nodes: FlowChartNode[] = [];
   const links: FlowChartLink[] = [];
-  const addLink = (source: string, target: string, value: number, colour: string) => { if (value > 0.5) links.push({ source, target, value: r2(value), colour }); };
+  const addLink = (source: string, target: string, value: number, colour: string) => {
+    if (!(value > 0.5)) return;
+    const existing = links.find((l) => l.source === source && l.target === target);
+    if (existing) existing.value = r2(existing.value + value);
+    else links.push({ source, target, value: r2(value), colour });
+  };
 
   // Column 0 and 1: where each person's money comes from, then "<name>'s money".
   for (const adult of adults) {
     const p = result.people.find((x) => x.personId === adult.id);
     if (!p) continue;
-    nodes.push({ id: `person:${adult.id}`, label: `${adult.name}'s money`, value: r2(p.income + p.sharedIncome), colour: adult.colour, column: 1, href: `/income?month=${month}` });
+    nodes.push({ id: `person:${adult.id}`, label: `${adult.name}'s money`, value: r2(p.income), colour: adult.colour, column: 1, href: `/income?month=${month}` });
   }
   const sharedIncomeLines: SplitLine[] = [];
   const groupIncomeLines = new Map<string, SplitLine[]>();
@@ -68,10 +73,25 @@ export function buildTracedFlow(input: {
       addLink(`src:${line.key}`, `person:${who}`, line.amount, colourOf.get(who) || "#64748b");
     } else sharedIncomeLines.push(line);
   }
-  for (const line of sharedIncomeLines) {
-    nodes.push({ id: `src:${line.key}`, label: `${line.title} (shared)`, value: r2(line.amount), colour: "#64748b", column: 0, href: `/income?month=${month}`, note: `split evenly between ${adults.map((a) => a.name).join(" and ")}` });
-    for (const adult of adults) addLink(`src:${line.key}`, `person:${adult.id}`, line.amount / adults.length, "#94a3b8");
+  // Household income (e.g. Child Benefit) stays the household's: its own "whose money" box, which pays
+  // towards the shared groups first. Split counts it half each, so each person's share is reduced by
+  // their half and the household box pays that part instead — the totals match Split exactly.
+  const HOUSEHOLD = "person:household";
+  const householdIncome = sharedIncomeLines.reduce((sum, l) => sum + l.amount, 0);
+  if (householdIncome > 0.5) {
+    nodes.push({ id: HOUSEHOLD, label: "Household income", value: r2(householdIncome), colour: "#64748b", column: 1, href: `/income?month=${month}`, note: "pays towards shared costs first" });
+    for (const line of sharedIncomeLines) {
+      nodes.push({ id: `src:${line.key}`, label: line.title, value: r2(line.amount), colour: "#64748b", column: 0, href: `/income?month=${month}` });
+      addLink(`src:${line.key}`, HOUSEHOLD, line.amount, "#94a3b8");
+    }
   }
+  const householdLeft = new Map(adults.map((a) => [a.id, result.people.find((x) => x.personId === a.id)?.sharedIncome || 0]));
+  /** Pay `amount` on a person's behalf: household income first (up to their half), then their own money. */
+  const payFor = (adultId: string, target: string, amount: number, colour: string) => {
+    const fromHousehold = Math.min(Math.max(0, householdLeft.get(adultId) || 0), Math.max(0, amount));
+    if (fromHousehold > 0) { householdLeft.set(adultId, (householdLeft.get(adultId) || 0) - fromHousehold); addLink(HOUSEHOLD, target, fromHousehold, "#94a3b8"); }
+    addLink(`person:${adultId}`, target, amount - fromHousehold, colour);
+  };
 
   // Column 2: Split groups, each person's own spending and savings, shared-but-ungrouped, and what's left.
   const groupNotes: string[] = [];
@@ -81,7 +101,7 @@ export function buildTracedFlow(input: {
     const id = `group:${g.group.id}`;
     nodes.push({ id, label: g.group.name, value: r2(g.outgoing), colour, column: 2, href: `/spending?month=${month}`, note: METHOD_LABEL[g.group.method] });
     groupNotes.push(`${g.group.name}: ${METHOD_LABEL[g.group.method] || g.group.method}`);
-    for (const adult of adults) addLink(`person:${adult.id}`, id, g.shares[adult.id] || 0, adult.colour);
+    for (const adult of adults) payFor(adult.id, id, g.shares[adult.id] || 0, adult.colour);
     for (const incomeLine of groupIncomeLines.get(g.group.id) || []) {
       const amount = Math.min(incomeLine.amount, g.outgoing);
       nodes.push({ id: `src:${incomeLine.key}`, label: `${incomeLine.title} (to ${g.group.name})`, value: r2(incomeLine.amount), colour: "#64748b", column: 0, href: `/income?month=${month}` });
@@ -103,7 +123,7 @@ export function buildTracedFlow(input: {
   };
   if (ungroupedTotal > 0.5) {
     nodes.push({ id: "shared-ungrouped", label: "Shared, not in a Split group", value: r2(ungroupedTotal), colour: "#a3a3a3", column: 2, href: `/spending?month=${month}`, note: "shared by income until it's in a group" });
-    for (const adult of adults) addLink(`person:${adult.id}`, "shared-ungrouped", ungroupedShare(adult.id), adult.colour);
+    for (const adult of adults) payFor(adult.id, "shared-ungrouped", ungroupedShare(adult.id), adult.colour);
     for (const c of topCategories(sharedUngrouped, input.categoryName)) {
       const cid = `cat:ungrouped:${c.label}`;
       nodes.push({ id: cid, label: c.label, value: r2(c.amount), colour: "#a3a3a3", column: 3, href: `/spending?month=${month}` });
@@ -148,11 +168,13 @@ export function buildTracedFlow(input: {
       addLink(`person:${adult.id}`, id, p.evenUp, adult.colour);
     }
     const spent = links.filter((l) => l.source === `person:${adult.id}`).reduce((s, l) => s + l.value, 0);
-    const left = r2(p.income + p.sharedIncome - spent);
+    const householdSpare = Math.max(0, householdLeft.get(adult.id) || 0);
+    const left = r2(p.income + householdSpare - spent);
     if (left > 0.5) {
       const id = `left:${adult.id}`;
       nodes.push({ id, label: `${adult.name} has left`, value: left, colour: "#334155", column: 2, note: "not planned for yet" });
-      addLink(`person:${adult.id}`, id, left, adult.colour);
+      addLink(`person:${adult.id}`, id, left - householdSpare, adult.colour);
+      if (householdSpare > 0.5) addLink(HOUSEHOLD, id, householdSpare, "#94a3b8");
     } else if (left < -0.5) {
       const node = nodes.find((n) => n.id === `person:${adult.id}`);
       if (node) node.note = `${new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(-left)} more planned than comes in`;
@@ -160,9 +182,8 @@ export function buildTracedFlow(input: {
   }
 
   const note = [
-    "Traced by whose money it is: each person's pay covers their own spending, their savings and their share of each Split group.",
+    "Traced by whose money it is: each person's pay covers their own spending, their savings and their share of each Split group. Household income (like Child Benefit) pays towards shared costs first.",
     groupNotes.length ? `Groups are shared the way you set them in Split (${groupNotes.join("; ")}).` : "No Split groups yet, so shared payments are shared by income.",
-    sharedIncomeLines.length ? "Shared income with no group is split evenly." : "",
   ].filter(Boolean).join(" ");
 
   return { chart: { nodes, links, columns: ["Where it comes from", "Whose money", "What it pays for", "Categories"] }, note };
