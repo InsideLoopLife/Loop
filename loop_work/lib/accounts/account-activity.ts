@@ -81,6 +81,8 @@ export function buildAccountActivity({
   }
 
   for (const cost of childCosts) {
+    // Same rule as Spending: a cost only counts in months between its start and end dates.
+    if (!isActiveInMonth(cost.starts_on, cost.ends_on, month)) continue;
     const amount = Math.round(Number(getChildCostMonthlyAmount(cost, month) || 0) * 100) / 100;
     const date = cost.payment_day_of_month || cost.payment_timing === "last_workday"
       ? dueDateForMonth(month, cost.payment_timing || "fixed_day", cost.payment_day_of_month ?? null, cost.payment_adjustment || "previous_workday")
