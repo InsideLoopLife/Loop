@@ -125,7 +125,11 @@ function SankeySvg({ chart, width, onPick }: { chart: FlowChartData; width: numb
 /** Phones: no ribbons, just the same numbers as bars and lists. */
 function FlowList({ chart, expanded, total }: { chart: FlowChartData; expanded: boolean; total: number }) {
   const col = (c: number) => chart.nodes.filter((n) => n.column === c);
-  const children = (id: string) => chart.links.filter((l) => l.source === id).map((l) => chart.nodes.find((n) => n.id === l.target)).filter(Boolean) as FlowChartNode[];
+  // A child shown under a parent carries the amount that flows between them (e.g. Dan's share of Household).
+  const children = (id: string) => chart.links
+    .filter((l) => l.source === id)
+    .map((l) => { const node = chart.nodes.find((n) => n.id === l.target); return node ? { ...node, value: l.value, full: node.value } : null; })
+    .filter(Boolean) as Array<FlowChartNode & { full: number }>;
   const stages = col(1);
   return (
     <div className="space-y-4">
@@ -146,11 +150,11 @@ function FlowList({ chart, expanded, total }: { chart: FlowChartData; expanded: 
         if (!kids.length) return null;
         return (
           <div key={stage.id}>
-            <p className="mb-1.5 text-[11px] font-black uppercase tracking-wide text-slate-400">{stage.label} by {stage.id === "spending" ? "group" : "account"}</p>
+            <p className="mb-1.5 text-[11px] font-black uppercase tracking-wide text-slate-400">{stage.id.startsWith("person:") ? `${stage.label} pays for` : `${stage.label} by ${stage.id === "spending" ? "group" : "account"}`}</p>
             <ul className="space-y-1">
               {kids.map((kid) => (
                 <li key={kid.id}>
-                  <Row node={kid} total={stage.value} />
+                  <Row node={kid} total={stage.value} suffix={kid.full - kid.value > 0.5 ? `of ${gbp(kid.full)}` : undefined} />
                   {expanded && children(kid.id).length ? (
                     <ul className="ml-4 mt-1 space-y-1 border-l-2 pl-3" style={{ borderColor: kid.colour }}>
                       {children(kid.id).map((c) => <Row key={c.id} node={c} total={kid.value} small />)}
@@ -166,13 +170,13 @@ function FlowList({ chart, expanded, total }: { chart: FlowChartData; expanded: 
   );
 }
 
-function Row({ node, total, small }: { node: FlowChartNode; total: number; small?: boolean }) {
+function Row({ node, total, small, suffix }: { node: FlowChartNode; total: number; small?: boolean; suffix?: string }) {
   const pct = Math.min(100, (node.value / Math.max(1, total)) * 100);
   const body = (
     <span className={`block rounded-xl bg-slate-50 px-3 ${small ? "py-1.5" : "py-2"}`}>
       <span className="flex items-center justify-between gap-3 text-xs font-bold text-slate-700">
         <span className="flex min-w-0 items-center gap-2"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: node.colour }} /><span className="truncate">{node.label}</span></span>
-        <span className="shrink-0 tabular-nums text-slate-900">{gbp(node.value)}</span>
+        <span className="shrink-0 tabular-nums text-slate-900">{gbp(node.value)}{suffix ? <span className="ml-1 font-semibold text-slate-400">{suffix}</span> : null}</span>
       </span>
       <span className="mt-1 block h-1 overflow-hidden rounded-full bg-slate-200"><span className="block h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: node.colour }} /></span>
     </span>
@@ -180,7 +184,7 @@ function Row({ node, total, small }: { node: FlowChartNode; total: number; small
   return <li className="list-none">{node.href ? <Link href={node.href}>{body}</Link> : body}</li>;
 }
 
-export function FlowChart({ summary, detail, total, title }: { summary: FlowChartData; detail: FlowChartData; total: number; title: string }) {
+export function FlowChart({ summary, detail, total, title, summaryNote, detailNote }: { summary: FlowChartData; detail: FlowChartData; total: number; title: string; summaryNote?: string; detailNote?: string }) {
   const [expanded, setExpanded] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
   useEffect(() => {
@@ -220,6 +224,10 @@ export function FlowChart({ summary, detail, total, title }: { summary: FlowChar
           {expanded ? <>Show summary <ChevronUp className="h-3.5 w-3.5" /></> : <>Show more detail <ChevronDown className="h-3.5 w-3.5" /></>}
         </button>
       </div>
+
+      {(expanded ? detailNote : summaryNote) ? (
+        <p className={`mt-2 rounded-2xl px-3 py-2 text-xs font-semibold ${expanded ? "bg-sky-50 text-sky-900" : "text-slate-500"}`}>{expanded ? detailNote : summaryNote}</p>
+      ) : null}
 
       <div className="md:hidden mt-3">
         <FlowList chart={chart} expanded={expanded} total={total} />

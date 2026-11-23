@@ -25,6 +25,8 @@ import { Nav } from "@/components/Nav";
 import { PriceWatchPanel } from "@/components/financial-flow/PriceWatchPanel";
 import { FlowChart } from "@/components/financial-flow/FlowChart";
 import { buildFlowCharts } from "@/lib/planning/flow-chart";
+import { DEFAULT_SPLIT_SETTINGS, type SplitAccount, type SplitGroup, type SplitLine } from "@/lib/spending/split";
+import { buildTracedFlow } from "@/lib/planning/flow-attribution";
 import { priceWatch } from "@/lib/bills/price-watch";
 import { createClient } from "@/lib/supabase/server";
 import { PageLandingExperience } from "@/components/landing/PageLandingExperience";
@@ -74,6 +76,7 @@ type Person = {
 };
 
 type PayEvent = {
+  payment_account_id?: string | null;
   id: string;
   person_id: string | null;
   label: string;
@@ -107,6 +110,7 @@ type IncomeEntry = {
 };
 
 type PlannedItem = {
+  payment_account_id?: string | null;
   id: string;
   person_id: string | null;
   category_id: string | null;
@@ -121,6 +125,7 @@ type PlannedItem = {
 };
 
 type SpendingEntry = {
+  payment_account_id?: string | null;
   id: string;
   person_id: string | null;
   category_id: string | null;
@@ -271,6 +276,8 @@ type MonthModel = {
   spendByRealGroup: Map<string, number>;
   /** Group → category → amount, for the expanded flow chart. */
   spendByGroupCategory: Map<string, Map<string, number>>;
+  /** Every line this month in Split's shape, so the flow chart can trace whose money pays for what. */
+  attributionLines: SplitLine[];
   hasAnyRealGroups: boolean;
   personTotals: PersonMonthTotal[];
 };
@@ -817,7 +824,7 @@ const FLOW_TONE_BADGE: Record<Tone, string> = {
   slate: "bg-slate-100 text-slate-500",
 };
 
-function FlowChartSection({ model, people }: { model: MonthModel; people: Person[] }) {
+function FlowChartSection({ model, people, traced }: { model: MonthModel; people: Person[]; traced: ReturnType<typeof buildTracedFlow> }) {
   const evidenceOf = (keys: string[]) => model.savingsRows
     .filter((row) => keys.includes(row.key))
     .flatMap((row) => (row.evidence?.length ? row.evidence : [{ key: row.key, label: row.label, amount: row.amount }]))
@@ -848,10 +855,19 @@ function FlowChartSection({ model, people }: { model: MonthModel; people: Person
       : [],
   });
   if (!charts.summary.nodes.length || model.totalIncome <= 0) return <FlowSankeyDiagram model={model} people={people} />;
-  return <FlowChart summary={charts.summary} detail={charts.detail} total={model.totalIncome} title={`Where ${formatMoney(model.totalIncome)} of income goes`} />;
+  return (
+    <FlowChart
+      summary={charts.summary}
+      detail={traced?.chart ?? charts.detail}
+      total={model.totalIncome}
+      title={`Where ${formatMoney(model.totalIncome)} of income goes`}
+      summaryNote="Everyone's income together, at a glance."
+      detailNote={traced?.note ?? "Showing one person, so income is shown together: each payment is shared out in proportion to income. Choose Household to see whose money pays for what."}
+    />
+  );
 }
 
-function MainFlowDiagram({ model, people }: { model: MonthModel; people: Person[] }) {
+function MainFlowDiagram({ model, people, traced }: { model: MonthModel; people: Person[]; traced: ReturnType<typeof buildTracedFlow> }) {
   const detailRows: FlowLine[] = [
     ...model.spendRows.slice(0, 8),
     ...model.savingsRows,
@@ -860,7 +876,7 @@ function MainFlowDiagram({ model, people }: { model: MonthModel; people: Person[
 
   return (
     <>
-      <FlowChartSection model={model} people={people} />
+      <FlowChartSection model={model} people={people} traced={traced} />
     </>
   );
 }
@@ -980,10 +996,10 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
   const [profileResult, peopleResult, payResult, incomeResult, plannedResult, spendingEntriesResult, categoriesResult, categoryGroupsResult, accountsResult, pensionsResult, movementsResult, potsResult, potAllocationsResult, dealsResult, childCostsResult] = await timer.time("main_queries", Promise.all([
     supabase.from("app_user_profiles").select("*").eq("user_id", user.id).maybeSingle(),
     supabase.from("people").select("id, name, relationship, user_id, linked_user_id, email, invite_email, birth_date, account_status, active_until, avatar_url").or(householdPeopleOrFilter(householdContext)).order("relationship").order("name").returns<Person[]>(),
-    supabase.from("pay_events").select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, tax_region").or(memberFilter).returns<PayEvent[]>(),
+    supabase.from("pay_events, payment_account_id").select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, tax_region").or(memberFilter).returns<PayEvent[]>(),
     supabase.from("income_entries").select("id, person_id, label, gross_amount, net_amount, frequency, entry_date").or(memberFilter).returns<IncomeEntry[]>(),
-    supabase.from("planned_items").select("id, person_id, category_id, direction, label, amount, recurrence, recurrence_interval_days, start_date, end_date, item_type, notes").or(visibleFilter).returns<PlannedItem[]>(),
-    supabase.from("spending_entries").select("id, person_id, category_id, label, amount, spent_at, notes").or(visibleFilter).returns<SpendingEntry[]>(),
+    supabase.from("planned_items").select("id, person_id, category_id, direction, label, amount, recurrence, recurrence_interval_days, start_date, end_date, item_type, notes, payment_account_id").or(visibleFilter).returns<PlannedItem[]>(),
+    supabase.from("spending_entries").select("id, person_id, category_id, label, amount, spent_at, notes, payment_account_id").or(visibleFilter).returns<SpendingEntry[]>(),
     supabase.from("spending_categories").select("id, name, type, monthly_budget, category_icon, group_id").or(visibleFilter).returns<SpendingCategory[]>(),
     supabase.from("spending_category_groups").select("id, name, icon").or(visibleFilter).returns<SpendingCategoryGroup[]>(),
     supabase.from("financial_accounts").select("id, owner_person_id, ownership_scope, name, provider, provider_slug, account_type, current_balance, balance_last_confirmed_value, balance_last_confirmed_at, interest_rate, interest_accrual_frequency, interest_compounding_frequency, interest_rate_end_date, end_date, is_liability, monthly_top_up_amount, created_at, updated_at").or(memberFilter).returns<FinancialAccount[]>(),
@@ -992,12 +1008,14 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     activeTab === "savings" ? supabase.from("savings_pots").select("id, person_id, name, target_amount, target_date, monthly_target, current_allocated_amount, priority, status, goal_type, reference_image_url").or(visibleFilter).in("status", ["active", "paused", "completed"]).order("priority", { ascending: true }).returns<SavingsPot[]>() : Promise.resolve({ data: [] as SavingsPot[] }),
     activeTab === "savings" ? supabase.from("savings_pot_allocations").select("id, savings_pot_id, financial_account_id, amount, allocation_percent").or(allocationFilter).returns<SavingsPotAllocation[]>() : Promise.resolve({ data: [] as SavingsPotAllocation[] }),
     Promise.resolve({ data: cachedSavingsRateDeals as SavingsRateDeal[] }),
-    supabase.from("child_costs").select("id, child_id, label, cost_kind, category_id, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on, care_type, care_details").or(memberFilter).returns<ChildCostForPlan[]>(),
+    supabase.from("child_costs, bill_person_id, payment_account_id").select("id, child_id, label, cost_kind, category_id, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on, care_type, care_details").or(memberFilter).returns<ChildCostForPlan[]>(),
   ]));
   // Mortgage payments and exact monthly pay come from the same shared logic as Summary and the calendar.
-  const [{ data: mortgageDealRows }, payRows] = await timer.time("mortgage_pay", Promise.all([
-    supabase.from("home_mortgage_deals").select("id, lender, balance, interest_rate, term_years, monthly_payment_override, start_date, end_date").or(visibleFilter),
+  const [{ data: mortgageDealRows }, payRows, { data: splitGroupRows }, { data: splitSettingRows }] = await timer.time("mortgage_pay", Promise.all([
+    supabase.from("home_mortgage_deals").select("id, lender, balance, interest_rate, term_years, monthly_payment_override, start_date, end_date, payment_account_id").or(visibleFilter),
     withPayOverrides(supabase, payResult.data || []),
+    activeTab === "flow" ? supabase.from("household_split_groups").select("id, name, method, custom_shares, payer_person_id, members, sort_order").is("archived_at", null).or(visibleFilter).order("sort_order") : Promise.resolve({ data: [] as any[] }),
+    activeTab === "flow" ? supabase.from("household_split_settings").select("savings_mode, low_earner_mode, owner_covers").or(visibleFilter).limit(1) : Promise.resolve({ data: [] as any[] }),
   ]));
 
   const people = dedupeHouseholdPeople(peopleResult.data || [], user.id) as Person[];
@@ -1179,10 +1197,74 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     const investmentsTotal = savingsRows.filter((row) => row.key === "investment-topups").reduce((sum, row) => sum + row.amount, 0);
     const savingsOnlyTotal = Math.max(0, savingsTotal - investmentsTotal);
 
-    return { key: monthKey, incomeLines, spendRows, savingsRows, totalIncome, committedSpending, savingsTotal, investmentsTotal, savingsOnlyTotal, leftoverCash, personTotals, spendByRealGroup, spendByGroupCategory, hasAnyRealGroups };
+    // The same month in Split's shape (same keys as Spending, e.g. "planned:<id>"), built from the same
+    // rows and amounts as the totals above, so the traced chart adds up to the same figures.
+    const accountById = new Map((accountsResult.data || []).map((account) => [account.id, account]));
+    const splitAccount = (id?: string | null): SplitAccount | null => {
+      const account = id ? accountById.get(id) : null;
+      if (!account) return null;
+      return { id: account.id, name: account.name || account.provider || "Account", ownerPersonId: account.owner_person_id ?? null, joint: !account.owner_person_id || ["joint", "household"].includes(String(account.ownership_scope || "")) };
+    };
+    const lineCategory = (categoryId?: string | null) => ({ categoryId: categoryId ?? null, categoryGroupId: categoryId ? categoryById.get(categoryId)?.group_id ?? null : null });
+    const isGreen = (category: { tone: Tone; label: string }) => category.tone === "green" || category.label.toLowerCase().includes("saving");
+    const attributionLines: SplitLine[] = [];
+    const base = { isChildCost: false, isMortgage: false, isSavings: false, isPay: false };
+    for (const line of incomeLines) {
+      const id = line.key.replace(/^(pay|income|planned-income)-/, "");
+      const key = line.key.startsWith("pay-") ? `pay:${id}` : line.key.startsWith("planned-income-") ? `planned:${id}` : `income:${id}`;
+      const event = line.key.startsWith("pay-") ? payRows.find((row) => row.id === id) : null;
+      const planned = line.key.startsWith("planned-income-") ? (plannedResult.data || []).find((row) => row.id === id) : null;
+      attributionLines.push({ ...base, key, title: line.label, amount: line.amount, direction: "income", personId: line.personId ?? null, ...lineCategory(planned?.category_id), isPay: Boolean(event), account: splitAccount(event?.payment_account_id ?? planned?.payment_account_id) });
+    }
+    for (const item of (plannedResult.data || []).filter((row) => row.direction !== "income" && !isLinkedSavingsTransfer(row) && personOwned(row, activeScope) && plannedItemAppliesToMonth(row, rangeStart, rangeEnd))) {
+      if (hasLoggedFoodShopping && String(item.notes || "").includes("[household_assumption:food]")) continue;
+      const category = classifyCategory(item.label, item.category_id ? categoryById.get(item.category_id) || null : null);
+      attributionLines.push({ ...base, key: `planned:${item.id}`, title: item.label || category.label, amount: n(item.amount) * plannedItemOccurrencesInRange(item, rangeStart, rangeEnd), direction: "outgoing", personId: item.person_id ?? null, ...lineCategory(item.category_id), isSavings: isGreen(category), account: splitAccount(item.payment_account_id) });
+    }
+    for (const event of payRows.filter((row: any) => row.pay_kind === "maternity" && personOwned(row, activeScope))) {
+      const arrears = pensionArrearsForMonth(maternityInputFromPayEvent(event as any), monthKey);
+      if (arrears.netCost > 0) attributionLines.push({ ...base, key: `arrears:${event.id}`, title: "NHS pension buy-back", amount: arrears.netCost, direction: "outgoing", personId: event.person_id ?? null, categoryId: null, categoryGroupId: null, isSavings: true, account: null });
+    }
+    for (const deal of (mortgageDealRows || []).filter((row: any) => isActiveInMonth(row.start_date, row.end_date, rangeStart, rangeEnd))) {
+      const amount = mortgageDealMonthlyPayment(deal as any);
+      if (amount > 0) attributionLines.push({ ...base, key: `mortgage:${deal.id}`, title: deal.lender ? `Mortgage · ${deal.lender}` : "Mortgage", amount, direction: "outgoing", personId: null, categoryId: null, categoryGroupId: null, isMortgage: true, account: splitAccount((deal as any).payment_account_id) });
+    }
+    for (const cost of (childCostsResult.data || []).filter((row) => (!activeScope.length || activeScope.includes(row.child_id || "")) && isActiveInMonth(row.starts_on, row.ends_on, rangeStart, rangeEnd))) {
+      attributionLines.push({ ...base, key: `child:${cost.id}`, title: cost.label || "Childcare", amount: getChildCostMonthlyAmount(cost, monthKey), direction: "outgoing", personId: (cost as any).bill_person_id ?? null, ...lineCategory((cost as any).category_id), isChildCost: true, account: splitAccount((cost as any).payment_account_id) });
+    }
+    for (const entry of monthSpendingEntries) {
+      const category = classifyCategory(entry.label || entry.notes || "One-off spend", entry.category_id ? categoryById.get(entry.category_id) || null : null);
+      attributionLines.push({ ...base, key: `entry:${entry.id}`, title: entry.label || entry.notes || category.label, amount: n(entry.amount), direction: "outgoing", personId: entry.person_id ?? null, ...lineCategory(entry.category_id), isSavings: isGreen(category), account: splitAccount(entry.payment_account_id) });
+    }
+    for (const account of savingsAccounts) {
+      const amount = monthTopUp(account);
+      const joint = !account.owner_person_id || ["joint", "household"].includes(String(account.ownership_scope || ""));
+      if (amount > 0) attributionLines.push({ ...base, key: `topup:${account.id}`, title: account.name || account.provider || "Savings", amount, direction: "outgoing", personId: joint ? null : account.owner_person_id ?? null, categoryId: null, categoryGroupId: null, isSavings: true, account: null });
+    }
+    for (const pension of pensionAccounts) {
+      const amount = n(pension.fixed_monthly_contribution);
+      if (amount > 0) attributionLines.push({ ...base, key: `pension:${pension.id}`, title: pension.label || pension.provider || "Pension", amount, direction: "outgoing", personId: pension.person_id ?? null, categoryId: null, categoryGroupId: null, isSavings: true, account: null });
+    }
+
+    return { key: monthKey, incomeLines, spendRows, savingsRows, totalIncome, committedSpending, savingsTotal, investmentsTotal, savingsOnlyTotal, leftoverCash, personTotals, spendByRealGroup, spendByGroupCategory, attributionLines, hasAnyRealGroups };
   }
 
   const model = buildModel(month.key, true);
+  // The detailed flow chart traces whose money pays for what, using Split's rules (whole household only).
+  const tracedFlow = activeTab === "flow" && !scopeIds.length
+    ? buildTracedFlow({
+        month: month.key,
+        lines: model.attributionLines,
+        adults: people.filter((person) => person.relationship !== "child").map((person) => ({ id: person.id, name: person.name, colour: personColour(person.id, people) })),
+        childIds: new Set(people.filter((person) => person.relationship === "child").map((person) => person.id)),
+        groups: ((splitGroupRows || []) as any[]).map((row): SplitGroup => ({ id: row.id, name: row.name, method: row.method, customShares: row.custom_shares || {}, payerPersonId: row.payer_person_id ?? null, members: Array.isArray(row.members) ? row.members : [], sortOrder: Number(row.sort_order || 0) })),
+        settings: (() => {
+          const row = ((splitSettingRows || []) as any[])[0];
+          return row ? { savingsMode: row.savings_mode === "first" ? "first" : "separate", lowEarnerMode: row.low_earner_mode === "top_up" ? "top_up" : "zero", ownerCovers: row.owner_covers === "group" ? "group" : "owner" } : DEFAULT_SPLIT_SETTINGS;
+        })(),
+        categoryName: (id) => (id ? categoryById.get(id)?.name || "Uncategorised" : "Uncategorised"),
+      })
+    : null;
   const savingsRate = model.totalIncome > 0 ? (model.savingsTotal / model.totalIncome) * 100 : 0;
   const incomeScopeViews: IncomeFlowScope[] = activeTab === "income"
     ? [{ key: "all", label: "Whole household", ids: [] as string[] }, ...people.map((person) => ({ key: person.id, label: person.name, ids: [person.id] }))].map((scope) => {
@@ -1419,7 +1501,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
               ) : null}
             </section>
 
-            {activeTab === "flow" ? <MainFlowDiagram model={model} people={people} /> : <DetailPanel activeTab={activeTab} month={month.key} incomeLines={model.incomeLines} spendRows={model.spendRows} savingsRows={model.savingsRows.length ? model.savingsRows : [{ key: "savings-plan", label: "Savings plan", amount: 0, icon: PiggyBank, tone: "green" }]} />}
+            {activeTab === "flow" ? <MainFlowDiagram model={model} people={people} traced={tracedFlow} /> : <DetailPanel activeTab={activeTab} month={month.key} incomeLines={model.incomeLines} spendRows={model.spendRows} savingsRows={model.savingsRows.length ? model.savingsRows : [{ key: "savings-plan", label: "Savings plan", amount: 0, icon: PiggyBank, tone: "green" }]} />}
 
             {yearMonths.length ? <MoneyFlowCalendar months={yearMonths} selectedMonth={month.key} activeTab={activeTab} scopeIds={scopeIds} /> : null}
           </>
