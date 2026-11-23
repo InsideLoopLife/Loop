@@ -228,7 +228,7 @@ export function AccountsHome({
             initial={{ to_account_id: transferInto.id, person_id: meId || people[0]?.id, frequency: "monthly", day_of_month: 1, start_date: today }}
             people={people}
             jointAccounts={accounts.filter((a) => a.kind === "everyday" || a.id === transferInto.id).map((a) => ({ id: a.id, name: a.name, provider: a.provider }))}
-            personalAccounts={accounts.filter((a) => !a.joint && a.id !== transferInto.id).map((a) => ({ id: a.id, name: a.name, provider: a.provider, ownerPersonId: a.ownerPersonId }))}
+            personalAccounts={accounts.filter((a) => !a.joint && a.id !== transferInto.id).sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "everyday" ? -1 : 1)).map((a) => ({ id: a.id, name: a.name, provider: a.provider, ownerPersonId: a.ownerPersonId }))}
             today={today}
             onSubmit={async (fd) => {
               const result = (await saveAccountTransfer(fd)) as unknown;
