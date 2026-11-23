@@ -1556,6 +1556,13 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
           <IncomeFlowScopeView month={month.key} people={people.map((person) => ({ id: person.id, name: person.name, avatarUrl: person.avatar_url }))} scopes={incomeScopeViews} initialScopeKey={initialIncomeScopeKey} />
         ) : (
           <>
+            {accountFlow ? (
+              <section className="grid gap-4 md:grid-cols-3">
+                <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">Into {accountFlow.names}</p><p className="mt-1 text-[26px] font-semibold tracking-tight text-[var(--pine)]">{formatMoney(accountFlow.totalIn)}</p><p className="mt-1 text-xs text-[var(--muted)]">Transfers from each of you and household income</p></article>
+                <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">Out of {accountFlow.names}</p><p className="mt-1 text-[26px] font-semibold tracking-tight text-[var(--ink)]">{formatMoney(accountFlow.totalOut)}</p><p className="mt-1 text-xs text-[var(--muted)]">Bills and payments it pays</p></article>
+                <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">{accountFlow.totalIn >= accountFlow.totalOut ? "Stays in the account" : "Short this month"}</p><p className={`mt-1 text-[26px] font-semibold tracking-tight ${accountFlow.totalIn >= accountFlow.totalOut ? "text-[var(--ink)]" : "text-rose-700"}`}>{formatMoney(Math.abs(accountFlow.totalIn - accountFlow.totalOut))}</p><p className="mt-1 text-xs text-[var(--muted)]">{accountFlow.totalIn >= accountFlow.totalOut ? "More goes in than out" : "More goes out than comes in"}</p></article>
+              </section>
+            ) : (
             <section className={`grid gap-4 md:grid-cols-4 ${activeTab === "spending" ? "xl:grid-cols-5" : ""}`}>
               <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">Money in</p><p className={`mt-1 text-[26px] font-semibold tracking-tight ${"text-[var(--pine)]"}`}>{formatMoney(model.totalIncome)}</p><p className="mt-1 text-xs text-[var(--muted)]">{`After tax · ${scopeLabel}`}</p></article>
               <article className="rounded-[14px] border border-[var(--line)] bg-white p-5"><p className="text-sm text-[var(--muted)]">Bills and spending</p><p className={`mt-1 text-[26px] font-semibold tracking-tight ${"text-[var(--ink)]"}`}>{formatMoney(model.committedSpending)}</p><p className="mt-1 text-xs text-[var(--muted)]">{`${percent(model.committedSpending, model.totalIncome)} of money in`}</p></article>
@@ -1568,6 +1575,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
                 </Link>
               ) : null}
             </section>
+            )}
 
             {activeTab === "flow" ? <MainFlowDiagram model={model} people={people} traced={tracedFlow} accountFlow={accountFlow} /> : <DetailPanel activeTab={activeTab} month={month.key} incomeLines={model.incomeLines} spendRows={model.spendRows} savingsRows={model.savingsRows.length ? model.savingsRows : [{ key: "savings-plan", label: "Savings plan", amount: 0, icon: PiggyBank, tone: "green" }]} />}
 

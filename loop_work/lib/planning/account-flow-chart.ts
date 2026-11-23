@@ -12,11 +12,11 @@ function sumBy<T>(items: T[], key: (item: T) => string, amount: (item: T) => num
   return [...totals.entries()].map(([label, value]) => ({ label, value })).filter((x) => x.value > 0.5).sort((a, b) => b.value - a.value);
 }
 
-/** "From Dan (Nationwide FlexDirect)" → "Dan · from Nationwide FlexDirect". */
+/** "From Dan (Nationwide FlexDirect)" → "From Dan" — short enough to read; the account shows on hover. */
 function inLabel(line: AccountLine) {
   const m = /^From (.+?) \((.+)\)$/.exec(line.label);
-  if (m) return `${m[1]} · from ${m[2]}`;
-  return line.label.replace(/^From /, "");
+  if (m) return `From ${m[1]}`;
+  return line.label;
 }
 
 export function buildAccountFlowCharts({ month, accounts, activity, categoryOf }: {
@@ -39,7 +39,7 @@ export function buildAccountFlowCharts({ month, accounts, activity, categoryOf }
       nodes.push({ id: acct, label: account.name, value: r2(Math.max(totalIn, totalOut)), colour: "#0f172a", column: 1, href: "/bank-accounts" });
       for (const x of ins) {
         const id = `in:${account.id}:${x.label}`;
-        const transfer = x.label.includes(" · from ");
+        const transfer = x.label.startsWith("From ");
         nodes.push({ id, label: x.label, value: r2(x.value), colour: transfer ? "#0ea5e9" : "#10b981", column: 0, href: transfer ? "/bank-accounts" : `/income?month=${month}` });
         links.push({ source: id, target: acct, value: r2(x.value), colour: transfer ? "#0ea5e9" : "#10b981" });
       }
@@ -51,7 +51,10 @@ export function buildAccountFlowCharts({ month, accounts, activity, categoryOf }
       cats.forEach((cat, i) => {
         const colour = OUT_COLOURS[i % OUT_COLOURS.length];
         const id = `cat:${account.id}:${cat.label}`;
-        nodes.push({ id, label: cat.label, value: r2(cat.value), colour, column: 2, href: `/spending?month=${month}` });
+        // A catch-all with one payment in it is named after that payment.
+        const inCat = sumBy(outLines.filter((l) => categoryOf(l) === cat.label), (l) => l.label, (l) => l.amount);
+        const label = inCat.length === 1 && /^Other/.test(cat.label) ? inCat[0].label : cat.label;
+        nodes.push({ id, label, value: r2(cat.value), colour, column: 2, href: `/spending?month=${month}` });
         links.push({ source: acct, target: id, value: r2(cat.value), colour });
         if (!withPayments) return;
         const payments = sumBy(outLines.filter((l) => categoryOf(l) === cat.label), (l) => l.label, (l) => l.amount);

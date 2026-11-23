@@ -113,7 +113,7 @@ function SankeySvg({ chart, width, onPick }: { chart: FlowChartData; width: numb
             onClick={() => { if (n.href) router.push(n.href); }}
           >
             <rect x={n.x} y={n.y} width={nodeW} height={n.h} rx={3} fill={n.colour} />
-            <text x={tx} y={cy - 3} textAnchor={leftSide ? "end" : "start"} className="fill-slate-900 text-[13px] font-bold" paintOrder="stroke" stroke="white" strokeWidth={4} strokeLinejoin="round">{n.label.length > 26 ? `${n.label.slice(0, 25)}…` : n.label}</text>
+            <text x={tx} y={cy - 3} textAnchor={leftSide ? "end" : "start"} className="fill-slate-900 text-[13px] font-bold" paintOrder="stroke" stroke="white" strokeWidth={4} strokeLinejoin="round">{n.label.length > (leftSide ? 22 : 26) ? `${n.label.slice(0, leftSide ? 21 : 25)}…` : n.label}</text>
             <text x={tx} y={cy + 12} textAnchor={leftSide ? "end" : "start"} className="fill-slate-500 text-[11.5px] font-semibold" paintOrder="stroke" stroke="white" strokeWidth={4} strokeLinejoin="round">{gbp(n.value)}</text>
           </g>
         );
