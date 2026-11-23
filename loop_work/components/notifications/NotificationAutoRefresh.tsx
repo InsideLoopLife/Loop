@@ -9,7 +9,8 @@ export function NotificationAutoRefresh({ intervalMs = 30000 }: { intervalMs?: n
   useEffect(() => {
     const refresh = () => router.refresh();
     window.addEventListener("loop:notifications-updated", refresh);
-    const timer = window.setInterval(refresh, intervalMs);
+    // Skip while the tab is hidden so an open-for-days tab doesn't keep re-rendering the page on the server.
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") refresh(); }, intervalMs);
     return () => {
       window.removeEventListener("loop:notifications-updated", refresh);
       window.clearInterval(timer);

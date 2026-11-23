@@ -686,15 +686,19 @@ function NavInner() {
         .then((response) => response.json())
         .then((payload) => mounted && setUnreadCount(Number(payload.count || 0)))
         .catch(() => undefined);
-    const timer = window.setInterval(
-      refreshUnreadCount,
-      15000,
-    );
+    // Only while the page is on screen: a hidden tab left open for days used to queue up hundreds of
+    // checks and fire them all at once when it woke. Coming back to the tab checks straight away.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") refreshUnreadCount();
+    }, 60000);
+    const onVisible = () => { if (document.visibilityState === "visible") refreshUnreadCount(); };
+    document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("loop:notifications-updated", refreshUnreadCount);
 
     return () => {
       mounted = false;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("loop:notifications-updated", refreshUnreadCount);
     };
   }, []);
