@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { FlowChart as FlowChartData, FlowChartLink, FlowChartNode } from "@/lib/planning/flow-chart";
 
@@ -15,12 +15,12 @@ type PlacedLink = FlowChartLink & { path: string; key: string };
 function layout(chart: FlowChartData, width: number) {
   const columns = Math.max(1, ...chart.nodes.map((n) => n.column + 1));
   const nodeW = 12;
-  const leftLabel = 200;
-  const rightLabel = 230;
+  const leftLabel = 170;
+  const rightLabel = 190;
   const gap = 10;
-  const minSlot = 34;
+  const minSlot = 32;
   const colTotals = Array.from({ length: columns }, (_, c) => chart.nodes.filter((n) => n.column === c).reduce((s, n) => s + n.value, 0));
-  const k = 340 / Math.max(1, ...colTotals);
+  const k = (chart.nodes.length > 12 ? 380 : 300) / Math.max(1, ...colTotals);
   const colX = (c: number) => (columns === 1 ? leftLabel : leftLabel + (c * (width - leftLabel - rightLabel - nodeW)) / (columns - 1));
 
   // Order each column by where its money comes from, so ribbons cross as little as possible.
@@ -113,8 +113,8 @@ function SankeySvg({ chart, width, onPick }: { chart: FlowChartData; width: numb
             onClick={() => { if (n.href) router.push(n.href); }}
           >
             <rect x={n.x} y={n.y} width={nodeW} height={n.h} rx={3} fill={n.colour} />
-            <text x={tx} y={cy - 3} textAnchor={leftSide ? "end" : "start"} className="fill-slate-900 text-[15px] font-bold" paintOrder="stroke" stroke="white" strokeWidth={4} strokeLinejoin="round">{n.label.length > 30 ? `${n.label.slice(0, 29)}…` : n.label}</text>
-            <text x={tx} y={cy + 14} textAnchor={leftSide ? "end" : "start"} className="fill-slate-500 text-[13px] font-semibold" paintOrder="stroke" stroke="white" strokeWidth={4} strokeLinejoin="round">{gbp(n.value)}</text>
+            <text x={tx} y={cy - 3} textAnchor={leftSide ? "end" : "start"} className="fill-slate-900 text-[13px] font-bold" paintOrder="stroke" stroke="white" strokeWidth={4} strokeLinejoin="round">{n.label.length > 26 ? `${n.label.slice(0, 25)}…` : n.label}</text>
+            <text x={tx} y={cy + 12} textAnchor={leftSide ? "end" : "start"} className="fill-slate-500 text-[11.5px] font-semibold" paintOrder="stroke" stroke="white" strokeWidth={4} strokeLinejoin="round">{gbp(n.value)}</text>
           </g>
         );
       })}
@@ -197,8 +197,17 @@ export function FlowChart({ summary, detail, total, title }: { summary: FlowChar
     });
   };
   const chart = expanded ? detail : summary;
-  const columns = Math.max(1, ...chart.nodes.map((n) => n.column + 1));
-  const width = Math.max(1000, 360 * columns + 200);
+  // Drawn at the real width of its box, so text stays at a normal reading size on any screen.
+  const box = useRef<HTMLDivElement>(null);
+  const [measured, setMeasured] = useState(1000);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => setMeasured(Math.round(entry.contentRect.width)));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const width = Math.max(expanded ? 900 : 680, measured);
 
   return (
     <section className="rounded-3xl border border-white/70 bg-white/92 p-5 shadow-sm">
@@ -218,8 +227,8 @@ export function FlowChart({ summary, detail, total, title }: { summary: FlowChar
 
       <div className="hidden md:block">
         <p className="mt-2 h-5 text-xs font-bold text-slate-500" aria-live="polite">{picked ?? (expanded ? "Hover a flow to see it on its own · click a box to open it" : "Hover to see amounts · Show more detail for each income, group and category")}</p>
-        <div className="overflow-x-auto">
-          <div style={{ minWidth: expanded ? 960 : 720 }}>
+        <div ref={box} className="overflow-x-auto">
+          <div style={{ minWidth: expanded ? 900 : 680 }}>
             <SankeySvg chart={chart} width={width} onPick={setPicked} />
           </div>
         </div>
