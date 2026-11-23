@@ -100,7 +100,7 @@ export function buildTracedFlow(input: {
     const colour = GROUP_COLOURS[i % GROUP_COLOURS.length];
     const id = `group:${g.group.id}`;
     nodes.push({ id, label: g.group.name, value: r2(g.outgoing), colour, column: 2, href: `/spending?month=${month}`, note: METHOD_LABEL[g.group.method] });
-    groupNotes.push(`${g.group.name}: ${METHOD_LABEL[g.group.method] || g.group.method}`);
+    groupNotes.push(`${g.group.name} (${METHOD_LABEL[g.group.method] || g.group.method})`);
     for (const adult of adults) payFor(adult.id, id, g.shares[adult.id] || 0, adult.colour);
     for (const incomeLine of groupIncomeLines.get(g.group.id) || []) {
       const amount = Math.min(incomeLine.amount, g.outgoing);
@@ -122,7 +122,7 @@ export function buildTracedFlow(input: {
     return incomeTotal > 0 && p ? (ungroupedTotal * (p.income + p.sharedIncome)) / incomeTotal : ungroupedTotal / adults.length;
   };
   if (ungroupedTotal > 0.5) {
-    nodes.push({ id: "shared-ungrouped", label: "Shared, not in a Split group", value: r2(ungroupedTotal), colour: "#a3a3a3", column: 2, href: `/spending?month=${month}`, note: "shared by income until it's in a group" });
+    nodes.push({ id: "shared-ungrouped", label: "Other shared costs", value: r2(ungroupedTotal), colour: "#a3a3a3", column: 2, href: `/spending?month=${month}`, note: "shared by income" });
     for (const adult of adults) payFor(adult.id, "shared-ungrouped", ungroupedShare(adult.id), adult.colour);
     for (const c of topCategories(sharedUngrouped, input.categoryName)) {
       const cid = `cat:ungrouped:${c.label}`;
@@ -181,10 +181,9 @@ export function buildTracedFlow(input: {
     }
   }
 
-  const note = [
-    "Traced by whose money it is: each person's pay covers their own spending, their savings and their share of each Split group. Household income (like Child Benefit) pays towards shared costs first.",
-    groupNotes.length ? `Groups are shared the way you set them in Split (${groupNotes.join("; ")}).` : "No Split groups yet, so shared payments are shared by income.",
-  ].filter(Boolean).join(" ");
+  const note = groupNotes.length
+    ? `Each person's pay covers their own spending, their savings and their share of ${groupNotes.join(", ")}. Household income like Child Benefit goes to shared costs first.`
+    : "Each person's pay covers their own spending and savings. Shared costs are shared by income. Household income like Child Benefit goes to shared costs first.";
 
   return { chart: { nodes, links, columns: ["Where it comes from", "Whose money", "What it pays for", "Categories"] }, note };
 }

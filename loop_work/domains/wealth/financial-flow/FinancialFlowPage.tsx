@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import {
   ArrowDownRight,
   ArrowLeft,
+  ArrowLeftRight,
   ArrowRight,
   ArrowRightLeft,
   Banknote,
@@ -27,6 +28,8 @@ import { FlowChart } from "@/components/financial-flow/FlowChart";
 import { buildFlowCharts } from "@/lib/planning/flow-chart";
 import { DEFAULT_SPLIT_SETTINGS, type SplitAccount, type SplitGroup, type SplitLine } from "@/lib/spending/split";
 import { buildTracedFlow } from "@/lib/planning/flow-attribution";
+import { buildAccountFlowCharts } from "@/lib/planning/account-flow-chart";
+import { buildAccountActivity, type AccountLine } from "@/lib/accounts/account-activity";
 import { priceWatch } from "@/lib/bills/price-watch";
 import { createClient } from "@/lib/supabase/server";
 import { PageLandingExperience } from "@/components/landing/PageLandingExperience";
@@ -867,7 +870,24 @@ function FlowChartSection({ model, people, traced }: { model: MonthModel; people
   );
 }
 
-function MainFlowDiagram({ model, people, traced }: { model: MonthModel; people: Person[]; traced: ReturnType<typeof buildTracedFlow> }) {
+type AccountFlowView = (ReturnType<typeof buildAccountFlowCharts> & { names: string; unassigned: number }) | null;
+
+function AccountFlowSection({ flow }: { flow: NonNullable<AccountFlowView> }) {
+  const missing = flow.unassigned > 0 ? ` ${flow.unassigned} payment${flow.unassigned === 1 ? " doesn't" : "s don't"} say which account ${flow.unassigned === 1 ? "it uses" : "they use"}, so ${flow.unassigned === 1 ? "it isn't" : "they aren't"} shown — set them on Accounts.` : "";
+  const note = `Only ${flow.names}: the money that goes in (transfers from each of you and household income) and the bills paid from it this month.${missing}`;
+  return (
+    <FlowChart
+      summary={flow.summary}
+      detail={flow.detail}
+      total={Math.max(flow.totalIn, flow.totalOut)}
+      title={`${flow.names}: ${formatMoney(flow.totalIn)} in · ${formatMoney(flow.totalOut)} out`}
+      summaryNote={note}
+      detailNote={`${note} Each payment is shown under its category.`}
+    />
+  );
+}
+
+function MainFlowDiagram({ model, people, traced, accountFlow }: { model: MonthModel; people: Person[]; traced: ReturnType<typeof buildTracedFlow>; accountFlow?: AccountFlowView }) {
   const detailRows: FlowLine[] = [
     ...model.spendRows.slice(0, 8),
     ...model.savingsRows,
@@ -876,7 +896,7 @@ function MainFlowDiagram({ model, people, traced }: { model: MonthModel; people:
 
   return (
     <>
-      <FlowChartSection model={model} people={people} traced={traced} />
+      {accountFlow ? <AccountFlowSection flow={accountFlow} /> : <FlowChartSection model={model} people={people} traced={traced} />}
     </>
   );
 }
@@ -975,7 +995,7 @@ function DetailPanel({ activeTab, month, incomeLines, spendRows, savingsRows }: 
   );
 }
 
-async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{ tab?: string; person?: string; people?: string; month?: string }> }) {
+async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{ tab?: string; person?: string; people?: string; month?: string; view?: string }> }) {
   const timer = createPageTimer("financial-flow");
   const params = searchParams ? await searchParams : {};
   // Income and Spending live on their own pages; old ?tab= links go straight there.
@@ -996,9 +1016,9 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
   const [profileResult, peopleResult, payResult, incomeResult, plannedResult, spendingEntriesResult, categoriesResult, categoryGroupsResult, accountsResult, pensionsResult, movementsResult, potsResult, potAllocationsResult, dealsResult, childCostsResult] = await timer.time("main_queries", Promise.all([
     supabase.from("app_user_profiles").select("*").eq("user_id", user.id).maybeSingle(),
     supabase.from("people").select("id, name, relationship, user_id, linked_user_id, email, invite_email, birth_date, account_status, active_until, avatar_url").or(householdPeopleOrFilter(householdContext)).order("relationship").order("name").returns<Person[]>(),
-    supabase.from("pay_events").select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, tax_region, payment_account_id").or(memberFilter).returns<PayEvent[]>(),
+    supabase.from("pay_events").select("id, person_id, label, pay_kind, gross_annual_salary, monthly_take_home_override, pension_percent, pension_method, student_loan_plan, effective_from, effective_until, maternity_leave_start, maternity_leave_end, maternity_pay_mode, maternity_full_pay_weeks, maternity_half_pay_weeks, maternity_smp_only_weeks, maternity_unpaid_weeks, maternity_smp_weekly_rate, maternity_extras, tax_region, payment_account_id, pay_timing, pay_day_of_month, pay_adjustment").or(memberFilter).returns<PayEvent[]>(),
     supabase.from("income_entries").select("id, person_id, label, gross_amount, net_amount, frequency, entry_date").or(memberFilter).returns<IncomeEntry[]>(),
-    supabase.from("planned_items").select("id, person_id, category_id, direction, label, amount, recurrence, recurrence_interval_days, start_date, end_date, item_type, notes, payment_account_id").or(visibleFilter).returns<PlannedItem[]>(),
+    supabase.from("planned_items").select("id, person_id, category_id, direction, label, amount, recurrence, recurrence_interval_days, start_date, end_date, item_type, notes, payment_account_id, day_of_month, payment_timing, payment_adjustment, end_behavior").or(visibleFilter).returns<PlannedItem[]>(),
     supabase.from("spending_entries").select("id, person_id, category_id, label, amount, spent_at, notes, payment_account_id").or(visibleFilter).returns<SpendingEntry[]>(),
     supabase.from("spending_categories").select("id, name, type, monthly_budget, category_icon, group_id").or(visibleFilter).returns<SpendingCategory[]>(),
     supabase.from("spending_category_groups").select("id, name, icon").or(visibleFilter).returns<SpendingCategoryGroup[]>(),
@@ -1011,11 +1031,12 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
     supabase.from("child_costs").select("id, child_id, label, cost_kind, category_id, monthly_cost, billing_month, daily_rate, extra_daily_cost, funded_hours_per_week, funding_mode, hourly_funding_credit, term_weeks_per_year, billing_schedule, bank_holidays_are_free, tax_free_childcare_enabled, tax_free_childcare_cap_per_quarter, part_day_multiplier, full_day_hours, part_day_hours, monday_session, tuesday_session, wednesday_session, thursday_session, friday_session, monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours, activity_weekly_cost, activity_weekday, activity_billing_mode, activity_term_weeks_per_year, starts_on, ends_on, care_type, care_details, bill_person_id, payment_account_id").or(memberFilter).returns<ChildCostForPlan[]>(),
   ]));
   // Mortgage payments and exact monthly pay come from the same shared logic as Summary and the calendar.
-  const [{ data: mortgageDealRows }, payRows, { data: splitGroupRows }, { data: splitSettingRows }] = await timer.time("mortgage_pay", Promise.all([
+  const [{ data: mortgageDealRows }, payRows, { data: splitGroupRows }, { data: splitSettingRows }, { data: transferRows }] = await timer.time("mortgage_pay", Promise.all([
     supabase.from("home_mortgage_deals").select("id, lender, balance, interest_rate, term_years, monthly_payment_override, start_date, end_date, payment_account_id").or(visibleFilter),
     withPayOverrides(supabase, payResult.data || []),
     activeTab === "flow" ? supabase.from("household_split_groups").select("id, name, method, custom_shares, payer_person_id, members, sort_order").is("archived_at", null).or(visibleFilter).order("sort_order") : Promise.resolve({ data: [] as any[] }),
     activeTab === "flow" ? supabase.from("household_split_settings").select("savings_mode, low_earner_mode, owner_covers").or(visibleFilter).limit(1) : Promise.resolve({ data: [] as any[] }),
+    activeTab === "flow" ? supabase.from("household_account_transfers").select("id, person_id, from_account_id, to_account_id, amount, frequency, weekday, day_of_month, start_date, end_date, note").is("archived_at", null).or(memberFilter) : Promise.resolve({ data: [] as any[] }),
   ]));
 
   const people = dedupeHouseholdPeople(peopleResult.data || [], user.id) as Person[];
@@ -1250,6 +1271,39 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
   }
 
   const model = buildModel(month.key, true);
+  // "Flow": just the household's joint account(s) — what comes in and what goes out.
+  const jointAccounts = (accountsResult.data || []).filter((account) => account.account_type === "current_account" && !account.is_liability && (!account.owner_person_id || ["joint", "household"].includes(String(account.ownership_scope || ""))));
+  const accountView = activeTab === "flow" && params.view === "account" && jointAccounts.length > 0;
+  const accountFlow = accountView ? (() => {
+    const accountNames: Record<string, string> = Object.fromEntries((accountsResult.data || []).map((account) => [account.id, account.name || account.provider || "Account"]));
+    const personNames: Record<string, string> = Object.fromEntries(people.map((person) => [person.id, person.name]));
+    const { activity, unassigned } = buildAccountActivity({
+      month: month.key,
+      plannedItems: (plannedResult.data || []) as any,
+      payEvents: payRows as any,
+      childCosts: (childCostsResult.data || []) as any,
+      entries: (spendingEntriesResult.data || []).map((entry) => ({ id: entry.id, label: entry.label || entry.notes || "Spending", amount: n(entry.amount), spent_at: String(entry.spent_at || ""), person_id: entry.person_id ?? null, payment_account_id: entry.payment_account_id ?? null })),
+      transfers: ((transferRows || []) as any[]).map((row) => ({ ...row, amount: n(row.amount) })),
+      mortgageDeals: (mortgageDealRows || []) as any,
+      accountNames,
+      personNames,
+    });
+    const plannedById = new Map((plannedResult.data || []).map((row) => [row.id, row]));
+    const entryById = new Map((spendingEntriesResult.data || []).map((row) => [row.id, row]));
+    const childById = new Map((childCostsResult.data || []).map((row) => [row.id, row]));
+    const nameOfCategory = (id?: string | null) => (id ? categoryById.get(id)?.name : null);
+    const categoryOf = (line: AccountLine) => {
+      if (line.kind === "topup") return "Savings top-ups";
+      if (line.kind === "transfer") return "Transfers out";
+      if (line.kind === "mortgage") return "Mortgage";
+      if (line.ref?.table === "planned_items") return nameOfCategory(plannedById.get(line.ref.id)?.category_id) || "Other bills";
+      if (line.ref?.table === "child_costs") return nameOfCategory((childById.get(line.ref.id) as any)?.category_id) || "Childcare";
+      if (line.ref?.table === "spending_entries") return nameOfCategory(entryById.get(line.ref.id)?.category_id) || "One-off spending";
+      return "Other";
+    };
+    const charts = buildAccountFlowCharts({ month: month.key, accounts: jointAccounts.map((account) => ({ id: account.id, name: accountNames[account.id] })), activity, categoryOf });
+    return { ...charts, names: jointAccounts.map((account) => accountNames[account.id]).join(" & "), unassigned };
+  })() : null;
   // The detailed flow chart traces whose money pays for what, using Split's rules (whole household only).
   const tracedFlow = activeTab === "flow" && !scopeIds.length
     ? buildTracedFlow({
@@ -1459,7 +1513,21 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
 
 
         {(() => {
-          const scopeRow = activeTab === "income" ? null : <div className="my-2 py-2"><ScopeSelector people={people} activeTab={activeTab} month={month.key} scopeIds={scopeIds} /></div>;
+          const scopeRow = activeTab === "income" ? null : (
+            <div className="my-2 flex flex-wrap items-center gap-3 py-2">
+              <ScopeSelector people={people} activeTab={activeTab} month={month.key} scopeIds={accountView ? ["__none"] : scopeIds} />
+              {activeTab === "flow" && jointAccounts.length ? (
+                <Link
+                  href={accountView ? queryHref("flow", month.key, scopeIds) : `${queryHref("flow", month.key, [])}&view=account`}
+                  aria-pressed={accountView}
+                  title={`What goes in and out of ${jointAccounts.map((account) => account.name || "your joint account").join(" & ")}`}
+                  className={`ml-auto inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-black ${accountView ? "bg-slate-950 text-white" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
+                >
+                  <ArrowLeftRight className="h-4 w-4" /> Flow
+                </Link>
+              ) : null}
+            </div>
+          );
           const body = (
             <>
         {activeTab === "savings" ? (
@@ -1501,7 +1569,7 @@ async function FinancialFlowContent({ searchParams }: { searchParams?: Promise<{
               ) : null}
             </section>
 
-            {activeTab === "flow" ? <MainFlowDiagram model={model} people={people} traced={tracedFlow} /> : <DetailPanel activeTab={activeTab} month={month.key} incomeLines={model.incomeLines} spendRows={model.spendRows} savingsRows={model.savingsRows.length ? model.savingsRows : [{ key: "savings-plan", label: "Savings plan", amount: 0, icon: PiggyBank, tone: "green" }]} />}
+            {activeTab === "flow" ? <MainFlowDiagram model={model} people={people} traced={tracedFlow} accountFlow={accountFlow} /> : <DetailPanel activeTab={activeTab} month={month.key} incomeLines={model.incomeLines} spendRows={model.spendRows} savingsRows={model.savingsRows.length ? model.savingsRows : [{ key: "savings-plan", label: "Savings plan", amount: 0, icon: PiggyBank, tone: "green" }]} />}
 
             {yearMonths.length ? <MoneyFlowCalendar months={yearMonths} selectedMonth={month.key} activeTab={activeTab} scopeIds={scopeIds} /> : null}
           </>
@@ -1542,7 +1610,7 @@ async function PriceWatchSection({ visibleFilter }: { visibleFilter: string }) {
   return <PriceWatchPanel alerts={alerts} />;
 }
 
-export default function FinancialFlowPage(props: { searchParams?: Promise<{ tab?: string; person?: string; people?: string; month?: string }> }) {
+export default function FinancialFlowPage(props: { searchParams?: Promise<{ tab?: string; person?: string; people?: string; month?: string; view?: string }> }) {
   return (
     <>
       <Nav />

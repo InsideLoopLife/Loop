@@ -110,14 +110,14 @@ export function AccountsHome({
     return (
       <div className="space-y-4">
         {everyday.length ? (
-          <div className="grid items-start gap-4 xl:grid-cols-2">
-            {everyday.map((account) => <AccountCard key={account.id} account={account} today={today} isCurrentMonth={isCurrentMonth} month={month} onSettings={() => setSettingsFor(account)} />)}
+          <div className={`grid items-start gap-4 ${everyday.length > 1 ? "xl:grid-cols-2 min-[2200px]:grid-cols-3" : ""}`}>
+            {everyday.map((account) => <AccountCard key={account.id} account={account} today={today} isCurrentMonth={isCurrentMonth} month={month} wide={everyday.length === 1} onSettings={() => setSettingsFor(account)} />)}
           </div>
         ) : null}
         {savings.length ? (
           <div>
             <p className="mb-2 text-xs font-black uppercase tracking-[0.14em] text-emerald-700">Savings · {gbp(savings.reduce((sum, a) => sum + a.balance, 0))}</p>
-            <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 min-[1700px]:grid-cols-4 min-[2200px]:grid-cols-6">
               {savings.map((account) => <SavingsCard key={account.id} account={account} today={today} onSettings={() => setSettingsFor(account)} />)}
             </div>
           </div>
@@ -373,7 +373,7 @@ function BalanceChart({ timeline, today, onPick, picked }: { timeline: BalanceTi
   );
 }
 
-function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { account: AccountsHomeAccount; today: string; isCurrentMonth: boolean; month: string; onSettings: () => void }) {
+function AccountCard({ account, today, isCurrentMonth, month, onSettings, wide = false }: { account: AccountsHomeAccount; today: string; isCurrentMonth: boolean; month: string; onSettings: () => void; wide?: boolean }) {
   const [showAll, setShowAll] = useState(false);
   const [editingBalance, setEditingBalance] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
@@ -381,7 +381,7 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
   const timeline = useMemo(() => balanceTimeline({ month, anchor: account.anchor, lines: activity.lines, today }), [month, account.anchor, activity.lines, today]);
   const allLines = timeline.days.flatMap((d) => d.lines);
   const upcoming = isCurrentMonth ? allLines.filter((l) => !l.date || l.date >= today) : allLines;
-  const shown = showAll ? allLines : upcoming.slice(0, 5);
+  const shown = showAll ? allLines : upcoming.slice(0, wide ? 10 : 5);
   const scale = Math.max(1, ...timeline.days.map((d) => Math.abs(d.balance ?? 0)), ...allLines.map((l) => Math.abs(l.after ?? 0)));
   const pickedDay = picked ? timeline.days.find((d) => d.date === picked) : null;
   const tracked = account.trackedFrom;
@@ -401,13 +401,16 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
   } else if (tracked) {
     balanceLabel = isCurrentMonth ? "Worked out for today" : "Balance";
     balanceNote = `From ${gbp(account.balance)} on payday, ${niceDate(tracked)}, plus everything since. No need to type it in.`;
+  } else if (unset) {
+    balanceLabel = "Balance";
+    balanceNote = "Not added yet";
   } else if (isCurrentMonth && timeline.today != null && account.anchor.date !== today) {
     balanceLabel = "Estimated today";
     balanceNote = `${checkedAgo(account.balanceConfirmedAt, today)} at ${gbp(account.balance)}, plus what's gone in and out since`;
   }
 
   return (
-    <article className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+    <article className={`overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm ${wide ? "lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]" : ""}`}>
       <div className="p-5">
         <div className="flex items-start gap-3">
           <FinancialInstitutionLogo provider={account.providerSlug || account.provider} className="h-11 w-11 rounded-2xl" />
@@ -424,7 +427,7 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
         <div className="mt-4 flex flex-wrap items-end justify-between gap-2">
           <div className="min-w-0">
             <p className="text-[11px] font-black uppercase tracking-wide text-slate-400">{balanceLabel}</p>
-            <p className={`text-3xl font-black tabular-nums ${trackingAhead ? "text-slate-400" : shownBalance < 0 ? "text-rose-700" : "text-slate-950"}`}>{gbp(trackingAhead ? account.balance : shownBalance)}</p>
+            <p className={`text-3xl font-black tabular-nums ${trackingAhead || unset ? "text-slate-400" : shownBalance < 0 ? "text-rose-700" : "text-slate-950"}`}>{unset ? "—" : gbp(trackingAhead ? account.balance : shownBalance)}</p>
             <p className="max-w-sm text-[11px] font-semibold text-slate-500">{balanceNote}</p>
           </div>
           {editingBalance ? (
@@ -444,10 +447,10 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
         </div>
 
         {unset ? (
-          <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">This account&apos;s balance is £0 in Loop, so the line below starts from nothing. Add today&apos;s balance for a real picture.</p>
+          <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">Add today&apos;s balance to see the day-by-day line and where it ends the month. Until then, here&apos;s what&apos;s planned in and out.</p>
         ) : null}
 
-        {activity.lines.length ? (
+        {activity.lines.length && !unset ? (
           <div className="mt-4 rounded-2xl bg-slate-50/80 p-3">
             <div className="flex items-baseline justify-between gap-2 text-xs">
               <p className="font-black text-slate-700">{pickedDay ? niceDate(pickedDay.date) : `Balance each day · ${monthLabel(month)}`}</p>
@@ -469,7 +472,7 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
           </div>
         ) : null}
 
-        {activity.lines.length && low && low.balance < 0 ? (
+        {unset ? null : activity.lines.length && low && low.balance < 0 ? (
           <p className="mt-3 rounded-2xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800">
             Lowest point: <span className="font-black">{gbp(low.balance)}</span> on {niceDate(low.date)}{low.line ? `, after ${low.line.label} (−${gbp(low.line.amount)})` : ""}.
             {" "}{nextIn && nextIn.date && nextIn.date > low.date ? `Nothing comes in until ${gbp(nextIn.amount)} ${nextIn.kind === "transfer" || nextIn.kind === "topup" ? nextIn.label.replace(/^From /, "from ") : `from ${nextIn.label}`} on ${niceDate(nextIn.date)}.` : !nextIn ? "Nothing is set to come into this account this month." : ""}
@@ -494,11 +497,11 @@ function AccountCard({ account, today, isCurrentMonth, month, onSettings }: { ac
         ) : null}
       </div>
 
-      <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-3">
+      <div className={`border-t border-slate-100 bg-slate-50/60 px-5 py-3 ${wide ? "lg:border-l lg:border-t-0 lg:py-5" : ""}`}>
         {activity.lines.length ? (
           <>
-            <p className="text-xs font-black text-slate-500">{showAll ? `Everything in ${monthLabel(month)}, with the balance after each` : isCurrentMonth ? "Coming up, with the balance after each" : `In ${monthLabel(month)}`}</p>
-            {shown.length ? <ul className="divide-y divide-slate-100">{shown.map((line) => <LineRow key={line.key} line={line} after={line.after ?? undefined} scale={scale} past={isCurrentMonth && Boolean(line.date && line.date < today)} />)}</ul> : <p className="py-2 text-xs font-semibold text-slate-500">Nothing else this month.</p>}
+            <p className="text-xs font-black text-slate-500">{showAll ? `Everything in ${monthLabel(month)}${unset ? "" : ", with the balance after each"}` : isCurrentMonth ? `Coming up${unset ? "" : ", with the balance after each"}` : `In ${monthLabel(month)}`}</p>
+            {shown.length ? <ul className="divide-y divide-slate-100">{shown.map((line) => <LineRow key={line.key} line={line} after={unset ? undefined : line.after ?? undefined} scale={scale} past={isCurrentMonth && Boolean(line.date && line.date < today)} />)}</ul> : <p className="py-2 text-xs font-semibold text-slate-500">Nothing else this month.</p>}
             {allLines.length > shown.length || showAll ? (
               <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-1 text-xs font-black text-sky-700">{showAll ? "Show less" : `See all ${allLines.length} for ${monthLabel(month)}`}</button>
             ) : null}

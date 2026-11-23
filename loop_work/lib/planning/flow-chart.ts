@@ -37,10 +37,14 @@ function stageNodes(input: FlowChartInput) {
 function groupNodes(input: FlowChartInput, column: number) {
   const groups = [...input.groups].filter((g) => g.amount > 0.5).sort((a, b) => b.amount - a.amount);
   const grouped = groups.reduce((s, g) => s + g.amount, 0);
-  if (input.spending - grouped > 1) groups.push({ label: "Other spending", amount: input.spending - grouped, categories: [] });
+  if (input.spending - grouped > 1) {
+    const other = groups.find((g) => g.label === "__ungrouped");
+    if (other) other.amount += input.spending - grouped;
+    else groups.push({ label: "__ungrouped", amount: input.spending - grouped, categories: [] });
+  }
   return groups.map((g, i) => ({
     id: `group:${g.label}`,
-    label: g.label === "__ungrouped" ? "Ungrouped" : g.label,
+    label: g.label === "__ungrouped" ? "Other spending" : g.label,
     value: r2(g.amount),
     colour: GROUP_COLOURS[i % GROUP_COLOURS.length],
     column,
