@@ -54,7 +54,10 @@ export function estimateCostGbp(model: string, inputTokens: number, outputTokens
 
 /** The app route that made the call, read from the stack (server chunks keep their app/ path). */
 export function routeFromStack(raw = new Error().stack || "") {
-  const stack = raw.split("\n").filter((line) => !line.includes("openai-guard") && !line.includes("node:internal")).join("\n");
+  const stack = raw
+    .split("\n")
+    .filter((line) => !/openai-guard|node:internal|node_modules|next[\\/]dist|router-utils|instrumentation/.test(line))
+    .join("\n");
   const match = stack.match(/app[\\/]((?:[\w\-.[\]()@]+[\\/])*?[\w\-.[\]()@]+)[\\/](?:route|page|actions?)\.(?:js|ts|tsx)/);
   if (match) return match[1].replace(/\\/g, "/");
   const lib = stack.match(/(lib[\\/][\w\-/\\]+?)\.(?:js|ts)/);
@@ -179,7 +182,19 @@ export function installOpenAiGuard() {
       return refuse(429, limited);
     }
 
-    const response = await realFetch(input, init);
+    let response = await realFetch(input, init);
+    // A revoked personal key saved in Loop shouldn't break every AI feature when the
+    // server has its own key: retry once with the server key.
+    const serverKey = process.env.OPENAI_API_KEY || "";
+    if (response.status === 401 && serverKey && init) {
+      const headers = new Headers(init.headers || {});
+      if (headers.get("authorization") !== `Bearer ${serverKey}`) {
+        headers.set("authorization", `Bearer ${serverKey}`);
+        console.warn(JSON.stringify({ event: "openai_saved_key_rejected", route }));
+        void record({ route_key: route, scope: route, component: "openai-guard", model: requestedModel, request_status: "http_401_saved_key" });
+        response = await realFetch(input, { ...init, headers });
+      }
+    }
     // Count the call straight away so parallel calls see it.
     day.calls += 1;
     if (wantsSearch) day.searches += 1;

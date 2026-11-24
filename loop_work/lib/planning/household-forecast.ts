@@ -37,7 +37,11 @@ export async function loadHouseholdForecast(supabase: any, opts: { userId: strin
     const groups = Array.isArray(c.spending_category_groups) ? c.spending_category_groups : c.spending_category_groups ? [c.spending_category_groups] : [];
     return Boolean(c.emergency_fund_essential || groups.some((g: any) => g.emergency_fund_essential));
   }).map((c) => c.name));
-  const first = plans[0];
+  // The safety net is about today's essential bills, so it's worked out from the full plan,
+  // even when a check leaves some lines out (e.g. the car a new one would replace).
+  const first = opts.excludePlannedItemIds?.length
+    ? (await loadMonthPlans(supabase, { userId: opts.userId, filter: opts.filter, months: [months[0]] })).plans[0]
+    : plans[0];
   const essentialMonthly = first ? first.outgoingItems.filter((item: any) => item.categoryLabel && essentialNames.has(item.categoryLabel)).reduce((s: number, item: any) => s + Number(item.value || 0), 0) : 0;
   const totals = plans.map((plan) => monthTotals(plan, savingNames));
   const bufferMonthly = essentialMonthly > 0 ? essentialMonthly : totals[0]?.spending || 0;

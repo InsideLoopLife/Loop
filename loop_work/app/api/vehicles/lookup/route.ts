@@ -29,7 +29,9 @@ export async function POST(request: NextRequest) {
   if (!limit.allowed) return NextResponse.json({ error: "That's the limit of car lookups for today. Type the figures in instead." }, { status: 429 });
 
   const secret = await getActiveIntegrationSecret(supabase, user.id, "openai");
-  const key = secret?.value || process.env.OPENAI_API_KEY;
+  const serverKey = process.env.OPENAI_API_KEY || process.env.OPENAI_RESEARCH_API_KEY || "";
+  const keys = Array.from(new Set([secret?.value, serverKey].filter(Boolean))) as string[];
+  const key = keys[0];
   if (!key) return NextResponse.json({ error: "Car lookups aren't set up. Type the figures in instead." }, { status: 503 });
 
   const budget = await checkAiRouteAllowed(supabase, user.id, "quick_runtime");
@@ -46,11 +48,17 @@ Return JSON only, no prose, with these keys:
 Use null when you can't find a figure. Never guess a list price.`;
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const call = (apiKey: string) => fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model, tools: [{ type: "web_search_preview" }], input: prompt }),
     });
+    let response = await call(key);
+    // A saved personal key that's been revoked shouldn't block the lookup when the server has its own.
+    if (response.status === 401 && keys[1]) {
+      console.warn(JSON.stringify({ event: "openai_saved_key_rejected", route: "vehicles/lookup" }));
+      response = await call(keys[1]);
+    }
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = String(payload?.error?.message || "");
