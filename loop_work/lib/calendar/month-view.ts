@@ -8,6 +8,7 @@ import { UK_HOLIDAY_PERIODS } from "@/lib/calculations/childcareCalendar";
 import { addNutritionTotals, NUTRITION_TOTAL_KEYS, scoreNutritionDay, type NutritionTotals } from "@/lib/nutrition/scoring";
 import { ageInYears, scoringTargets, targetsForPerson } from "@/lib/nutrition/targets";
 import { planHomeItem, type HomeItem } from "@/lib/home/items";
+import { rollForward } from "@/lib/vehicles/car-profile";
 
 export type CalendarMoneyItem = { id: string; label: string; amount: number; direction: "in" | "out"; personId: string | null; personName: string | null; kind: string; href: string };
 export type CalendarDateItem = { id: string; kind: "birthday" | "school_holiday" | "bank_holiday" | "price_change" | "ending" | "deal_end" | "childcare"; label: string; detail?: string; personId?: string | null; href?: string };
@@ -280,6 +281,23 @@ export async function loadCalendarMonth(supabase: any, opts: { userId: string; d
         const window = new Date(timestamp - 49 * 86_400_000).toISOString().slice(0, 10);
         dayFor(window)?.dates.push({ id: `energy-switch-${tariff.id}-${fix.key}`, kind: "ending", label: `${fix.what === "energy" ? "Energy" : fix.what === "gas" ? "Gas" : "Electricity"}: free to switch from today`, detail: `${tariff.supplier} fix ends ${end} — no exit fee from now`, href: "/mortgage?tab=things" });
       }
+    }
+  }
+  // Cars: MOT, road tax and insurance come round every year; lease / finance ends once.
+  const { data: carRows } = await supabase.from("household_cars").select("id, name, registration, mot_due, tax_due, tax_included, insurance_renewal, insurer, agreement_end, ownership").eq("status", "active").or(filter);
+  for (const car of (carRows || []) as any[]) {
+    const yearly = (date: string | null) => {
+      const next = rollForward(date, first);
+      return next && next <= last ? next : null;
+    };
+    const mot = yearly(car.mot_due);
+    if (mot) dayFor(mot)?.dates.push({ id: `car-mot-${car.id}`, kind: "ending", label: `${car.name}: MOT due`, detail: "Book it up to a month early and keep the same expiry date", href: "/spending#your-cars" });
+    const tax = car.tax_included ? null : yearly(car.tax_due);
+    if (tax) dayFor(tax)?.dates.push({ id: `car-tax-${car.id}`, kind: "ending", label: `${car.name}: road tax due`, href: "/spending#your-cars" });
+    const insurance = yearly(car.insurance_renewal);
+    if (insurance) dayFor(insurance)?.dates.push({ id: `car-ins-${car.id}`, kind: "deal_end", label: `${car.name}: insurance renews`, detail: `${car.insurer ? `${car.insurer} · ` : ""}compare quotes 3–4 weeks before — it's usually cheapest then`, href: "/spending#your-cars" });
+    if (car.agreement_end && car.ownership !== "owned" && car.agreement_end >= first && car.agreement_end <= last) {
+      dayFor(car.agreement_end)?.dates.push({ id: `car-end-${car.id}`, kind: "deal_end", label: `${car.name}: ${car.ownership === "lease" ? "lease ends" : car.ownership === "pcp" ? "PCP ends" : "finance ends"}`, detail: car.ownership === "pcp" ? "Pay the final payment, hand it back or part-exchange" : "Arrange the next car before this", href: "/spending#your-cars" });
     }
   }
   for (const event of (eventsResult.data || []) as any[]) {

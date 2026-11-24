@@ -45,11 +45,13 @@ const blank = (): Purchase => ({
 export function PlannedPurchases({
   purchases,
   replaceOptions,
+  runningByItem = {},
   today,
   openNew = false,
 }: {
   purchases: PlannedPurchaseRow[];
   replaceOptions: ReplaceOption[];
+  runningByItem?: Record<string, number>;
   today: string;
   openNew?: boolean;
 }) {
@@ -97,7 +99,7 @@ export function PlannedPurchases({
 
       {editing ? createPortal(
         <ModalFrame title={editing.id ? editing.name : "Plan a purchase"} description="Work it out first. It only changes your plan when you press Add to plan." eyebrow="Spending · Planned purchases" maxWidth="max-w-5xl" onClose={() => setEditing(null)}>
-          <PurchaseEditor initial={editing} replaceOptions={replaceOptions} today={today} onDone={() => setEditing(null)} />
+          <PurchaseEditor initial={editing} replaceOptions={replaceOptions} runningByItem={runningByItem} today={today} onDone={() => setEditing(null)} />
         </ModalFrame>,
         document.body,
       ) : null}
@@ -105,7 +107,7 @@ export function PlannedPurchases({
   );
 }
 
-function PurchaseEditor({ initial, replaceOptions, today, onDone }: { initial: Purchase; replaceOptions: ReplaceOption[]; today: string; onDone: () => void }) {
+function PurchaseEditor({ initial, replaceOptions, runningByItem, today, onDone }: { initial: Purchase; replaceOptions: ReplaceOption[]; runningByItem: Record<string, number>; today: string; onDone: () => void }) {
   const router = useRouter();
   const [draft, setDraft] = useState<Purchase>(() => ({ ...blank(), ...initial, car: { ...(initial.car || {}) }, one_off_costs: [...(initial.one_off_costs || [])] }));
   const [context, setContext] = useState<Context | null>(null);
@@ -225,7 +227,7 @@ function PurchaseEditor({ initial, replaceOptions, today, onDone }: { initial: P
           <fieldset className="space-y-3 rounded-2xl border border-slate-200 p-4">
             <legend className="px-1 text-xs font-black text-slate-600">The car</legend>
             <label className={label}>Does it replace a car you have now?
-              <select value={draft.replaces_planned_item_id || ""} onChange={(e) => set({ replaces_planned_item_id: e.target.value || null })} className={field}>
+              <select value={draft.replaces_planned_item_id || ""} onChange={(e) => { const id = e.target.value || null; set({ replaces_planned_item_id: id }); if (id && runningByItem[id] && !draft.car.currentRunningMonthly) setCar({ currentRunningMonthly: runningByItem[id] }); }} className={field}>
                 <option value="">No — it&apos;s an extra car</option>
                 {sortedOptions.map((option) => <option key={option.id} value={option.id}>{option.label} · {gbp(option.amount, true)}/mo{option.category ? ` (${option.category})` : ""}</option>)}
               </select>
@@ -234,7 +236,7 @@ function PurchaseEditor({ initial, replaceOptions, today, onDone }: { initial: P
             {draft.replaces_planned_item_id ? (
               <label className={label}>What that car costs to run now — fuel, insurance, tax (£/mo, optional)
                 <input type="number" min="0" step="1" value={num(draft.car.currentRunningMonthly)} onChange={(e) => setCar({ currentRunningMonthly: toNum(e.target.value) })} className={field} />
-                <span className={hint}>Fill this in to compare like for like. Left blank, only the payments are compared.</span>
+                <span className={hint}>{runningByItem[draft.replaces_planned_item_id] ? "Filled in from that car's details in Your cars." : "Fill this in to compare like for like. Left blank, only the payments are compared."}</span>
               </label>
             ) : null}
 

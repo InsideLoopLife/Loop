@@ -11,6 +11,9 @@ import { type BankImport, type RegularPaymentCandidate, type ChildCost, type Pay
 import { SpendingPlannerDeferredClient } from "@/components/spending/SpendingPlannerDeferredClient";
 import { withPayOverrides } from "@/lib/planning/pay-overrides";
 import { PlannedPurchases, type PlannedPurchaseRow, type ReplaceOption } from "@/components/spending/PlannedPurchases";
+import { CarsPanel, type CarRow } from "@/components/spending/CarsPanel";
+import { carMonthly } from "@/lib/vehicles/car-profile";
+import { effectiveEnergy } from "@/lib/energy/tariff";
 
 export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string; add?: string; prefill_label?: string; prefill_amount?: string; plan?: string }> }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
@@ -106,13 +109,15 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       .eq("user_id", dataOwnerUserId)
       .eq("status", "active"),
   ]);
-  const [payEventsWithOverrides, { data: purchaseRows }] = await Promise.all([
+  const [payEventsWithOverrides, { data: purchaseRows }, { data: carRows }, energy] = await Promise.all([
     withPayOverrides(supabase, payEvents),
     supabase
       .from("planned_purchases")
       .select("id, kind, name, status, start_date, monthly_cost, term_months, upfront_cost, one_off_costs, replaces_planned_item_id, car, category_id, person_id, updated_at")
       .or(householdVisibleFilter)
       .order("updated_at", { ascending: false }),
+    supabase.from("household_cars").select("*").eq("status", "active").or(householdVisibleFilter).order("created_at"),
+    effectiveEnergy(supabase, householdVisibleFilter, null).catch(() => null),
   ]);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
   const categoryNameById = new Map((categories ?? []).map((category) => [category.id, category.name]));
@@ -123,6 +128,29 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       const category = item.category_id ? categoryNameById.get(item.category_id) || null : null;
       return { id: item.id, label: item.label, amount: Number(item.amount || 0), category, isCar: /\b(car|motoring|vehicle|transport)\b/i.test(category || "") || item.item_type === "transport" };
     });
+  const electricityPence = energy ? energy.electricityNight || energy.electricity : null;
+  const cars = ((carRows ?? []) as any[]).map((row) => ({
+    ...row,
+    list_price: row.list_price === null ? null : Number(row.list_price),
+    insurance_annual: row.insurance_annual === null ? null : Number(row.insurance_annual),
+    excess_pence_per_mile: row.excess_pence_per_mile === null ? null : Number(row.excess_pence_per_mile),
+    final_payment: row.final_payment === null ? null : Number(row.final_payment),
+    mpg: row.mpg === null ? null : Number(row.mpg),
+    miles_per_kwh: row.miles_per_kwh === null ? null : Number(row.miles_per_kwh),
+    electric_share: row.electric_share === null ? null : Number(row.electric_share),
+    mot_mileage: Array.isArray(row.mot_mileage) ? row.mot_mileage : [],
+  })) as CarRow[];
+  // Car payments: monthly bills in a car category that look like a finance or lease payment (not insurance, warranty, fuel…).
+  const carBills = replaceOptions
+    .filter((option) => option.isCar && option.amount >= 80 && !/insurance|warranty|breakdown|fuel|petrol|parking|tax|service|\bmot\b|motoreasy|charging/i.test(option.label))
+    .map((option) => ({ id: option.id, label: option.label, amount: option.amount }));
+  // What each linked car costs to run (fuel, insurance, tax) — used when a planned car replaces it.
+  const runningByItem: Record<string, number> = {};
+  for (const car of cars) {
+    if (!car.planned_item_id) continue;
+    const m = carMonthly(car, 0, electricityPence);
+    runningByItem[car.planned_item_id] = Math.round(m.energy + m.insurance + m.tax);
+  }
   const purchases = ((purchaseRows ?? []) as any[]).map((row) => ({
     ...row,
     monthly_cost: Number(row.monthly_cost || 0),
@@ -170,7 +198,8 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       />
       <main className="mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         {((entries ?? []).length + (plannedItems ?? []).length + (childCosts ?? []).length + (regularCandidates ?? []).length) === 0 ? <PageLandingExperience kind="spending" /> : null}
-        <PlannedPurchases purchases={purchases} replaceOptions={replaceOptions} today={today} openNew={resolvedSearchParams.plan === "new"} />
+        <CarsPanel cars={cars} carBills={carBills} people={basePeople.filter((person) => person.relationship !== "child").map((person) => ({ id: person.id, name: person.name }))} today={today} electricityPence={electricityPence} />
+        <PlannedPurchases purchases={purchases} replaceOptions={replaceOptions} runningByItem={runningByItem} today={today} openNew={resolvedSearchParams.plan === "new"} />
         <SpendingPlannerDeferredClient
           shareContext={shareContext}
           people={peopleWithAvatars}
