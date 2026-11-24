@@ -13,7 +13,7 @@ import { carCostsFor, checkPurchase, purchaseItems, type OneOffCost, type Purcha
 import { FUEL_LABEL, FUEL_PRICES, guessCar, TYPICAL_ANNUAL_MILES, TYPICAL_MILES_PER_KWH, TYPICAL_MPG, type FuelType } from "@/lib/vehicles/running-costs";
 
 export type PlannedPurchaseRow = Purchase & { id: string; status: "draft" | "planned"; updated_at?: string };
-export type ReplaceOption = { id: string; label: string; amount: number; category: string | null; isCar: boolean };
+export type ReplaceOption = { id: string; label: string; amount: number; category: string | null; isCar: boolean; personId?: string | null };
 
 type Context = {
   forecast: { month: string; leftOver: number }[];
@@ -155,13 +155,12 @@ function PurchaseEditor({ initial, replaceOptions, runningByItem, today, onDone 
       if (!response.ok || !payload.car) { setLookupState({ busy: false, message: payload.error || "The lookup didn't work. Type the figures in instead." }); return; }
       const car = payload.car;
       const mpg = car.realWorldMpg || (car.wltpMpg ? Math.round(car.wltpMpg * 0.85) : null);
-      const insurance = car.insuranceAnnualLow && car.insuranceAnnualHigh ? Math.round((car.insuranceAnnualLow + car.insuranceAnnualHigh) / 2 / 12) : null;
       setCar({
         fuelType: car.fuelType || draft.car.fuelType,
         mpg: mpg ?? draft.car.mpg,
         milesPerKwh: car.milesPerKwh ?? draft.car.milesPerKwh,
         listPrice: car.listPrice ?? draft.car.listPrice,
-        insuranceMonthly: draft.car.insuranceMonthly || insurance,
+        insuranceMonthly: draft.car.insuranceMonthly || null,
         lookup: { matched: car.matched, insuranceGroup: car.insuranceGroup, insuranceAnnualLow: car.insuranceAnnualLow, insuranceAnnualHigh: car.insuranceAnnualHigh, wltpMpg: car.wltpMpg, realWorldMpg: car.realWorldMpg, sources: car.sources, lookedUpAt: car.lookedUpAt },
       });
       setLookupState({ busy: false, message: `Filled in from ${car.matched}. Check them — they're a guide, not a quote.` });
@@ -285,7 +284,7 @@ function PurchaseEditor({ initial, replaceOptions, runningByItem, today, onDone 
               ) : null}
               <label className={label}>Insurance (£/mo)
                 <input type="number" min="0" step="1" value={num(draft.car.insuranceMonthly)} onChange={(e) => setCar({ insuranceMonthly: toNum(e.target.value) })} className={field} />
-                <span className={hint}>{draft.car.insuranceMonthly ? "Replace with a real quote when you have one." : "Add a quote, or look the car up for a typical figure."}</span>
+                <span className={hint}>{draft.car.insuranceMonthly ? "Replace with a real quote when you have one." : draft.car.lookup?.insuranceGroup ? `Blank: best guess from insurance group ${draft.car.lookup.insuranceGroup}.` : "Add a quote, or look the car up to guess from its insurance group."}</span>
               </label>
               <label className={label}>List price (£)
                 <input type="number" min="0" step="100" value={num(draft.car.listPrice)} onChange={(e) => setCar({ listPrice: toNum(e.target.value) })} className={field} />
@@ -294,6 +293,10 @@ function PurchaseEditor({ initial, replaceOptions, runningByItem, today, onDone 
               <label className="flex items-center gap-2 self-center pt-4 text-xs font-black text-slate-600">
                 <input type="checkbox" checked={Boolean(draft.car.taxIncluded)} onChange={(e) => setCar({ taxIncluded: e.target.checked })} className="h-4 w-4 rounded" />
                 Road tax included (most leases)
+              </label>
+              <label className="flex items-center gap-2 self-center text-xs font-black text-slate-600 sm:col-span-3">
+                <input type="checkbox" checked={Boolean(draft.car.serviceIncluded)} onChange={(e) => setCar({ serviceIncluded: e.target.checked })} className="h-4 w-4 rounded" />
+                Servicing included (maintenance package)
               </label>
             </div>
           </fieldset>
@@ -397,8 +400,9 @@ function ImpactPanel({
   if (draft.monthly_cost > 0) lines.push(["Monthly payment", draft.monthly_cost]);
   if (carCosts) {
     if (carCosts.energyMonthly > 0) lines.push([carCosts.chargingMonthly > 0 && carCosts.fuelMonthly > 0 ? "Fuel & charging" : carCosts.chargingMonthly > 0 ? "Charging" : "Fuel", carCosts.energyMonthly, carCosts.petrolEquivalentMonthly ? `vs ${gbp(carCosts.petrolEquivalentMonthly)} in a typical petrol car` : undefined]);
-    lines.push(["Insurance", carCosts.insuranceMonthly, carCosts.insuranceMonthly ? undefined : "not added yet"]);
+    lines.push(["Insurance", carCosts.insuranceMonthly, carCosts.insuranceSource === "group" ? `guess from group ${draft.car.lookup?.insuranceGroup} — add a quote` : carCosts.insuranceSource === "none" ? "not added yet" : undefined]);
     lines.push(["Road tax", carCosts.taxMonthly, carCosts.taxNote]);
+    lines.push(["Servicing & tyres", carCosts.maintenanceMonthly, draft.car.serviceIncluded ? "servicing included — tyres & wear only" : "guide"]);
   }
   const change = check?.monthlyChange ?? Math.round((draft.monthly_cost + (carCosts?.totalMonthly || 0) - replacedAmount - currentRunning) * 100) / 100;
 

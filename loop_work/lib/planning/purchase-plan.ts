@@ -12,6 +12,8 @@ export type CarDetails = {
   insuranceMonthly?: number | null;
   listPrice?: number | null;
   taxIncluded?: boolean | null;
+  /** Servicing included in a lease maintenance package. */
+  serviceIncluded?: boolean | null;
   /** What the car being replaced costs to run each month (fuel + insurance + tax), if known. */
   currentRunningMonthly?: number | null;
   lookup?: {
@@ -73,8 +75,10 @@ export function carCostsFor(purchase: Purchase, electricityPence?: number | null
     electricShare: car.electricShare ?? null,
     electricityPence: electricityPence ?? null,
     insuranceMonthly: car.insuranceMonthly ?? null,
+    insuranceGroup: car.lookup?.insuranceGroup ?? null,
     listPrice: car.listPrice ?? null,
     taxIncluded: Boolean(car.taxIncluded),
+    serviceIncluded: Boolean(car.serviceIncluded),
   });
 }
 
@@ -136,6 +140,7 @@ export function purchaseItems(purchase: Purchase & { id: string }, opts: { carCo
     if (car.energyMonthly > 0) rows.push(monthly(`${purchase.name} · ${car.fuelMonthly > 0 && car.chargingMonthly > 0 ? "fuel & charging" : car.chargingMonthly > 0 ? "charging" : "fuel"}`, car.energyMonthly, "transport", start));
     if (car.insuranceMonthly > 0) rows.push(monthly(`${purchase.name} · insurance`, car.insuranceMonthly, "insurance", start));
     if (car.taxMonthly > 0) rows.push(monthly(`${purchase.name} · road tax`, car.taxMonthly, "transport", start));
+    if (car.maintenanceMonthly > 0) rows.push(monthly(`${purchase.name} · servicing & tyres`, car.maintenanceMonthly, "transport", start));
   }
   for (const cost of purchase.one_off_costs || []) {
     if (!(cost.amount > 0)) continue;

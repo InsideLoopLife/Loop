@@ -58,7 +58,7 @@ const Tick = ({ checked, onChange, children }: { checked: boolean; onChange: (ch
   <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} /> {children}</label>
 );
 
-export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string | null; saved: HouseStyle | null; propertyType: string | null }) {
+export function HouseStyleCard({ homeId, saved, propertyType, onCarClick }: { homeId: string | null; saved: HouseStyle | null; propertyType: string | null; onCarClick?: (slot: number) => void }) {
   const router = useRouter();
   // Keep the individual asset previews in sync with the house illustration.
   const [previewHour, setPreviewHour] = useState<number | null>(null);
@@ -84,7 +84,7 @@ export function HouseStyleCard({ homeId, saved, propertyType }: { homeId: string
   return (
     <div className="relative">
       <div className={editing ? "sticky top-0 z-20 border-b border-slate-200 bg-[#eef4f1] shadow-sm" : undefined}>
-        <HouseIllustration style={style} className="block h-auto w-full" />
+        <HouseIllustration style={style} className="block h-auto w-full" onCarClick={editing ? undefined : onCarClick} />
       </div>
       {!editing ? (
         <button type="button" onClick={() => setEditing(true)} className="absolute bottom-3 right-3 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-white">

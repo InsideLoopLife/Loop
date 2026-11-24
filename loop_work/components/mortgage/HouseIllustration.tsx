@@ -800,7 +800,7 @@ function Car({ v, x, z, vehicle, pal }: { v: V; x: number; z: number; vehicle: V
  * does not yet have the matching PNG (or it fails to load), retain the original
  * parametric SVG car rather than leaving a blank driveway.
  */
-function CarSprite({ v, x, z, vehicle, pal, carStyle }: { v: V; x: number; z: number; vehicle: Vehicle; pal: Pal; carStyle: "modern" | "retro" }) {
+function CarSprite({ v, x, z, vehicle, pal, carStyle, clickable = false }: { v: V; x: number; z: number; vehicle: Vehicle; pal: Pal; carStyle: "modern" | "retro"; clickable?: boolean }) {
   const source = carAssetPath(vehicle, pal.night, carStyle);
   const [failedSource, setFailedSource] = useState<string | null>(null);
   if (failedSource === source) return <Car v={v} x={x} z={z} vehicle={vehicle} pal={pal} />;
@@ -820,7 +820,7 @@ function CarSprite({ v, x, z, vehicle, pal, carStyle }: { v: V; x: number; z: nu
       height={frame.height * v.k}
       preserveAspectRatio="none"
       onError={() => setFailedSource(source)}
-      style={{ pointerEvents: "none" }}
+      style={{ pointerEvents: clickable ? "auto" : "none" }}
     />
   );
 }
@@ -1080,13 +1080,13 @@ export function planHome(style: HouseStyle) {
   const span = drive ? drive[1] - drive[0] : 0;
   const vehicles = Array.from({ length: cars }, (_, i) => ({ ...DEFAULT_VEHICLES[i], ...(s.vehicles?.[i] || {}) }));
   const carZ = PLOT + 5;
-  const carSpots: Array<{ x: number; z: number; vehicle: Vehicle }> = [];
+  const carSpots: Array<{ x: number; z: number; vehicle: Vehicle; slot: number }> = [];
   if (drive && cars) {
     if (cars === 2 && span >= CAR_SLOT * 2 + 4) {
-      carSpots.push({ x: drive[0] + span * 0.27 - CAR_SLOT / 2, z: carZ, vehicle: vehicles[0] }, { x: drive[0] + span * 0.73 - CAR_SLOT / 2, z: carZ, vehicle: vehicles[1] });
+      carSpots.push({ x: drive[0] + span * 0.27 - CAR_SLOT / 2, z: carZ, vehicle: vehicles[0], slot: 0 }, { x: drive[0] + span * 0.73 - CAR_SLOT / 2, z: carZ, vehicle: vehicles[1], slot: 1 });
     } else if (span >= CAR_SLOT) {
-      carSpots.push({ x: drive[0] + span / 2 - CAR_SLOT / 2, z: carZ, vehicle: vehicles[0] });
-      if (cars === 2 && driveBack > carZ + 50 + 48) carSpots.push({ x: drive[0] + span / 2 - CAR_SLOT / 2, z: carZ + 52, vehicle: vehicles[1] });
+      carSpots.push({ x: drive[0] + span / 2 - CAR_SLOT / 2, z: carZ, vehicle: vehicles[0], slot: 0 });
+      if (cars === 2 && driveBack > carZ + 50 + 48) carSpots.push({ x: drive[0] + span / 2 - CAR_SLOT / 2, z: carZ + 52, vehicle: vehicles[1], slot: 1 });
     }
   }
   // Nearer cars (to the front and right) are drawn last.
@@ -1118,7 +1118,7 @@ export function planHome(style: HouseStyle) {
 }
 export type HomePlan = ReturnType<typeof planHome>;
 
-export function HouseIllustration({ style, className, hotspots }: { style: HouseStyle; className?: string; hotspots?: HouseHotspot[] }) {
+export function HouseIllustration({ style, className, hotspots, onCarClick, carLabels }: { style: HouseStyle; className?: string; hotspots?: HouseHotspot[]; onCarClick?: (slot: number) => void; carLabels?: string[] }) {
   const uid = useId().replace(/[^a-z0-9]/gi, "");
   const ids: Ids = { sky: `s${uid}`, glass: `g${uid}`, lit: `l${uid}`, brick: `b${uid}`, glow: `w${uid}`, sheen: `h${uid}` };
   const plan = planHome(style);
@@ -1271,7 +1271,20 @@ export function HouseIllustration({ style, className, hotspots }: { style: House
         {s.shrubs !== false && !isFlat ? layout.wins.filter((win) => win.h1 < FH).map((win, i) => <Shrub key={i} v={v} x0={win.x - 1} x1={win.x + win.w + 1} pal={pal} />) : null}
         {s.shrubs !== false && isFlat ? <Shrub v={v} x0={8} x1={34} pal={pal} /> : null}
 
-        {carSpots.map((c, i) => <CarSprite key={i} v={v} x={c.x} z={c.z} vehicle={c.vehicle} pal={pal} carStyle={s.carStyle === "retro" ? "retro" : "modern"} />)}
+        {carSpots.map((c, i) => onCarClick ? (
+          <g
+            key={i}
+            role="button"
+            tabIndex={0}
+            aria-label={carLabels?.[c.slot] ? `${carLabels[c.slot]} — see its costs` : "This car — see its costs"}
+            onClick={() => onCarClick(c.slot)}
+            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onCarClick(c.slot); } }}
+            className="cursor-pointer outline-none transition-opacity hover:opacity-85 focus-visible:opacity-85"
+          >
+            <title>{carLabels?.[c.slot] || "Car"} — see its costs</title>
+            <CarSprite v={v} x={c.x} z={c.z} vehicle={c.vehicle} pal={pal} carStyle={s.carStyle === "retro" ? "retro" : "modern"} clickable />
+          </g>
+        ) : <CarSprite key={i} v={v} x={c.x} z={c.z} vehicle={c.vehicle} pal={pal} carStyle={s.carStyle === "retro" ? "retro" : "modern"} />)}
         {charger ? (() => {
           const [ax, ay] = charger.front ? v.P(charger.x + 1.6, 11.8, charger.z) : v.P(w + 0.3, 11.4, charger.z);
           if (!chargedCar) {

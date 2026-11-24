@@ -33,6 +33,28 @@ export const TYPICAL_PHEV_ELECTRIC_SHARE = 0.5; // share of miles done on batter
 
 const LITRES_PER_GALLON = 4.54609;
 
+// Maintenance guide: a yearly service plus tyres, brakes and wear by the mile. Rough UK
+// independent-garage figures; electric cars need less servicing but wear tyres a little faster.
+export const MAINTENANCE = {
+  serviceAnnual: { petrol: 220, diesel: 240, hybrid: 200, plug_in_hybrid: 220, electric: 150 } as Record<FuelType, number>,
+  wearPencePerMile: { petrol: 3, diesel: 3, hybrid: 3, plug_in_hybrid: 3, electric: 3.5 } as Record<FuelType, number>,
+};
+
+/** Yearly maintenance guess. With servicing included (most lease maintenance packages) only wear and tyres are left. */
+export function maintenanceAnnual(fuel: FuelType, miles: number, serviceIncluded = false) {
+  const wear = (Math.max(0, miles) * MAINTENANCE.wearPencePerMile[fuel]) / 100;
+  return Math.round((serviceIncluded ? 0 : MAINTENANCE.serviceAnnual[fuel]) + wear);
+}
+
+/**
+ * Rough yearly insurance from the insurance group (1 cheapest – 50 dearest) for an experienced driver
+ * with no claims. A guide only: age, postcode, claims and cover change a real quote a lot.
+ */
+export function insuranceFromGroup(group: number | null | undefined) {
+  if (!group || group < 1 || group > 50) return null;
+  return Math.round(420 + group * 14);
+}
+
 export type CarInputs = {
   fuelType: FuelType;
   annualMiles: number;
@@ -42,8 +64,11 @@ export type CarInputs = {
   electricityPence?: number | null;  // home charging price per kWh
   fuelPencePerLitre?: number | null; // override pump price
   insuranceMonthly?: number | null;
+  insuranceGroup?: number | null;    // used for a guess when no premium is given
   listPrice?: number | null;
   taxIncluded?: boolean;             // e.g. included in a lease
+  serviceIncluded?: boolean;         // lease maintenance package
+  maintenanceAnnual?: number | null; // override the guess
 };
 
 export type CarCosts = {
@@ -54,6 +79,9 @@ export type CarCosts = {
   taxAnnual: number;
   taxNote: string;
   insuranceMonthly: number;
+  insuranceSource: "you" | "group" | "none";
+  maintenanceMonthly: number;
+  maintenanceSource: "you" | "guide";
   totalMonthly: number;
   /** For hybrids and EVs: what the same miles would cost in a typical petrol car. */
   petrolEquivalentMonthly: number | null;
@@ -101,7 +129,13 @@ export function carRunningCosts(input: CarInputs): CarCosts {
   if (electricMiles > 0) assumptions.push(`${Math.round(electricMiles).toLocaleString("en-GB")} miles a year on electric at ${milesPerKwh} miles/kWh, ${electricity.toFixed(1)}p a kWh`);
 
   const tax = roadTax(fuel, input.listPrice, input.taxIncluded);
-  const insurance = input.insuranceMonthly && input.insuranceMonthly > 0 ? input.insuranceMonthly : 0;
+  const guessed = insuranceFromGroup(input.insuranceGroup);
+  const insuranceSource: CarCosts["insuranceSource"] = input.insuranceMonthly && input.insuranceMonthly > 0 ? "you" : guessed ? "group" : "none";
+  const insurance = insuranceSource === "you" ? Number(input.insuranceMonthly) : insuranceSource === "group" ? (guessed as number) / 12 : 0;
+  const maintenanceSource: CarCosts["maintenanceSource"] = input.maintenanceAnnual !== null && input.maintenanceAnnual !== undefined && input.maintenanceAnnual >= 0 ? "you" : "guide";
+  const maintenance = (maintenanceSource === "you" ? Number(input.maintenanceAnnual) : maintenanceAnnual(fuel, miles, Boolean(input.serviceIncluded))) / 12;
+  if (insuranceSource === "group") assumptions.push(`insurance guessed from group ${input.insuranceGroup} (about £${guessed} a year)`);
+  if (maintenanceSource === "guide") assumptions.push(`maintenance: ${input.serviceIncluded ? "servicing included, " : `a yearly service (about £${MAINTENANCE.serviceAnnual[fuel]}), `}plus tyres and wear at ${MAINTENANCE.wearPencePerMile[fuel]}p a mile`);
 
   let petrolEquivalentMonthly: number | null = null;
   if (fuel !== "petrol" && fuel !== "diesel") {
@@ -117,7 +151,10 @@ export function carRunningCosts(input: CarInputs): CarCosts {
     taxAnnual: tax.annual,
     taxNote: tax.note,
     insuranceMonthly: round(insurance),
-    totalMonthly: round(energyMonthly + tax.annual / 12 + insurance),
+    insuranceSource,
+    maintenanceMonthly: round(maintenance),
+    maintenanceSource,
+    totalMonthly: round(energyMonthly + tax.annual / 12 + insurance + maintenance),
     petrolEquivalentMonthly,
     assumptions,
   };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Car as CarIcon, Plus, Search } from "lucide-react";
@@ -12,7 +12,7 @@ import { allowanceCheck, carDates, carMonthly, OWNERSHIP_LABEL, rollForward, typ
 import { FUEL_LABEL, TYPICAL_MILES_PER_KWH, TYPICAL_MPG, type FuelType } from "@/lib/vehicles/running-costs";
 
 export type CarRow = Car & { id: string };
-export type CarBill = { id: string; label: string; amount: number };
+export type CarBill = { id: string; label: string; amount: number; personId?: string | null };
 
 const gbp = (value: number, exact = false) =>
   new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: exact ? 2 : 0, minimumFractionDigits: exact ? 2 : 0 }).format(value);
@@ -33,17 +33,43 @@ export function CarsPanel({
   people,
   today,
   electricityPence,
+  openSlot = null,
 }: {
   cars: CarRow[];
   carBills: CarBill[];
   people: { id: string; name: string }[];
   today: string;
   electricityPence: number | null;
+  openSlot?: number | null;
 }) {
   const [editing, setEditing] = useState<Car | null>(null);
   const billById = useMemo(() => new Map(carBills.map((bill) => [bill.id, bill])), [carBills]);
   const linked = new Set(cars.map((car) => car.planned_item_id).filter(Boolean));
   const unlinkedBills = carBills.filter((bill) => !linked.has(bill.id));
+  // A new car from a bill: whoever pays the bill drives it.
+  const fromBill = (bill: CarBill): Car => ({ name: bill.label, fuel_type: "petrol", ownership: "lease", planned_item_id: bill.id, person_id: bill.personId || null });
+
+  // The cars on the drive (Home & mortgage), one per person: ordered by who drives / pays, as people are listed.
+  const drive = useMemo(() => {
+    const order = (personId: string | null | undefined) => {
+      const i = people.findIndex((p) => p.id === personId);
+      return i < 0 ? people.length : i;
+    };
+    const entries: { order: number; amount: number; open: () => Car }[] = [
+      ...cars.map((car) => ({ order: order(car.person_id || (car.planned_item_id ? billById.get(car.planned_item_id)?.personId : null)), amount: car.planned_item_id ? billById.get(car.planned_item_id)?.amount || 0 : 0, open: () => car as Car })),
+      ...unlinkedBills.map((bill) => ({ order: order(bill.personId), amount: bill.amount, open: () => fromBill(bill) })),
+    ];
+    return entries.sort((a, b) => a.order - b.order || b.amount - a.amount);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cars, unlinkedBills.length, people, billById]);
+
+  useEffect(() => {
+    if (openSlot === null || openSlot === undefined) return;
+    const entry = drive[openSlot] || drive[0];
+    const timer = window.setTimeout(() => setEditing(entry ? entry.open() : { name: "", fuel_type: "petrol", ownership: "owned" }), 0);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSlot]);
 
   return (
     <section id="your-cars" className="mb-6 scroll-mt-28 rounded-[18px] border border-slate-200 bg-white p-5 md:p-6">
@@ -86,7 +112,7 @@ export function CarsPanel({
         })}
         {unlinkedBills.map((bill) => (
           <li key={bill.id}>
-            <button type="button" onClick={() => setEditing({ name: bill.label, fuel_type: "petrol", ownership: "lease", planned_item_id: bill.id })} className="flex w-full items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-left hover:border-slate-400">
+            <button type="button" onClick={() => setEditing(fromBill(bill))} className="flex w-full items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-left hover:border-slate-400">
               <CarIcon className="h-5 w-5 shrink-0 text-slate-400" aria-hidden />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-black text-slate-900">{bill.label} · {gbp(bill.amount, true)}/mo</span>
@@ -157,7 +183,7 @@ function CarEditor({ initial, carBills, people, today, electricityPence, onDone 
           mot_mileage: c.motMileage?.length ? c.motMileage : current.mot_mileage,
           mpg: current.mpg || c.mpg,
           miles_per_kwh: current.miles_per_kwh || c.milesPerKwh,
-          insurance_annual: current.insurance_annual || (c.insuranceAnnualLow && c.insuranceAnnualHigh ? Math.round((c.insuranceAnnualLow + c.insuranceAnnualHigh) / 2) : current.insurance_annual),
+          insurance_group: c.insuranceGroup ?? current.insurance_group,
           lookup: { sources: payload.sources, lookedUpAt: payload.lookedUpAt, insuranceGroup: c.insuranceGroup, insuranceAnnualLow: c.insuranceAnnualLow, insuranceAnnualHigh: c.insuranceAnnualHigh },
         };
       });
@@ -267,8 +293,13 @@ function CarEditor({ initial, carBills, people, today, electricityPence, onDone 
           </label>
           <label className={label}>Insurer<input value={v(car.insurer)} onChange={(e) => set({ insurer: e.target.value || null })} className={field} /></label>
           <label className={label}>Renews<input type="date" value={v(car.insurance_renewal)} onChange={(e) => set({ insurance_renewal: d(e.target.value) })} className={field} /></label>
-          <label className={label}>Cost a year (£)<input type="number" value={v(car.insurance_annual)} onChange={(e) => set({ insurance_annual: n(e.target.value) })} className={field} />
-            {car.lookup?.insuranceAnnualLow ? <span className={hint}>Typical: {gbp(Number(car.lookup.insuranceAnnualLow))}–{gbp(Number(car.lookup.insuranceAnnualHigh || car.lookup.insuranceAnnualLow))}{car.lookup.insuranceGroup ? `, group ${car.lookup.insuranceGroup}` : ""}</span> : null}
+          <label className={label}>Cost a year (£)<input type="number" value={v(car.insurance_annual)} placeholder={monthly.insuranceSource === "group" ? String(Math.round(monthly.insurance * 12)) : ""} onChange={(e) => set({ insurance_annual: n(e.target.value) })} className={field} />
+            <span className={hint}>{car.insurance_annual ? "Your premium." : monthly.insuranceSource === "group" ? "Blank: best guess from the insurance group." : "Add your premium, or the insurance group for a guess."}{car.lookup?.insuranceAnnualLow ? ` Typical online: ${gbp(Number(car.lookup.insuranceAnnualLow))}–${gbp(Number(car.lookup.insuranceAnnualHigh || car.lookup.insuranceAnnualLow))}.` : ""}</span>
+          </label>
+          <label className={label}>Insurance group (1–50)<input type="number" min="1" max="50" value={v(car.insurance_group)} onChange={(e) => set({ insurance_group: n(e.target.value) })} className={field} /></label>
+          <label className={label}>Servicing &amp; tyres (£ a year)<input type="number" value={v(car.maintenance_annual)} placeholder={String(Math.round(monthly.maintenance * 12))} onChange={(e) => set({ maintenance_annual: n(e.target.value) })} className={field} /><span className={hint}>Blank: Loop&apos;s guide.</span></label>
+          <label className="flex items-center gap-2 self-center pt-4 text-xs font-black text-slate-600">
+            <input type="checkbox" checked={Boolean(car.maintenance_included)} onChange={(e) => set({ maintenance_included: e.target.checked })} className="h-4 w-4 rounded" /> Servicing included
           </label>
         </fieldset>
 
@@ -295,7 +326,8 @@ function CarEditor({ initial, carBills, people, today, electricityPence, onDone 
           <dl className="space-y-1 border-t border-slate-200 pt-2 text-xs font-semibold text-slate-600">
             <div className="flex justify-between"><dt>Payment{bill ? ` (${bill.label})` : ""}</dt><dd className="font-black text-slate-900">{gbp(monthly.payment, true)}</dd></div>
             <div className="flex justify-between"><dt>{monthly.energyLabel}</dt><dd className="font-black text-slate-900">{gbp(monthly.energy, true)}</dd></div>
-            <div className="flex justify-between"><dt>Insurance</dt><dd className="font-black text-slate-900">{monthly.insurance ? gbp(monthly.insurance, true) : "not added"}</dd></div>
+            <div className="flex justify-between"><dt>Insurance{monthly.insuranceSource === "group" ? <span className="block text-[10px] text-slate-400">best guess from group {car.insurance_group ?? String(car.lookup?.insuranceGroup ?? "")} — add your premium</span> : null}</dt><dd className="font-black text-slate-900">{monthly.insurance ? gbp(monthly.insurance, true) : "not added"}</dd></div>
+            <div className="flex justify-between"><dt>Servicing &amp; tyres<span className="block text-[10px] text-slate-400">{monthly.maintenanceSource === "you" ? "your figure" : car.maintenance_included ? "servicing included — tyres & wear" : "guide: yearly service + wear per mile"}</span></dt><dd className="font-black text-slate-900">{gbp(monthly.maintenance, true)}</dd></div>
             <div className="flex justify-between"><dt>Road tax<span className="block text-[10px] text-slate-400">{monthly.taxNote}</span></dt><dd className="font-black text-slate-900">{gbp(monthly.tax, true)}</dd></div>
           </dl>
           {allowance ? (

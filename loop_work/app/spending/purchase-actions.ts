@@ -78,6 +78,7 @@ function cleanPurchase(raw: any): Omit<Purchase, "id" | "status"> & { notes: str
           insuranceMonthly: optional(car.insuranceMonthly, 0, 2_000),
           listPrice: optional(car.listPrice, 0, 1_000_000),
           taxIncluded: Boolean(car.taxIncluded),
+          serviceIncluded: Boolean(car.serviceIncluded),
           currentRunningMonthly: optional(car.currentRunningMonthly, 0, 5_000),
           lookup: lookup
             ? {

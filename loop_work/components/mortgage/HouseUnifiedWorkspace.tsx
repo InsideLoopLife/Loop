@@ -434,7 +434,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
                     </div>
                   </div>
                   <div className="border-t border-slate-100 bg-[#eef4f1] lg:border-l lg:border-t-0">
-                    <HouseStyleCard key={home?.id ?? "none"} homeId={home?.id ?? null} saved={((home as any)?.house_style as HouseStyle | null) ?? null} propertyType={(home as any)?.property_type ?? null} />
+                    <HouseStyleCard key={home?.id ?? "none"} homeId={home?.id ?? null} saved={((home as any)?.house_style as HouseStyle | null) ?? null} propertyType={(home as any)?.property_type ?? null} onCarClick={(slot) => router.push(`/spending?car=${slot}#your-cars`)} />
                   </div>
                 </div>
               </section>

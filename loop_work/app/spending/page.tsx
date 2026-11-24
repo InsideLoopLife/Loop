@@ -15,7 +15,7 @@ import { CarsPanel, type CarRow } from "@/components/spending/CarsPanel";
 import { carMonthly } from "@/lib/vehicles/car-profile";
 import { effectiveEnergy } from "@/lib/energy/tariff";
 
-export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string; add?: string; prefill_label?: string; prefill_amount?: string; plan?: string }> }) {
+export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string; add?: string; prefill_label?: string; prefill_amount?: string; plan?: string; car?: string }> }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const supabase = await createClient();
   const {
@@ -126,7 +126,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
     .filter((item) => item.direction === "outgoing" && item.recurrence === "monthly" && !String(item.notes || "").includes("[planned_purchase:") && (!item.end_date || item.end_date >= today))
     .map((item) => {
       const category = item.category_id ? categoryNameById.get(item.category_id) || null : null;
-      return { id: item.id, label: item.label, amount: Number(item.amount || 0), category, isCar: /\b(car|motoring|vehicle|transport)\b/i.test(category || "") || item.item_type === "transport" };
+      return { id: item.id, label: item.label, amount: Number(item.amount || 0), category, personId: item.person_id || null, isCar: /\b(car|motoring|vehicle|transport)\b/i.test(category || "") || item.item_type === "transport" };
     });
   const electricityPence = energy ? energy.electricityNight || energy.electricity : null;
   const cars = ((carRows ?? []) as any[]).map((row) => ({
@@ -139,17 +139,18 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
     miles_per_kwh: row.miles_per_kwh === null ? null : Number(row.miles_per_kwh),
     electric_share: row.electric_share === null ? null : Number(row.electric_share),
     mot_mileage: Array.isArray(row.mot_mileage) ? row.mot_mileage : [],
+    maintenance_annual: row.maintenance_annual === null ? null : Number(row.maintenance_annual),
   })) as CarRow[];
   // Car payments: monthly bills in a car category that look like a finance or lease payment (not insurance, warranty, fuel…).
   const carBills = replaceOptions
     .filter((option) => option.isCar && option.amount >= 80 && !/insurance|warranty|breakdown|fuel|petrol|parking|tax|service|\bmot\b|motoreasy|charging/i.test(option.label))
-    .map((option) => ({ id: option.id, label: option.label, amount: option.amount }));
+    .map((option) => ({ id: option.id, label: option.label, amount: option.amount, personId: option.personId ?? null }));
   // What each linked car costs to run (fuel, insurance, tax) — used when a planned car replaces it.
   const runningByItem: Record<string, number> = {};
   for (const car of cars) {
     if (!car.planned_item_id) continue;
     const m = carMonthly(car, 0, electricityPence);
-    runningByItem[car.planned_item_id] = Math.round(m.energy + m.insurance + m.tax);
+    runningByItem[car.planned_item_id] = Math.round(m.energy + m.insurance + m.tax + m.maintenance);
   }
   const purchases = ((purchaseRows ?? []) as any[]).map((row) => ({
     ...row,
@@ -198,7 +199,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       />
       <main className="mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         {((entries ?? []).length + (plannedItems ?? []).length + (childCosts ?? []).length + (regularCandidates ?? []).length) === 0 ? <PageLandingExperience kind="spending" /> : null}
-        <CarsPanel cars={cars} carBills={carBills} people={basePeople.filter((person) => person.relationship !== "child").map((person) => ({ id: person.id, name: person.name }))} today={today} electricityPence={electricityPence} />
+        <CarsPanel cars={cars} carBills={carBills} people={basePeople.filter((person) => person.relationship !== "child").sort((a, b) => Number(b.relationship === "self") - Number(a.relationship === "self")).map((person) => ({ id: person.id, name: person.name }))} today={today} electricityPence={electricityPence} openSlot={/^\d$/.test(String(resolvedSearchParams.car || "")) ? Number(resolvedSearchParams.car) : null} />
         <PlannedPurchases purchases={purchases} replaceOptions={replaceOptions} runningByItem={runningByItem} today={today} openNew={resolvedSearchParams.plan === "new"} />
         <SpendingPlannerDeferredClient
           shareContext={shareContext}

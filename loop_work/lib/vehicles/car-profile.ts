@@ -33,6 +33,9 @@ export type Car = {
   insurer?: string | null;
   insurance_renewal?: string | null;
   insurance_annual?: number | null;
+  insurance_group?: number | null;
+  maintenance_included?: boolean;
+  maintenance_annual?: number | null;
   annual_miles?: number | null;
   mpg?: number | null;
   miles_per_kwh?: number | null;
@@ -114,6 +117,9 @@ export type CarMonthly = {
   payment: number;
   energy: number;
   insurance: number;
+  insuranceSource: "you" | "group" | "none";
+  maintenance: number;
+  maintenanceSource: "you" | "guide";
   tax: number;
   total: number;
   perMile: number;
@@ -133,16 +139,22 @@ export function carMonthly(car: Car, paymentMonthly: number, electricityPence?: 
     electricShare: car.electric_share ?? null,
     electricityPence: electricityPence ?? null,
     insuranceMonthly: car.insurance_annual ? car.insurance_annual / 12 : null,
+    insuranceGroup: car.insurance_group ?? (car.lookup?.insuranceGroup as number | null | undefined) ?? null,
     listPrice: car.list_price ?? null,
     taxIncluded: Boolean(car.tax_included),
+    serviceIncluded: Boolean(car.maintenance_included),
+    maintenanceAnnual: car.maintenance_annual ?? null,
   });
   // Older cars (registered before April 2017) pay by CO2 band — use the standard rate as a guide.
   const tax = car.tax_included ? { annual: 0, note: "Included in the lease" } : roadTax(car.fuel_type, car.list_price, false);
-  const total = paymentMonthly + costs.energyMonthly + costs.insuranceMonthly + tax.annual / 12;
+  const total = paymentMonthly + costs.energyMonthly + costs.insuranceMonthly + costs.maintenanceMonthly + tax.annual / 12;
   return {
     payment: round(paymentMonthly),
     energy: costs.energyMonthly,
     insurance: costs.insuranceMonthly,
+    insuranceSource: costs.insuranceSource,
+    maintenance: costs.maintenanceMonthly,
+    maintenanceSource: costs.maintenanceSource,
     tax: round(tax.annual / 12),
     total: round(total),
     perMile: miles.miles > 0 ? round((total * 12 * 100) / miles.miles) : 0,
