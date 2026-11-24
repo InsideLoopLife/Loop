@@ -7,7 +7,7 @@ import { buildMonthPlan, type MonthPlan } from "@/lib/planning/summary-plan";
 export type MonthTotals = { income: number; spending: number; saved: number; leftOver: number; savingsRate: number };
 
 /** `filter` is the household visibility filter (visibleDataOrFilter). */
-export async function loadMonthPlans(supabase: any, opts: { userId: string; filter: string; months: string[] }) {
+export async function loadMonthPlans(supabase: any, opts: { userId: string; filter: string; months: string[]; excludePlannedItemIds?: string[] }) {
   const { userId, filter } = opts;
   const [profile, categories, childCosts, people, payEvents, overrides, deals, items, incomeEntries] = await Promise.all([
     supabase.from("financial_profiles").select("name, annual_salary, monthly_take_home, monthly_dividends, pension_percent, student_loan_plan, monthly_mortgage, monthly_savings_target").eq("user_id", userId).maybeSingle(),
@@ -36,7 +36,7 @@ export async function loadMonthPlans(supabase: any, opts: { userId: string; filt
     childCosts: (childCosts.data ?? []) as any,
     payEvents: payRows.map((e) => ({ ...e, overrides: byEvent.get(e.id) || [] })),
     mortgageDeals: (deals.data ?? []) as any,
-    plannedItems: (items.data ?? []) as any,
+    plannedItems: ((items.data ?? []) as any[]).filter((item) => !opts.excludePlannedItemIds?.includes(item.id)) as any,
     incomeEntries: (incomeEntries.data ?? []) as any,
     peopleById,
   }));

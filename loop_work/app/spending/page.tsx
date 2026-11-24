@@ -10,8 +10,9 @@ import { dedupeHouseholdPeople, getActiveHouseholdContext, householdMemberDataOr
 import { type BankImport, type RegularPaymentCandidate, type ChildCost, type PayEvent, type Person, type PlannedItem, type SpendingCategory, type SpendingEntry, type StudentLoanAccount } from "@/components/spending/SpendingPlannerClient";
 import { SpendingPlannerDeferredClient } from "@/components/spending/SpendingPlannerDeferredClient";
 import { withPayOverrides } from "@/lib/planning/pay-overrides";
+import { PlannedPurchases, type PlannedPurchaseRow, type ReplaceOption } from "@/components/spending/PlannedPurchases";
 
-export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string; add?: string; prefill_label?: string; prefill_amount?: string }> }) {
+export default async function SpendingPage({ searchParams }: { searchParams?: Promise<{ month?: string; person?: string; direction?: string; add?: string; prefill_label?: string; prefill_amount?: string; plan?: string }> }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const supabase = await createClient();
   const {
@@ -105,7 +106,30 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       .eq("user_id", dataOwnerUserId)
       .eq("status", "active"),
   ]);
-  const payEventsWithOverrides = await withPayOverrides(supabase, payEvents);
+  const [payEventsWithOverrides, { data: purchaseRows }] = await Promise.all([
+    withPayOverrides(supabase, payEvents),
+    supabase
+      .from("planned_purchases")
+      .select("id, kind, name, status, start_date, monthly_cost, term_months, upfront_cost, one_off_costs, replaces_planned_item_id, car, category_id, person_id, updated_at")
+      .or(householdVisibleFilter)
+      .order("updated_at", { ascending: false }),
+  ]);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
+  const categoryNameById = new Map((categories ?? []).map((category) => [category.id, category.name]));
+  // Monthly bills a planned purchase could replace (e.g. the car it takes over from), not lines a purchase added itself.
+  const replaceOptions: ReplaceOption[] = ((plannedItems ?? []) as any[])
+    .filter((item) => item.direction === "outgoing" && item.recurrence === "monthly" && !String(item.notes || "").includes("[planned_purchase:") && (!item.end_date || item.end_date >= today))
+    .map((item) => {
+      const category = item.category_id ? categoryNameById.get(item.category_id) || null : null;
+      return { id: item.id, label: item.label, amount: Number(item.amount || 0), category, isCar: /\b(car|motoring|vehicle|transport)\b/i.test(category || "") || item.item_type === "transport" };
+    });
+  const purchases = ((purchaseRows ?? []) as any[]).map((row) => ({
+    ...row,
+    monthly_cost: Number(row.monthly_cost || 0),
+    upfront_cost: Number(row.upfront_cost || 0),
+    one_off_costs: Array.isArray(row.one_off_costs) ? row.one_off_costs.map((cost: any) => ({ ...cost, amount: Number(cost.amount || 0) })) : [],
+    car: row.car || {},
+  })) as PlannedPurchaseRow[];
 
   const basePeople = dedupeHouseholdPeople((people ?? []) as any[], householdContext.dataOwnerUserId) as Person[];
   const linkedUserIds = Array.from(new Set(basePeople.map((person) => person.linked_user_id).filter(Boolean))) as string[];
@@ -146,6 +170,7 @@ export default async function SpendingPage({ searchParams }: { searchParams?: Pr
       />
       <main className="mx-auto w-[95vw] max-w-[2000px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         {((entries ?? []).length + (plannedItems ?? []).length + (childCosts ?? []).length + (regularCandidates ?? []).length) === 0 ? <PageLandingExperience kind="spending" /> : null}
+        <PlannedPurchases purchases={purchases} replaceOptions={replaceOptions} today={today} openNew={resolvedSearchParams.plan === "new"} />
         <SpendingPlannerDeferredClient
           shareContext={shareContext}
           people={peopleWithAvatars}

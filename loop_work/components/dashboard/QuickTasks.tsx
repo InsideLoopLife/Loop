@@ -4,7 +4,7 @@ import { ArrowLeftRight, Calculator, Home, Landmark, PiggyBank, Search } from "l
 // "What do you want to do?" — one click to each common job, so nobody has to hunt through tabs.
 const TASKS = [
   { href: "/financial-flow", label: "See this month", hint: "Money in, bills and what's left", icon: ArrowLeftRight },
-  { href: "/can-i-afford", label: "Can I afford it?", hint: "Check a purchase, now or later", icon: Calculator },
+  { href: "/spending?plan=new#planned-purchases", label: "Plan a purchase", hint: "Car, holiday, big buy — can we afford it?", icon: Calculator },
   { href: "/bank-accounts?add=1", label: "Add an account", hint: "Joint, personal or savings", icon: Landmark },
   { href: "/loopwatch", label: "Check prices & renewals", hint: "Bills, contracts and deals", icon: Search },
   { href: "/investments", label: "Pensions & investments", hint: "Pots, funds and retirement", icon: PiggyBank },

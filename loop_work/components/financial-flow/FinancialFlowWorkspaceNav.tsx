@@ -9,7 +9,6 @@ import {
   ArrowRightLeft,
   Banknote,
   Landmark,
-  Calculator,
   CreditCard,
   PiggyBank,
   Plus,
@@ -37,7 +36,6 @@ const ITEMS: Array<{
   { key: "spending", label: "Spending", copy: "Bills and money out", icon: CreditCard },
   { key: "accounts", label: "Accounts", copy: "Where your money sits", icon: Landmark },
   { key: "savings", label: "Savings & pots", copy: "Cash building forward", icon: PiggyBank },
-  { key: "afford", label: "Can I afford it?", copy: "Check a purchase", icon: Calculator },
 ];
 
 function hrefFor(section: FinancialFlowWorkspaceSection, month?: string | null) {

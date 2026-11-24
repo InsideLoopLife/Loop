@@ -19,7 +19,6 @@ async function context() {
 
 function revalidate() {
   revalidatePath("/income");
-  revalidatePath("/can-i-afford");
   revalidatePath("/account");
 }
 
@@ -113,3 +112,16 @@ async function removeSafetyNetJob__save(formData: FormData) {
 
 export async function saveSafetyNetJob(...args: Parameters<typeof saveSafetyNetJob__save>) { return runFriendly(() => saveSafetyNetJob__save(...args)); }
 export async function removeSafetyNetJob(...args: Parameters<typeof removeSafetyNetJob__save>) { return runFriendly(() => removeSafetyNetJob__save(...args)); }
+
+async function loadJobLossContext__read() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Sign in again to continue.");
+  const household = await getActiveHouseholdContext(supabase, user);
+  const { loadHouseholdForecast } = await import("@/lib/planning/household-forecast");
+  const { visibleDataOrFilter } = await import("@/lib/auth/household-context");
+  const result = await loadHouseholdForecast(supabase, { userId: user.id, filter: visibleDataOrFilter(household), count: 36 });
+  return { forecast: result.forecast, savingsNow: result.savingsNow };
+}
+
+export async function loadJobLossContext() { return runFriendly(() => loadJobLossContext__read()); }

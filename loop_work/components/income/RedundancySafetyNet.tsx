@@ -1,14 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import { BriefcaseBusiness, ChevronDown, ShieldCheck } from "lucide-react";
 import { SectionCard } from "@/components/SectionCard";
 import { ModalFrame } from "@/components/ui/ModalFrame";
 import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 import { isLoopError } from "@/lib/actions/friendly";
 import { saveSafetyNetJob, removeSafetyNetJob } from "@/app/income/job-actions";
+import { JobLossPanel } from "@/components/income/JobLossPanel";
 import { estimateRedundancy, TAX_FREE_REDUNDANCY_LIMIT, type Enhanced, type WorkRegion } from "@/lib/employment/redundancy";
 
 export type SafetyNetJob = {
@@ -117,6 +117,14 @@ export function RedundancySafetyNet({
   const [onDate, setOnDate] = useState(today);
   const [editing, setEditing] = useState<Partial<SafetyNetJob> | null>(null);
   const [openDetail, setOpenDetail] = useState<string | null>(null);
+  const [whatIf, setWhatIf] = useState<string | null>(null);
+  useEffect(() => {
+    // Links from elsewhere (e.g. the old Can I afford it page) open a job's what-if directly.
+    const wanted = new URLSearchParams(window.location.search).get("whatif");
+    if (!wanted) return;
+    const timer = window.setTimeout(() => setWhatIf(wanted), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const adults = people.filter((person) => person.relationship !== "child");
   const rows = adults
@@ -260,8 +268,14 @@ export function RedundancySafetyNet({
                       How it&apos;s worked out <ChevronDown className={`h-3.5 w-3.5 transition ${detailOpen ? "rotate-180" : ""}`} />
                     </button>
                   ) : null}
-                  <Link href={`/can-i-afford?lost=${job.id}`} className="rounded-full px-3 py-1.5 text-xs font-black text-emerald-700 hover:bg-emerald-50">What if this job ended? →</Link>
+                  {job.start_date ? (
+                    <button type="button" onClick={() => setWhatIf(whatIf === job.id ? null : job.id)} aria-expanded={whatIf === job.id} className="rounded-full px-3 py-1.5 text-xs font-black text-emerald-700 hover:bg-emerald-50">
+                      What if this job ended?
+                    </button>
+                  ) : null}
                 </div>
+
+                {whatIf === job.id && job.start_date ? <JobLossPanel job={job} person={person} pays={pays} today={today} /> : null}
 
                 {detailOpen && estimate && pay ? (
                   <dl className="mt-3 space-y-1.5 border-t border-slate-100 pt-3 text-xs font-semibold text-slate-600">
