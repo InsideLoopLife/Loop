@@ -60,6 +60,42 @@ export function payForJob(job: SafetyNetJob, pays: SafetyNetPay[], onDate: strin
   return active || salaries.sort((a, b) => b.effective_from.localeCompare(a.effective_from))[0] || null;
 }
 
+function dayBefore(date: string) {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The job a person's pay records already describe: their current run of pay records with no
+ * gap between them (a pay rise or a return from maternity is the same job). Named after the
+ * first salary record in that run, e.g. "Gear4music" rather than the later "October Uplift".
+ */
+export function jobFromPay(personId: string, pays: SafetyNetPay[], today: string) {
+  const own = pays
+    .filter((pay) => pay.person_id === personId && ["salary", "maternity"].includes(pay.pay_kind || "salary"))
+    .sort((a, b) => a.effective_from.localeCompare(b.effective_from));
+  if (!own.some((pay) => (pay.pay_kind || "salary") === "salary")) return null;
+  let end = own.length - 1;
+  const current = own.findIndex((pay) => pay.effective_from <= today && (!pay.effective_until || pay.effective_until >= today));
+  if (current >= 0) end = current;
+  // Later records continue the same job too (e.g. a pay rise already entered for next year).
+  let start = end;
+  while (start > 0) {
+    const previous = own[start - 1];
+    const next = own[start];
+    if (previous.effective_until && previous.effective_until < dayBefore(next.effective_from)) break;
+    start -= 1;
+  }
+  const chain = own.slice(start);
+  const named = chain.find((pay) => (pay.pay_kind || "salary") === "salary") || chain[0];
+  return {
+    employer: named.label,
+    payFrom: chain[0].effective_from,
+    region: "gb" as WorkRegion,
+  };
+}
+
 const TYPE_LABEL: Record<string, string> = {
   employed: "Employee",
   self_employed: "Self-employed",
@@ -139,15 +175,19 @@ export function RedundancySafetyNet({
       <div className="grid gap-3 lg:grid-cols-2">
         {rows.flatMap(({ person, jobs: personJobs }) => {
           if (!personJobs.length) {
+            const known = jobFromPay(person.id, pays, today);
+            if (known) {
+              return [<StartDateCard key={person.id} person={person} known={known} today={today} onMore={() => setEditing({ person_id: person.id, employer_name: known.employer, employment_type: "employed", work_region: known.region, enhanced_redundancy_mode: "none" })} />];
+            }
             return [
               <article key={person.id} className="flex flex-col justify-between gap-4 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-5">
                 <div>
                   <p className="text-xs font-black uppercase tracking-wide text-slate-500">{person.name}</p>
-                  <p className="mt-1 text-lg font-black text-slate-950">Add your job to see this</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-600">Loop needs the employer and the date you started. Your pay is already here.</p>
+                  <p className="mt-1 text-lg font-black text-slate-950">Add a job to see this</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-600">There&apos;s no salary for {person.name} in Income yet.</p>
                 </div>
                 <button type="button" onClick={() => setEditing({ person_id: person.id, employment_type: "employed", work_region: "gb", enhanced_redundancy_mode: "none" })} className="self-start rounded-full bg-slate-950 px-5 py-2.5 text-sm font-black text-white hover:bg-slate-800">
-                  Add job and start date
+                  Add job
                 </button>
               </article>,
             ];
@@ -285,6 +325,54 @@ export function RedundancySafetyNet({
         document.body,
       ) : null}
     </SectionCard>
+  );
+}
+
+function StartDateCard({
+  person,
+  known,
+  today,
+  onMore,
+}: {
+  person: SafetyNetPerson;
+  known: { employer: string; payFrom: string; region: WorkRegion };
+  today: string;
+  onMore: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <article className="rounded-3xl border border-amber-200 bg-amber-50/60 p-5">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-500">{person.name} · {known.employer}</p>
+      <p className="mt-1 text-lg font-black text-slate-950">When did {person.name} start at {known.employer}?</p>
+      <p className="mt-1 text-sm font-semibold text-slate-600">
+        The only thing missing — pay and age are already in Loop. Pay records here start {longDate(known.payFrom)}, so it&apos;s probably on or before that.
+      </p>
+      <form
+        action={async (formData) => {
+          setError(null);
+          const result = (await saveSafetyNetJob(formData)) as unknown;
+          if (isLoopError(result)) setError(result.__loopError);
+        }}
+        className="mt-3 flex flex-wrap items-center gap-2"
+      >
+        <input type="hidden" name="person_id" value={person.id} />
+        <input type="hidden" name="employer_name" value={known.employer} />
+        <input type="hidden" name="employment_type" value="employed" />
+        <input type="hidden" name="work_region" value={known.region} />
+        <input type="hidden" name="enhanced_redundancy_mode" value="none" />
+        <input type="date" name="start_date" required max={today} aria-label={`${person.name}'s start date`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-950" />
+        <ConfirmSubmit
+          question="Save this start date?"
+          detail="Loop uses it for the redundancy figures here and in Can I afford it. Your monthly plan stays the same."
+          confirmLabel="Yes, save"
+          className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-black text-white hover:bg-slate-800"
+        >
+          Save
+        </ConfirmSubmit>
+        <button type="button" onClick={onMore} className="rounded-full px-3 py-2 text-xs font-black text-slate-500 hover:bg-white">More options</button>
+      </form>
+      {error ? <p className="mt-2 text-xs font-bold text-rose-700">{error}</p> : null}
+    </article>
   );
 }
 
