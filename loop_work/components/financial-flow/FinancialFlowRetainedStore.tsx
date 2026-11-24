@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 
-export type RetainedFlowSection = "flow" | "income" | "spending" | "accounts" | "savings";
+export type RetainedFlowSection = "flow" | "income" | "spending" | "accounts" | "savings" | "afford";
 
 export type RetainedFlowSummary = {
   month: string;

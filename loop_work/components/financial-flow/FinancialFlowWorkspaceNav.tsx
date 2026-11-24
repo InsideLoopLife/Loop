@@ -9,6 +9,7 @@ import {
   ArrowRightLeft,
   Banknote,
   Landmark,
+  Calculator,
   CreditCard,
   PiggyBank,
   Plus,
@@ -22,7 +23,8 @@ export type FinancialFlowWorkspaceSection =
   | "income"
   | "spending"
   | "accounts"
-  | "savings";
+  | "savings"
+  | "afford";
 
 const ITEMS: Array<{
   key: FinancialFlowWorkspaceSection;
@@ -35,6 +37,7 @@ const ITEMS: Array<{
   { key: "spending", label: "Spending", copy: "Bills and money out", icon: CreditCard },
   { key: "accounts", label: "Accounts", copy: "Where your money sits", icon: Landmark },
   { key: "savings", label: "Savings & pots", copy: "Cash building forward", icon: PiggyBank },
+  { key: "afford", label: "Can I afford it?", copy: "Check a purchase", icon: Calculator },
 ];
 
 function hrefFor(section: FinancialFlowWorkspaceSection, month?: string | null) {
@@ -42,6 +45,7 @@ function hrefFor(section: FinancialFlowWorkspaceSection, month?: string | null) 
   if (section === "flow") return monthSuffix ? `/financial-flow?${monthSuffix}` : "/financial-flow";
   if (section === "income") return monthSuffix ? `/income?${monthSuffix}` : "/income";
   if (section === "spending") return monthSuffix ? `/spending?${monthSuffix}` : "/spending";
+  if (section === "afford") return "/can-i-afford";
   if (section === "accounts") return monthSuffix ? `/bank-accounts?${monthSuffix}` : "/bank-accounts";
   const query = new URLSearchParams({ tab: "savings" });
   if (month) query.set("month", month);

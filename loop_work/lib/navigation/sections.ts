@@ -22,7 +22,7 @@ export const wealthSections: LoopSection[] = [
   { key: "net-worth", label: "Net worth", href: "/net-worth", area: "wealth", icon: "net-worth", hidden: true, description: "Hidden until the wealth summary is rebuilt." },
   { key: "house", label: "House", href: "/mortgage", area: "wealth", icon: "mortgage", description: "Homes, ownership, valuations, mortgage balance and affordability impact." },
   { key: "affordability", label: "Affordability", href: "/affordability", area: "wealth", icon: "home", hidden: true, description: "Hidden lab until rebuilt." },
-  { key: "can-i-afford", label: "Can I afford?", href: "/affordability-lab", area: "wealth", icon: "search", hidden: true, description: "Hidden lab until rebuilt." },
+  { key: "can-i-afford", label: "Can I afford it?", href: "/can-i-afford", area: "wealth", icon: "search", hidden: true, description: "Check whether a purchase fits your plan, now or later." },
   { key: "investments", label: "Pensions & Investments", href: "/investments", area: "wealth", icon: "investments", description: "Pension pots, funds, holdings and investment performance." },
   // BUGFIX (missing nav entry): the /integrations page (SnapTrade/broker
   // connections) has existed and worked the whole time, but there was no

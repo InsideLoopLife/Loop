@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 type Props = {
   children: ReactNode;
-  section: "flow" | "income" | "spending" | "accounts" | "savings";
+  section: "flow" | "income" | "spending" | "accounts" | "savings" | "afford";
 };
 
 /**

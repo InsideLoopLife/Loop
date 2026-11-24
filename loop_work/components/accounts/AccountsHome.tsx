@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, PiggyBank, Plus, Settings2 } from "lucide-react";
 import { ModalFrame } from "@/components/ui/ModalFrame";
@@ -93,7 +93,7 @@ function Avatar({ person, size = "h-9 w-9" }: { person?: Person | null; size?: s
 }
 
 export function AccountsHome({
-  month, today, accounts, people, meId, hasHousehold, transfers, unassignedCount, unassignedLines = [],
+  month, today, accounts, people, meId, hasHousehold, transfers, unassignedCount, unassignedLines = [], openAdd = false,
 }: {
   month: string;
   today: string;
@@ -104,8 +104,15 @@ export function AccountsHome({
   transfers: StandingTransfer[];
   unassignedCount: number;
   unassignedLines?: UnassignedLine[];
+  openAdd?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
+  // "Add an account" from Summary lands here with ?add=1: open the form once the page is on screen.
+  useEffect(() => {
+    if (!openAdd) return;
+    const timer = window.setTimeout(() => setAdding(true), 0);
+    return () => window.clearTimeout(timer);
+  }, [openAdd]);
   const [settingsFor, setSettingsFor] = useState<AccountsHomeAccount | null>(null);
   const [transferInto, setTransferInto] = useState<AccountsHomeAccount | null>(null);
   const [potFor, setPotFor] = useState<AccountsHomeAccount | null>(null);

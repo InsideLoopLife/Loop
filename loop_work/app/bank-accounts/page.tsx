@@ -33,7 +33,7 @@ function todayIso() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
 }
 
-export default async function BankAccountsPage({ searchParams }: { searchParams?: Promise<{ month?: string }> }) {
+export default async function BankAccountsPage({ searchParams }: { searchParams?: Promise<{ month?: string; add?: string }> }) {
   const params = searchParams ? await searchParams : {};
   const month = /^\d{4}-\d{2}$/.test(String(params.month || "")) ? String(params.month) : currentMonth();
   const supabase = await createClient();
@@ -178,6 +178,7 @@ export default async function BankAccountsPage({ searchParams }: { searchParams?
           hasHousehold={Boolean(household.householdId)}
           transfers={transfers}
           unassignedCount={unassigned}
+          openAdd={params.add === "1"}
           unassignedLines={unassignedLines}
         />
       </main>

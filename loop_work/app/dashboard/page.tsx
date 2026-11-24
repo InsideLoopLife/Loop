@@ -1,3 +1,4 @@
+import { QuickTasks } from "@/components/dashboard/QuickTasks";
 import { carrySalaryForward } from "@/lib/planning/salary-carry-forward";
 import { PlainMonthPanel } from "@/components/dashboard/PlainMonthPanel";
 import { monthDrivers, outlook } from "@/lib/planning/plain-money";
@@ -496,6 +497,7 @@ async function DashboardContent({ searchParams }: { searchParams?: Promise<{ mon
           </dl>
         </section>
         ) : null}
+        <QuickTasks />
         {hasDashboardData ? (
           <PlainMonthPanel
             monthLabel={selectedPlan.label}

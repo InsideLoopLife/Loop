@@ -124,6 +124,7 @@ const wealthRouteFamilies: Record<string, string[]> = {
     "/spending",
     "/income",
     "/bank-accounts",
+    "/can-i-afford",
     "/accounts",
     "/savings",
     "/pots",

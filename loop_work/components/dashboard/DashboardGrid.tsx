@@ -183,10 +183,26 @@ export function DashboardGrid({ householdId, initialWidgets, dashboardContext }:
     </div>
   );
 
+  // The grid measures its width only on window resize. The page can settle narrower after it first
+  // appears (scrollbar, page width), which pushed cards off the side — so re-measure when this area changes.
+  const zoneRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = zoneRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let last = 0;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = Math.round(entry.contentRect.width);
+      if (width !== last) { last = width; window.dispatchEvent(new Event("resize")); }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <>
       {actionTarget ? createPortal(toolbar, actionTarget) : null}
       <section
+        ref={zoneRef}
         className={`dashboard-widget-zone ${editing ? "dashboard-widget-zone--editing" : ""}`}
         onPointerDown={startLongPress}
         onPointerMove={moveLongPress}
