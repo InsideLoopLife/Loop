@@ -211,7 +211,7 @@ export type MonthPlan = {
   income: number;
   outgoings: number;
   surplus: number;
-  incomeItems: { label: string; value: number; href: string; helper: string; dueDate?: string; personId?: string | null; categoryLabel?: string; categoryIcon?: string | null }[];
+  incomeItems: { label: string; value: number; href: string; helper: string; dueDate?: string; personId?: string | null; payEventId?: string; categoryLabel?: string; categoryIcon?: string | null }[];
   outgoingItems: { label: string; value: number; href: string; helper: string; dueDate?: string; personId?: string | null; categoryLabel?: string; categoryIcon?: string | null; endDate?: string | null; endBehavior?: string | null; earlyUpgradeDate?: string | null; expectedRefundAmount?: number | null }[];
 };
 
@@ -480,6 +480,7 @@ export function buildMonthPlan({
     value: getPayAmount(event, month),
     href: event.person_id ? `/household/${event.person_id}` : "/household",
     personId: event.person_id,
+    payEventId: event.id,
     helper: event.overrides?.some((item) => item.month === month) ? "Exact monthly pay override" : event.pay_kind === "maternity" ? "NHS maternity estimate for this month" : "Pay event",
     dueDate: dueDateForMonth(month, event.pay_timing ?? "last_workday", event.pay_day_of_month, event.pay_adjustment ?? "previous_workday"),
   }));

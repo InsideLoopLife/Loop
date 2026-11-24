@@ -124,6 +124,7 @@ type IncomeDeduction = {
 };
 
 export type IncomeTrackerClientProps = {
+  safetyNet?: import("react").ReactNode;
   shareContext?: ShareContext | null;
   pensionAccounts?: PensionAccountLike[];
   entries: IncomeEntry[];
@@ -785,6 +786,7 @@ const DEDUCTION_TYPE_OPTIONS: { type: IncomeDeduction["deduction_type"]; label: 
 
 export function IncomeTrackerClient({
   shareContext = null,
+  safetyNet = null,
   entries,
   people,
   payEvents: rawPayEvents,
@@ -1275,6 +1277,8 @@ export function IncomeTrackerClient({
       </SectionCard>
 
       {loanCheck ? <CheckModal onClose={() => setLoanCheck(null)} target={{ kind: "student_loan", recordId: loanCheck.id, title: `Student loan (${loanCheck.plan.replaceAll("_", " ")})`, reason: "Sign in to see today's balance, then enter it here. LOOP works forward from it.", current: loanCheck.balance, currentLabel: "LOOP's estimate", link: { label: "Student Loans Company", url: "https://www.gov.uk/sign-in-to-manage-your-student-loan-balance" }, amountLabel: "Balance today" }} /> : null}
+      {safetyNet}
+
       <section>
         <SectionCard
           id="deductibles"

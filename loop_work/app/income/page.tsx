@@ -6,6 +6,7 @@ import { FinancialFlowWorkspaceNav } from "@/components/financial-flow/Financial
 import { PageLandingExperience } from "@/components/landing/PageLandingExperience";
 import { createClient } from "@/lib/supabase/server";
 import { IncomeTrackerClient } from "@/components/income/IncomeTrackerClient";
+import { RedundancySafetyNet, type SafetyNetJob } from "@/components/income/RedundancySafetyNet";
 import {
   getActiveHouseholdContext,
   householdMemberDataOrFilter,
@@ -164,6 +165,7 @@ export default async function IncomePage() {
     { data: studentLoanBalanceEvents },
     { data: incomeDeductions },
     { data: pensionAccounts },
+    { data: jobRows },
   ] = await Promise.all([
     supabase
       .from("income_entries")
@@ -214,6 +216,11 @@ export default async function IncomePage() {
       .from("pension_accounts")
       .select("id, person_id, label, provider, contribution_method, employee_contribution_percent")
       .or(householdVisibleFilter),
+    supabase
+      .from("employment_jobs")
+      .select("id, person_id, employer_name, employment_type, start_date, end_date, work_region, pay_event_id, enhanced_redundancy_mode, enhanced_weeks_per_year, enhanced_max_weeks, enhanced_fixed_amount, notice_weeks_override")
+      .or(householdVisibleFilter)
+      .order("start_date", { ascending: true }),
   ]);
 
   let payEvents = (payEventsResult.data || []) as PayEvent[];
@@ -253,6 +260,10 @@ export default async function IncomePage() {
     ...deduction,
     person_id: canonicalisePersonId(deduction.person_id),
   }));
+  const today = new Date().toISOString().slice(0, 10);
+  const safetyNetJobs = ((jobRows ?? []) as (SafetyNetJob & { end_date: string | null })[])
+    .filter((job) => !job.end_date || job.end_date >= today)
+    .map((job) => ({ ...job, person_id: canonicalisePersonId(job.person_id) }));
   const signedInEmail = normaliseIdentity(user.email);
   const signedInPerson =
     canonicalPeople.find((person) => person.linked_user_id === user.id) ||
@@ -293,6 +304,14 @@ export default async function IncomePage() {
         signedInPersonId={signedInPerson?.id || null}
         canViewHouseholdIncome={householdContext.canViewHouseholdIncome}
         schemaWarning={payEventsSchemaWarning}
+        safetyNet={
+          <RedundancySafetyNet
+            people={canonicalPeople.map((person) => ({ id: person.id, name: person.name, relationship: person.relationship, birth_date: person.birth_date || null }))}
+            jobs={safetyNetJobs}
+            pays={canonicalPayEvents.map((event) => ({ id: event.id, person_id: event.person_id, label: event.label, pay_kind: event.pay_kind, gross_annual_salary: Number(event.gross_annual_salary) || 0, effective_from: event.effective_from, effective_until: event.effective_until }))}
+            today={today}
+          />
+        }
         pensionAccounts={((pensionAccounts ?? []) as any[]).map((account) => ({ ...account, person_id: canonicalisePersonId(account.person_id) }))}
       />
     </>
