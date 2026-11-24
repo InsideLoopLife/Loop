@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FundValueButton, PaymentsToConfirm, type PaymentToConfirm } from "@/components/investments/PensionConfirm";
 import { useEffect, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
@@ -7960,6 +7961,19 @@ export function PensionsInvestmentsClient({
               </div>
             </div>
           </section>
+
+          {/* The jobs people come here for, one click each. */}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setModal({ type: "pension-account" })} className="inline-flex items-center gap-2 rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90">
+              <Plus className="h-4 w-4" /> Add a pension
+            </button>
+            <button type="button" onClick={() => setModal({ type: "investment-account" })} className="inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--surface-muted,#f8fafc)]">
+              <Plus className="h-4 w-4" /> Add an investment
+            </button>
+            <Link href="/retirement" className="inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--surface-muted,#f8fafc)]">
+              Am I on track for retirement? →
+            </Link>
+          </div>
 
           {/* Who holds what: one row per person, pensions and investments side by side. */}
           <section className="rounded-[18px] border border-[var(--line)] bg-white">
