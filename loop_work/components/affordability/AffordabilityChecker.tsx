@@ -89,7 +89,7 @@ export function AffordabilityChecker({ months, forecast, savingsNow, buffer, buf
           <summary className="cursor-pointer font-black text-slate-800">What LOOP counts</summary>
           <ul className="mt-2 list-disc space-y-1 pl-4">
             <li>Savings now: <span className="font-black text-slate-900">{gbp(savingsNow)}</span> (savings accounts — not pensions or investments).</li>
-            <li>What&apos;s left over each month after bills and saving, from your plan in Spending.</li>
+            <li>What&apos;s left over each month after bills and saving, from your plan in Spending — assuming it&apos;s kept, not spent. If you usually spend some of it, the real answer is tighter.</li>
             <li>It keeps <span className="font-black text-slate-900">{gbp(buffer)}</span> back as a safety net — 3 months of {bufferBasis === "essential" ? "essential bills" : "bills"} ({gbp(bufferMonthly)} a month).</li>
           </ul>
         </details>
@@ -120,6 +120,7 @@ export function AffordabilityChecker({ months, forecast, savingsNow, buffer, buf
                 <div className={`rounded-3xl p-5 ring-1 ${v.tone}`}>
                   <p className="flex items-center gap-2 text-xl font-black"><Icon className="h-6 w-6" /> {v.title}</p>
                   <p className="mt-2 text-sm font-semibold">{line}</p>
+                  <p className="mt-1 text-xs font-semibold opacity-75">Based on your savings and what&apos;s left over each month in your plan, if you keep it.</p>
                   {result.mode === "one_off" && result.verdict !== "yes" ? (
                     <p className="mt-2 text-sm font-semibold">
                       {result.earliestMonth ? <>Keeping your safety net, the earliest it works is <span className="font-black">{monthLabel(result.earliestMonth)}</span>. </> : <>It doesn&apos;t work within the next three years on your current plan. </>}
