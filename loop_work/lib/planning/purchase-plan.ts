@@ -76,6 +76,7 @@ export function carCostsFor(purchase: Purchase, electricityPence?: number | null
     electricityPence: electricityPence ?? null,
     insuranceMonthly: car.insuranceMonthly ?? null,
     insuranceGroup: car.lookup?.insuranceGroup ?? null,
+    insuranceTypicalAnnual: car.lookup?.insuranceAnnualLow && car.lookup?.insuranceAnnualHigh ? (car.lookup.insuranceAnnualLow + car.lookup.insuranceAnnualHigh) / 2 : null,
     listPrice: car.listPrice ?? null,
     taxIncluded: Boolean(car.taxIncluded),
     serviceIncluded: Boolean(car.serviceIncluded),

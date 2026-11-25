@@ -48,7 +48,7 @@ export function CarsPanel({
   const linked = new Set(cars.map((car) => car.planned_item_id).filter(Boolean));
   const unlinkedBills = carBills.filter((bill) => !linked.has(bill.id));
   // A new car from a bill: whoever pays the bill drives it.
-  const fromBill = (bill: CarBill): Car => ({ name: bill.label, ...guessMakeModel(bill.label), fuel_type: "petrol", ownership: "lease", planned_item_id: bill.id, person_id: bill.personId || null });
+  const fromBill = (bill: CarBill): Car => ({ name: bill.label, ...guessMakeModel(bill.label), fuel_type: "petrol", ownership: "lease", tax_included: true, planned_item_id: bill.id, person_id: bill.personId || null });
 
   // The cars on the drive (Home & mortgage), one per person: ordered by who drives / pays, as people are listed.
   const drive = useMemo(() => {
@@ -353,7 +353,7 @@ function CarEditor({ initial, carBills, people, today, electricityPence, onDone 
           <dl className="space-y-1 border-t border-slate-200 pt-2 text-xs font-semibold text-slate-600">
             <div className="flex justify-between"><dt>Payment{bill ? ` (${bill.label})` : ""}</dt><dd className="font-black text-slate-900">{gbp(monthly.payment, true)}</dd></div>
             <div className="flex justify-between"><dt>{monthly.energyLabel}</dt><dd className="font-black text-slate-900">{gbp(monthly.energy, true)}</dd></div>
-            <div className="flex justify-between"><dt>Insurance{monthly.insuranceSource === "group" ? <span className="block text-[10px] text-slate-400">best guess from group {car.insurance_group ?? String(car.lookup?.insuranceGroup ?? "")} — add your premium</span> : null}</dt><dd className="font-black text-slate-900">{monthly.insurance ? gbp(monthly.insurance, true) : "not added"}</dd></div>
+            <div className="flex justify-between"><dt>Insurance{monthly.insuranceSource === "group" ? <span className="block text-[10px] text-slate-400">{car.lookup?.insuranceAnnualLow ? `typical for this model${car.insurance_group ? `, group ${car.insurance_group}` : ""}` : `best guess from group ${car.insurance_group ?? String(car.lookup?.insuranceGroup ?? "")}`} — add your premium</span> : null}</dt><dd className="font-black text-slate-900">{monthly.insurance ? gbp(monthly.insurance, true) : "not added"}</dd></div>
             <div className="flex justify-between"><dt>Servicing &amp; tyres<span className="block text-[10px] text-slate-400">{monthly.maintenanceSource === "you" ? "your figure" : car.maintenance_included ? "servicing included — tyres & wear" : "guide: yearly service + wear per mile"}</span></dt><dd className="font-black text-slate-900">{gbp(monthly.maintenance, true)}</dd></div>
             <div className="flex justify-between"><dt>Road tax<span className="block text-[10px] text-slate-400">{monthly.taxNote}</span></dt><dd className="font-black text-slate-900">{gbp(monthly.tax, true)}</dd></div>
           </dl>

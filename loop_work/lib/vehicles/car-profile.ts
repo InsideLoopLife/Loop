@@ -140,6 +140,7 @@ export function carMonthly(car: Car, paymentMonthly: number, electricityPence?: 
     electricityPence: electricityPence ?? null,
     insuranceMonthly: car.insurance_annual ? car.insurance_annual / 12 : null,
     insuranceGroup: car.insurance_group ?? (car.lookup?.insuranceGroup as number | null | undefined) ?? null,
+    insuranceTypicalAnnual: car.lookup?.insuranceAnnualLow && car.lookup?.insuranceAnnualHigh ? (Number(car.lookup.insuranceAnnualLow) + Number(car.lookup.insuranceAnnualHigh)) / 2 : null,
     listPrice: car.list_price ?? null,
     taxIncluded: Boolean(car.tax_included),
     serviceIncluded: Boolean(car.maintenance_included),

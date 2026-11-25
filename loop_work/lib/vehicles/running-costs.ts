@@ -65,6 +65,7 @@ export type CarInputs = {
   fuelPencePerLitre?: number | null; // override pump price
   insuranceMonthly?: number | null;
   insuranceGroup?: number | null;    // used for a guess when no premium is given
+  insuranceTypicalAnnual?: number | null; // typical premium found for this model — preferred over the group formula
   listPrice?: number | null;
   taxIncluded?: boolean;             // e.g. included in a lease
   serviceIncluded?: boolean;         // lease maintenance package
@@ -129,12 +130,12 @@ export function carRunningCosts(input: CarInputs): CarCosts {
   if (electricMiles > 0) assumptions.push(`${Math.round(electricMiles).toLocaleString("en-GB")} miles a year on electric at ${milesPerKwh} miles/kWh, ${electricity.toFixed(1)}p a kWh`);
 
   const tax = roadTax(fuel, input.listPrice, input.taxIncluded);
-  const guessed = insuranceFromGroup(input.insuranceGroup);
+  const guessed = input.insuranceTypicalAnnual && input.insuranceTypicalAnnual > 0 ? Math.round(input.insuranceTypicalAnnual) : insuranceFromGroup(input.insuranceGroup);
   const insuranceSource: CarCosts["insuranceSource"] = input.insuranceMonthly && input.insuranceMonthly > 0 ? "you" : guessed ? "group" : "none";
   const insurance = insuranceSource === "you" ? Number(input.insuranceMonthly) : insuranceSource === "group" ? (guessed as number) / 12 : 0;
   const maintenanceSource: CarCosts["maintenanceSource"] = input.maintenanceAnnual !== null && input.maintenanceAnnual !== undefined && input.maintenanceAnnual >= 0 ? "you" : "guide";
   const maintenance = (maintenanceSource === "you" ? Number(input.maintenanceAnnual) : maintenanceAnnual(fuel, miles, Boolean(input.serviceIncluded))) / 12;
-  if (insuranceSource === "group") assumptions.push(`insurance guessed from group ${input.insuranceGroup} (about £${guessed} a year)`);
+  if (insuranceSource === "group") assumptions.push(input.insuranceTypicalAnnual ? `insurance: typical for this model${input.insuranceGroup ? ` (group ${input.insuranceGroup})` : ""}, about £${guessed} a year` : `insurance guessed from group ${input.insuranceGroup} (about £${guessed} a year)`);
   if (maintenanceSource === "guide") assumptions.push(`maintenance: ${input.serviceIncluded ? "servicing included, " : `a yearly service (about £${MAINTENANCE.serviceAnnual[fuel]}), `}plus tyres and wear at ${MAINTENANCE.wearPencePerMile[fuel]}p a mile`);
 
   let petrolEquivalentMonthly: number | null = null;
