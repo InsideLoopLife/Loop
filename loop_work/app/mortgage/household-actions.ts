@@ -2,7 +2,7 @@
 
 import { runFriendly } from "@/lib/actions/friendly";
 import { createClient } from "@/lib/supabase/server";
-import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
+import { changeRecord, getActiveHouseholdContext, householdWriteFields, visibleDataOrFilter } from "@/lib/auth/household-context";
 
 /** Money in easy-access and fixed savings (not pensions or investments) — what an emergency fund draws on. */
 async function loadHouseholdSavings__read() {
@@ -11,7 +11,7 @@ async function loadHouseholdSavings__read() {
   if (!user) throw new Error("Sign in again to continue.");
   const household = await getActiveHouseholdContext(supabase, user);
   const filter = visibleDataOrFilter(household);
-  const [{ data }, { data: pets }, { data: items }, { data: categories }, { data: childCosts }] = await Promise.all([
+  const [{ data }, { data: pets }, { data: items }, { data: categories }, { data: childCosts }, costGroups] = await Promise.all([
     supabase.from("financial_accounts").select("account_type, current_balance, is_liability").or(filter),
     household?.householdId
       ? supabase.from("household_pets").select("name").eq("household_id", household.householdId).eq("status", "active")
@@ -19,6 +19,7 @@ async function loadHouseholdSavings__read() {
     supabase.from("planned_items").select("label, amount, recurrence, start_date, end_date, category_id, item_type, person_id, notes").eq("direction", "outgoing").or(filter),
     supabase.from("spending_categories").select("id, name").or(filter),
     supabase.from("child_costs").select("*").or(filter),
+    readCostGroups(supabase, filter),
   ]);
   // Each bill's spending category, by its name, so household costs can group the same way Spending does.
   const names = new Map(((categories || []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
@@ -67,7 +68,7 @@ async function loadHouseholdSavings__read() {
     const twelve = /12 (monthly )?(payments|instalments|months)|twelve/i.test(String(item.notes || ""));
     councilTax[String(item.label).trim().toLowerCase()] = { payments: twelve ? 12 : 10 };
   }
-  return { savings: Math.round(savings * 100) / 100, categoryByLabel, startingSoon, childAverages, councilTax, petNames: ((pets || []) as { name: string | null }[]).map((p) => String(p.name || "")).filter(Boolean) };
+  return { savings: Math.round(savings * 100) / 100, categoryByLabel, startingSoon, childAverages, councilTax, costGroups, petNames: ((pets || []) as { name: string | null }[]).map((p) => String(p.name || "")).filter(Boolean) };
 }
 
 export async function loadHouseholdSavings() { return runFriendly(() => loadHouseholdSavings__read()); }
@@ -119,3 +120,59 @@ async function loadUpcomingChanges__read(mortgage: { dealEnd: string | null; len
 }
 
 export async function loadUpcomingChanges(mortgage: { dealEnd: string | null; lender: string | null } | null) { return runFriendly(() => loadUpcomingChanges__read(mortgage)); }
+
+/** Your own household groups for lines, keyed by the line's name. */
+async function readCostGroups(supabase: Awaited<ReturnType<typeof createClient>>, filter: string) {
+  const { data } = await supabase.from("household_cost_groups").select("label_key, group_key").or(filter);
+  const out: Record<string, string> = {};
+  for (const row of (data || []) as { label_key: string; group_key: string }[]) out[row.label_key] = row.group_key;
+  return out;
+}
+
+async function loadCostGroups__read() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Sign in again to continue.");
+  const household = await getActiveHouseholdContext(supabase, user);
+  const filter = visibleDataOrFilter(household);
+  const [groups, { data: pets }] = await Promise.all([
+    readCostGroups(supabase, filter),
+    household?.householdId
+      ? supabase.from("household_pets").select("name").eq("household_id", household.householdId).eq("status", "active")
+      : supabase.from("household_pets").select("name").eq("user_id", user.id).eq("status", "active"),
+  ]);
+  return { groups, petNames: ((pets || []) as { name: string | null }[]).map((p) => String(p.name || "")).filter(Boolean) };
+}
+export async function loadCostGroups() { return runFriendly(() => loadCostGroups__read()); }
+
+const GROUP_KEYS = ["home", "cars", "children", "food", "protection", "pets", "other", "personal", "none"];
+
+/** Put a line in a household group by hand ("auto" goes back to Loop's guess). Changes Household costs and the emergency fund. */
+async function saveCostGroup__write(label: string, group: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Sign in again to continue.");
+  const { choiceKey } = await import("@/lib/household/essential-costs");
+  const key = choiceKey(String(label || ""));
+  if (!key) throw new Error("That line has no name.");
+  if (group !== "auto" && !GROUP_KEYS.includes(group)) throw new Error("Pick one of the groups.");
+  const household = await getActiveHouseholdContext(supabase, user);
+  const filter = visibleDataOrFilter(household);
+  const { data: existing } = await supabase.from("household_cost_groups").select("id").eq("label_key", key).or(filter).limit(1).maybeSingle();
+  if (group === "auto") {
+    if (existing) {
+      const { error } = await changeRecord(supabase.from("household_cost_groups").delete(), existing.id, household);
+      if (error) throw new Error("That didn't save. Try again.");
+    }
+    return { label_key: key, group: null };
+  }
+  if (existing) {
+    const { error } = await changeRecord(supabase.from("household_cost_groups").update({ group_key: group, updated_at: new Date().toISOString() }), existing.id, household);
+    if (error) throw new Error("That didn't save. Try again.");
+  } else {
+    const { error } = await supabase.from("household_cost_groups").insert({ ...householdWriteFields(household, user.id), visibility_scope: household?.householdId ? "household" : "private", label_key: key, group_key: group });
+    if (error) throw new Error("That didn't save. Try again.");
+  }
+  return { label_key: key, group };
+}
+export async function saveCostGroup(label: string, group: string) { return runFriendly(() => saveCostGroup__write(label, group)); }

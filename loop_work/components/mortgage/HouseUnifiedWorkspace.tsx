@@ -495,7 +495,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
                     </div>
                   </div>
                   <div className="border-t border-slate-100 bg-[#eef4f1] lg:border-l lg:border-t-0">
-                    <HouseStyleCard key={home?.id ?? "none"} homeId={home?.id ?? null} saved={((home as any)?.house_style as HouseStyle | null) ?? null} propertyType={(home as any)?.property_type ?? null} onCarClick={driveCars.open} carLabels={driveCars.labels} carTags={driveCars.tags} />
+                    <HouseStyleCard key={home?.id ?? "none"} homeId={home?.id ?? null} saved={((home as any)?.house_style as HouseStyle | null) ?? null} propertyType={(home as any)?.property_type ?? null} onCarClick={driveCars.open} carLabels={driveCars.labels} carTags={driveCars.tags} carLooks={driveCars.looks} />
                   </div>
                 </div>
               </section>

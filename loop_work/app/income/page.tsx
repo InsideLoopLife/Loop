@@ -195,7 +195,7 @@ export default async function IncomePage() {
     supabase
       .from("student_loan_accounts")
       .select(
-        "id, user_id, owner_user_id, person_id, plan, current_balance, balance_date, interest_rate, payroll_monthly_override, notes",
+        "id, user_id, owner_user_id, person_id, plan, current_balance, balance_date, interest_rate, payroll_monthly_override, first_repayment_year, notes",
       )
       .or(householdVisibleFilter)
       .order("balance_date", { ascending: false })

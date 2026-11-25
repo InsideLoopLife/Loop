@@ -12,6 +12,7 @@ import { allowanceCheck, carDates, carMonthly, OWNERSHIP_LABEL, rollForward, typ
 import { FUEL_LABEL, TYPICAL_MILES_PER_KWH, TYPICAL_MPG, type FuelType } from "@/lib/vehicles/running-costs";
 import { CAR_CATALOGUE, CAR_MAKES, CAR_YEARS, COMMON_TRIMS } from "@/lib/vehicles/catalogue";
 import { Combobox } from "@/components/ui/Combobox";
+import { CarLookPicker } from "@/components/spending/CarLookPicker";
 
 import { carFromBill, driveEntries, type CarBill, type CarRow } from "@/lib/vehicles/load-cars";
 export type { CarBill, CarRow };
@@ -241,6 +242,8 @@ export function CarEditor({ initial, carBills, people, today, electricityPence, 
             </div>
           ) : null}
           {sources.length ? <p className="text-[11px] font-semibold text-slate-500">{sources.map((src, i) => <a key={src} href={src} target="_blank" rel="noreferrer" className="mr-2 underline">Source {i + 1}</a>)}</p> : null}
+          <CarLookPicker colour={car.colour} body={car.body_style} make={car.make} model={car.model || car.name} fuel={fuel}
+            onChange={(patch) => set({ ...(patch.colour !== undefined ? { colour: patch.colour } : {}), ...(patch.body !== undefined ? { body_style: patch.body } : {}) })} />
           <label className={`${label} max-w-xs`}>Registration (optional, for your records)
             <input value={reg} onChange={(e) => setReg(e.target.value.toUpperCase())} placeholder="AB12 CDE" maxLength={9} className="mt-1 w-40 rounded-xl border border-slate-300 bg-amber-300 px-3 py-2 font-mono text-base font-black tracking-widest text-slate-950 placeholder:text-slate-700/40" />
           </label>

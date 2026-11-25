@@ -16,6 +16,9 @@ export type CarDetails = {
   serviceIncluded?: boolean | null;
   /** What the car being replaced costs to run each month (fuel + insurance + tax), if known. */
   currentRunningMonthly?: number | null;
+  /** How it looks on the drive drawing. */
+  colour?: string | null;
+  body?: string | null;
   lookup?: {
     matched?: string;
     insuranceGroup?: number | null;
@@ -80,6 +83,8 @@ export function carCostsFor(purchase: Purchase, electricityPence?: number | null
     listPrice: car.listPrice ?? null,
     taxIncluded: Boolean(car.taxIncluded),
     serviceIncluded: Boolean(car.serviceIncluded),
+    // A year in the name ("2022 Tiguan") means a used car; otherwise it's new from the start date — no MOT until it's 3.
+    year: Number(String(purchase.name || "").match(/\b(19[89]\d|20[0-4]\d)\b/)?.[1] || (purchase.start_date || new Date().toISOString()).slice(0, 4)),
   });
 }
 

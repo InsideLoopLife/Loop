@@ -88,6 +88,7 @@ async function saveCar__save(payload: string) {
     model: str(raw.model, 60),
     variant: str(raw.variant, 80),
     colour: str(raw.colour, 30),
+    body_style: ["hatch", "saloon", "fastback", "crossover", "coupe_suv", "large_suv"].includes(String(raw.body_style)) ? String(raw.body_style) : null,
     year: int(raw.year, 1950, 2100, "the year"),
     fuel_type: fuel,
     engine_cc: int(raw.engine_cc, 0, 10_000, "the engine size"),
@@ -156,12 +157,13 @@ async function loadCarsContext__read() {
   const { effectiveEnergy } = await import("@/lib/energy/tariff");
   const filter = visibleDataOrFilter(household);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
-  const [{ data: carRows }, { data: items }, { data: categories }, { data: peopleRows }, energy] = await Promise.all([
+  const [{ data: carRows }, { data: items }, { data: categories }, { data: peopleRows }, energy, { data: purchases }] = await Promise.all([
     supabase.from("household_cars").select("*").eq("status", "active").or(filter).order("created_at"),
     supabase.from("planned_items").select("id, label, amount, direction, recurrence, item_type, category_id, person_id, end_date, notes").eq("direction", "outgoing").eq("recurrence", "monthly").or(filter),
     supabase.from("spending_categories").select("id, name").or(filter),
     supabase.from("people").select("*").or(householdPeopleOrFilter(household)),
     effectiveEnergy(supabase, filter, null).catch(() => null),
+    supabase.from("planned_purchases").select("id, name, status, start_date, monthly_cost, replaces_planned_item_id, person_id, car").eq("kind", "car").eq("status", "planned").lte("start_date", today).or(filter),
   ]);
   const categoryNameById = new Map(((categories || []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
   const people = (dedupeHouseholdPeople((peopleRows || []) as any[], household?.dataOwnerUserId || user.id) as any[])
@@ -174,6 +176,10 @@ async function loadCarsContext__read() {
     people,
     today,
     electricityPence: energy ? energy.electricityNight || energy.electricity : null,
+    // Planned cars that have arrived take over the place of the car they replace on the drive.
+    arrivals: ((purchases || []) as any[])
+      .filter((p) => p.replaces_planned_item_id && p.start_date)
+      .map((p) => ({ purchaseId: p.id, replacesId: p.replaces_planned_item_id, name: p.name, monthly: Number(p.monthly_cost || 0), startDate: p.start_date, personId: p.person_id || null, details: p.car || {} })),
   };
 }
 

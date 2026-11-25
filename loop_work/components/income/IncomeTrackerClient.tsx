@@ -1,7 +1,7 @@
 "use client";
 
 import { carrySalaryForward } from "@/lib/planning/salary-carry-forward";
-import { estimateStudentLoanBalance } from "@/lib/planning/student-loan-estimate";
+import { estimateStudentLoanBalance, projectStudentLoanPayoff } from "@/lib/planning/student-loan-estimate";
 import { CheckModal } from "@/components/accuracy/CheckModal";
 import { canChange, lockNote, type ShareContext } from "@/lib/household/permissions";
 import { Lock } from "lucide-react";
@@ -623,6 +623,18 @@ function StudentLoanForm({
           step="0.01"
           defaultValue={initialValues?.interest_rate ?? ""}
           placeholder="Optional"
+          className={inputClass}
+        />
+      </Field>
+      <Field label="Year repayments started (optional)">
+        <input
+          name="first_repayment_year"
+          type="number"
+          min="1990"
+          max="2100"
+          step="1"
+          defaultValue={(initialValues as any)?.first_repayment_year ?? ""}
+          placeholder="e.g. 2012 — sets the write-off date"
           className={inputClass}
         />
       </Field>
@@ -1317,6 +1329,48 @@ export function IncomeTrackerClient({
                                 ? ` · payslip ${formatMoney(account.payroll_monthly_override)}/mo`
                                 : ""}
                             </p>
+                            {(() => {
+                              const repaymentFor = (monthKey: string) => account.payroll_monthly_override
+                                ? Number(account.payroll_monthly_override)
+                                : payEvents
+                                    .filter((event) => event.person_id === account.person_id && isActiveInMonth(event.effective_from, carriedUntil(event), monthKey))
+                                    .reduce((sum, event) => sum + getPayEventBreakdown(event, monthKey).monthlyStudentLoan, 0);
+                              const payoff = projectStudentLoanPayoff({
+                                balance: estimate.estimatedBalance,
+                                today: new Date().toISOString().slice(0, 10),
+                                plan: account.plan,
+                                interestRatePercent: Number(account.interest_rate ?? 0),
+                                firstRepaymentYear: (account as any).first_repayment_year ?? null,
+                                repaymentForMonth: repaymentFor,
+                              });
+                              const monthName = (m: string) => new Date(`${m}-01T00:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+                              const span = (n: number) => { const y = Math.floor(n / 12); const mo = n % 12; return [y ? `${y} year${y === 1 ? "" : "s"}` : "", mo ? `${mo} month${mo === 1 ? "" : "s"}` : ""].filter(Boolean).join(" ") || "under a month"; };
+                              return (
+                                <div className="mt-3 rounded-2xl bg-indigo-50/70 p-3 ring-1 ring-indigo-100">
+                                  {payoff.payoffMonth ? (
+                                    <>
+                                      <p className="text-sm font-black text-indigo-950">Paid off around {monthName(payoff.payoffMonth)} <span className="font-semibold text-indigo-800">· {span(payoff.months)} to go</span></p>
+                                      <p className="mt-0.5 text-xs font-semibold text-indigo-900/80">
+                                        {formatMoney(payoff.monthlyNow)}/mo from pay now · about {formatMoney(payoff.totalRepaid)} still to repay, including {formatMoney(payoff.totalInterest)} interest at {payoff.ratePercent}%{payoff.rateIsDefault ? " (this year's rate — add yours to be exact)" : ""}.
+                                        {" "}Your take-home goes up by that {formatMoney(payoff.monthlyNow)} a month once it&apos;s cleared.
+                                      </p>
+                                    </>
+                                  ) : payoff.writtenOffFirst ? (
+                                    <p className="text-sm font-black text-indigo-950">Written off in April {payoff.writeOffMonth!.slice(0, 4)} <span className="font-semibold text-indigo-800">· about {formatMoney(payoff.writtenOffBalance)} left then</span></p>
+                                  ) : payoff.stalls || payoff.monthlyNow <= 0 ? (
+                                    <p className="text-sm font-black text-indigo-950">Not being repaid at today&apos;s pay <span className="font-semibold text-indigo-800">· pay is under the threshold</span></p>
+                                  ) : (
+                                    <p className="text-sm font-black text-indigo-950">Not cleared in the next 45 years at today&apos;s pay</p>
+                                  )}
+                                  <p className="mt-1 text-[11px] font-semibold text-indigo-900/60">
+                                    {payoff.writeOffMonth
+                                      ? `Written off April ${payoff.writeOffMonth.slice(0, 4)} if not cleared by then.`
+                                      : `Add the year repayments started (Edit) to see when it would be written off${account.plan === "plan_1" ? " — 25 years on for Plan 1 (at 65 for loans from before Sept 2006)" : ""}.`}
+                                    {" "}Assumes today&apos;s pay; a pay rise clears it sooner.
+                                  </p>
+                                </div>
+                              );
+                            })()}
                             {moved ? (
                               <p className="mt-1 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-400">
                                 An estimate.

@@ -58,7 +58,7 @@ const Tick = ({ checked, onChange, children }: { checked: boolean; onChange: (ch
   <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} /> {children}</label>
 );
 
-export function HouseStyleCard({ homeId, saved, propertyType, onCarClick, carLabels, carTags }: { homeId: string | null; saved: HouseStyle | null; propertyType: string | null; onCarClick?: (slot: number) => void; carLabels?: string[]; carTags?: string[] }) {
+export function HouseStyleCard({ homeId, saved, propertyType, onCarClick, carLabels, carTags, carLooks }: { homeId: string | null; saved: HouseStyle | null; propertyType: string | null; onCarClick?: (slot: number) => void; carLabels?: string[]; carTags?: string[]; carLooks?: (Vehicle | null)[] }) {
   const router = useRouter();
   // Keep the individual asset previews in sync with the house illustration.
   const [previewHour, setPreviewHour] = useState<number | null>(null);
@@ -76,6 +76,16 @@ export function HouseStyleCard({ homeId, saved, propertyType, onCarClick, carLab
   const hasLoft = isHouse && style.type !== "bungalow" && Number(style.storeys) % 1 !== 0;
   const cars = Number(style.cars || 0);
   const vehicle = (i: number): Vehicle => ({ ...DEFAULT_VEHICLES[i], ...(style.vehicles?.[i] || {}) });
+  // Cars with a colour or body style saved in Your cars are drawn that way; the rest keep the drawing's choice.
+  const looks = carLooks || [];
+  const hasDrive = Boolean(style.driveway && style.driveway !== "none");
+  const drawn: HouseStyle = looks.some(Boolean)
+    ? {
+        ...style,
+        cars: (hasDrive ? Math.min(2, Math.max(Number(style.cars || 0), looks.length)) : style.cars) as 0 | 1 | 2,
+        vehicles: [0, 1].map((i) => ({ ...vehicle(i), ...(looks[i] || {}) })),
+      }
+    : style;
   const setVehicle = (i: number, patch: Partial<Vehicle>) =>
     set({ vehicles: [0, 1].map((n) => (n === i ? { ...vehicle(n), ...patch } : vehicle(n))) });
   const doorDefault = style.type === "detached" || style.type === "bungalow" ? "centre" : "left";
@@ -84,7 +94,7 @@ export function HouseStyleCard({ homeId, saved, propertyType, onCarClick, carLab
   return (
     <div className="relative">
       <div className={editing ? "sticky top-0 z-20 border-b border-slate-200 bg-[#eef4f1] shadow-sm" : undefined}>
-        <HouseIllustration style={style} className="block h-auto w-full" onCarClick={editing ? undefined : onCarClick} carLabels={carLabels} carTags={editing ? undefined : carTags} />
+        <HouseIllustration style={drawn} className="block h-auto w-full" onCarClick={editing ? undefined : onCarClick} carLabels={carLabels} carTags={editing ? undefined : carTags} />
       </div>
       {!editing ? (
         <button type="button" onClick={() => setEditing(true)} className="absolute bottom-3 right-3 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-white">
@@ -160,6 +170,11 @@ export function HouseStyleCard({ homeId, saved, propertyType, onCarClick, carLab
             ) : null}
             {style.driveway && style.driveway !== "none"
               ? Array.from({ length: cars }, (_, i) => (
+                looks[i] ? (
+                  <div key={i} className="rounded-lg bg-slate-50 p-2.5 text-xs text-slate-600">
+                    <strong>{cars === 2 ? `Car ${i + 1}` : "Car"}:</strong> drawn from its details in Your cars. Click the car on the drive to change its colour or body style.
+                  </div>
+                ) : (
                 <div key={i} className="space-y-2 rounded-lg bg-slate-50 p-2.5">
                   <div className="flex flex-wrap gap-3 sm:flex-nowrap">
                     <div className="min-w-0 flex-1 space-y-2">
@@ -175,6 +190,7 @@ export function HouseStyleCard({ homeId, saved, propertyType, onCarClick, carLab
                     </div>
                   </div>
                 </div>
+                )
               ))
               : null}
             <div className="flex flex-wrap gap-4">

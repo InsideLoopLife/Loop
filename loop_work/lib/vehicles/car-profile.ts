@@ -12,6 +12,7 @@ export type Car = {
   model?: string | null;
   variant?: string | null;
   colour?: string | null;
+  body_style?: string | null;
   year?: number | null;
   fuel_type: FuelType;
   engine_cc?: number | null;
@@ -147,6 +148,7 @@ export function carMonthly(car: Car, paymentMonthly: number, electricityPence?: 
     serviceIncluded: Boolean(car.maintenance_included),
     maintenanceAnnual: car.maintenance_annual ?? null,
     year: car.year ?? null,
+    motDue: car.mot_due ?? null,
   });
   // Older cars (registered before April 2017) pay by CO2 band — use the standard rate as a guide.
   const tax = car.tax_included ? { annual: 0, note: "Included in the lease" } : roadTax(car.fuel_type, car.list_price, false);

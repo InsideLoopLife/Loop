@@ -206,6 +206,7 @@ async function upsertStudentLoanAccount__save(formData: FormData) {
     balance_date: String(formData.get("balance_date") || new Date().toISOString().slice(0, 10)),
     interest_rate: parseNumber(formData.get("interest_rate")),
     payroll_monthly_override: parseNumber(formData.get("payroll_monthly_override")),
+    first_repayment_year: (() => { const y = Math.round(Number(formData.get("first_repayment_year") || 0)); return y >= 1990 && y <= 2100 ? y : null; })(),
     notes: String(formData.get("notes") || ""),
     updated_at: new Date().toISOString(),
   };

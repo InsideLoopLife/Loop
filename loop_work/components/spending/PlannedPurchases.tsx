@@ -9,6 +9,8 @@ import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { quietly } from "@/components/feedback/quiet-action";
 import { isLoopError } from "@/lib/actions/friendly";
 import { deletePurchase, loadPurchaseContext, removePurchaseFromPlan, savePurchase, savePurchaseToPlan } from "@/app/spending/purchase-actions";
+import { CarLookPicker } from "@/components/spending/CarLookPicker";
+import { guessMakeModel } from "@/lib/vehicles/catalogue";
 import { carCostsFor, checkPurchase, purchaseItems, type OneOffCost, type Purchase, type ReplacedLine } from "@/lib/planning/purchase-plan";
 import { Combobox } from "@/components/ui/Combobox";
 import { CAR_CATALOGUE } from "@/lib/vehicles/catalogue";
@@ -232,6 +234,8 @@ function PurchaseEditor({ initial, replaceOptions, runningByItem, today, onDone 
         {draft.kind === "car" ? (
           <fieldset className="space-y-3 rounded-2xl border border-slate-200 p-4">
             <legend className="px-1 text-xs font-black text-slate-600">The car</legend>
+            <CarLookPicker colour={draft.car.colour} body={draft.car.body} make={guessMakeModel(draft.name).make} model={guessMakeModel(draft.name).model || draft.name} fuel={draft.car.fuelType}
+              title="Colour and style — so your drive shows the new car" onChange={(patch) => setCar({ ...(patch.colour !== undefined ? { colour: patch.colour } : {}), ...(patch.body !== undefined ? { body: patch.body } : {}) })} />
             <label className={label}>Does it replace a car you have now?
               <select value={draft.replaces_planned_item_id || ""} onChange={(e) => { const id = e.target.value || null; set({ replaces_planned_item_id: id }); if (id && runningByItem[id] && !draft.car.currentRunningMonthly) setCar({ currentRunningMonthly: runningByItem[id] }); }} className={field}>
                 <option value="">No — it&apos;s an extra car</option>

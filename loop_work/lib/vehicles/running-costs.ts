@@ -55,10 +55,10 @@ export const TYRES = {
 export const OTHER_WEAR_PENCE_PER_MILE: Record<FuelType, number> = { petrol: 1.2, diesel: 1.2, hybrid: 1, plug_in_hybrid: 1, electric: 0.6 };
 export const MOT_FEE = 54.85;
 
-export type MaintenanceParts = { service: number; tyres: number; wear: number; mot: number; total: number; tyrePrice: number; tyreLifeMiles: number };
+export type MaintenanceParts = { service: number; tyres: number; wear: number; mot: number; total: number; tyrePrice: number; tyreLifeMiles: number; /** When the first MOT is due, for a car under 3 (a date if known, else a year). */ firstMot: string | null; carAge: number | null };
 
 /** Yearly money to set aside for a car, part by part. With servicing included (most lease maintenance packages) the service is left out. */
-export function maintenanceParts(fuel: FuelType, miles: number, opts: { serviceIncluded?: boolean; listPrice?: number | null; year?: number | null; today?: string; insuranceGroup?: number | null } = {}): MaintenanceParts {
+export function maintenanceParts(fuel: FuelType, miles: number, opts: { serviceIncluded?: boolean; listPrice?: number | null; year?: number | null; today?: string; insuranceGroup?: number | null; motDue?: string | null } = {}): MaintenanceParts {
   const m = Math.max(0, miles);
   // No list price saved? Bigger, dearer cars sit in higher insurance groups — use that as the size guide.
   const sizeGuide = opts.listPrice || (opts.insuranceGroup ? (opts.insuranceGroup >= 40 ? 55_000 : opts.insuranceGroup >= 28 ? 40_000 : opts.insuranceGroup >= 15 ? 30_000 : 20_000) : 30_000);
@@ -67,10 +67,20 @@ export function maintenanceParts(fuel: FuelType, miles: number, opts: { serviceI
   const service = opts.serviceIncluded ? 0 : MAINTENANCE.serviceAnnual[fuel];
   const tyres = (m / tyreLifeMiles) * tyrePrice * 4;
   const wear = (m * OTHER_WEAR_PENCE_PER_MILE[fuel]) / 100;
-  const thisYear = Number((opts.today || new Date().toISOString()).slice(0, 4));
-  const mot = opts.year && thisYear - opts.year >= 3 ? MOT_FEE : 0;
+  // An MOT is needed from a car's third birthday. A known MOT date wins; otherwise go by the year it was registered.
+  const today = (opts.today || new Date().toISOString()).slice(0, 10);
+  const thisYear = Number(today.slice(0, 4));
+  const carAge = opts.year ? Math.max(0, thisYear - opts.year) : null;
+  const inAYear = `${thisYear + 1}${today.slice(4)}`;
+  let firstMot: string | null = null;
+  let needsMot: boolean;
+  if (opts.motDue && opts.motDue > inAYear && (carAge === null || carAge < 3)) { needsMot = false; firstMot = opts.motDue; }
+  else if (opts.motDue && opts.motDue >= today) needsMot = true;
+  else if (carAge !== null) { needsMot = carAge >= 3; if (!needsMot && opts.year) firstMot = String(opts.year + 3); }
+  else needsMot = true; // age unknown: assume it needs one
+  const mot = needsMot ? MOT_FEE : 0;
   const r = (v: number) => Math.round(v);
-  return { service: r(service), tyres: r(tyres), wear: r(wear), mot: r(mot), total: r(service + tyres + wear + mot), tyrePrice, tyreLifeMiles };
+  return { service: r(service), tyres: r(tyres), wear: r(wear), mot: r(mot), total: r(service + tyres + wear + mot), tyrePrice, tyreLifeMiles, firstMot, carAge };
 }
 
 /** Yearly maintenance guess (servicing, tyres, other wear and the MOT). */
@@ -103,6 +113,7 @@ export type CarInputs = {
   serviceIncluded?: boolean;         // lease maintenance package
   maintenanceAnnual?: number | null; // override the guess
   year?: number | null;              // first registered — the MOT starts in year 3
+  motDue?: string | null;            // next (or first) MOT date, if known
 };
 
 export type CarCosts = {
@@ -169,7 +180,7 @@ export function carRunningCosts(input: CarInputs): CarCosts {
   const insuranceSource: CarCosts["insuranceSource"] = input.insuranceMonthly && input.insuranceMonthly > 0 ? "you" : guessed ? "group" : "none";
   const insurance = insuranceSource === "you" ? Number(input.insuranceMonthly) : insuranceSource === "group" ? (guessed as number) / 12 : 0;
   const maintenanceSource: CarCosts["maintenanceSource"] = input.maintenanceAnnual !== null && input.maintenanceAnnual !== undefined && input.maintenanceAnnual >= 0 ? "you" : "guide";
-  const parts = maintenanceSource === "guide" ? maintenanceParts(fuel, miles, { serviceIncluded: Boolean(input.serviceIncluded), listPrice: input.listPrice, year: input.year, insuranceGroup: input.insuranceGroup }) : null;
+  const parts = maintenanceSource === "guide" ? maintenanceParts(fuel, miles, { serviceIncluded: Boolean(input.serviceIncluded), listPrice: input.listPrice, year: input.year, insuranceGroup: input.insuranceGroup, motDue: input.motDue }) : null;
   const maintenance = (maintenanceSource === "you" ? Number(input.maintenanceAnnual) : parts!.total) / 12;
   if (insuranceSource === "group") assumptions.push(input.insuranceTypicalAnnual ? `insurance: typical for this model${input.insuranceGroup ? ` (group ${input.insuranceGroup})` : ""}, about £${guessed} a year` : `insurance guessed from group ${input.insuranceGroup} (about £${guessed} a year)`);
   if (maintenanceSource === "guide") assumptions.push(`maintenance: ${input.serviceIncluded ? "servicing included, " : `a yearly service (about £${MAINTENANCE.serviceAnnual[fuel]}), `}tyres (4 × about £${parts!.tyrePrice}, lasting ${parts!.tyreLifeMiles.toLocaleString("en-GB")} miles), brakes and wear at ${OTHER_WEAR_PENCE_PER_MILE[fuel]}p a mile${parts!.mot ? `, and the MOT (£${MOT_FEE})` : ""}`);

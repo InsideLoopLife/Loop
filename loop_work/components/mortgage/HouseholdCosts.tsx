@@ -58,12 +58,14 @@ export function HouseholdCosts({
   const [councilTax, setCouncilTax] = useState<Record<string, { payments: number }>>({});
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [showPersonal, setShowPersonal] = useState(false);
+  const [groupOverrides, setGroupOverrides] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let live = true;
     void quietly(() => loadHouseholdSavings()).then((result) => {
       if (!live || isLoopError(result)) return;
-      const r = result as { savings: number; petNames: string[]; categoryByLabel: Record<string, string>; startingSoon: { label: string; value: number; startDate: string; categoryLabel: string | null }[]; childAverages?: Record<string, ChildAverage>; councilTax?: Record<string, { payments: number }> };
+      const r = result as { savings: number; petNames: string[]; categoryByLabel: Record<string, string>; startingSoon: { label: string; value: number; startDate: string; categoryLabel: string | null }[]; childAverages?: Record<string, ChildAverage>; councilTax?: Record<string, { payments: number }>; costGroups?: Record<string, string> };
+      setGroupOverrides(r.costGroups || {});
       setChildAverages(r.childAverages || {});
       setCouncilTax(r.councilTax || {});
       setStartingSoon(r.startingSoon || []);
@@ -102,8 +104,9 @@ export function HouseholdCosts({
         childAverages,
         councilTax,
         dismissedMissing: dismissed,
+        groupOverrides,
       }),
-    [lines, mortgageMonthly, cars, carPaymentLabels, petNames, categoryByLabel, startingSoon, childAverages, councilTax, dismissed],
+    [lines, mortgageMonthly, cars, carPaymentLabels, petNames, categoryByLabel, startingSoon, childAverages, councilTax, dismissed, groupOverrides],
   );
 
   const target = result.fundMonthly * months;
@@ -295,6 +298,7 @@ export function HouseholdCosts({
           {showLeftOut ? <p className="mt-1 text-xs text-slate-500">{result.leftOut.map((l) => `${l.name} ${gbp(l.value)}`).join(" · ")}</p> : null}
         </div>
       ) : null}
+      <p className="mt-2 text-xs font-semibold text-slate-500">Something in the wrong group? <a href="/spending?groups=1" className="font-bold text-indigo-700 hover:underline">Change groups in Spending →</a></p>
       {cars.length ? <p className="mt-2 text-[11px] text-slate-400">Cars use Loop&apos;s estimates for insurance and upkeep where you haven&apos;t entered your own figures.</p> : null}
     </section>
   );

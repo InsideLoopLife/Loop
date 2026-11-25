@@ -58,6 +58,31 @@ export function householdGroupFor(line: PlanLine, petNames: string[] = []): Hous
   return null;
 }
 
+/** Where a line can be put by hand: a household group, Personal, or left out. */
+export type HouseholdChoice = Exclude<HouseholdGroupKey, "phones"> | "personal" | "none";
+export const HOUSEHOLD_CHOICES: { key: HouseholdChoice; label: string; icon: string }[] = [
+  { key: "home", label: "Home", icon: "🏠" },
+  { key: "cars", label: "Cars", icon: "🚗" },
+  { key: "children", label: "Children", icon: "👶" },
+  { key: "food", label: "Food & shopping", icon: "🛒" },
+  { key: "protection", label: "Life & health cover", icon: "🛡️" },
+  { key: "pets", label: "Pets", icon: "🐾" },
+  { key: "other", label: "Other essential bill", icon: "📄" },
+  { key: "personal", label: "Personal", icon: "👤" },
+  { key: "none", label: "Not counted", icon: "—" },
+];
+export const choiceKey = (label: string) => lineName(label).replace(/\s*\(from [^)]+\)$/, "").trim().toLowerCase().slice(0, 120);
+
+/** Which household group a line lands in — your own choice first, then Loop's guess. */
+export function householdChoiceFor(line: PlanLine, petNames: string[] = [], overrides: Record<string, string> = {}): { key: HouseholdChoice; chosen: boolean } {
+  const own = overrides[choiceKey(line.label)];
+  if (own && HOUSEHOLD_CHOICES.some((c) => c.key === own)) return { key: own as HouseholdChoice, chosen: true };
+  const guess = householdGroupFor(line, petNames);
+  if (!guess) return { key: "none", chosen: false };
+  if (guess === "phones") return { key: isPersonalPhone(lineName(line.label)) ? "personal" : "home", chosen: false };
+  return { key: guess, chosen: false };
+}
+
 export type CostKind = "fixed" | "budget" | "setaside";
 export const COST_KIND_LABEL: Record<CostKind, string> = { fixed: "Fixed", budget: "Budget", setaside: "Set aside" };
 
@@ -79,7 +104,7 @@ export type CarForCosts = {
     energyLabel?: string;
     maintenance: number;
     maintenanceSource: "you" | "guide";
-    maintenanceParts?: { service: number; tyres: number; wear: number; mot: number; tyrePrice: number; tyreLifeMiles: number } | null;
+    maintenanceParts?: { service: number; tyres: number; wear: number; mot: number; tyrePrice: number; tyreLifeMiles: number; firstMot?: string | null; carAge?: number | null } | null;
     miles: number;
   };
 };
@@ -111,7 +136,8 @@ export function carLine(car: CarForCosts): { line: HouseholdLine; fuel: number }
     else parts.push({ name: "Servicing", value: 0, kind: "setaside", note: "Included in the lease" });
     if (mp.tyres > 0) parts.push({ name: "Tyres", value: r2(mp.tyres / 12), kind: "setaside", note: `4 × about £${mp.tyrePrice}, lasting ~${mp.tyreLifeMiles.toLocaleString("en-GB")} miles${perMile ? ` · ${perMile}` : ""}` });
     if (mp.wear > 0) parts.push({ name: "Brakes, wipers & wear", value: r2(mp.wear / 12), kind: "setaside" });
-    if (mp.mot > 0) parts.push({ name: "MOT", value: r2(mp.mot / 12), kind: "setaside", note: `£${mp.mot} once a year` });
+    if (mp.mot > 0) parts.push({ name: "MOT", value: r2(mp.mot / 12), kind: "setaside", note: `£${mp.mot} once a year${mp.carAge !== null && mp.carAge !== undefined ? ` · car is ${mp.carAge} year${mp.carAge === 1 ? "" : "s"} old` : ""}` });
+    else if (mp.firstMot) parts.push({ name: "MOT", value: 0, kind: "setaside", note: `Not needed yet — first one due ${/^\d{4}$/.test(mp.firstMot) ? mp.firstMot : new Date(`${mp.firstMot}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}, when the car turns 3` });
   }
   const value = r2(parts.reduce((sum, p) => sum + p.value, 0));
   return { line: { name: car.name, value, kind: "fixed", parts }, fuel: r2(c.energy) };
@@ -142,6 +168,7 @@ export function householdCosts({
   childAverages = {},
   councilTax = {},
   dismissedMissing = [],
+  groupOverrides = {},
 }: {
   lines: PlanLine[];
   mortgageMonthly?: number | null;
@@ -151,6 +178,8 @@ export function householdCosts({
   childAverages?: Record<string, { thisMonth: number; average: number; low: number; high: number; activeMonths: number; schedule: string | null }>;
   councilTax?: Record<string, { payments: number }>;
   dismissedMissing?: string[];
+  /** Your own groups for lines, by `choiceKey` — set from Spending's "Show groups". */
+  groupOverrides?: Record<string, string>;
 }) {
   const skip = new Set(skipLabels.map((l) => l.toLowerCase()));
   const byGroup = new Map<HouseholdGroupKey, HouseholdLine[]>();
@@ -173,13 +202,10 @@ export function householdCosts({
     seen.push(name);
     if (/mortgage/i.test(name) && mortgageMonthly) continue; // already counted from the mortgage itself
     if (skip.has(name.toLowerCase())) continue;
-    const key = householdGroupFor(line, petNames);
-    if (!key) { leftOut.push({ name, value: r2(line.value) }); continue; }
-    if (key === "phones") {
-      if (isPersonalPhone(name)) { personal.push({ name, value: r2(line.value), kind: "fixed", note: "Phone contract — one each" }); continue; }
-      add("home", { name, value: r2(line.value), kind: "fixed" });
-      continue;
-    }
+    const choice = householdChoiceFor(line, petNames, groupOverrides);
+    const key = choice.key;
+    if (key === "none") { leftOut.push({ name, value: r2(line.value) }); continue; }
+    if (key === "personal") { personal.push({ name, value: r2(line.value), kind: "fixed", note: isPersonalPhone(name) ? "Phone contract — one each" : choice.chosen ? "You marked this personal" : undefined }); continue; }
     if (key === "children" && childAverages[plain]) {
       const c = childAverages[plain];
       const varies = c.high - c.low >= 5;

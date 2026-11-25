@@ -80,6 +80,8 @@ function cleanPurchase(raw: any): Omit<Purchase, "id" | "status"> & { notes: str
           taxIncluded: Boolean(car.taxIncluded),
           serviceIncluded: Boolean(car.serviceIncluded),
           currentRunningMonthly: optional(car.currentRunningMonthly, 0, 5_000),
+          colour: String(car.colour || "").trim().slice(0, 30) || null,
+          body: ["hatch", "saloon", "fastback", "crossover", "coupe_suv", "large_suv"].includes(String(car.body)) ? String(car.body) : null,
           lookup: lookup
             ? {
                 matched: String(lookup.matched || "").slice(0, 140),

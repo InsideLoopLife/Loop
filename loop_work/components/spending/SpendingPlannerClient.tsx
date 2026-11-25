@@ -16,6 +16,7 @@ import { CareTypeEditForm } from "@/components/household/CareTypeEditForm";
 import { ChildCostWizard } from "@/components/household/ChildCostWizard";
 import { CareType, calculateNewCareTypeMonthlyCost } from "@/lib/calculations/childcareRegistry";
 import { SectionCard } from "@/components/SectionCard";
+import { HouseholdGroupChip, HouseholdGroupsSummary, useHouseholdGroups, type GroupableLine } from "@/components/spending/HouseholdGroups";
 import { StatCard } from "@/components/StatCard";
 import { ModalFrame } from "@/components/ui/ModalFrame";
 import { formatMoney, type MoneyDisplayPrecision } from "@/lib/format/money";
@@ -1638,6 +1639,12 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
   const [quickModeOverride, setQuickModeOverride] = useState<AddMode | null>(null);
   const [modal, setModal] = useState<ModalState>(initialAddMode ? { type: "add", mode: initialAddMode, template: initialAddTemplate } : null);
   const [editingEnabled, setEditingEnabled] = useState(false);
+  // "Show groups": each bill's household group (Home, Cars, Personal…) beside its category, to sort Home costs from here.
+  const [showGroups, setShowGroups] = useState(false);
+  useEffect(() => {
+    try { if (new URLSearchParams(window.location.search).get("groups") === "1") window.setTimeout(() => setShowGroups(true), 0); } catch { /* no URL */ }
+  }, []);
+  const householdGroups = useHouseholdGroups(showGroups);
   const [linesView, setLinesView] = useState<"lines" | "accounts" | "split">("lines");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
@@ -1872,6 +1879,8 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
     }
     return Array.from(totals.values()).filter((row) => row.amount > 0).sort((a, b) => b.amount - a.amount);
   })();
+  const toGroupable = (item: any): GroupableLine => ({ title: String(item.title || ""), amount: Number(item.amount || 0), categoryLabel: item.categoryLabel ?? null, helper: item.helper ?? null, petName: item.pet?.name ?? null });
+  const groupableLines = allMonthItems.filter((item) => item.direction === "outgoing" && !isSavingsFlowLine(item)).map(toGroupable);
   const timelineItems = allMonthItems
     .filter((item) => directionFilter === "all" || item.direction === directionFilter)
     .filter((item) => !categoryFilter || (item.categoryLabel || "Other") === categoryFilter);
@@ -2268,6 +2277,10 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
                 <button className="rounded-full bg-white px-4 py-2 text-xs font-black text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50">Find bill images</button>
               </form>
             ) : null}
+            <button type="button" onClick={() => setShowGroups((value) => !value)} aria-pressed={showGroups}
+              className={`rounded-full px-4 py-2 text-xs font-black ring-1 ${showGroups ? "bg-emerald-700 text-white ring-emerald-700" : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"}`}>
+              {showGroups ? "Hide groups" : "Show groups"}
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -2283,6 +2296,9 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
             </button>
           </div>
         </div>
+        {showGroups && householdGroups.ready ? (
+          <HouseholdGroupsSummary lines={groupableLines} choiceFor={householdGroups.choiceFor} />
+        ) : showGroups ? <p className="mb-4 text-xs font-semibold text-slate-500">Loading groups…</p> : null}
         {editingEnabled ? (
           <form action={async (formData) => { await updateFinancialFlowLineCategories(formData); setSelectedLineIds([]); }} className="mb-4 rounded-3xl border border-dashed border-slate-300 bg-white/80 p-4">
             {selectedLineIds.map((id) => <input key={id} type="hidden" name="line_id" value={id} />)}
@@ -2388,6 +2404,9 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
                         <span>{item.categoryIcon || guessCategoryIcon(item.helper)}</span>
                         {item.helper}
                       </button>
+                      {showGroups && householdGroups.ready && item.direction === "outgoing" && !isSavingsFlowLine(item) ? (
+                        <HouseholdGroupChip line={toGroupable(item)} choice={householdGroups.choiceFor(toGroupable(item))} onSave={householdGroups.save} />
+                      ) : null}
                       {editingEnabled && selectableId && !("item" in item && item.item && !canChange(shareContext, item.item as any)) && !("childCost" in item && item.childCost && !canChange(shareContext, item.childCost as any, "child_id")) ? (
                         <button
                           type="button"
