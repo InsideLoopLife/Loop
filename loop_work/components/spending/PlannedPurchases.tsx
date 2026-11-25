@@ -10,6 +10,8 @@ import { quietly } from "@/components/feedback/quiet-action";
 import { isLoopError } from "@/lib/actions/friendly";
 import { deletePurchase, loadPurchaseContext, removePurchaseFromPlan, savePurchase, savePurchaseToPlan } from "@/app/spending/purchase-actions";
 import { carCostsFor, checkPurchase, purchaseItems, type OneOffCost, type Purchase, type ReplacedLine } from "@/lib/planning/purchase-plan";
+import { Combobox } from "@/components/ui/Combobox";
+import { CAR_CATALOGUE } from "@/lib/vehicles/catalogue";
 import { FUEL_LABEL, FUEL_PRICES, guessCar, TYPICAL_ANNUAL_MILES, TYPICAL_MILES_PER_KWH, TYPICAL_MPG, type FuelType } from "@/lib/vehicles/running-costs";
 
 export type PlannedPurchaseRow = Purchase & { id: string; status: "draft" | "planned"; updated_at?: string };
@@ -24,6 +26,11 @@ type Context = {
   electricityPence: number;
   electricityLabel: string;
 };
+
+// Car suggestions for the "What is it?" box — only shown when what's typed matches.
+const CAR_SUGGESTIONS = Object.entries(CAR_CATALOGUE).flatMap(([make, models]) =>
+  models.flatMap((model) => (make === "Volkswagen" ? [`${make} ${model}`, `VW ${model}`] : [`${make} ${model}`])),
+);
 
 const gbp = (value: number, exact = false) =>
   new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: exact ? 2 : 0, minimumFractionDigits: exact ? 2 : 0 }).format(value);
@@ -193,7 +200,7 @@ function PurchaseEditor({ initial, replaceOptions, runningByItem, today, onDone 
       <div className="space-y-5">
         <div>
           <label className={label}>What is it?
-            <input value={draft.name} onChange={(event) => onName(event.target.value)} placeholder="e.g. VW Tiguan Black Edition 2026 lease" maxLength={140} className={field} autoFocus={!initial.id} />
+            <Combobox value={draft.name} onChange={onName} options={CAR_SUGGESTIONS} maxResults={8} minChars={2} placeholder="e.g. VW Tiguan Black Edition 2026 lease" ariaLabel="What is it?" className={field} />
           </label>
           <div className="mt-2 flex gap-2">
             {([["car", "A car"], ["other", "Something else"]] as const).map(([value, text]) => (

@@ -11,6 +11,7 @@ import { removeCar, saveCar } from "@/app/spending/car-actions";
 import { allowanceCheck, carDates, carMonthly, OWNERSHIP_LABEL, rollForward, type Car } from "@/lib/vehicles/car-profile";
 import { FUEL_LABEL, TYPICAL_MILES_PER_KWH, TYPICAL_MPG, type FuelType } from "@/lib/vehicles/running-costs";
 import { CAR_CATALOGUE, CAR_MAKES, CAR_YEARS, COMMON_TRIMS, guessMakeModel } from "@/lib/vehicles/catalogue";
+import { Combobox } from "@/components/ui/Combobox";
 
 export type CarRow = Car & { id: string };
 export type CarBill = { id: string; label: string; amount: number; personId?: string | null };
@@ -215,12 +216,10 @@ function CarEditor({ initial, carBills, people, today, electricityPence, onDone 
           <p className="text-sm font-black text-slate-900">Which car is it?</p>
           <div className="grid gap-3 sm:grid-cols-3">
             <label className={label}>Make
-              <input list="loop-car-makes" value={v(car.make)} onChange={(e) => set({ make: e.target.value || null })} placeholder="e.g. Volkswagen" className={field} />
-              <datalist id="loop-car-makes">{CAR_MAKES.map((m) => <option key={m} value={m} />)}</datalist>
+              <Combobox value={v(car.make)} onChange={(value) => set({ make: value || null })} options={CAR_MAKES} placeholder="Start typing, e.g. Volk…" ariaLabel="Make" emptyHint="Not listed — just type it" className={field} />
             </label>
             <label className={label}>Model
-              <input list="loop-car-models" value={v(car.model)} onChange={(e) => set({ model: e.target.value || null })} placeholder="e.g. Tiguan" className={field} />
-              <datalist id="loop-car-models">{(CAR_CATALOGUE[String(car.make || "")] || []).map((m) => <option key={m} value={m} />)}</datalist>
+              <Combobox value={v(car.model)} onChange={(value) => set({ model: value || null })} options={CAR_CATALOGUE[String(car.make || "")] || []} placeholder={car.make ? "Start typing, e.g. Tig…" : "Pick the make first"} ariaLabel="Model" emptyHint="Not listed — just type it" className={field} />
             </label>
             <label className={label}>Year
               <select value={v(car.year)} onChange={(e) => set({ year: n(e.target.value) })} className={field}>
@@ -234,11 +233,10 @@ function CarEditor({ initial, carBills, people, today, electricityPence, onDone 
               </select>
             </label>
             <label className={label}>Trim
-              <input list="loop-car-trims" value={v(car.variant)} onChange={(e) => set({ variant: e.target.value || null })} placeholder="e.g. R-Line" className={field} />
-              <datalist id="loop-car-trims">{(COMMON_TRIMS[String(car.make || "")] || []).map((t) => <option key={t} value={t} />)}</datalist>
+              <Combobox value={v(car.variant)} onChange={(value) => set({ variant: value || null })} options={COMMON_TRIMS[String(car.make || "")] || []} placeholder="e.g. R-Line" ariaLabel="Trim" emptyHint="Type the trim as it's badged" className={field} />
             </label>
             <label className={label}>Engine (optional)
-              <input value={engine} onChange={(e) => setEngine(e.target.value)} placeholder="e.g. 2.0 TDI 150" className={field} />
+              <Combobox value={engine} onChange={setEngine} options={lookup.engines} placeholder="e.g. 2.0 TDI 150" ariaLabel="Engine" className={field} />
             </label>
           </div>
           <div className="flex flex-wrap items-center gap-2">
