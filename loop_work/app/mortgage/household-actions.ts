@@ -40,3 +40,51 @@ async function loadHouseholdSavings__read() {
 }
 
 export async function loadHouseholdSavings() { return runFriendly(() => loadHouseholdSavings__read()); }
+
+/** Upcoming household cost changes and renewals for the next 12 months. */
+async function loadUpcomingChanges__read(mortgage: { dealEnd: string | null; lender: string | null } | null) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Sign in again to continue.");
+  const household = await getActiveHouseholdContext(supabase, user);
+  const filter = visibleDataOrFilter(household);
+  const { billChanges, sortUpcoming } = await import("@/lib/household/upcoming");
+  const { carDates, rollForward } = await import("@/lib/vehicles/car-profile");
+  const { planHomeItem } = await import("@/lib/home/items");
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
+  const horizon = new Date(Date.parse(`${today}T00:00:00Z`) + 366 * 86_400_000).toISOString().slice(0, 10);
+
+  const [{ data: items }, { data: cars }, { data: homeItems }, { data: tariffs }] = await Promise.all([
+    supabase.from("planned_items").select("id, label, amount, recurrence, start_date, end_date, end_behavior, renewal_notice_days, notes").eq("direction", "outgoing").or(filter),
+    supabase.from("household_cars").select("*").eq("status", "active").or(filter),
+    supabase.from("home_items").select("id, kind, label, purchased_on, price, warranty_months, extended_warranty_ends_on, warranty_provider, expected_life_years, replacement_cost, status").neq("status", "gone").or(filter),
+    supabase.from("household_energy_tariffs").select("supplier, tariff_name, fuel, fixed_until, gas_tariff_name, gas_fixed_until, exit_fee_gbp").eq("is_current", true).or(filter),
+  ]);
+
+  const list = billChanges(((items || []) as any[]).filter((i) => !String(i.notes || "").includes("[planned_purchase:")), today, horizon);
+
+  if (mortgage?.dealEnd && mortgage.dealEnd >= today && mortgage.dealEnd <= horizon) {
+    list.push({ id: "mortgage-deal", date: mortgage.dealEnd, kind: "renewal", title: `${mortgage.lender ? `${mortgage.lender} ` : ""}mortgage deal ends`, detail: "You can lock in a new deal up to 6 months before", monthlyChange: null, area: "mortgage", action: { label: "See deals", href: "/mortgage?tab=rates" } });
+  }
+  for (const tariff of (tariffs || []) as any[]) {
+    for (const [date, name] of [[tariff.fixed_until, tariff.tariff_name], [tariff.gas_fixed_until, tariff.gas_tariff_name]] as [string | null, string | null][]) {
+      if (date && date >= today && date <= horizon) list.push({ id: `energy-${date}-${name}`, date, kind: "renewal", title: `${tariff.supplier} ${name ? `${name} ` : ""}fix ends`, detail: "You can usually switch without a fee in the last 49 days", monthlyChange: null, area: "energy", action: { label: "Compare tariffs", href: "/mortgage?tab=things" } });
+    }
+  }
+  for (const car of (cars || []) as any[]) {
+    const rolled = { ...car, mot_due: rollForward(car.mot_due, today), tax_due: rollForward(car.tax_due, today), insurance_renewal: rollForward(car.insurance_renewal, today) };
+    for (const d of carDates(rolled, today)) {
+      if (d.date > horizon) continue;
+      list.push({ id: `car-${car.id}-${d.key}`, date: d.date, kind: "renewal", title: `${car.name}: ${d.label.charAt(0).toLowerCase()}${d.label.slice(1)}`, detail: d.key === "insurance" ? "Compare quotes 3–4 weeks before — usually cheapest then" : d.key === "agreement" ? "Plan the next car before this" : "", monthlyChange: null, area: "cars", action: d.key === "agreement" ? { label: "Plan a car", href: "/spending?plan=new#planned-purchases" } : null });
+    }
+  }
+  for (const item of (homeItems || []) as any[]) {
+    const plan = planHomeItem(item, today);
+    if (plan.warrantyEnds && plan.warrantyEnds >= today && plan.warrantyEnds <= horizon) {
+      list.push({ id: `warranty-${item.id}`, date: plan.warrantyEnds, kind: "warranty", title: `${item.label} warranty ends`, detail: item.warranty_provider ? `With ${item.warranty_provider}` : "Report any faults before then", monthlyChange: null, area: "appliances", action: { label: "Appliances", href: "/mortgage?tab=things" } });
+    }
+  }
+  return { today, changes: sortUpcoming(list) };
+}
+
+export async function loadUpcomingChanges(mortgage: { dealEnd: string | null; lender: string | null } | null) { return runFriendly(() => loadUpcomingChanges__read(mortgage)); }

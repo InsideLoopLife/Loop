@@ -23,6 +23,7 @@ export function HouseholdCosts({
   carPaymentLabels,
   onOpenCar,
   children,
+  compact = false,
 }: {
   lines: PlanLine[];
   mortgageMonthly: number | null;
@@ -30,6 +31,8 @@ export function HouseholdCosts({
   carPaymentLabels: string[];
   onOpenCar?: (slot: number) => void;
   children?: React.ReactNode;
+  /** A short summary (no buttons) for the Overview card. */
+  compact?: boolean;
 }) {
   const [savings, setSavings] = useState<number | null>(null);
   const [petNames, setPetNames] = useState<string[]>([]);
@@ -85,6 +88,25 @@ export function HouseholdCosts({
     setMonths(value);
     try { window.localStorage.setItem(MONTHS_KEY, String(value)); } catch { /* storage unavailable */ }
   };
+
+  if (compact) {
+    return (
+      <span className="block">
+        <span className="flex items-baseline justify-between gap-3">
+          <span className="text-lg font-bold text-slate-950">Home costs</span>
+          <span className="text-xl font-black text-slate-950">{gbp(result.total)}<span className="text-xs font-bold text-slate-500">/mo</span></span>
+        </span>
+        <span className="mt-1 block text-sm text-slate-500">The essentials to run the household — {result.groups.map((g) => g.label.toLowerCase()).slice(0, 4).join(", ")}{result.groups.length > 4 ? "…" : ""}</span>
+        <span className="mt-3 flex h-2 overflow-hidden rounded-full bg-slate-100">
+          {result.groups.map((g, i) => <span key={g.key} className={["bg-emerald-700", "bg-emerald-500", "bg-teal-400", "bg-sky-400", "bg-indigo-300", "bg-violet-300", "bg-slate-300", "bg-slate-200"][i % 8]} style={{ width: `${result.total ? (g.total / result.total) * 100 : 0}%` }} />)}
+        </span>
+        <span className="mt-3 block text-sm font-semibold text-slate-700">
+          Emergency fund ({months} months): <strong>{gbp(target)}</strong>
+          {savings !== null ? (covered !== null && covered >= months ? ` · savings cover ${Math.floor(covered)} months ✓` : ` · ${gbp(Math.max(0, target - (savings || 0)))} to go`) : ""}
+        </span>
+      </span>
+    );
+  }
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

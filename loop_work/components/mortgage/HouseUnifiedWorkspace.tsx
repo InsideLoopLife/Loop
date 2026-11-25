@@ -3,11 +3,12 @@
 import { calculateProjectedMortgageBalance } from "@/lib/calculations/mortgage";
 import { effectiveMortgageStart, wholeMonthsBetween } from "@/lib/calculations/mortgage-term";
 import { WeeklyDealSearch, type MortgageDealSearchRow } from "@/components/mortgage/WeeklyDealSearch";
-import { AreaPriceCard, CouncilTaxCheck, MortgageFacts, RenewalCountdown, RunningCosts, TermNote, type CouncilTaxBandQuote } from "@/components/mortgage/HouseOverviewExtras";
+import { AreaPriceCard, CouncilTaxCheck, MortgageFacts, RenewalCountdown, TermNote, type CouncilTaxBandQuote } from "@/components/mortgage/HouseOverviewExtras";
 import { HomeJourney, type HomeJourneyEvent } from "@/components/mortgage/HomeJourney";
 import { HouseStyleCard } from "@/components/mortgage/HouseStyleCard";
 import { useDriveCars } from "@/components/mortgage/useDriveCars";
 import { HouseholdCosts } from "@/components/mortgage/HouseholdCosts";
+import { UpcomingChanges } from "@/components/mortgage/UpcomingChanges";
 import { HomeItemsPlanner } from "@/components/mortgage/HomeItemsPlanner";
 import { defaultHouseStyle, type HouseStyle } from "@/components/mortgage/HouseIllustration";
 import { saveCouncilTaxBand } from "@/app/mortgage/actions";
@@ -87,7 +88,7 @@ import {
 } from "@/lib/wealth/house-snapshot";
 import { ConfirmSubmit } from "@/components/ui/ConfirmButton";
 
-type Tab = "overview" | "property" | "rates" | "affordability" | "overpayments" | "moving" | "things";
+type Tab = "overview" | "property" | "mortgage" | "rates" | "affordability" | "overpayments" | "moving" | "things" | "costs" | "value" | "upcoming";
 type ModalState =
   | null
   | { type: "add_home" }
@@ -129,22 +130,39 @@ export type HouseUnifiedWorkspaceProps = {
 
 const TABS: [Tab, string][] = [
   ["overview", "Overview"],
+  ["mortgage", "Your mortgage"],
   ["rates", "Renewal"],
   ["overpayments", "Overpayments"],
-  ["moving", "Moving"],
-  ["things", "In the home"],
+  ["costs", "Home costs"],
+  ["things", "Appliances"],
+  ["value", "Value & area"],
+  ["upcoming", "Upcoming changes"],
+  ["moving", "Plan a move"],
 ];
+type Section = "overview" | "mortgage" | "home" | "ahead";
+const SECTIONS: { id: Section; label: string; tabs: Tab[] }[] = [
+  { id: "overview", label: "Overview", tabs: ["overview"] },
+  { id: "mortgage", label: "Mortgage", tabs: ["mortgage", "rates", "overpayments"] },
+  { id: "home", label: "Your home", tabs: ["costs", "things", "value"] },
+  { id: "ahead", label: "Plan ahead", tabs: ["upcoming", "moving"] },
+];
+const TAB_LABEL = new Map(TABS);
+const sectionOf = (tab: Tab): Section => SECTIONS.find((section) => section.tabs.includes(tab))?.id || "overview";
 // Older links: Property now lives on Overview, Affordability on Moving.
-const TAB_ALIASES: Partial<Record<string, Tab>> = { property: "overview", affordability: "moving" };
+const TAB_ALIASES: Partial<Record<string, Tab>> = { property: "overview", affordability: "moving", mortgage_deals: "mortgage" };
 
 const TAB_META: Record<Tab, { eyebrow: string; title: string; description: string }> = {
-  things: { eyebrow: "In the home", title: "Appliances & warranties", description: "What you've bought, when each warranty runs out, and what to put aside for when things wear out." },
+  mortgage: { eyebrow: "Mortgage", title: "Your mortgage", description: "The deal you're on, how long is left, and its history." },
+  costs: { eyebrow: "Your home", title: "Home costs", description: "What the household costs to run, and the emergency fund that covers it." },
+  value: { eyebrow: "Your home", title: "Value & area", description: "What your home is worth, the evidence behind it, and prices nearby." },
+  upcoming: { eyebrow: "Plan ahead", title: "Upcoming changes", description: "Bills that change price, start or end, and renewals coming up over the next year." },
+  things: { eyebrow: "Your home", title: "Appliances & warranties", description: "What you've bought, when each warranty runs out, and what to put aside for when things wear out." },
   overview: { eyebrow: "House overview", title: "Your home, in one place", description: "Property, mortgage, affordability and market context in one live view." },
   property: { eyebrow: "Property", title: "Your property", description: "The home record, valuation evidence and equity in one place." },
   rates: { eyebrow: "Renewal", title: "Your next mortgage deal", description: "The cheapest deals for your home this week, the best from your own lender, and where rates are heading." },
   affordability: { eyebrow: "Affordability", title: "Household resilience & what-if planning", description: "Known values are pulled from LOOP and remain editable for each scenario." },
   overpayments: { eyebrow: "Mortgage planning", title: "Overpayments & opportunity cost", description: "See what extra payments change — and compare that use of cash with alternatives." },
-  moving: { eyebrow: "Moving", title: "Moving and affordability", description: "What the household could take on, and the homes you're watching." },
+  moving: { eyebrow: "Plan ahead", title: "Plan a move", description: "What the household could take on, and the homes you're watching." },
 };
 
 function mortgageCategory(category: SpendingCategoryForPlan) {
@@ -356,6 +374,8 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
         )
       : null;
 
+  const householdLines = props.normalMonthPlan.outgoingItems.map((item) => ({ label: item.label, value: Number(item.value || 0), categoryLabel: item.helper, helper: item.helper }));
+
   function choose(next: Tab) {
     setTab(next);
     window.history.replaceState({}, "", next === "overview" ? "/mortgage" : `/mortgage?tab=${next}`);
@@ -364,38 +384,77 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
 
   return (
     <main className="mx-auto w-[95vw] max-w-none overflow-x-clip px-4 pb-28 pt-4 font-sans md:px-8">
+      {driveCars.modal}
       {props.cacheMode === "stale" ? (
         <div className="pointer-events-none fixed right-5 top-20 z-30 rounded-full border border-violet-100 bg-white/95 px-3 py-2 text-[10px] font-bold text-violet-700 shadow-lg backdrop-blur">
           Refreshing live House data...
         </div>
       ) : null}
 
-      <nav className="mb-4 flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:hidden">
-        {TABS.map(([id, label]) => (
-          <button key={id} onClick={() => choose(id)} className={`shrink-0 rounded-full px-3 py-2 text-xs font-bold ${tab === id ? "bg-slate-950 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{label}</button>
+      <nav className="mb-2 flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:hidden">
+        {SECTIONS.map((section) => (
+          <button key={section.id} onClick={() => choose(section.tabs[0])} className={`shrink-0 rounded-full px-3 py-2 text-xs font-bold ${sectionOf(tab) === section.id ? "bg-slate-950 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{section.label}</button>
         ))}
       </nav>
+      {(SECTIONS.find((section) => section.id === sectionOf(tab))?.tabs.length || 0) > 1 ? (
+        <nav className="mb-4 flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:hidden">
+          {SECTIONS.find((section) => section.id === sectionOf(tab))!.tabs.map((id) => (
+            <button key={id} onClick={() => choose(id)} className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold ${tab === id ? "bg-violet-100 text-violet-800" : "text-slate-500"}`}>{TAB_LABEL.get(id)}</button>
+          ))}
+        </nav>
+      ) : null}
 
       <div className="grid min-w-0 gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="hidden lg:block">
           <div className="fixed top-24 z-20 max-h-[calc(100vh-7rem)] w-[220px] space-y-4 overflow-y-auto pr-1 [scrollbar-width:thin]">
             <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
               <p className="px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Household</p>
-              {TABS.map(([id, label]) => (
-                <button key={id} onClick={() => choose(id)} className={`mb-1 block w-full rounded-xl px-3 py-2.5 text-left text-sm font-bold ${tab === id ? "bg-violet-50 text-violet-700" : "text-slate-600 hover:bg-slate-50"}`}>{label}</button>
-              ))}
+              {SECTIONS.map((section) => {
+                const active = sectionOf(tab) === section.id;
+                return (
+                  <div key={section.id} className="mb-1">
+                    <button onClick={() => choose(section.tabs[0])} aria-expanded={section.tabs.length > 1 ? active : undefined} className={`block w-full rounded-xl px-3 py-2.5 text-left text-sm font-bold ${active ? "bg-violet-50 text-violet-700" : "text-slate-600 hover:bg-slate-50"}`}>{section.label}</button>
+                    {active && section.tabs.length > 1 ? (
+                      <div className="ml-3 mt-1 space-y-0.5 border-l border-violet-100 pl-2">
+                        {section.tabs.map((id) => (
+                          <button key={id} onClick={() => choose(id)} className={`block w-full rounded-lg px-2.5 py-1.5 text-left text-xs font-bold ${tab === id ? "bg-violet-100 text-violet-800" : "text-slate-500 hover:bg-slate-50"}`}>{TAB_LABEL.get(id)}</button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
               <div className="my-3 border-t border-slate-100" />
               <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Quick actions</p>
-              <button onClick={() => setModal({ type: "add_home" })} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">＋ Add property</button>
-              <button onClick={() => setModal({ type: "add_mortgage", homeId: home?.id })} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">▣ Add mortgage</button>
-              <button onClick={() => choose("rates")} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">⇄ Compare rates</button>
+              {sectionOf(tab) === "overview" ? (
+                <>
+                  <button onClick={() => setModal(home ? { type: "edit_home", home } : { type: "add_home" })} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">✎ {home ? "Edit home" : "Add home"}</button>
+                  <button onClick={() => setModal({ type: "add_home" })} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">＋ Add property</button>
+                </>
+              ) : null}
+              {sectionOf(tab) === "mortgage" ? (
+                <>
+                  <button onClick={() => setModal(deal ? { type: "edit_mortgage", deal } : { type: "add_mortgage", homeId: home?.id })} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">▣ {deal ? "Edit mortgage" : "Add mortgage"}</button>
+                  <button onClick={() => choose("rates")} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">⇄ Compare rates</button>
+                  {deal ? <button onClick={() => setModal({ type: "add_mortgage", homeId: home?.id })} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">＋ Add another mortgage</button> : null}
+                </>
+              ) : null}
+              {sectionOf(tab) === "home" ? (
+                <>
+                  <button onClick={() => { if (tab !== "things") choose("things"); setAddThingRequest((n) => n + 1); }} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">＋ Add an appliance</button>
+                  <button onClick={() => setModal({ type: "add_valuation", homeId: home?.id })} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">£ Add a valuation</button>
+                  <button onClick={() => driveCars.open(0)} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">🚗 Car details</button>
+                  <button onClick={() => setModal(home ? { type: "edit_home", home } : { type: "add_home" })} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">✎ Edit home</button>
+                </>
+              ) : null}
+              {sectionOf(tab) === "ahead" ? (
+                <>
+                  <button onClick={() => { choose("moving"); setModal({ type: "add_move" }); }} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">＋ Add a move</button>
+                  <a href="/spending?plan=new#planned-purchases" className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">◎ Plan a purchase</a>
+                  <button onClick={() => choose("rates")} className="block w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-600 hover:bg-slate-50">⇄ Next mortgage deal</button>
+                </>
+              ) : null}
             </div>
-            {tab === "things" ? (
-              <button type="button" onClick={() => setAddThingRequest((n) => n + 1)} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5 hover:shadow-xl">
-                <span className="grid h-6 w-6 place-items-center rounded-full bg-white/15 text-base leading-none">＋</span> Add something
-              </button>
-            ) : null}
-
           </div>
         </aside>
 
@@ -416,7 +475,6 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
               </section>
 
               <RenewalCountdown deal={deal} searchRows={(props.dealSearch ?? []).filter((row) => row.home_id === home?.id)} onCompare={() => choose("rates")} />
-              <TermNote deal={deal} onEdit={() => deal && setModal({ type: "edit_mortgage", deal })} />
 
               <section className="overflow-clip rounded-[18px] border border-slate-200 bg-white">
                 <div className="grid lg:grid-cols-[1fr_1fr]">
@@ -438,13 +496,36 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
                   </div>
                   <div className="border-t border-slate-100 bg-[#eef4f1] lg:border-l lg:border-t-0">
                     <HouseStyleCard key={home?.id ?? "none"} homeId={home?.id ?? null} saved={((home as any)?.house_style as HouseStyle | null) ?? null} propertyType={(home as any)?.property_type ?? null} onCarClick={driveCars.open} carLabels={driveCars.labels} carTags={driveCars.tags} />
-            {driveCars.modal}
                   </div>
                 </div>
               </section>
+              <section className="grid gap-4 lg:grid-cols-2">
+                <button type="button" onClick={() => choose("costs")} className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md">
+                  <HouseholdCosts compact lines={householdLines} mortgageMonthly={mortgage.payment || null} cars={driveCars.entries} carPaymentLabels={driveCars.paymentLabels} />
+                  <span className="mt-3 inline-block text-xs font-black text-violet-700">See home costs →</span>
+                </button>
+                <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-baseline justify-between gap-3"><h2 className="text-lg font-bold">Coming up</h2><button type="button" onClick={() => choose("upcoming")} className="text-xs font-black text-violet-700">All changes →</button></div>
+                  <div className="mt-3"><UpcomingChanges dealEnd={(deal as any)?.initial_period_end ?? null} lender={deal?.lender ?? null} limit={4} onSeeAll={() => choose("upcoming")} /></div>
+                </section>
+              </section>
+            </div>
+          ) : null}
+
+          {tab === "mortgage" ? (
+            <div className="mx-auto w-full max-w-none space-y-6">
+              <RenewalCountdown deal={deal} searchRows={(props.dealSearch ?? []).filter((row) => row.home_id === home?.id)} onCompare={() => choose("rates")} />
+              <TermNote deal={deal} onEdit={() => deal && setModal({ type: "edit_mortgage", deal })} />
+
               <MortgageFacts deal={deal} />
+              <HomeJourney homeId={home?.id ?? null} events={(props.journeyEvents ?? []).filter((event) => event.home_id === home?.id)} deals={props.deals.filter((item) => item.home_id === home?.id)} onEditDeal={(item) => setModal({ type: "edit_mortgage", deal: item })} />
+            </div>
+          ) : null}
+
+          {tab === "costs" ? (
+            <div className="mx-auto w-full max-w-none space-y-6">
               <HouseholdCosts
-                lines={props.normalMonthPlan.outgoingItems.map((item) => ({ label: item.label, value: Number(item.value || 0), categoryLabel: item.helper, helper: item.helper }))}
+                lines={householdLines}
                 mortgageMonthly={mortgage.payment || null}
                 cars={driveCars.entries}
                 carPaymentLabels={driveCars.paymentLabels}
@@ -458,13 +539,26 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
                     onSave={async (band) => { const fd = new FormData(); fd.set("home_id", home?.id ?? ""); fd.set("band", band); await saveCouncilTaxBand(fd); router.refresh(); }}
                   />
               </HouseholdCosts>
+            </div>
+          ) : null}
+
+          {tab === "value" ? (
+            <div className="mx-auto w-full max-w-none space-y-6">
+              <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-3">
+                <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-[10px] font-bold uppercase text-slate-400">Home value</p><p className="mt-2 text-2xl font-bold">{formatMoney(value.mid)}</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{formatMoney(value.low)} – {formatMoney(value.high)}</p></article>
+                <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-[10px] font-bold uppercase text-slate-400">Equity</p><p className="mt-2 text-2xl font-bold">{formatMoney(Math.max(0, value.mid - mortgage.balance))}</p><p className="mt-1 text-[11px] font-semibold text-slate-500">{Number.isFinite(ltv) ? `${(100 - ltv).toFixed(1)}% of the home` : ""}</p></article>
+                <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-[10px] font-bold uppercase text-slate-400">Loan to value</p><p className="mt-2 text-2xl font-bold">{Number.isFinite(ltv) ? `${ltv.toFixed(1)}%` : "—"}</p><p className="mt-1 text-[11px] font-semibold text-slate-500">Under 60% gets the best rates</p></article>
+              </section>
               <section className="grid gap-4 lg:grid-cols-2">
                 <AreaPriceCard data={props.areaPrices ?? null} homeValue={value.mid} valuationLabel={props.valuations.filter((v) => v.home_id === home?.id)[0]?.source_name ?? null} />
-              </section>
-              <section className="grid gap-4 lg:grid-cols-2">
-                <HomeJourney homeId={home?.id ?? null} events={(props.journeyEvents ?? []).filter((event) => event.home_id === home?.id)} deals={props.deals.filter((item) => item.home_id === home?.id)} onEditDeal={(item) => setModal({ type: "edit_mortgage", deal: item })} />
                 <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">Valuation sources</h2><button onClick={() => setModal({ type: "add_valuation", homeId: home?.id })} className="text-xs font-bold text-violet-700">+ Add valuation</button></div><div className="mt-4 space-y-2">{props.valuations.filter(v => v.home_id === home?.id).map(v => <button key={v.id} onClick={() => setModal({ type: "edit_valuation", valuation: v })} className="flex w-full items-center justify-between rounded-xl bg-slate-50 p-3 text-left"><span><span className="block text-sm font-bold">{v.source_name}</span><span className="text-xs text-slate-500">{v.valuation_date}</span></span><span className="font-bold">{formatMoney(Number(v.valuation_mid ?? v.valuation_amount ?? 0))}</span></button>)}</div></section>
               </section>
+            </div>
+          ) : null}
+
+          {tab === "upcoming" ? (
+            <div className="mx-auto w-full max-w-none">
+              <UpcomingChanges dealEnd={(deal as any)?.initial_period_end ?? null} lender={deal?.lender ?? null} />
             </div>
           ) : null}
 
