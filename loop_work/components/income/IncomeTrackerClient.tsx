@@ -1352,7 +1352,7 @@ export function IncomeTrackerClient({
                                       <p className="text-sm font-black text-indigo-950">Paid off around {monthName(payoff.payoffMonth)} <span className="font-semibold text-indigo-800">· {span(payoff.months)} to go</span></p>
                                       <p className="mt-0.5 text-xs font-semibold text-indigo-900/80">
                                         {formatMoney(payoff.monthlyNow)}/mo from pay now · about {formatMoney(payoff.totalRepaid)} still to repay, including {formatMoney(payoff.totalInterest)} interest at {payoff.ratePercent}%{payoff.rateIsDefault ? " (this year's rate — add yours to be exact)" : ""}.
-                                        {" "}Your take-home goes up by that {formatMoney(payoff.monthlyNow)} a month once it&apos;s cleared.
+                                        {` Your take-home goes up by that ${formatMoney(payoff.monthlyNow)} a month once it's cleared.`}
                                       </p>
                                     </>
                                   ) : payoff.writtenOffFirst ? (
