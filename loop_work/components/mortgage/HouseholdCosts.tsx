@@ -34,6 +34,7 @@ export function HouseholdCosts({
   const [savings, setSavings] = useState<number | null>(null);
   const [petNames, setPetNames] = useState<string[]>([]);
   const [categoryByLabel, setCategoryByLabel] = useState<Record<string, string>>({});
+  const [startingSoon, setStartingSoon] = useState<{ label: string; value: number; startDate: string; categoryLabel: string | null }[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [showLeftOut, setShowLeftOut] = useState(false);
   const [months, setMonths] = useState(3);
@@ -42,7 +43,8 @@ export function HouseholdCosts({
     let live = true;
     void quietly(() => loadHouseholdSavings()).then((result) => {
       if (!live || isLoopError(result)) return;
-      const r = result as { savings: number; petNames: string[]; categoryByLabel: Record<string, string> };
+      const r = result as { savings: number; petNames: string[]; categoryByLabel: Record<string, string>; startingSoon: { label: string; value: number; startDate: string; categoryLabel: string | null }[] };
+      setStartingSoon(r.startingSoon || []);
       setSavings(r.savings);
       setPetNames(r.petNames);
       setCategoryByLabel(r.categoryByLabel || {});
@@ -62,13 +64,19 @@ export function HouseholdCosts({
         // Category budgets and the savings target aren't bills; give each bill its Spending category.
         lines: lines
           .filter((line) => !/spending category$|monthly saving plan/i.test(String(line.helper || "")))
-          .map((line) => ({ ...line, categoryLabel: categoryByLabel[lineName(line.label).toLowerCase()] || null })),
+          .map((line) => ({ ...line, categoryLabel: categoryByLabel[lineName(line.label).toLowerCase()] || null }))
+          // Bills starting soon, unless the same bill is already running this month.
+          .concat(
+            startingSoon
+              .filter((soon) => !lines.some((line) => lineName(line.label).toLowerCase() === soon.label.toLowerCase()))
+              .map((soon) => ({ label: `${soon.label} (from ${new Date(`${soon.startDate}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })})`, value: soon.value, categoryLabel: soon.categoryLabel, helper: soon.categoryLabel })),
+          ),
         mortgageMonthly,
         cars: cars.map((car) => ({ name: car.label, monthly: car.monthly, note: "payment + fuel, insurance, servicing & tax" })),
         skipLabels: carPaymentLabels,
         petNames,
       }),
-    [lines, mortgageMonthly, cars, carPaymentLabels, petNames, categoryByLabel],
+    [lines, mortgageMonthly, cars, carPaymentLabels, petNames, categoryByLabel, startingSoon],
   );
 
   const target = result.total * months;
