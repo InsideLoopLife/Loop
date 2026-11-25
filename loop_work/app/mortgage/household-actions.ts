@@ -2,7 +2,7 @@
 
 import { runFriendly } from "@/lib/actions/friendly";
 import { createClient } from "@/lib/supabase/server";
-import { getActiveHouseholdContext, householdMemberDataOrFilter, visibleDataOrFilter } from "@/lib/auth/household-context";
+import { getActiveHouseholdContext, visibleDataOrFilter } from "@/lib/auth/household-context";
 
 /** Money in easy-access and fixed savings (not pensions or investments) — what an emergency fund draws on. */
 async function loadHouseholdSavings__read() {
@@ -13,7 +13,9 @@ async function loadHouseholdSavings__read() {
   const filter = visibleDataOrFilter(household);
   const [{ data }, { data: pets }, { data: items }, { data: categories }] = await Promise.all([
     supabase.from("financial_accounts").select("account_type, current_balance, is_liability").or(filter),
-    supabase.from("household_pets").select("name").or(householdMemberDataOrFilter(household)),
+    household?.householdId
+      ? supabase.from("household_pets").select("name").eq("household_id", household.householdId).eq("status", "active")
+      : supabase.from("household_pets").select("name").eq("user_id", user.id).eq("status", "active"),
     supabase.from("planned_items").select("label, amount, recurrence, start_date, end_date, category_id, item_type, person_id").eq("direction", "outgoing").or(filter),
     supabase.from("spending_categories").select("id, name").or(filter),
   ]);
