@@ -10,6 +10,7 @@ import { isLoopError } from "@/lib/actions/friendly";
 import { removeCar, saveCar } from "@/app/spending/car-actions";
 import { allowanceCheck, carDates, carMonthly, OWNERSHIP_LABEL, rollForward, type Car } from "@/lib/vehicles/car-profile";
 import { FUEL_LABEL, TYPICAL_MILES_PER_KWH, TYPICAL_MPG, type FuelType } from "@/lib/vehicles/running-costs";
+import { CAR_CATALOGUE, CAR_MAKES, CAR_YEARS, COMMON_TRIMS, guessMakeModel } from "@/lib/vehicles/catalogue";
 
 export type CarRow = Car & { id: string };
 export type CarBill = { id: string; label: string; amount: number; personId?: string | null };
@@ -47,7 +48,7 @@ export function CarsPanel({
   const linked = new Set(cars.map((car) => car.planned_item_id).filter(Boolean));
   const unlinkedBills = carBills.filter((bill) => !linked.has(bill.id));
   // A new car from a bill: whoever pays the bill drives it.
-  const fromBill = (bill: CarBill): Car => ({ name: bill.label, fuel_type: "petrol", ownership: "lease", planned_item_id: bill.id, person_id: bill.personId || null });
+  const fromBill = (bill: CarBill): Car => ({ name: bill.label, ...guessMakeModel(bill.label), fuel_type: "petrol", ownership: "lease", planned_item_id: bill.id, person_id: bill.personId || null });
 
   // The cars on the drive (Home & mortgage), one per person: ordered by who drives / pays, as people are listed.
   const drive = useMemo(() => {
@@ -76,7 +77,7 @@ export function CarsPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-black text-slate-950">Your cars</h2>
-          <p className="text-sm font-semibold text-slate-500">Add a registration and Loop fills in the rest — MOT, tax, mileage and what each car really costs.</p>
+          <p className="text-sm font-semibold text-slate-500">Pick the make and model and Loop fills in the figures — what each car really costs, and its MOT, tax and insurance dates.</p>
         </div>
         <button type="button" onClick={() => setEditing({ name: "", fuel_type: "petrol", ownership: "owned" })} className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2.5 text-sm font-black text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50">
           <Plus className="h-4 w-4" aria-hidden /> Add a car
@@ -116,7 +117,7 @@ export function CarsPanel({
               <CarIcon className="h-5 w-5 shrink-0 text-slate-400" aria-hidden />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-black text-slate-900">{bill.label} · {gbp(bill.amount, true)}/mo</span>
-                <span className="block text-xs font-semibold text-slate-500">Looks like a car. Add its registration to fill in the details.</span>
+                <span className="block text-xs font-semibold text-slate-500">Looks like a car. Pick the make and model to fill in its costs.</span>
               </span>
               <span className="shrink-0 rounded-full bg-slate-950 px-3 py-1.5 text-xs font-black text-white">Add details</span>
             </button>
@@ -126,7 +127,7 @@ export function CarsPanel({
       {!cars.length && !unlinkedBills.length ? <p className="mt-3 text-sm font-semibold text-slate-500">No cars yet.</p> : null}
 
       {editing ? createPortal(
-        <ModalFrame title={editing.id ? editing.name : "Car details"} description="Start with the registration — Loop looks the rest up for you to check." eyebrow="Spending · Your cars" maxWidth="max-w-5xl" onClose={() => setEditing(null)}>
+        <ModalFrame title={editing.id ? editing.name : "Car details"} description="Pick the make, model, year and fuel — Loop fills in the figures for you to check." eyebrow="Spending · Your cars" maxWidth="max-w-5xl" onClose={() => setEditing(null)}>
           <CarEditor initial={editing} carBills={carBills} people={people} today={today} electricityPence={electricityPence} onDone={() => setEditing(null)} />
         </ModalFrame>,
         document.body,
@@ -139,7 +140,8 @@ function CarEditor({ initial, carBills, people, today, electricityPence, onDone 
   const router = useRouter();
   const [car, setCar] = useState<Car>(() => ({ ...initial, mot_mileage: [...(initial.mot_mileage || [])] }));
   const [reg, setReg] = useState(plate(initial.registration) || "");
-  const [lookup, setLookup] = useState<{ busy: boolean; message: string | null; found: boolean }>({ busy: false, message: null, found: false });
+  const [lookup, setLookup] = useState<{ busy: boolean; message: string | null; found: boolean; engines: string[]; fromRegister: boolean }>({ busy: false, message: null, found: false, engines: [], fromRegister: false });
+  const [engine, setEngine] = useState<string>(String((initial.lookup?.engine as string | undefined) || ""));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const set = (patch: Partial<Car>) => setCar((current) => ({ ...current, ...patch }));
@@ -153,43 +155,39 @@ function CarEditor({ initial, carBills, people, today, electricityPence, onDone 
   const allowanceKind = car.ownership === "lease" || car.ownership === "pcp";
   const sources = (car.lookup?.sources as string[] | undefined) || [];
 
-  const findDetails = async () => {
-    const registration = reg.replace(/\s+/g, "").toUpperCase();
-    setLookup({ busy: true, message: null, found: false });
+  const fillFigures = async (engineChoice?: string) => {
+    const chosen = engineChoice ?? engine;
+    setLookup((current) => ({ ...current, busy: true, message: null }));
     try {
-      const response = await fetch("/api/vehicles/registration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registration }) });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) { setLookup({ busy: false, message: payload.error || "The lookup didn't work. Type the details in instead.", found: false }); return; }
-      if (!payload.found) { set({ registration }); setLookup({ busy: false, message: payload.message || "Couldn't find that registration online.", found: false }); return; }
-      const c = payload.car;
-      setCar((current) => {
-        const madeName = [c.make, c.model].filter(Boolean).join(" ");
-        const keepName = current.name && !carBills.some((b) => b.label === current.name);
-        return {
-          ...current,
-          registration,
-          name: keepName ? current.name : madeName || current.name,
-          make: c.make ?? current.make,
-          model: c.model ?? current.model,
-          variant: c.variant ?? current.variant,
-          colour: c.colour ?? current.colour,
-          year: c.year ?? current.year,
-          fuel_type: (c.fuelType || current.fuel_type) as FuelType,
-          engine_cc: c.engineCc ?? current.engine_cc,
-          co2_g_km: c.co2 ?? current.co2_g_km,
-          list_price: c.listPrice ?? current.list_price,
-          mot_due: c.motExpiry ?? current.mot_due,
-          tax_due: c.taxDue ?? current.tax_due,
-          mot_mileage: c.motMileage?.length ? c.motMileage : current.mot_mileage,
-          mpg: current.mpg || c.mpg,
-          miles_per_kwh: current.miles_per_kwh || c.milesPerKwh,
-          insurance_group: c.insuranceGroup ?? current.insurance_group,
-          lookup: { sources: payload.sources, lookedUpAt: payload.lookedUpAt, insuranceGroup: c.insuranceGroup, insuranceAnnualLow: c.insuranceAnnualLow, insuranceAnnualHigh: c.insuranceAnnualHigh },
-        };
+      const response = await fetch("/api/vehicles/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ make: car.make, model: car.model, trim: car.variant, year: car.year, fuel: car.fuel_type, engine: chosen || null }),
       });
-      setLookup({ busy: false, message: `Found ${[c.year, c.colour, c.make, c.model, c.variant].filter(Boolean).join(" ")}. Check the details below — they came from public vehicle-check pages.`, found: true });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.car) { setLookup({ busy: false, message: payload.error || "Couldn't find figures for that car. Type them in below.", found: false, engines: [], fromRegister: false }); return; }
+      const c = payload.car;
+      setCar((current) => ({
+        ...current,
+        name: current.name && !carBills.some((b) => b.label === current.name) ? current.name : [current.make, current.model].filter(Boolean).join(" ") || current.name,
+        fuel_type: (c.fuelType || current.fuel_type) as FuelType,
+        list_price: c.listPrice ?? current.list_price,
+        co2_g_km: c.co2 ?? current.co2_g_km,
+        mpg: c.realWorldMpg || (c.wltpMpg ? Math.round(c.wltpMpg * 0.85) : null) || current.mpg,
+        miles_per_kwh: c.milesPerKwh ?? current.miles_per_kwh,
+        insurance_group: c.insuranceGroup ?? current.insurance_group,
+        lookup: { engine: chosen || null, matched: c.matched, sources: c.sources, lookedUpAt: c.lookedUpAt, insuranceGroup: c.insuranceGroup, insuranceAnnualLow: c.insuranceAnnualLow, insuranceAnnualHigh: c.insuranceAnnualHigh },
+      }));
+      const engines: string[] = !chosen && Array.isArray(c.engineOptions) ? c.engineOptions : [];
+      setLookup({
+        busy: false,
+        found: true,
+        engines,
+        fromRegister: Boolean(c.fromRegister),
+        message: `${c.fromRegister ? "From Loop's car register" : "Looked up"}: ${c.matched}. ${engines.length > 1 ? "It came with more than one engine — pick yours for closer figures." : "Check the figures below."}`,
+      });
     } catch {
-      setLookup({ busy: false, message: "The lookup didn't work. Type the details in instead.", found: false });
+      setLookup({ busy: false, message: "The lookup didn't work. Type the figures in below.", found: false, engines: [], fromRegister: false });
     }
   };
 
@@ -213,17 +211,54 @@ function CarEditor({ initial, carBills, people, today, electricityPence, onDone 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
       <div className="space-y-5">
-        <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
-          <label className={label}>Registration
-            <span className="mt-1 flex flex-wrap gap-2">
-              <input value={reg} onChange={(e) => setReg(e.target.value.toUpperCase())} placeholder="AB12 CDE" maxLength={9} className="w-40 rounded-xl border border-slate-300 bg-amber-300 px-3 py-2 font-mono text-lg font-black tracking-widest text-slate-950 placeholder:text-slate-700/40" />
-              <button type="button" onClick={findDetails} disabled={lookup.busy || reg.replace(/\s+/g, "").length < 2} className="inline-flex items-center gap-1.5 rounded-full bg-indigo-600 px-4 py-2 text-sm font-black text-white hover:bg-indigo-700 disabled:opacity-50">
-                <Search className="h-4 w-4" aria-hidden /> {lookup.busy ? "Looking it up…" : "Find details"}
-              </button>
-            </span>
+        <div className="space-y-3 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
+          <p className="text-sm font-black text-slate-900">Which car is it?</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className={label}>Make
+              <input list="loop-car-makes" value={v(car.make)} onChange={(e) => set({ make: e.target.value || null })} placeholder="e.g. Volkswagen" className={field} />
+              <datalist id="loop-car-makes">{CAR_MAKES.map((m) => <option key={m} value={m} />)}</datalist>
+            </label>
+            <label className={label}>Model
+              <input list="loop-car-models" value={v(car.model)} onChange={(e) => set({ model: e.target.value || null })} placeholder="e.g. Tiguan" className={field} />
+              <datalist id="loop-car-models">{(CAR_CATALOGUE[String(car.make || "")] || []).map((m) => <option key={m} value={m} />)}</datalist>
+            </label>
+            <label className={label}>Year
+              <select value={v(car.year)} onChange={(e) => set({ year: n(e.target.value) })} className={field}>
+                <option value="">Pick</option>
+                {CAR_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </label>
+            <label className={label}>Fuel
+              <select value={fuel} onChange={(e) => set({ fuel_type: e.target.value as FuelType })} className={field}>
+                {(Object.keys(FUEL_LABEL) as FuelType[]).map((k) => <option key={k} value={k}>{FUEL_LABEL[k]}</option>)}
+              </select>
+            </label>
+            <label className={label}>Trim
+              <input list="loop-car-trims" value={v(car.variant)} onChange={(e) => set({ variant: e.target.value || null })} placeholder="e.g. R-Line" className={field} />
+              <datalist id="loop-car-trims">{(COMMON_TRIMS[String(car.make || "")] || []).map((t) => <option key={t} value={t} />)}</datalist>
+            </label>
+            <label className={label}>Engine (optional)
+              <input value={engine} onChange={(e) => setEngine(e.target.value)} placeholder="e.g. 2.0 TDI 150" className={field} />
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => fillFigures()} disabled={lookup.busy || !car.make || !car.model} className="inline-flex items-center gap-1.5 rounded-full bg-indigo-600 px-4 py-2 text-sm font-black text-white hover:bg-indigo-700 disabled:opacity-50">
+              <Search className="h-4 w-4" aria-hidden /> {lookup.busy ? "Finding the figures…" : "Fill in the figures"}
+            </button>
+            <span className="text-[11px] font-semibold text-slate-500">mpg, list price, CO2 and insurance group. Not listed? Type it in — Loop still looks it up.</span>
+          </div>
+          {lookup.message ? <p className={`text-xs font-bold ${lookup.found ? "text-indigo-900" : "text-slate-600"}`}>{lookup.message}</p> : null}
+          {lookup.engines.length > 1 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {lookup.engines.map((option) => (
+                <button key={option} type="button" onClick={() => { setEngine(option); void fillFigures(option); }} className="rounded-full bg-white px-3 py-1.5 text-xs font-black text-slate-800 ring-1 ring-slate-300 hover:bg-indigo-50">{option}</button>
+              ))}
+            </div>
+          ) : null}
+          {sources.length ? <p className="text-[11px] font-semibold text-slate-500">{sources.map((src, i) => <a key={src} href={src} target="_blank" rel="noreferrer" className="mr-2 underline">Source {i + 1}</a>)}</p> : null}
+          <label className={`${label} max-w-xs`}>Registration (optional, for your records)
+            <input value={reg} onChange={(e) => setReg(e.target.value.toUpperCase())} placeholder="AB12 CDE" maxLength={9} className="mt-1 w-40 rounded-xl border border-slate-300 bg-amber-300 px-3 py-2 font-mono text-base font-black tracking-widest text-slate-950 placeholder:text-slate-700/40" />
           </label>
-          {lookup.message ? <p className={`mt-2 text-xs font-bold ${lookup.found ? "text-indigo-900" : "text-slate-600"}`}>{lookup.message}</p> : <p className={hint}>Fills in make, model, fuel, MOT and tax dates, mileage history, mpg and a typical insurance cost.</p>}
-          {sources.length ? <p className="mt-1 text-[11px] font-semibold text-slate-500">{sources.map((s, i) => <a key={s} href={s} target="_blank" rel="noreferrer" className="mr-2 underline">Source {i + 1}</a>)}</p> : null}
         </div>
 
         <fieldset className="grid gap-3 sm:grid-cols-3">
@@ -234,14 +269,6 @@ function CarEditor({ initial, carBills, people, today, electricityPence, onDone 
             <select value={car.person_id || ""} onChange={(e) => set({ person_id: e.target.value || null })} className={field}>
               <option value="">Shared</option>
               {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </label>
-          <label className={label}>Make<input value={v(car.make)} onChange={(e) => set({ make: e.target.value || null })} className={field} /></label>
-          <label className={label}>Model<input value={v(car.model)} onChange={(e) => set({ model: e.target.value || null })} className={field} /></label>
-          <label className={label}>Year<input type="number" value={v(car.year)} onChange={(e) => set({ year: n(e.target.value) })} className={field} /></label>
-          <label className={label}>Fuel
-            <select value={fuel} onChange={(e) => set({ fuel_type: e.target.value as FuelType })} className={field}>
-              {(Object.keys(FUEL_LABEL) as FuelType[]).map((k) => <option key={k} value={k}>{FUEL_LABEL[k]}</option>)}
             </select>
           </label>
           {fuel === "electric" ? (
