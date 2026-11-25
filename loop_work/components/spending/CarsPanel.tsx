@@ -10,11 +10,11 @@ import { isLoopError } from "@/lib/actions/friendly";
 import { removeCar, saveCar } from "@/app/spending/car-actions";
 import { allowanceCheck, carDates, carMonthly, OWNERSHIP_LABEL, rollForward, type Car } from "@/lib/vehicles/car-profile";
 import { FUEL_LABEL, TYPICAL_MILES_PER_KWH, TYPICAL_MPG, type FuelType } from "@/lib/vehicles/running-costs";
-import { CAR_CATALOGUE, CAR_MAKES, CAR_YEARS, COMMON_TRIMS, guessMakeModel } from "@/lib/vehicles/catalogue";
+import { CAR_CATALOGUE, CAR_MAKES, CAR_YEARS, COMMON_TRIMS } from "@/lib/vehicles/catalogue";
 import { Combobox } from "@/components/ui/Combobox";
 
-export type CarRow = Car & { id: string };
-export type CarBill = { id: string; label: string; amount: number; personId?: string | null };
+import { carFromBill, driveEntries, type CarBill, type CarRow } from "@/lib/vehicles/load-cars";
+export type { CarBill, CarRow };
 
 const gbp = (value: number, exact = false) =>
   new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: exact ? 2 : 0, minimumFractionDigits: exact ? 2 : 0 }).format(value);
@@ -48,27 +48,14 @@ export function CarsPanel({
   const billById = useMemo(() => new Map(carBills.map((bill) => [bill.id, bill])), [carBills]);
   const linked = new Set(cars.map((car) => car.planned_item_id).filter(Boolean));
   const unlinkedBills = carBills.filter((bill) => !linked.has(bill.id));
-  // A new car from a bill: whoever pays the bill drives it.
-  const fromBill = (bill: CarBill): Car => ({ name: bill.label, ...guessMakeModel(bill.label), fuel_type: "petrol", ownership: "lease", tax_included: true, planned_item_id: bill.id, person_id: bill.personId || null });
-
-  // The cars on the drive (Home & mortgage), one per person: ordered by who drives / pays, as people are listed.
-  const drive = useMemo(() => {
-    const order = (personId: string | null | undefined) => {
-      const i = people.findIndex((p) => p.id === personId);
-      return i < 0 ? people.length : i;
-    };
-    const entries: { order: number; amount: number; open: () => Car }[] = [
-      ...cars.map((car) => ({ order: order(car.person_id || (car.planned_item_id ? billById.get(car.planned_item_id)?.personId : null)), amount: car.planned_item_id ? billById.get(car.planned_item_id)?.amount || 0 : 0, open: () => car as Car })),
-      ...unlinkedBills.map((bill) => ({ order: order(bill.personId), amount: bill.amount, open: () => fromBill(bill) })),
-    ];
-    return entries.sort((a, b) => a.order - b.order || b.amount - a.amount);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cars, unlinkedBills.length, people, billById]);
+  const fromBill = carFromBill;
+  // The cars on the drive (Home), one per person — same order the drawing uses.
+  const drive = useMemo(() => driveEntries(cars, carBills, people, electricityPence), [cars, carBills, people, electricityPence]);
 
   useEffect(() => {
     if (openSlot === null || openSlot === undefined) return;
     const entry = drive[openSlot] || drive[0];
-    const timer = window.setTimeout(() => setEditing(entry ? entry.open() : { name: "", fuel_type: "petrol", ownership: "owned" }), 0);
+    const timer = window.setTimeout(() => setEditing(entry ? entry.car : { name: "", fuel_type: "petrol", ownership: "owned" }), 0);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openSlot]);
@@ -137,7 +124,7 @@ export function CarsPanel({
   );
 }
 
-function CarEditor({ initial, carBills, people, today, electricityPence, onDone }: { initial: Car; carBills: CarBill[]; people: { id: string; name: string }[]; today: string; electricityPence: number | null; onDone: () => void }) {
+export function CarEditor({ initial, carBills, people, today, electricityPence, onDone }: { initial: Car; carBills: CarBill[]; people: { id: string; name: string }[]; today: string; electricityPence: number | null; onDone: () => void }) {
   const router = useRouter();
   const [car, setCar] = useState<Car>(() => ({ ...initial, mot_mileage: [...(initial.mot_mileage || [])] }));
   const [reg, setReg] = useState(plate(initial.registration) || "");

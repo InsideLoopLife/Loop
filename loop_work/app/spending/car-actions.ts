@@ -147,3 +147,34 @@ async function removeCar__save(id: string) {
 
 export async function saveCar(payload: string) { return runFriendly(() => saveCar__save(payload)); }
 export async function removeCar(id: string) { return runFriendly(() => removeCar__save(id)); }
+
+/** Everything the car pop-up needs, for pages other than Spending (e.g. the drive on Home). */
+async function loadCarsContext__read() {
+  const { supabase, user, household } = await context();
+  const { visibleDataOrFilter, householdPeopleOrFilter, dedupeHouseholdPeople } = await import("@/lib/auth/household-context");
+  const { normaliseCarRow, carBillsFrom } = await import("@/lib/vehicles/load-cars");
+  const { effectiveEnergy } = await import("@/lib/energy/tariff");
+  const filter = visibleDataOrFilter(household);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
+  const [{ data: carRows }, { data: items }, { data: categories }, { data: peopleRows }, energy] = await Promise.all([
+    supabase.from("household_cars").select("*").eq("status", "active").or(filter).order("created_at"),
+    supabase.from("planned_items").select("id, label, amount, direction, recurrence, item_type, category_id, person_id, end_date, notes").eq("direction", "outgoing").eq("recurrence", "monthly").or(filter),
+    supabase.from("spending_categories").select("id, name").or(filter),
+    supabase.from("people").select("*").or(householdPeopleOrFilter(household)),
+    effectiveEnergy(supabase, filter, null).catch(() => null),
+  ]);
+  const categoryNameById = new Map(((categories || []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+  const people = (dedupeHouseholdPeople((peopleRows || []) as any[], household?.dataOwnerUserId || user.id) as any[])
+    .filter((p) => p.relationship !== "child")
+    .sort((a, b) => Number(b.relationship === "self") - Number(a.relationship === "self"))
+    .map((p) => ({ id: p.id as string, name: p.name as string }));
+  return {
+    cars: ((carRows || []) as any[]).map(normaliseCarRow),
+    carBills: carBillsFrom((items || []) as any[], categoryNameById, today),
+    people,
+    today,
+    electricityPence: energy ? energy.electricityNight || energy.electricity : null,
+  };
+}
+
+export async function loadCarsContext() { return runFriendly(() => loadCarsContext__read()); }

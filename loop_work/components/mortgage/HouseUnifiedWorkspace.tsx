@@ -6,6 +6,7 @@ import { WeeklyDealSearch, type MortgageDealSearchRow } from "@/components/mortg
 import { AreaPriceCard, CouncilTaxCheck, MortgageFacts, RenewalCountdown, RunningCosts, TermNote, type CouncilTaxBandQuote } from "@/components/mortgage/HouseOverviewExtras";
 import { HomeJourney, type HomeJourneyEvent } from "@/components/mortgage/HomeJourney";
 import { HouseStyleCard } from "@/components/mortgage/HouseStyleCard";
+import { useDriveCars } from "@/components/mortgage/useDriveCars";
 import { HomeItemsPlanner } from "@/components/mortgage/HomeItemsPlanner";
 import { defaultHouseStyle, type HouseStyle } from "@/components/mortgage/HouseIllustration";
 import { saveCouncilTaxBand } from "@/app/mortgage/actions";
@@ -217,6 +218,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
   const [modal, setModal] = useState<ModalState>(null);
   const [addThingRequest, setAddThingRequest] = useState(0);
   const router = useRouter();
+  const driveCars = useDriveCars();
   const [showMaps, setShowMaps] = useState(false);
 
   useEffect(() => {
@@ -434,7 +436,8 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
                     </div>
                   </div>
                   <div className="border-t border-slate-100 bg-[#eef4f1] lg:border-l lg:border-t-0">
-                    <HouseStyleCard key={home?.id ?? "none"} homeId={home?.id ?? null} saved={((home as any)?.house_style as HouseStyle | null) ?? null} propertyType={(home as any)?.property_type ?? null} onCarClick={(slot) => router.push(`/spending?car=${slot}#your-cars`)} />
+                    <HouseStyleCard key={home?.id ?? "none"} homeId={home?.id ?? null} saved={((home as any)?.house_style as HouseStyle | null) ?? null} propertyType={(home as any)?.property_type ?? null} onCarClick={driveCars.open} carLabels={driveCars.labels} carTags={driveCars.tags} />
+            {driveCars.modal}
                   </div>
                 </div>
               </section>

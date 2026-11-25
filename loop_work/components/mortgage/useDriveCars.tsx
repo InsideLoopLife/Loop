@@ -1,0 +1,48 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { ModalFrame } from "@/components/ui/ModalFrame";
+import { CarEditor } from "@/components/spending/CarsPanel";
+import { quietly } from "@/components/feedback/quiet-action";
+import { isLoopError } from "@/lib/actions/friendly";
+import { loadCarsContext } from "@/app/spending/car-actions";
+import { driveEntries, type CarBill, type CarRow, type DrivePerson } from "@/lib/vehicles/load-cars";
+import type { Car } from "@/lib/vehicles/car-profile";
+
+type Context = { cars: CarRow[]; carBills: CarBill[]; people: DrivePerson[]; today: string; electricityPence: number | null };
+
+const gbp = (value: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(value);
+
+/** The cars on the house drawing: whose each one is, and its costs in a pop-up on the same page. */
+export function useDriveCars() {
+  const [context, setContext] = useState<Context | null>(null);
+  const [editing, setEditing] = useState<Car | null>(null);
+
+  const load = useCallback(() => {
+    void quietly(() => loadCarsContext()).then((result) => {
+      if (!isLoopError(result)) setContext(result as Context);
+    });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const entries = useMemo(() => (context ? driveEntries(context.cars, context.carBills, context.people, context.electricityPence) : []), [context]);
+  const labels = entries.map((entry) => `${entry.label} · ${gbp(entry.monthly)}/mo`);
+  const tags = entries.map((entry) => entry.personName || entry.car.name);
+
+  const open = (slot: number) => {
+    const entry = entries[slot];
+    setEditing(entry ? entry.car : { name: "", fuel_type: "petrol", ownership: "owned" });
+  };
+
+  const modal = editing && context && typeof document !== "undefined"
+    ? createPortal(
+        <ModalFrame title={editing.id ? `${entries.find((e) => e.car === editing)?.label || editing.name}` : editing.name || "Car details"} description="What this car costs each month, and its dates." eyebrow="Home · On the drive" maxWidth="max-w-5xl" onClose={() => setEditing(null)}>
+          <CarEditor initial={editing} carBills={context.carBills} people={context.people} today={context.today} electricityPence={context.electricityPence} onDone={() => { setEditing(null); load(); }} />
+        </ModalFrame>,
+        document.body,
+      )
+    : null;
+
+  return { labels, tags, open, modal, ready: Boolean(context) };
+}

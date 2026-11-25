@@ -800,7 +800,7 @@ function Car({ v, x, z, vehicle, pal }: { v: V; x: number; z: number; vehicle: V
  * does not yet have the matching PNG (or it fails to load), retain the original
  * parametric SVG car rather than leaving a blank driveway.
  */
-function CarSprite({ v, x, z, vehicle, pal, carStyle, clickable = false }: { v: V; x: number; z: number; vehicle: Vehicle; pal: Pal; carStyle: "modern" | "retro"; clickable?: boolean }) {
+function CarSprite({ v, x, z, vehicle, pal, carStyle, clickable = false, tag }: { v: V; x: number; z: number; vehicle: Vehicle; pal: Pal; carStyle: "modern" | "retro"; clickable?: boolean; tag?: string }) {
   const source = carAssetPath(vehicle, pal.night, carStyle);
   const [failedSource, setFailedSource] = useState<string | null>(null);
   if (failedSource === source) return <Car v={v} x={x} z={z} vehicle={vehicle} pal={pal} />;
@@ -811,7 +811,11 @@ function CarSprite({ v, x, z, vehicle, pal, carStyle, clickable = false }: { v: 
     : "hatch";
   const frame = CAR_ASSET_FRAMES[body];
   const [ax, ay] = v.P(x, 0, z);
+  const tagX = ax + (frame.x + frame.width / 2) * v.k;
+  const tagY = ay + frame.y * v.k - 2;
+  const tagWidth = tag ? Math.max(18, tag.length * 3.6 + 8) : 0;
   return (
+    <>
     <image
       href={source}
       x={ax + frame.x * v.k}
@@ -822,6 +826,13 @@ function CarSprite({ v, x, z, vehicle, pal, carStyle, clickable = false }: { v: 
       onError={() => setFailedSource(source)}
       style={{ pointerEvents: clickable ? "auto" : "none" }}
     />
+    {tag ? (
+      <g transform={`translate(${tagX} ${tagY})`} style={{ pointerEvents: "none" }}>
+        <rect x={-tagWidth / 2} y={-9} width={tagWidth} height={9} rx={4.5} fill="#ffffff" fillOpacity={0.94} stroke="#0f172a" strokeOpacity={0.15} strokeWidth={0.4} />
+        <text x={0} y={-2.6} textAnchor="middle" fontSize={5.6} fontWeight={800} fill="#0f172a" fontFamily="inherit">{tag}</text>
+      </g>
+    ) : null}
+    </>
   );
 }
 
@@ -1118,7 +1129,7 @@ export function planHome(style: HouseStyle) {
 }
 export type HomePlan = ReturnType<typeof planHome>;
 
-export function HouseIllustration({ style, className, hotspots, onCarClick, carLabels }: { style: HouseStyle; className?: string; hotspots?: HouseHotspot[]; onCarClick?: (slot: number) => void; carLabels?: string[] }) {
+export function HouseIllustration({ style, className, hotspots, onCarClick, carLabels, carTags }: { style: HouseStyle; className?: string; hotspots?: HouseHotspot[]; onCarClick?: (slot: number) => void; carLabels?: string[]; carTags?: string[] }) {
   const uid = useId().replace(/[^a-z0-9]/gi, "");
   const ids: Ids = { sky: `s${uid}`, glass: `g${uid}`, lit: `l${uid}`, brick: `b${uid}`, glow: `w${uid}`, sheen: `h${uid}` };
   const plan = planHome(style);
@@ -1281,8 +1292,8 @@ export function HouseIllustration({ style, className, hotspots, onCarClick, carL
             onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onCarClick(c.slot); } }}
             className="cursor-pointer outline-none transition-opacity hover:opacity-85 focus-visible:opacity-85"
           >
-            <title>{carLabels?.[c.slot] || "Car"} — see its costs</title>
-            <CarSprite v={v} x={c.x} z={c.z} vehicle={c.vehicle} pal={pal} carStyle={s.carStyle === "retro" ? "retro" : "modern"} clickable />
+            <title>{carLabels?.[c.slot] ? `${carLabels[c.slot]} — click for its costs` : "Car — click for its costs"}</title>
+            <CarSprite v={v} x={c.x} z={c.z} vehicle={c.vehicle} pal={pal} carStyle={s.carStyle === "retro" ? "retro" : "modern"} clickable tag={carTags?.[c.slot]} />
           </g>
         ) : <CarSprite key={i} v={v} x={c.x} z={c.z} vehicle={c.vehicle} pal={pal} carStyle={s.carStyle === "retro" ? "retro" : "modern"} />)}
         {charger ? (() => {
