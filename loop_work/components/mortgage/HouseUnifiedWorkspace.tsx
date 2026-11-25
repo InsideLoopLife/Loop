@@ -7,6 +7,7 @@ import { AreaPriceCard, CouncilTaxCheck, MortgageFacts, RenewalCountdown, Runnin
 import { HomeJourney, type HomeJourneyEvent } from "@/components/mortgage/HomeJourney";
 import { HouseStyleCard } from "@/components/mortgage/HouseStyleCard";
 import { useDriveCars } from "@/components/mortgage/useDriveCars";
+import { HouseholdCosts } from "@/components/mortgage/HouseholdCosts";
 import { HomeItemsPlanner } from "@/components/mortgage/HomeItemsPlanner";
 import { defaultHouseStyle, type HouseStyle } from "@/components/mortgage/HouseIllustration";
 import { saveCouncilTaxBand } from "@/app/mortgage/actions";
@@ -379,7 +380,7 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
         <aside className="hidden lg:block">
           <div className="fixed top-24 z-20 max-h-[calc(100vh-7rem)] w-[220px] space-y-4 overflow-y-auto pr-1 [scrollbar-width:thin]">
             <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-              <p className="px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">House</p>
+              <p className="px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Household</p>
               {TABS.map(([id, label]) => (
                 <button key={id} onClick={() => choose(id)} className={`mb-1 block w-full rounded-xl px-3 py-2.5 text-left text-sm font-bold ${tab === id ? "bg-violet-50 text-violet-700" : "text-slate-600 hover:bg-slate-50"}`}>{label}</button>
               ))}
@@ -442,16 +443,22 @@ export function HouseUnifiedWorkspace(props: HouseUnifiedWorkspaceProps) {
                 </div>
               </section>
               <MortgageFacts deal={deal} />
-              <section className="grid gap-4 lg:grid-cols-2">
-                <RunningCosts items={props.normalMonthPlan.outgoingItems.map((item) => ({ label: item.label, value: Number(item.value || 0) }))}>
-                  <CouncilTaxCheck
+              <HouseholdCosts
+                lines={props.normalMonthPlan.outgoingItems.map((item) => ({ label: item.label, value: Number(item.value || 0), categoryLabel: item.helper, helper: item.helper }))}
+                mortgageMonthly={mortgage.payment || null}
+                cars={driveCars.entries}
+                carPaymentLabels={driveCars.paymentLabels}
+                onOpenCar={driveCars.open}
+              >
+                <CouncilTaxCheck
                     homeId={home?.id ?? null}
                     band={(home as any)?.council_tax_band ?? null}
                     quotes={props.councilTaxQuotes ?? []}
                     monthlyBill={(() => { const bill = props.normalMonthPlan.outgoingItems.filter((item) => /council tax/i.test(item.label)).reduce((sum, item) => sum + Number(item.value || 0), 0); return bill > 0 ? bill : null; })()}
                     onSave={async (band) => { const fd = new FormData(); fd.set("home_id", home?.id ?? ""); fd.set("band", band); await saveCouncilTaxBand(fd); router.refresh(); }}
                   />
-                </RunningCosts>
+              </HouseholdCosts>
+              <section className="grid gap-4 lg:grid-cols-2">
                 <AreaPriceCard data={props.areaPrices ?? null} homeValue={value.mid} valuationLabel={props.valuations.filter((v) => v.home_id === home?.id)[0]?.source_name ?? null} />
               </section>
               <section className="grid gap-4 lg:grid-cols-2">

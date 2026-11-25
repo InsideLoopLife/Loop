@@ -17,7 +17,7 @@ export type Area = {
 export const AREAS: Area[] = [
   { key: "decisions", label: "Needs your decision", blurb: "Invites and requests waiting for a yes or no.", href: null, tile: "bg-amber-100 text-amber-800", accent: "bg-amber-500" },
   { key: "money", label: "Bills & spending", blurb: "Price rises, bills and money in and out.", href: "/financial-flow", tile: "bg-orange-50 text-orange-700", accent: "bg-orange-500" },
-  { key: "home", label: "Home & mortgage", blurb: "Your mortgage deal, renewal and council tax.", href: "/mortgage", tile: "bg-sky-50 text-sky-700", accent: "bg-sky-500" },
+  { key: "home", label: "Household", blurb: "Your home, mortgage, renewal, council tax and household bills.", href: "/mortgage", tile: "bg-sky-50 text-sky-700", accent: "bg-sky-500" },
   { key: "invest", label: "Investments & pensions", blurb: "Weekly progress and changes to your holdings.", href: "/investments", tile: "bg-indigo-50 text-indigo-700", accent: "bg-indigo-500" },
   { key: "savings", label: "Savings", blurb: "Rates ending and better places for your cash.", href: "/financial-flow?tab=savings", tile: "bg-emerald-50 text-emerald-700", accent: "bg-emerald-500" },
   { key: "health", label: "Health & food", blurb: "Your food week and menu imports.", href: "/nutrition", tile: "bg-rose-50 text-rose-700", accent: "bg-rose-500" },

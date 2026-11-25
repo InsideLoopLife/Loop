@@ -342,7 +342,7 @@ function HomeFields({ status, onStatus, hasPartner, alreadyHasHome }: { status: 
       ) : null}
 
       {owns && alreadyHasHome ? (
-        <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">✓ Your home is already set up. You can change it on the Home &amp; mortgage page.</p>
+        <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">✓ Your home is already set up. You can change it on the Household page.</p>
       ) : null}
 
       {owns && !alreadyHasHome ? (

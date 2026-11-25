@@ -65,7 +65,7 @@ const wealthLinks: NavLink[] = [
     icon: LineChart,
     anyFeature: ["investments", "pensions"],
   },
-  { href: "/mortgage", label: "Home & mortgage", icon: House, feature: "mortgage" },
+  { href: "/mortgage", label: "Household", icon: House, feature: "mortgage" },
   {
     href: "/briefing",
     label: "Ask LOOP",
@@ -501,7 +501,7 @@ function AccountModal({
               <Home className="h-5 w-5" />
             </span>
             <span>
-              <span className="block">Household</span>
+              <span className="block">Household members</span>
               <span className="mt-1 block text-xs font-semibold text-slate-500">
                 Members and sharing
               </span>

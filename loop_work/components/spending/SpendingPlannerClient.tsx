@@ -1846,7 +1846,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
       categoryLabel: "Mortgage",
       categoryIcon: "🏠",
       lifecycleShort: null as string | null,
-      helper: "From Home & mortgage",
+      helper: "From Household",
       href: "/mortgage",
     })),
   ].sort((a, b) => a.date.localeCompare(b.date));
@@ -2722,7 +2722,7 @@ export function SpendingPlannerClient({ shareContext = null, people, categories,
                 {paymentAccounts.map((account) => <option key={account.id} value={account.id}>{account.provider ? `${account.provider} · ` : ""}{account.name}</option>)}
               </select>
             </label>
-            {/^(pay|mortgage):/.test(modal.lineIds[0] || "") ? <p className="text-xs font-semibold text-slate-500">The amount and dates are set in {modal.lineIds[0].startsWith("pay:") ? "Household (pay)" : "Home & mortgage"}; this only changes the account.</p> : null}
+            {/^(pay|mortgage):/.test(modal.lineIds[0] || "") ? <p className="text-xs font-semibold text-slate-500">The amount and dates are set in {modal.lineIds[0].startsWith("pay:") ? "Household (pay)" : "Household"}; this only changes the account.</p> : null}
             <div className="flex justify-end"><Submit>Save</Submit></div>
           </form>
         </Modal>

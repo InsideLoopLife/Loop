@@ -8,7 +8,7 @@ const TASKS = [
   { href: "/bank-accounts?add=1", label: "Add an account", hint: "Joint, personal or savings", icon: Landmark },
   { href: "/loopwatch", label: "Check prices & renewals", hint: "Bills, contracts and deals", icon: Search },
   { href: "/investments", label: "Pensions & investments", hint: "Pots, funds and retirement", icon: PiggyBank },
-  { href: "/mortgage", label: "My home", hint: "Value, mortgage and next steps", icon: Home },
+  { href: "/mortgage", label: "Household", hint: "Home, bills, cars and emergency fund", icon: Home },
 ];
 
 export function QuickTasks() {

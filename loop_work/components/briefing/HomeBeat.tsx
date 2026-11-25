@@ -9,7 +9,7 @@ export function HomeBeat({ home, series, period = "week" }: { home: FinancialBri
   return (
     <article className="rounded-[2rem] border border-slate-200 bg-white p-6">
       <Building2 className="text-indigo-600" />
-      <h2 className="mt-4 text-2xl font-black">Home & mortgage</h2>
+      <h2 className="mt-4 text-2xl font-black">Household</h2>
       {home ? (
         <>
           <p className="mt-4 text-sm font-bold text-slate-500">Estimated equity</p>

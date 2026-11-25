@@ -37,12 +37,17 @@ export function useDriveCars() {
 
   const modal = editing && context && typeof document !== "undefined"
     ? createPortal(
-        <ModalFrame title={editing.id ? `${entries.find((e) => e.car === editing)?.label || editing.name}` : editing.name || "Car details"} description="What this car costs each month, and its dates." eyebrow="Home · On the drive" maxWidth="max-w-5xl" onClose={() => setEditing(null)}>
+        <ModalFrame title={editing.id ? `${entries.find((e) => e.car === editing)?.label || editing.name}` : editing.name || "Car details"} description="What this car costs each month, and its dates." eyebrow="Household · On the drive" maxWidth="max-w-5xl" onClose={() => setEditing(null)}>
           <CarEditor initial={editing} carBills={context.carBills} people={context.people} today={context.today} electricityPence={context.electricityPence} onDone={() => { setEditing(null); load(); }} />
         </ModalFrame>,
         document.body,
       )
     : null;
 
-  return { labels, tags, open, modal, ready: Boolean(context) };
+  // Each car's payment line in the plan, so household costs can show the car's all-in cost instead.
+  const paymentLabels = entries
+    .map((entry) => context?.carBills.find((bill) => bill.id === entry.car.planned_item_id)?.label)
+    .filter(Boolean) as string[];
+
+  return { labels, tags, open, modal, ready: Boolean(context), entries, paymentLabels };
 }
