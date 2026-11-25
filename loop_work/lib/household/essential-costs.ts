@@ -7,11 +7,10 @@ export type PlanLine = { label: string; value: number; categoryLabel?: string | 
 export type HouseholdGroupKey = "home" | "phones" | "cars" | "children" | "pets" | "food" | "protection" | "other";
 
 export const HOUSEHOLD_GROUPS: { key: HouseholdGroupKey; label: string; hint: string }[] = [
-  { key: "home", label: "Home", hint: "Mortgage or rent, council tax, energy, water, home insurance" },
-  { key: "cars", label: "Cars", hint: "Payments plus fuel, insurance, servicing and tax" },
+  { key: "home", label: "Home", hint: "Mortgage or rent, council tax, energy, water, broadband, home insurance" },
+  { key: "cars", label: "Cars", hint: "Payments, insurance and tax, plus money put by for servicing, tyres and the MOT" },
   { key: "children", label: "Children", hint: "Childcare and school costs" },
   { key: "food", label: "Food & household shopping", hint: "" },
-  { key: "phones", label: "Phones & broadband", hint: "" },
   { key: "protection", label: "Life & health cover", hint: "" },
   { key: "pets", label: "Pets", hint: "Food, insurance, vets" },
   { key: "other", label: "Other essential bills", hint: "" },
@@ -59,12 +58,80 @@ export function householdGroupFor(line: PlanLine, petNames: string[] = []): Hous
   return null;
 }
 
-export type HouseholdLine = { name: string; value: number; note?: string };
-export type HouseholdGroup = { key: HouseholdGroupKey; label: string; hint: string; total: number; lines: HouseholdLine[] };
+export type CostKind = "fixed" | "budget" | "setaside";
+export const COST_KIND_LABEL: Record<CostKind, string> = { fixed: "Fixed", budget: "Budget", setaside: "Set aside" };
+
+export type HouseholdLine = { name: string; value: number; kind: CostKind; note?: string; parts?: HouseholdLine[]; estimate?: boolean };
+export type HouseholdGroup = { key: HouseholdGroupKey; label: string; hint: string; total: number; fixed: number; budget: number; setaside: number; lines: HouseholdLine[] };
+export type PersonalLine = { name: string; value: number; kind: "fixed" | "planned"; note?: string };
+export type MissingBill = { key: string; label: string; why: string };
+
+export type CarForCosts = {
+  name: string;
+  ownership?: string | null;
+  costs: {
+    payment: number;
+    insurance: number;
+    insuranceSource: "you" | "group" | "none";
+    tax: number;
+    taxNote?: string;
+    energy: number;
+    energyLabel?: string;
+    maintenance: number;
+    maintenanceSource: "you" | "guide";
+    maintenanceParts?: { service: number; tyres: number; wear: number; mot: number; tyrePrice: number; tyreLifeMiles: number } | null;
+    miles: number;
+  };
+};
+
+const BROADBAND = /broadband|fibre|\bbt\b|virgin media|plusnet|talktalk|hyperoptic|community fibre|sky (broadband|tv)|now broadband|shell energy broadband|\bwifi\b|internet/i;
+const COUNCIL_TAX = /council tax/i;
+const r2 = (v: number) => Math.round(v * 100) / 100;
+const shortDate = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString("en-GB", { month: "short" });
+
+/** Phones are personal — one each — while broadband serves the home. */
+export function isPersonalPhone(name: string) {
+  return !BROADBAND.test(name) && /\bee\b|vodafone|\bo2\b|three\b|giffgaff|tesco mobile|sky mobile|voxi|smarty|lebara|iphone|samsung|pixel|phone|mobile|airtime|handset/i.test(name);
+}
+
+/** A car broken into what you must pay (payment, insurance, tax) and what to put by (servicing, tyres, wear, MOT). Fuel is personal. */
+export function carLine(car: CarForCosts): { line: HouseholdLine; fuel: number } {
+  const c = car.costs;
+  const parts: HouseholdLine[] = [];
+  const paymentName = car.ownership === "lease" ? "Lease payment" : car.ownership === "pcp" ? "PCP payment" : car.ownership === "owned" ? "" : "Finance payment";
+  if (c.payment > 0 && paymentName) parts.push({ name: paymentName, value: r2(c.payment), kind: "fixed" });
+  if (c.insurance > 0) parts.push({ name: "Insurance", value: r2(c.insurance), kind: "fixed", estimate: c.insuranceSource !== "you", note: c.insuranceSource !== "you" ? "Loop's estimate — add your premium" : undefined });
+  if (c.tax > 0) parts.push({ name: "Road tax", value: r2(c.tax), kind: "fixed" });
+  else if (c.taxNote) parts.push({ name: "Road tax", value: 0, kind: "fixed", note: c.taxNote });
+  const mp = c.maintenanceParts;
+  if (c.maintenanceSource === "you") parts.push({ name: "Servicing & upkeep", value: r2(c.maintenance), kind: "setaside", note: "Your figure" });
+  else if (mp) {
+    const perMile = c.miles > 0 ? `${c.miles.toLocaleString("en-GB")} miles a year` : "";
+    if (mp.service > 0) parts.push({ name: "Servicing", value: r2(mp.service / 12), kind: "setaside", note: `About £${mp.service} a year` });
+    else parts.push({ name: "Servicing", value: 0, kind: "setaside", note: "Included in the lease" });
+    if (mp.tyres > 0) parts.push({ name: "Tyres", value: r2(mp.tyres / 12), kind: "setaside", note: `4 × about £${mp.tyrePrice}, lasting ~${mp.tyreLifeMiles.toLocaleString("en-GB")} miles${perMile ? ` · ${perMile}` : ""}` });
+    if (mp.wear > 0) parts.push({ name: "Brakes, wipers & wear", value: r2(mp.wear / 12), kind: "setaside" });
+    if (mp.mot > 0) parts.push({ name: "MOT", value: r2(mp.mot / 12), kind: "setaside", note: `£${mp.mot} once a year` });
+  }
+  const value = r2(parts.reduce((sum, p) => sum + p.value, 0));
+  return { line: { name: car.name, value, kind: "fixed", parts }, fuel: r2(c.energy) };
+}
+
+const EXPECTED: { key: string; label: string; why: string; test: RegExp; unless?: (names: string[]) => boolean }[] = [
+  { key: "home_insurance", label: "Home insurance", why: "Buildings cover is usually a mortgage condition; contents covers what's inside", test: /home insurance|buildings|contents|home ?cover|house insurance/i },
+  { key: "energy", label: "Gas & electricity", why: "", test: /energy|electric|\bgas\b|edf|octopus|british gas|\bovo\b|e\.?on|scottish power|sse\b|utilita|so energy|outfox/i },
+  { key: "water", label: "Water", why: "", test: /water|united utilities|severn trent|anglian|yorkshire water|southern water|wessex|dwr cymru|welsh water|northumbrian|south west water|affinity/i },
+  { key: "council_tax", label: "Council Tax", why: "", test: COUNCIL_TAX },
+  { key: "broadband", label: "Broadband", why: "If it's bundled with a phone or TV bill, mark it not needed", test: BROADBAND },
+  { key: "tv_licence", label: "TV licence", why: "Needed to watch live TV or BBC iPlayer", test: /tv licen[cs]e/i },
+];
 
 /**
  * Group the month's outgoings into household costs.
- * `cars` replaces each car's payment line with its all-in monthly cost; `skipLabels` are those payment lines.
+ * Each line is Fixed (a bill you must pay), Budget (food — varies but essential) or Set aside (money
+ * to put by for things that come round, like servicing and tyres). Fuel and mobile phones are personal,
+ * shown apart and left out of the household total.
+ * The emergency fund covers the fixed bills, the food budget and phone contracts — not fuel or set-asides.
  */
 export function householdCosts({
   lines,
@@ -72,34 +139,95 @@ export function householdCosts({
   cars = [],
   skipLabels = [],
   petNames = [],
+  childAverages = {},
+  councilTax = {},
+  dismissedMissing = [],
 }: {
   lines: PlanLine[];
   mortgageMonthly?: number | null;
-  cars?: { name: string; monthly: number; note?: string }[];
+  cars?: CarForCosts[];
   skipLabels?: string[];
   petNames?: string[];
-}): { groups: HouseholdGroup[]; total: number; leftOut: HouseholdLine[] } {
+  childAverages?: Record<string, { thisMonth: number; average: number; low: number; high: number; activeMonths: number; schedule: string | null }>;
+  councilTax?: Record<string, { payments: number }>;
+  dismissedMissing?: string[];
+}) {
   const skip = new Set(skipLabels.map((l) => l.toLowerCase()));
   const byGroup = new Map<HouseholdGroupKey, HouseholdLine[]>();
   const add = (key: HouseholdGroupKey, line: HouseholdLine) => byGroup.set(key, [...(byGroup.get(key) || []), line]);
-  const leftOut: HouseholdLine[] = [];
+  const leftOut: { name: string; value: number }[] = [];
+  const personal: PersonalLine[] = [];
+  const seen: string[] = [];
 
-  if (mortgageMonthly && mortgageMonthly > 0) add("home", { name: "Mortgage", value: Math.round(mortgageMonthly * 100) / 100 });
-  for (const car of cars) add("cars", { name: car.name, value: Math.round(car.monthly * 100) / 100, note: car.note });
+  if (mortgageMonthly && mortgageMonthly > 0) { add("home", { name: "Mortgage", value: r2(mortgageMonthly), kind: "fixed" }); seen.push("mortgage"); }
+  for (const car of cars) {
+    const { line, fuel } = carLine(car);
+    add("cars", line);
+    if (fuel > 0) personal.push({ name: `${car.costs.energyLabel || "Fuel"} — ${car.name}`, value: fuel, kind: "planned", note: `${car.costs.miles.toLocaleString("en-GB")} miles a year` });
+  }
 
   for (const line of lines) {
     if (!(line.value > 0)) continue;
     const name = lineName(line.label);
+    const plain = name.replace(/\s*\(from [^)]+\)$/, "").trim().toLowerCase();
+    seen.push(name);
     if (/mortgage/i.test(name) && mortgageMonthly) continue; // already counted from the mortgage itself
     if (skip.has(name.toLowerCase())) continue;
     const key = householdGroupFor(line, petNames);
-    if (key) add(key, { name, value: Math.round(line.value * 100) / 100 });
-    else leftOut.push({ name, value: Math.round(line.value * 100) / 100 });
+    if (!key) { leftOut.push({ name, value: r2(line.value) }); continue; }
+    if (key === "phones") {
+      if (isPersonalPhone(name)) { personal.push({ name, value: r2(line.value), kind: "fixed", note: "Phone contract — one each" }); continue; }
+      add("home", { name, value: r2(line.value), kind: "fixed" });
+      continue;
+    }
+    if (key === "children" && childAverages[plain]) {
+      const c = childAverages[plain];
+      const varies = c.high - c.low >= 5;
+      add("children", { name, value: r2(c.average), kind: "fixed", note: varies ? `${c.schedule ? `${c.schedule[0].toUpperCase()}${c.schedule.slice(1)} · ` : ""}£${Math.round(c.low)}–£${Math.round(c.high)} a month, averaged over ${c.activeMonths === 12 ? "the year" : `the ${c.activeMonths} months it runs`} (this month £${Math.round(c.thisMonth)})` : undefined });
+      continue;
+    }
+    if (COUNCIL_TAX.test(name)) {
+      const payments = councilTax[plain]?.payments ?? 10;
+      if (payments < 12) {
+        add("home", { name, value: r2((line.value * payments) / 12), kind: "fixed", note: `£${line.value.toFixed(2)} a month over ${payments} payments (Apr–Jan), nothing in Feb and Mar — £${Math.round(line.value * payments).toLocaleString("en-GB")} a year, averaged here` });
+        continue;
+      }
+    }
+    add(key, { name, value: r2(line.value), kind: key === "food" ? "budget" : "fixed" });
   }
 
-  const groups = HOUSEHOLD_GROUPS.map((group) => {
+  const groups: HouseholdGroup[] = HOUSEHOLD_GROUPS.filter((g) => g.key !== "phones").map((group) => {
     const groupLines = (byGroup.get(group.key) || []).sort((a, b) => b.value - a.value);
-    return { ...group, lines: groupLines, total: Math.round(groupLines.reduce((s, l) => s + l.value, 0) * 100) / 100 };
+    const sumKind = (kind: CostKind) => r2(groupLines.reduce((sum, l) => sum + (l.parts ? l.parts.filter((p) => p.kind === kind).reduce((s2, p) => s2 + p.value, 0) : l.kind === kind ? l.value : 0), 0));
+    return { ...group, lines: groupLines, fixed: sumKind("fixed"), budget: sumKind("budget"), setaside: sumKind("setaside"), total: r2(groupLines.reduce((s2, l) => s2 + l.value, 0)) };
   }).filter((group) => group.lines.length);
-  return { groups, total: Math.round(groups.reduce((s, g) => s + g.total, 0) * 100) / 100, leftOut: leftOut.sort((a, b) => b.value - a.value) };
+
+  const fixed = r2(groups.reduce((s2, g) => s2 + g.fixed, 0));
+  const budget = r2(groups.reduce((s2, g) => s2 + g.budget, 0));
+  const setaside = r2(groups.reduce((s2, g) => s2 + g.setaside, 0));
+  const personalFixed = r2(personal.filter((p) => p.kind === "fixed").reduce((s2, p) => s2 + p.value, 0));
+  const personalPlanned = r2(personal.filter((p) => p.kind === "planned").reduce((s2, p) => s2 + p.value, 0));
+
+  const names = seen.map((n) => n.toLowerCase());
+  const missing: MissingBill[] = EXPECTED
+    .filter((e) => !dismissedMissing.includes(e.key) && !names.some((n) => e.test.test(n)))
+    .map(({ key, label, why }) => ({ key, label, why }));
+  for (const car of cars) {
+    if (car.costs.insuranceSource !== "you" && !dismissedMissing.includes(`car_insurance:${car.name}`)) missing.push({ key: `car_insurance:${car.name}`, label: `Insurance for ${car.name}`, why: "Using Loop's estimate — your premium makes it exact" });
+  }
+
+  return {
+    groups,
+    total: r2(fixed + budget + setaside),
+    fixed,
+    budget,
+    setaside,
+    personal: personal.sort((a, b) => b.value - a.value),
+    personalFixed,
+    personalPlanned,
+    /** What the emergency fund covers each month. */
+    fundMonthly: r2(fixed + budget + personalFixed),
+    missing,
+    leftOut: leftOut.sort((a, b) => b.value - a.value),
+  };
 }

@@ -1,5 +1,5 @@
 // Cars and car bills for a household — used by Spending ("Your cars") and the drive on Home.
-import { carMonthly, type Car } from "@/lib/vehicles/car-profile";
+import { carMonthly, type Car, type CarMonthly } from "@/lib/vehicles/car-profile";
 import { guessMakeModel } from "@/lib/vehicles/catalogue";
 
 export type CarRow = Car & { id: string };
@@ -42,7 +42,7 @@ export function carFromBill(bill: CarBill): Car {
   return { name: bill.label, ...guessMakeModel(bill.label), fuel_type: "petrol", ownership: "lease", tax_included: true, planned_item_id: bill.id, person_id: bill.personId || null };
 }
 
-export type DriveEntry = { car: Car; personName: string | null; label: string; monthly: number; saved: boolean };
+export type DriveEntry = { car: Car; personName: string | null; label: string; monthly: number; saved: boolean; costs: CarMonthly };
 
 /** The cars on the drive, one per person in the order people are listed (you first), then by payment size. */
 export function driveEntries(cars: CarRow[], carBills: CarBill[], people: DrivePerson[], electricityPence: number | null): DriveEntry[] {
@@ -63,7 +63,7 @@ export function driveEntries(cars: CarRow[], carBills: CarBill[], people: DriveP
 
   return entries.map((entry) => {
     const personName = people.find((p) => p.id === entry.personId)?.name || null;
-    const monthly = carMonthly(entry.car, entry.amount, electricityPence).total;
-    return { car: entry.car, personName, saved: entry.saved, monthly, label: `${personName ? `${personName}'s ` : ""}${entry.car.name}` };
+    const costs = carMonthly(entry.car, entry.amount, electricityPence);
+    return { car: entry.car, personName, saved: entry.saved, monthly: costs.total, costs, label: `${personName ? `${personName}'s ` : ""}${entry.car.name}` };
   });
 }

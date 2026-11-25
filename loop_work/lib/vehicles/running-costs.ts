@@ -40,10 +40,40 @@ export const MAINTENANCE = {
   wearPencePerMile: { petrol: 3, diesel: 3, hybrid: 3, plug_in_hybrid: 3, electric: 3.5 } as Record<FuelType, number>,
 };
 
-/** Yearly maintenance guess. With servicing included (most lease maintenance packages) only wear and tyres are left. */
-export function maintenanceAnnual(fuel: FuelType, miles: number, serviceIncluded = false) {
-  const wear = (Math.max(0, miles) * MAINTENANCE.wearPencePerMile[fuel]) / 100;
-  return Math.round((serviceIncluded ? 0 : MAINTENANCE.serviceAnnual[fuel]) + wear);
+// Tyres: a set of four, priced by how big (and dear) the car is, lasting about 20,000 miles
+// (15,000 on an electric car, which is heavier). Other wear: brakes, wipers, bulbs, by the mile
+// (electric cars use their brakes much less). MOT: the maximum fee, from a car's third year.
+export const TYRES = {
+  perTyre: [
+    { upTo: 22_000, price: 75 },
+    { upTo: 35_000, price: 110 },
+    { upTo: 50_000, price: 150 },
+    { upTo: Infinity, price: 210 },
+  ],
+  lifeMiles: { petrol: 20_000, diesel: 20_000, hybrid: 20_000, plug_in_hybrid: 18_000, electric: 15_000 } as Record<FuelType, number>,
+};
+export const OTHER_WEAR_PENCE_PER_MILE: Record<FuelType, number> = { petrol: 1.2, diesel: 1.2, hybrid: 1, plug_in_hybrid: 1, electric: 0.6 };
+export const MOT_FEE = 54.85;
+
+export type MaintenanceParts = { service: number; tyres: number; wear: number; mot: number; total: number; tyrePrice: number; tyreLifeMiles: number };
+
+/** Yearly money to set aside for a car, part by part. With servicing included (most lease maintenance packages) the service is left out. */
+export function maintenanceParts(fuel: FuelType, miles: number, opts: { serviceIncluded?: boolean; listPrice?: number | null; year?: number | null; today?: string } = {}): MaintenanceParts {
+  const m = Math.max(0, miles);
+  const tyrePrice = TYRES.perTyre.find((band) => (opts.listPrice || 30_000) <= band.upTo)!.price;
+  const tyreLifeMiles = TYRES.lifeMiles[fuel];
+  const service = opts.serviceIncluded ? 0 : MAINTENANCE.serviceAnnual[fuel];
+  const tyres = (m / tyreLifeMiles) * tyrePrice * 4;
+  const wear = (m * OTHER_WEAR_PENCE_PER_MILE[fuel]) / 100;
+  const thisYear = Number((opts.today || new Date().toISOString()).slice(0, 4));
+  const mot = opts.year && thisYear - opts.year >= 3 ? MOT_FEE : 0;
+  const r = (v: number) => Math.round(v);
+  return { service: r(service), tyres: r(tyres), wear: r(wear), mot: r(mot), total: r(service + tyres + wear + mot), tyrePrice, tyreLifeMiles };
+}
+
+/** Yearly maintenance guess (servicing, tyres, other wear and the MOT). */
+export function maintenanceAnnual(fuel: FuelType, miles: number, serviceIncluded = false, listPrice?: number | null, year?: number | null) {
+  return maintenanceParts(fuel, miles, { serviceIncluded, listPrice, year }).total;
 }
 
 /**
@@ -70,6 +100,7 @@ export type CarInputs = {
   taxIncluded?: boolean;             // e.g. included in a lease
   serviceIncluded?: boolean;         // lease maintenance package
   maintenanceAnnual?: number | null; // override the guess
+  year?: number | null;              // first registered — the MOT starts in year 3
 };
 
 export type CarCosts = {
@@ -83,6 +114,8 @@ export type CarCosts = {
   insuranceSource: "you" | "group" | "none";
   maintenanceMonthly: number;
   maintenanceSource: "you" | "guide";
+  /** The guide's parts, a year each (null when you gave your own figure). */
+  maintenanceParts: MaintenanceParts | null;
   totalMonthly: number;
   /** For hybrids and EVs: what the same miles would cost in a typical petrol car. */
   petrolEquivalentMonthly: number | null;
@@ -134,9 +167,10 @@ export function carRunningCosts(input: CarInputs): CarCosts {
   const insuranceSource: CarCosts["insuranceSource"] = input.insuranceMonthly && input.insuranceMonthly > 0 ? "you" : guessed ? "group" : "none";
   const insurance = insuranceSource === "you" ? Number(input.insuranceMonthly) : insuranceSource === "group" ? (guessed as number) / 12 : 0;
   const maintenanceSource: CarCosts["maintenanceSource"] = input.maintenanceAnnual !== null && input.maintenanceAnnual !== undefined && input.maintenanceAnnual >= 0 ? "you" : "guide";
-  const maintenance = (maintenanceSource === "you" ? Number(input.maintenanceAnnual) : maintenanceAnnual(fuel, miles, Boolean(input.serviceIncluded))) / 12;
+  const parts = maintenanceSource === "guide" ? maintenanceParts(fuel, miles, { serviceIncluded: Boolean(input.serviceIncluded), listPrice: input.listPrice, year: input.year }) : null;
+  const maintenance = (maintenanceSource === "you" ? Number(input.maintenanceAnnual) : parts!.total) / 12;
   if (insuranceSource === "group") assumptions.push(input.insuranceTypicalAnnual ? `insurance: typical for this model${input.insuranceGroup ? ` (group ${input.insuranceGroup})` : ""}, about £${guessed} a year` : `insurance guessed from group ${input.insuranceGroup} (about £${guessed} a year)`);
-  if (maintenanceSource === "guide") assumptions.push(`maintenance: ${input.serviceIncluded ? "servicing included, " : `a yearly service (about £${MAINTENANCE.serviceAnnual[fuel]}), `}plus tyres and wear at ${MAINTENANCE.wearPencePerMile[fuel]}p a mile`);
+  if (maintenanceSource === "guide") assumptions.push(`maintenance: ${input.serviceIncluded ? "servicing included, " : `a yearly service (about £${MAINTENANCE.serviceAnnual[fuel]}), `}tyres (4 × about £${parts!.tyrePrice}, lasting ${parts!.tyreLifeMiles.toLocaleString("en-GB")} miles), brakes and wear at ${OTHER_WEAR_PENCE_PER_MILE[fuel]}p a mile${parts!.mot ? `, and the MOT (£${MOT_FEE})` : ""}`);
 
   let petrolEquivalentMonthly: number | null = null;
   if (fuel !== "petrol" && fuel !== "diesel") {
@@ -155,6 +189,7 @@ export function carRunningCosts(input: CarInputs): CarCosts {
     insuranceSource,
     maintenanceMonthly: round(maintenance),
     maintenanceSource,
+    maintenanceParts: parts,
     totalMonthly: round(energyMonthly + tax.annual / 12 + insurance + maintenance),
     petrolEquivalentMonthly,
     assumptions,

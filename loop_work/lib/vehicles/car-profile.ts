@@ -120,6 +120,7 @@ export type CarMonthly = {
   insuranceSource: "you" | "group" | "none";
   maintenance: number;
   maintenanceSource: "you" | "guide";
+  maintenanceParts: import("@/lib/vehicles/running-costs").MaintenanceParts | null;
   tax: number;
   total: number;
   perMile: number;
@@ -145,6 +146,7 @@ export function carMonthly(car: Car, paymentMonthly: number, electricityPence?: 
     taxIncluded: Boolean(car.tax_included),
     serviceIncluded: Boolean(car.maintenance_included),
     maintenanceAnnual: car.maintenance_annual ?? null,
+    year: car.year ?? null,
   });
   // Older cars (registered before April 2017) pay by CO2 band — use the standard rate as a guide.
   const tax = car.tax_included ? { annual: 0, note: "Included in the lease" } : roadTax(car.fuel_type, car.list_price, false);
@@ -156,6 +158,7 @@ export function carMonthly(car: Car, paymentMonthly: number, electricityPence?: 
     insuranceSource: costs.insuranceSource,
     maintenance: costs.maintenanceMonthly,
     maintenanceSource: costs.maintenanceSource,
+    maintenanceParts: costs.maintenanceParts,
     tax: round(tax.annual / 12),
     total: round(total),
     perMile: miles.miles > 0 ? round((total * 12 * 100) / miles.miles) : 0,

@@ -11,13 +11,14 @@ async function loadHouseholdSavings__read() {
   if (!user) throw new Error("Sign in again to continue.");
   const household = await getActiveHouseholdContext(supabase, user);
   const filter = visibleDataOrFilter(household);
-  const [{ data }, { data: pets }, { data: items }, { data: categories }] = await Promise.all([
+  const [{ data }, { data: pets }, { data: items }, { data: categories }, { data: childCosts }] = await Promise.all([
     supabase.from("financial_accounts").select("account_type, current_balance, is_liability").or(filter),
     household?.householdId
       ? supabase.from("household_pets").select("name").eq("household_id", household.householdId).eq("status", "active")
       : supabase.from("household_pets").select("name").eq("user_id", user.id).eq("status", "active"),
-    supabase.from("planned_items").select("label, amount, recurrence, start_date, end_date, category_id, item_type, person_id").eq("direction", "outgoing").or(filter),
+    supabase.from("planned_items").select("label, amount, recurrence, start_date, end_date, category_id, item_type, person_id, notes").eq("direction", "outgoing").or(filter),
     supabase.from("spending_categories").select("id, name").or(filter),
+    supabase.from("child_costs").select("*").or(filter),
   ]);
   // Each bill's spending category, by its name, so household costs can group the same way Spending does.
   const names = new Map(((categories || []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
@@ -36,7 +37,37 @@ async function loadHouseholdSavings__read() {
   const savings = ((data || []) as { account_type: string; current_balance: number | null; is_liability: boolean | null }[])
     .filter((a) => !a.is_liability && ["savings", "cash_isa", "fixed_saver", "regular_saver"].includes(String(a.account_type)))
     .reduce((sum, a) => sum + Math.abs(Number(a.current_balance || 0)), 0);
-  return { savings: Math.round(savings * 100) / 100, categoryByLabel, startingSoon, petNames: ((pets || []) as { name: string | null }[]).map((p) => String(p.name || "")).filter(Boolean) };
+  // Childcare changes month to month (holidays, term-time only, funded hours) — average it over the
+  // coming year so the household figure isn't this month's high or low.
+  const { getChildCostMonthlyAmount, isActiveInMonth } = await import("@/lib/planning/month-plan");
+  const [y, m] = today.split("-").map(Number);
+  const months = Array.from({ length: 12 }, (_, i) => { const d = new Date(Date.UTC(y, m - 1 + i, 1)); return d.toISOString().slice(0, 7); });
+  const childAverages: Record<string, { thisMonth: number; average: number; low: number; high: number; activeMonths: number; schedule: string | null }> = {};
+  for (const cost of (childCosts || []) as any[]) {
+    const active = months.filter((month) => isActiveInMonth(cost.starts_on, cost.ends_on, month));
+    if (!active.length) continue;
+    const amounts = active.map((month) => Number(getChildCostMonthlyAmount(cost, month) || 0));
+    const key = String(cost.label || "").trim().toLowerCase();
+    const schedule = String(cost.billing_schedule || cost.care_details?.billing_schedule || "");
+    const prev = childAverages[key];
+    const entry = {
+      thisMonth: Math.round(amounts[0] * 100) / 100,
+      average: Math.round((amounts.reduce((a, b) => a + b, 0) / active.length) * 100) / 100,
+      low: Math.round(Math.min(...amounts)),
+      high: Math.round(Math.max(...amounts)),
+      activeMonths: active.length,
+      schedule: schedule === "term_time" ? "term time only" : schedule === "term_time_spread" ? "term time, spread over the year" : /club|school/i.test(String(cost.care_type || "")) ? "term time" : null,
+    };
+    childAverages[key] = prev ? { ...entry, thisMonth: prev.thisMonth + entry.thisMonth, average: prev.average + entry.average, low: prev.low + entry.low, high: prev.high + entry.high } : entry;
+  }
+  // Council Tax: most councils collect it over 10 months (April to January) unless you've asked for 12.
+  const councilTax: Record<string, { payments: number }> = {};
+  for (const item of (items || []) as any[]) {
+    if (!/council tax/i.test(String(item.label || ""))) continue;
+    const twelve = /12 (monthly )?(payments|instalments|months)|twelve/i.test(String(item.notes || ""));
+    councilTax[String(item.label).trim().toLowerCase()] = { payments: twelve ? 12 : 10 };
+  }
+  return { savings: Math.round(savings * 100) / 100, categoryByLabel, startingSoon, childAverages, councilTax, petNames: ((pets || []) as { name: string | null }[]).map((p) => String(p.name || "")).filter(Boolean) };
 }
 
 export async function loadHouseholdSavings() { return runFriendly(() => loadHouseholdSavings__read()); }
