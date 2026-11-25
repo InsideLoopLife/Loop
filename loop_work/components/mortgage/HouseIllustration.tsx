@@ -813,7 +813,7 @@ function CarSprite({ v, x, z, vehicle, pal, carStyle, clickable = false, tag }: 
   const [ax, ay] = v.P(x, 0, z);
   const tagX = ax + (frame.x + frame.width / 2) * v.k;
   const tagY = ay + frame.y * v.k - 2;
-  const tagWidth = tag ? Math.max(18, tag.length * 3.6 + 8) : 0;
+  const tagWidth = tag ? Math.max(22, tag.length * 4.6 + 10) : 0;
   return (
     <>
     <image
@@ -828,8 +828,8 @@ function CarSprite({ v, x, z, vehicle, pal, carStyle, clickable = false, tag }: 
     />
     {tag ? (
       <g transform={`translate(${tagX} ${tagY})`} style={{ pointerEvents: "none" }}>
-        <rect x={-tagWidth / 2} y={-9} width={tagWidth} height={9} rx={4.5} fill="#ffffff" fillOpacity={0.94} stroke="#0f172a" strokeOpacity={0.15} strokeWidth={0.4} />
-        <text x={0} y={-2.6} textAnchor="middle" fontSize={5.6} fontWeight={800} fill="#0f172a" fontFamily="inherit">{tag}</text>
+        <rect x={-tagWidth / 2} y={-11.5} width={tagWidth} height={11.5} rx={5.75} fill="#ffffff" fillOpacity={0.96} stroke="#0f172a" strokeOpacity={0.18} strokeWidth={0.5} />
+        <text x={0} y={-3.4} textAnchor="middle" fontSize={7.2} fontWeight={800} fill="#0f172a" fontFamily="inherit">{tag}</text>
       </g>
     ) : null}
     </>
