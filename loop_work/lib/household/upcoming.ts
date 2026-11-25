@@ -45,7 +45,7 @@ export function billChanges(items: Item[], today: string, horizon = addDays(toda
         detail: `${gbp(monthly(ending))} → ${gbp(monthly(next))} a month`,
         monthlyChange: change,
         area: "bills",
-        action: change > 0 ? { label: "Shop around", href: "/loopwatch" } : null,
+        action: change > 0 && !/council tax|water|tv licen[cs]e/i.test(ending.label) ? { label: "Shop around", href: "/loopwatch" } : null,
       });
       continue;
     }
