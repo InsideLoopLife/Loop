@@ -6,7 +6,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Camera, CheckCircle2, Loader2, X } from "lucide-react";
-import { applyHoldingsBalance } from "@/lib/investments/actions";
+import { addHoldingsFromScreenshot, applyHoldingsBalance } from "@/lib/investments/actions";
 import type { BalanceRow } from "@/lib/investments/screenshot-balance";
 
 type ReadResponse = {
@@ -21,6 +21,7 @@ const money = (value: number) => `${value < 0 ? "-" : ""}£${Math.abs(value).toL
 const signedMoney = (value: number) => `${value > 0 ? "+" : ""}${money(value)}`;
 const unitPrice = (value: number) => `£${value >= 10 ? value.toFixed(2) : value >= 1 ? value.toFixed(4) : value.toPrecision(3)}`;
 const quantity = (value: number) => value.toLocaleString("en-GB", { maximumFractionDigits: 8 });
+const addKey = (row: { name: string; quantity: number }) => `${row.name}|${row.quantity}`;
 
 export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, onDone }: { accountId: string; accountLabel: string; provider?: string | null; onDone: () => void }) {
   const router = useRouter();
@@ -30,10 +31,12 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ReadResponse | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [pickedAdds, setPickedAdds] = useState<Set<string>>(new Set());
   const [done, setDone] = useState<string | null>(null);
 
   const editable = useMemo(() => (data?.rows || []).filter((row) => row.match && !row.locked && row.averageBuyPrice !== null), [data]);
   const unmatched = useMemo(() => (data?.rows || []).filter((row) => !row.match), [data]);
+  const addable = useMemo(() => unmatched.filter((row) => row.addCandidate && row.averageBuyPrice !== null), [unmatched]);
   const locked = useMemo(() => (data?.rows || []).filter((row) => row.match && row.locked), [data]);
 
   function addFiles(list: FileList | null) {
@@ -58,6 +61,8 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
       const result = json as ReadResponse;
       setData(result);
       setPicked(new Set(result.rows.filter((row) => row.match && !row.locked && row.averageBuyPrice !== null && row.confidence === "high").map((row) => row.match!.holdingId)));
+      // Only listings whose name and price both agree with the app are pre-ticked.
+      setPickedAdds(new Set(result.rows.filter((row) => !row.match && row.averageBuyPrice !== null && row.addCandidate?.mode === "listed" && row.addCandidate.verified).map(addKey)));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "That screenshot couldn't be read.");
     } finally {
@@ -74,16 +79,47 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
     });
   }
 
+  function toggleAdd(key: string) {
+    setPickedAdds((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  const totalPicked = picked.size + pickedAdds.size;
+
   async function apply() {
-    if (!data || applying || !picked.size) return;
+    if (!data || applying || !totalPicked) return;
     setApplying(true);
     setError(null);
     try {
-      const rows = editable
-        .filter((row) => picked.has(row.match!.holdingId))
-        .map((row) => ({ holdingId: row.match!.holdingId, units: row.quantity, averageBuyPrice: row.averageBuyPrice! }));
-      const result = await applyHoldingsBalance({ accountId, rows });
-      setDone(result.message);
+      const messages: string[] = [];
+      if (picked.size) {
+        const rows = editable
+          .filter((row) => picked.has(row.match!.holdingId))
+          .map((row) => ({ holdingId: row.match!.holdingId, units: row.quantity, averageBuyPrice: row.averageBuyPrice! }));
+        messages.push((await applyHoldingsBalance({ accountId, rows })).message);
+      }
+      if (pickedAdds.size) {
+        const rows = addable
+          .filter((row) => pickedAdds.has(addKey(row)))
+          .map((row) => ({
+            name: row.addCandidate!.assetName || row.name,
+            mode: row.addCandidate!.mode,
+            ticker: row.addCandidate!.ticker,
+            exchange: row.addCandidate!.exchange,
+            assetKind: row.addCandidate!.assetKind,
+            units: row.quantity,
+            averageBuyPrice: row.averageBuyPrice!,
+            latestPrice: row.impliedPrice,
+          }));
+        const result = await addHoldingsFromScreenshot({ accountId, rows });
+        messages.push(result.message);
+        if (result.failed.length) messages.push(result.failed.map((item) => `${item.name}: ${item.reason}`).join(" "));
+      }
+      setDone(messages.join(" "));
       router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "That didn't save. Try again.");
@@ -140,7 +176,7 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
       ) : (
         <>
           <p className="text-sm font-bold text-slate-700">
-            Read {data.rows.length} holding{data.rows.length === 1 ? "" : "s"} from {data.imagesRead} screenshot{data.imagesRead === 1 ? "" : "s"}. {editable.length} can be updated in {accountLabel}.
+            Read {data.rows.length} holding{data.rows.length === 1 ? "" : "s"} from {data.imagesRead} screenshot{data.imagesRead === 1 ? "" : "s"}. {editable.length} can be updated in {accountLabel}{addable.length ? ` and ${addable.length} can be added` : ""}.
           </p>
           {data.notes.map((note) => <p key={note} className="text-xs font-semibold text-amber-700">{note}</p>)}
 
@@ -183,16 +219,40 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
           ) : null}
 
           {unmatched.length ? (
-            <div className="rounded-2xl bg-slate-50 p-3 text-xs font-semibold text-slate-600">
-              <p className="font-black text-slate-800">In the screenshot but not in this pot</p>
-              <ul className="mt-1 space-y-1">
-                {unmatched.map((row) => (
-                  <li key={`${row.name}-${row.quantity}`}>
-                    {row.name}{row.ticker ? ` (${row.ticker})` : ""}: {quantity(row.quantity)} units, {money(row.value)}{row.averageBuyPrice !== null ? `, average buy ${unitPrice(row.averageBuyPrice)}` : ""}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-1 text-slate-500">Add these with Add holding, then run this again to set their average price.</p>
+            <div className="space-y-2">
+              <p className="text-sm font-black text-slate-900">In the screenshot but not in this pot</p>
+              {unmatched.map((row) => {
+                const key = addKey(row);
+                const candidate = row.addCandidate;
+                const canAdd = Boolean(candidate) && row.averageBuyPrice !== null;
+                const checked = pickedAdds.has(key);
+                return (
+                  <label key={key} className={`block rounded-2xl p-3 ring-1 ${canAdd ? "cursor-pointer" : ""} ${checked ? "bg-emerald-50 ring-emerald-200" : "bg-white ring-slate-200"}`}>
+                    <div className="flex items-start gap-3">
+                      <input type="checkbox" disabled={!canAdd} checked={checked} onChange={() => toggleAdd(key)} className="mt-1 h-4 w-4" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="min-w-0 truncate text-sm font-black text-slate-950">{row.name}{row.ticker ? <span className="font-semibold text-slate-500"> · {row.ticker}</span> : null}</p>
+                          <p className="shrink-0 text-sm font-black text-slate-950">{money(row.value)}</p>
+                        </div>
+                        <p className="mt-1 text-xs font-semibold text-slate-600">
+                          {quantity(row.quantity)} units{row.averageBuyPrice !== null ? <> · average buy price <strong className="text-slate-900">{unitPrice(row.averageBuyPrice)}</strong> · total cost {money(row.cost!)}</> : null} · <span className={row.pnl < 0 ? "text-red-600" : "text-emerald-700"}>{signedMoney(row.pnl)}</span>
+                        </p>
+                        {candidate ? (
+                          <p className="mt-1 text-xs font-semibold text-slate-600">
+                            {candidate.mode === "listed"
+                              ? <>Add as <strong className="text-slate-900">{candidate.assetName}</strong> ({candidate.ticker}{candidate.exchange ? `, ${candidate.exchange}` : ""}){candidate.verified ? " · name and price match the app" : ""}</>
+                              : <>Add as a <strong className="text-slate-900">manual holding</strong> (no live price)</>}
+                          </p>
+                        ) : null}
+                        {candidate?.note ? <p className="mt-1 flex items-start gap-1.5 text-xs font-semibold text-amber-800"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{candidate.note}</p> : null}
+                        {row.flags.filter((flag) => flag !== "Not in this Loop account yet.").map((flag) => <p key={flag} className="mt-1 flex items-start gap-1.5 text-xs font-semibold text-amber-800"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{flag}</p>)}
+                        {!canAdd ? <p className="mt-1 text-xs font-semibold text-slate-500">This one can&apos;t be added automatically. Use Add holding.</p> : null}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
           ) : null}
 
@@ -205,9 +265,9 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
           ) : null}
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <button type="button" onClick={() => { setData(null); setPicked(new Set()); }} className="rounded-full px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100">Start again</button>
-            <button type="button" disabled={!picked.size || applying} onClick={apply} className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black text-white disabled:opacity-40">
-              {applying ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : `Apply ${picked.size} change${picked.size === 1 ? "" : "s"}`}
+            <button type="button" onClick={() => { setData(null); setPicked(new Set()); setPickedAdds(new Set()); }} className="rounded-full px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100">Start again</button>
+            <button type="button" disabled={!totalPicked || applying} onClick={apply} className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black text-white disabled:opacity-40">
+              {applying ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : `Apply ${totalPicked} change${totalPicked === 1 ? "" : "s"}${pickedAdds.size ? ` (${pickedAdds.size} new)` : ""}`}
             </button>
           </div>
         </>

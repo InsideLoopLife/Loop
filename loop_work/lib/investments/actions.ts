@@ -1737,6 +1737,113 @@ export async function applyHoldingsBalance(input: {
   };
 }
 
+/**
+ * "Add from screenshot": create holdings that were in the screenshot but not in
+ * Loop. Each goes through the normal Add holding path, so plan limits on the
+ * number of holdings, price lookups and currency handling all still apply. A
+ * failure on one row never stops the others.
+ */
+export async function addHoldingsFromScreenshot(input: {
+  accountId: string;
+  rows: Array<{
+    name: string;
+    mode: "listed" | "manual";
+    ticker: string | null;
+    exchange: string | null;
+    assetKind: string | null;
+    units: number;
+    averageBuyPrice: number;
+    /** Pounds per unit, used only for manual holdings that have no live price. */
+    latestPrice: number | null;
+  }>;
+}) {
+  const { supabase, user } = await currentUser();
+  const accountId = String(input?.accountId || "");
+  const requested = Array.isArray(input?.rows) ? input.rows.slice(0, 50) : [];
+  if (!accountId || !requested.length) throw new Error("Choose at least one holding to add.");
+
+  const { data: account } = await supabase
+    .from("investment_accounts")
+    .select("id,label,provider")
+    .eq("id", accountId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!account) throw new Error("That investment pot wasn't found.");
+
+  const added: string[] = [];
+  const failed: Array<{ name: string; reason: string }> = [];
+  const newIds: Array<{ id: string; averageBuyPrice: number }> = [];
+
+  for (const row of requested) {
+    const name = String(row.name || "").trim().slice(0, 160);
+    const units = Number(row.units);
+    const averageBuyPrice = Number(row.averageBuyPrice);
+    if (!name || !(units > 0) || !(averageBuyPrice > 0) || !Number.isFinite(units) || !Number.isFinite(averageBuyPrice)) {
+      failed.push({ name: name || "Holding", reason: "The quantity or average price wasn't valid." });
+      continue;
+    }
+    const fd = new FormData();
+    fd.set("investment_account_id", accountId);
+    fd.set("asset_name", name);
+    fd.set("units", String(units));
+    fd.set("average_buy_price", String(averageBuyPrice));
+    fd.set("price_input_unit", "gbp");
+    fd.set("currency", "GBP");
+    fd.set("notes", `Added from a screenshot of ${account.provider || "your trading app"}. Average buy price worked out from value and profit/loss.`);
+    if (row.mode === "listed" && row.ticker) {
+      fd.set("ticker", String(row.ticker));
+      if (row.exchange) fd.set("exchange", String(row.exchange));
+      fd.set("asset_kind", String(row.assetKind || "share"));
+    } else {
+      // No live price source: record the price seen in the app and don't poll for one.
+      fd.set("asset_kind", "share");
+      fd.set("latest_price", String(Math.max(0, Number(row.latestPrice) || 0)));
+      fd.set("price_polling_enabled", "off");
+    }
+    try {
+      await addInvestmentHolding(fd);
+      const { data: created } = await supabase
+        .from("investment_holdings")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("investment_account_id", accountId)
+        .eq("asset_name", name)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (created?.id) newIds.push({ id: String(created.id), averageBuyPrice });
+      added.push(name);
+    } catch (error) {
+      failed.push({ name, reason: error instanceof Error ? error.message : "It couldn't be added." });
+    }
+  }
+
+  // Record the average as a confirmed cost basis, the same way the cost-basis drawer does.
+  if (newIds.length) {
+    const fd = new FormData();
+    const today = new Date().toISOString().slice(0, 10);
+    for (const item of newIds) {
+      fd.append("holding_id", item.id);
+      fd.set(`average_buy_price:${item.id}`, String(item.averageBuyPrice));
+      fd.set(`cost_currency:${item.id}`, "GBP");
+      fd.set(`cost_quote_unit:${item.id}`, "native");
+      fd.set(`purchase_date:${item.id}`, today);
+    }
+    await saveInvestmentCostBasisBatch(fd).catch(() => null);
+  }
+
+  revalidatePath("/investments");
+  revalidatePath("/net-worth");
+  revalidatePath("/dashboard");
+  return {
+    added,
+    failed,
+    message: added.length
+      ? `Added ${added.length} holding${added.length === 1 ? "" : "s"}${failed.length ? `, ${failed.length} couldn't be added` : ""}.`
+      : "Nothing was added.",
+  };
+}
+
 export async function updateInvestmentHoldingGroups(formData: FormData) {
   const { supabase, user } = await currentUser();
   const accountId = String(formData.get("investment_account_id") || "").trim();

@@ -4,12 +4,17 @@ import { getActiveIntegrationSecret } from "@/lib/integrations/secrets";
 import { checkAiRouteAllowed, recordAiRouteUsage } from "@/lib/ai/route-budget";
 import { enforceUserRateLimit } from "@/lib/security/rate-limit";
 import { cleanText } from "@/lib/security/external-data";
-import { buildBalanceRows, type LoopHoldingForMatch, type ScreenshotHoldingRow } from "@/lib/investments/screenshot-balance";
+import { buildBalanceRows, chooseListing, type ListingQuote, type LoopHoldingForMatch, type ScreenshotHoldingRow } from "@/lib/investments/screenshot-balance";
+import { searchInvestments } from "@/lib/investments/market-data";
+import { currencyForExchange, quotePriceToGbp } from "@/lib/investments/fx";
+import { consumeFeature, getFeatureAccess } from "@/lib/access/feature-entitlements";
+import { LOOP_FEATURES } from "@/lib/access/feature-keys";
 
 export const maxDuration = 120;
 
 const ROUTE_KEY = "investment_screenshot_balance";
 const MAX_IMAGES = 4;
+const MAX_LOOKUPS = 12;
 
 function outputText(payload: any) {
   if (typeof payload?.output_text === "string") return payload.output_text;
@@ -142,5 +147,43 @@ export async function POST(request: Request) {
     .eq("investment_account_id", account.id);
 
   const { rows, notInScreenshot } = buildBalanceRows(readRows, (holdings || []) as LoopHoldingForMatch[]);
+
+  // Rows that aren't in Loop yet: find a listing whose name AND price agree with the app.
+  // Each search uses one of the person's investment lookups, so stop when they run out.
+  const toAdd = rows.filter((row) => !row.match && row.quantity > 0);
+  let lookups = 0;
+  if (toAdd.length) {
+    try {
+      const access = await getFeatureAccess(LOOP_FEATURES.INVESTMENT_LOOKUP, 0);
+      const remaining = access?.remaining === null || access?.remaining === undefined ? MAX_LOOKUPS : Math.max(0, Number(access.remaining));
+      lookups = access?.allowed === false && !remaining ? 0 : Math.min(toAdd.length, MAX_LOOKUPS, remaining);
+      if (lookups > 0) await consumeFeature(LOOP_FEATURES.INVESTMENT_LOOKUP, lookups);
+    } catch {
+      lookups = 0;
+    }
+    if (lookups < toAdd.length) notes.push(lookups ? `Your plan's investment lookups only covered ${lookups} of the ${toAdd.length} new holdings. The rest can be added as manual holdings.` : "Your plan's investment lookups are used up, so new holdings can only be added as manual holdings.");
+
+    const toQuotes = async (query: string) => {
+      const found = await searchInvestments(supabase, user.id, query, "").catch(() => []);
+      const out: ListingQuote[] = [];
+      for (const quote of found) {
+        const unit = String(quote.priceQuoteUnit || "").toLowerCase();
+        const nativeCurrency = unit === "gbx" ? "GBX" : quote.currency || currencyForExchange(quote.exchange) || "GBP";
+        const converted = await quotePriceToGbp(Number(quote.price || 0), nativeCurrency);
+        out.push({ rawSymbol: quote.rawSymbol, assetName: quote.assetName, exchange: quote.exchange, assetType: quote.assetType, currency: nativeCurrency, priceQuoteUnit: quote.priceQuoteUnit, source: quote.source, isin: quote.isin, gbpPrice: converted.gbpPrice });
+      }
+      return out;
+    };
+
+    const looked = toAdd.slice(0, lookups);
+    for (let start = 0; start < looked.length; start += 4) {
+      await Promise.all(looked.slice(start, start + 4).map(async (row) => {
+        const quotes = await toQuotes(row.ticker || row.name);
+        row.addCandidate = chooseListing(row, quotes);
+      }));
+    }
+    for (const row of toAdd.slice(lookups)) row.addCandidate = chooseListing(row, []);
+  }
+
   return NextResponse.json({ account: { id: account.id, label: account.label }, imagesRead, rows, notInScreenshot, notes });
 }

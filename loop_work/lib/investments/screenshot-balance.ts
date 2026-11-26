@@ -50,6 +50,8 @@ export type BalanceRow = {
     latestPrice: number | null;
     score: number;
   } | null;
+  /** For a row not in Loop yet: the listing it can be added as. Filled in by the read route. */
+  addCandidate: AddCandidate | null;
   /** Provider-synced holdings are owned by the sync and are never edited from a screenshot. */
   locked: boolean;
   flags: string[];
@@ -175,7 +177,7 @@ export function buildBalanceRows(screenshotRows: ScreenshotHoldingRow[], holding
 
     if (row.currency && !["GBP", "£"].includes(row.currency.toUpperCase())) flags.push(`Shown in ${row.currency}, not pounds, so it was not converted. Check this one by hand.`);
     if (row.value === 0 && row.quantity > 0) flags.push("Worth £0 in the app. Consider writing the holding off once you have checked.");
-    if (!holding) flags.push("Not found in this Loop account. Add it with Add holding first, then run this again.");
+    if (!holding) flags.push("Not in this Loop account yet.");
     if (holding && locked) flags.push(`This holding is kept up to date by your ${holding.external_provider} connection, so it won't be changed from a screenshot.`);
     if (holding && found && found.score < 0.85) flags.push(`Matched to "${holding.asset_name}" by a loose name match. Check it's the same holding.`);
     if (holding) {
@@ -211,6 +213,7 @@ export function buildBalanceRows(screenshotRows: ScreenshotHoldingRow[], holding
             score: found.score,
           }
         : null,
+      addCandidate: null,
       locked,
       flags,
       confidence: serious || locked || derived.averageBuyPrice === null ? "check" : "high",
@@ -222,4 +225,106 @@ export function buildBalanceRows(screenshotRows: ScreenshotHoldingRow[], holding
     .map((holding) => ({ holdingId: holding.id, name: String(holding.asset_name || ""), ticker: holding.ticker, units: Number(holding.units || 0) }));
 
   return { rows: balanceRows, notInScreenshot };
+}
+
+// ---------------------------------------------------------------------------
+// Adding holdings that aren't in Loop yet
+//
+// The screenshot gives the current price per unit (value / quantity, in pounds).
+// That is a strong check on a market search: of the listings a search returns,
+// only one with a matching name or ticker AND a price close to what the app
+// shows is the right one. Anything else is offered only as a manual holding.
+
+export type ListingQuote = {
+  rawSymbol: string;
+  assetName?: string | null;
+  exchange?: string | null;
+  assetType?: string | null;
+  currency?: string | null;
+  priceQuoteUnit?: string | null;
+  source?: string | null;
+  isin?: string | null;
+  /** The quote's price converted to pounds per unit. */
+  gbpPrice: number;
+};
+
+export type AddCandidate = {
+  mode: "listed" | "manual";
+  ticker: string | null;
+  exchange: string | null;
+  assetName: string;
+  assetKind: string;
+  currency: string | null;
+  quoteGbpPrice: number | null;
+  source: string | null;
+  isin: string | null;
+  /** True when the name and the price both line up closely. */
+  verified: boolean;
+  note: string | null;
+};
+
+export function priceTolerance(value: number) {
+  // The app rounds values to the penny, so small positions carry a big relative error.
+  const rounding = value > 0 ? 0.005 / value : 1;
+  return Math.min(0.5, 0.15 + rounding);
+}
+
+export function chooseListing(
+  row: Pick<ScreenshotHoldingRow, "name" | "ticker" | "quantity" | "value">,
+  quotes: ListingQuote[],
+): AddCandidate {
+  const implied = row.value > 0 && row.quantity > 0 ? row.value / row.quantity : null;
+  const tolerance = priceTolerance(row.value);
+  let best: { quote: ListingQuote; nameScore: number; priceError: number | null } | null = null;
+
+  for (const quote of quotes) {
+    if (!(quote.gbpPrice > 0) && implied !== null) continue;
+    const nameScore = matchScore(row, { asset_name: quote.assetName || null, ticker: quote.rawSymbol });
+    if (nameScore < 0.7) continue;
+    const priceError = implied !== null && quote.gbpPrice > 0 ? Math.abs(quote.gbpPrice / implied - 1) : null;
+    if (priceError !== null && priceError > tolerance) continue;
+    // Without a price to check against (a zero-value row) only a near-exact name is trusted.
+    if (priceError === null && nameScore < 0.9) continue;
+    if (
+      !best ||
+      nameScore > best.nameScore + 0.001 ||
+      (Math.abs(nameScore - best.nameScore) <= 0.001 && (priceError ?? 9) < (best.priceError ?? 9))
+    ) {
+      best = { quote, nameScore, priceError };
+    }
+  }
+
+  if (best) {
+    const { quote, nameScore, priceError } = best;
+    const kind = String(quote.assetType || "share").toLowerCase();
+    return {
+      mode: "listed",
+      ticker: quote.rawSymbol,
+      exchange: quote.exchange || null,
+      assetName: quote.assetName || row.name,
+      assetKind: ["share", "etf", "fund", "crypto", "other"].includes(kind) ? kind : "share",
+      currency: quote.currency || null,
+      quoteGbpPrice: quote.gbpPrice > 0 ? round(quote.gbpPrice, 6) : null,
+      source: quote.source || null,
+      isin: quote.isin || null,
+      verified: nameScore >= 0.85 && priceError !== null && priceError <= 0.1,
+      note: priceError === null ? "Matched on name only, because the app shows no value to check the price against." : null,
+    };
+  }
+
+  return {
+    mode: "manual",
+    ticker: null,
+    exchange: null,
+    assetName: row.name,
+    assetKind: "share",
+    currency: "GBP",
+    quoteGbpPrice: implied,
+    source: null,
+    isin: null,
+    verified: false,
+    note: quotes.length
+      ? "No listing matched both the name and the price shown in the app, so this can only be added as a manual holding. Its price won't update by itself."
+      : "No listing was found, so this can only be added as a manual holding. Its price won't update by itself.",
+  };
 }
