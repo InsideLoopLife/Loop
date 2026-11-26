@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ConfirmPaymentModal, FundValueButton, PaymentsToConfirm, type PaymentToConfirm } from "@/components/investments/PensionConfirm";
+import { BalanceHoldingsFromSource } from "@/components/investments/BalanceHoldingsFromSource";
 import { useEffect, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import dynamic from "next/dynamic";
@@ -9,6 +10,7 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Brain,
+  Camera,
   ChevronDown,
   ChevronUp,
   ExternalLink,
@@ -477,6 +479,7 @@ type Modal =
   | { type: "db-pension-event"; schemeId?: string }
   | { type: "investment-holding"; accountId?: string }
   | { type: "bulk-holdings"; accountId?: string }
+  | { type: "balance-holdings"; accountId: string; accountLabel: string; provider?: string | null }
   | { type: "edit-pension-fund"; fund: PensionFund }
   | { type: "research-pension-fund"; fund: PensionFund; provider: string }
   | { type: "edit-investment-holding"; holding: InvestmentHolding }
@@ -9275,6 +9278,21 @@ export function PensionsInvestmentsClient({
                             Import a Trading 212 pie
                           </button>
                         ) : null}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setModal({
+                              type: "balance-holdings",
+                              accountId: account.id,
+                              accountLabel: account.label,
+                              provider: account.provider,
+                            })
+                          }
+                          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--paper)] sm:ml-auto"
+                          title="Upload a screenshot of your holdings and bring Loop's quantities and average buy prices into line."
+                        >
+                          <Camera className="h-4 w-4" /> Balance holdings from source
+                        </button>
                       </div>
                     </>
                   )}
@@ -9547,6 +9565,20 @@ export function PensionsInvestmentsClient({
               Add an investment pot first.
             </p>
           )}
+        </ModalShell>
+      ) : null}
+      {modal?.type === "balance-holdings" ? (
+        <ModalShell
+          title="Balance holdings from source"
+          description="Upload screenshots from your trading app. Loop reads the quantity, value and profit or loss, and works out your average buy price."
+          onClose={() => setModal(null)}
+        >
+          <BalanceHoldingsFromSource
+            accountId={modal.accountId}
+            accountLabel={modal.accountLabel}
+            provider={modal.provider}
+            onDone={() => setModal(null)}
+          />
         </ModalShell>
       ) : null}
       {modal?.type === "bulk-holdings" ? (

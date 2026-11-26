@@ -1645,6 +1645,98 @@ export async function saveInvestmentCostBasisBatch(formData: FormData) {
   return { updated, skipped, message: updated ? `${updated} cost basis entr${updated === 1 ? "y" : "ies"} saved.` : "No valid purchase prices were supplied." };
 }
 
+/**
+ * "Balance holdings from source": apply the quantities and average buy prices
+ * read from a screenshot of the trading app, after the person has reviewed them.
+ * Holdings kept up to date by a provider connection are never changed here.
+ * Average prices go through the same path as the cost-basis drawer, so existing
+ * evidenced purchase lots are left alone.
+ */
+export async function applyHoldingsBalance(input: {
+  accountId: string;
+  rows: Array<{ holdingId: string; units: number; averageBuyPrice: number }>;
+}) {
+  const { supabase, user } = await currentUser();
+  const accountId = String(input?.accountId || "");
+  const requested = Array.isArray(input?.rows) ? input.rows.slice(0, 100) : [];
+  if (!accountId || !requested.length) throw new Error("Choose at least one holding to update.");
+
+  const ids = requested.map((row) => String(row.holdingId || "")).filter(Boolean);
+  const { data: owned, error } = await supabase
+    .from("investment_holdings")
+    .select("id,asset_name,units,latest_price,external_provider")
+    .eq("user_id", user.id)
+    .eq("investment_account_id", accountId)
+    .in("id", ids);
+  if (error) throw new Error(error.message);
+  const ownedById = new Map((owned || []).map((row: any) => [String(row.id), row]));
+
+  const skipped: Array<{ holdingId: string; reason: string }> = [];
+  const valid: Array<{ holdingId: string; units: number; averageBuyPrice: number }> = [];
+  let updatedUnits = 0;
+  const today = new Date().toISOString().slice(0, 10);
+
+  for (const row of requested) {
+    const holdingId = String(row.holdingId || "");
+    const holding: any = ownedById.get(holdingId);
+    const units = Number(row.units);
+    const averageBuyPrice = Number(row.averageBuyPrice);
+    if (!holding) { skipped.push({ holdingId, reason: "Not found in this pot." }); continue; }
+    if (holding.external_provider) { skipped.push({ holdingId, reason: `${holding.asset_name || "This holding"} is kept up to date by a provider connection.` }); continue; }
+    if (!(units > 0) || !(averageBuyPrice > 0) || !Number.isFinite(units) || !Number.isFinite(averageBuyPrice)) { skipped.push({ holdingId, reason: "The quantity or average price wasn't valid." }); continue; }
+
+    if (Math.abs(Number(holding.units || 0) - units) > 1e-9) {
+      const { error: unitsError } = await supabase
+        .from("investment_holdings")
+        .update({ units, updated_at: new Date().toISOString() })
+        .eq("id", holdingId)
+        .eq("user_id", user.id);
+      if (unitsError) throw new Error(unitsError.message);
+      const latestPrice = Number(holding.latest_price || 0);
+      if (latestPrice > 0) {
+        await supabase.from("investment_price_snapshots").insert({
+          user_id: user.id,
+          holding_id: holdingId,
+          price: latestPrice,
+          units,
+          value: units * latestPrice,
+          snapshot_date: today,
+          snapshot_at: new Date().toISOString(),
+          source: "screenshot_balance",
+        });
+      }
+      updatedUnits += 1;
+    }
+    valid.push({ holdingId, units, averageBuyPrice });
+  }
+
+  let updatedCost = 0;
+  if (valid.length) {
+    const fd = new FormData();
+    for (const row of valid) {
+      fd.append("holding_id", row.holdingId);
+      fd.set(`average_buy_price:${row.holdingId}`, String(row.averageBuyPrice));
+      fd.set(`cost_currency:${row.holdingId}`, "GBP");
+      fd.set(`cost_quote_unit:${row.holdingId}`, "native");
+      fd.set(`purchase_date:${row.holdingId}`, today);
+    }
+    const result = await saveInvestmentCostBasisBatch(fd);
+    updatedCost = result.updated;
+  }
+
+  revalidatePath("/investments");
+  revalidatePath("/net-worth");
+  revalidatePath("/dashboard");
+  return {
+    updatedUnits,
+    updatedCost,
+    skipped,
+    message: valid.length
+      ? `Updated ${valid.length} holding${valid.length === 1 ? "" : "s"}${skipped.length ? `, skipped ${skipped.length}` : ""}.`
+      : "Nothing was changed.",
+  };
+}
+
 export async function updateInvestmentHoldingGroups(formData: FormData) {
   const { supabase, user } = await currentUser();
   const accountId = String(formData.get("investment_account_id") || "").trim();
