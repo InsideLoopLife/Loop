@@ -14,7 +14,7 @@ export const maxDuration = 120;
 
 const ROUTE_KEY = "investment_screenshot_balance";
 const MAX_IMAGES = 4;
-const MAX_LOOKUPS = 12;
+const MAX_LOOKUPS = 40;
 
 function outputText(payload: any) {
   if (typeof payload?.output_text === "string") return payload.output_text;
@@ -182,7 +182,11 @@ export async function POST(request: Request) {
         row.addCandidate = chooseListing(row, quotes);
       }));
     }
-    for (const row of toAdd.slice(lookups)) row.addCandidate = chooseListing(row, []);
+    for (const row of toAdd.slice(lookups)) {
+      row.addCandidate = chooseListing(row, []);
+      // Not searched at all, so don't claim that no listing exists.
+      if (row.addCandidate) row.addCandidate.note = "Not searched for a live listing (lookup allowance used up), so this can only be added as a manual holding. Run it again later or use Add holding.";
+    }
   }
 
   return NextResponse.json({ account: { id: account.id, label: account.label }, imagesRead, rows, notInScreenshot, notes });
