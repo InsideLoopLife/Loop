@@ -3,9 +3,9 @@
 // "Your September payment should have gone in — confirm it" and "Update a
 // fund's value". Both are a couple of questions in the shared step modal; the
 // server works out units from each fund's logged daily price.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { confirmPensionPayment, setPensionFundValue } from "@/lib/investments/actions";
+import { confirmPensionPayment, previewPensionPayment, setPensionFundValue, type PensionPaymentPreview } from "@/lib/investments/actions";
 import { formatMoney as roundMoney } from "@/lib/format/money";
 
 // Exact pounds and pence: these are figures people check against a statement.
@@ -26,7 +26,50 @@ export type PaymentToConfirm = {
 const monthName = (month: string) => new Date(`${month}-15T12:00:00`).toLocaleDateString("en-GB", { month: "long" });
 const longDate = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
-function ConfirmPaymentModal({ payment, onClose }: { payment: PaymentToConfirm; onClose: () => void }) {
+/** The last step before saving: the date, the amount per fund, and the price each fund's units come from. */
+function PaymentReview({ payment, date, amount }: { payment: PaymentToConfirm; date: string; amount: number | null }) {
+  const [state, setState] = useState<{ loading: boolean; data: PensionPaymentPreview | null }>({ loading: true, data: null });
+  useEffect(() => {
+    let cancelled = false;
+    setState({ loading: true, data: null });
+    previewPensionPayment({ accountId: payment.accountId, month: payment.month, investedOn: date, amount })
+      .then((data) => { if (!cancelled) setState({ loading: false, data }); })
+      .catch(() => { if (!cancelled) setState({ loading: false, data: { ok: false, error: "Couldn't run the check. You can still confirm." } }); });
+    return () => { cancelled = true; };
+  }, [payment.accountId, payment.month, date, amount]);
+
+  if (state.loading) return <p className="text-sm text-[var(--muted)]">Checking the date and prices…</p>;
+  const data = state.data;
+  if (!data || !data.ok) return <p className="text-sm text-red-700">{data && !data.ok ? data.error : "Couldn't run the check."}</p>;
+  const estimated = data.funds.some((fund) => fund.price !== null);
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-[var(--ink)]">
+        <strong>{formatMoney(data.total)}</strong> into {payment.accountLabel}, invested <strong>{longDate(date)}</strong>
+        {data.total !== data.expectedTotal ? <span className="text-[var(--muted)]"> (expected {formatMoney(data.expectedTotal)})</span> : null}
+      </p>
+      {data.dateWarning ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">{data.dateWarning}</p> : null}
+      <ul className="space-y-2">
+        {data.funds.map((fund) => (
+          <li key={fund.fundId} className="rounded-xl bg-[var(--paper)] px-3 py-2 text-xs">
+            <div className="flex items-start justify-between gap-3">
+              <span className="font-semibold text-[var(--ink)]">{fund.fundName}</span>
+              <span className="shrink-0 font-semibold text-[var(--ink)]">{formatMoney(fund.amount)}</span>
+            </div>
+            <p className="mt-0.5 text-[var(--muted)]">
+              {fund.price === null
+                ? "No price on record, so no units will be added."
+                : `${fund.units !== null ? `${fund.units.toFixed(4)} units` : "Units"} at £${fund.price.toFixed(4)}${fund.priceDate ? ` (price logged ${longDate(fund.priceDate)}${fund.priceDaysOld && fund.priceDaysOld > 1 ? `, ${fund.priceDaysOld} days before the payment` : ""})` : " (latest price)"}`}
+            </p>
+          </li>
+        ))}
+      </ul>
+      {estimated ? <p className="text-[11px] leading-snug text-[var(--muted)]">Units are estimates from the fund&apos;s last logged price, not the exact price your provider used. Use &ldquo;Update value&rdquo; on a fund with the figure from your provider app to replace them.</p> : null}
+    </div>
+  );
+}
+
+export function ConfirmPaymentModal({ payment, onClose }: { payment: PaymentToConfirm; onClose: () => void }) {
   const router = useRouter();
   const [index, setIndex] = useState(0);
   const [right, setRight] = useState<"yes" | "no" | "">("");
@@ -80,6 +123,12 @@ function ConfirmPaymentModal({ payment, onClose }: { payment: PaymentToConfirm; 
           ) : null}
         </div>
       ),
+    },
+    {
+      key: "check",
+      question: "Check this looks right",
+      hint: "Nothing is saved until you press Confirm.",
+      content: <PaymentReview payment={payment} date={date} amount={right === "no" ? toNumber(amount) || null : null} />,
     },
   ];
 

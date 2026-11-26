@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FundValueButton, PaymentsToConfirm, type PaymentToConfirm } from "@/components/investments/PensionConfirm";
+import { ConfirmPaymentModal, FundValueButton, PaymentsToConfirm, type PaymentToConfirm } from "@/components/investments/PensionConfirm";
 import { useEffect, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import dynamic from "next/dynamic";
@@ -10060,6 +10060,7 @@ function PensionContributionThread({
   const years = Array.from(new Set(allThreadRows.map((row) => String(row.date || "").slice(0, 4)).filter(Boolean))).sort((a, b) => b.localeCompare(a));
   const [selectedYear, setSelectedYear] = useState(years[0] || String(new Date().getFullYear()));
   const [selectedMonth, setSelectedMonth] = useState("all");
+  const [confirmTarget, setConfirmTarget] = useState<PaymentToConfirm | null>(null);
   const months = Array.from(new Set(allThreadRows.filter((row) => String(row.date || "").startsWith(selectedYear)).map((row) => String(row.date || "").slice(5, 7)).filter(Boolean))).sort((a, b) => b.localeCompare(a));
   const threadRows = allThreadRows.filter((row) => {
     const key = String(row.date || "");
@@ -10272,7 +10273,12 @@ function PensionContributionThread({
           const event = row.events[0];
           const rowFund = funds.find((item) => item.id === event.pension_fund_id);
           const providerConfirmed = row.events.every((item) => item.source === "provider_statement");
-          const userConfirmed = row.events.every((item) => item.source === "manual_reconciliation");
+          // "user_confirmed" is what the Confirm button writes; "manual_reconciliation" is the older manual form.
+          const confirmedByYou = row.events.every((item) => item.source === "user_confirmed");
+          const userConfirmed = confirmedByYou || row.events.every((item) => item.source === "manual_reconciliation");
+          const awaitingConfirmation =
+            row.events.every((item) => ["awaiting_provider_confirmation", "pending_investment"].includes(String(item.event_status)) && String(item.source || "").startsWith("salary_contribution_projection")) &&
+            String(row.date || "").slice(0, 10) <= today;
           const units = row.events.reduce((sum, item) => sum + Number(item.units_bought || 0), 0);
           const fundNames = Array.from(new Set(row.events.map((item) => funds.find((candidate) => candidate.id === item.pension_fund_id)?.fund_name).filter(Boolean)));
           return (
@@ -10285,14 +10291,37 @@ function PensionContributionThread({
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-black text-slate-950">{formatThreadDate(row.date)}</p>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${providerConfirmed || userConfirmed ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
-                      {providerConfirmed ? "Provider confirmed" : userConfirmed ? "User confirmed" : "Projected"}
+                      {providerConfirmed ? "Provider confirmed" : userConfirmed ? "You confirmed" : "Projected"}
                     </span>
+                    {awaitingConfirmation ? (
+                      <button
+                        type="button"
+                        title="Confirm this payment"
+                        aria-label="Confirm this payment"
+                        onClick={(clickEvent) => {
+                          clickEvent.preventDefault();
+                          clickEvent.stopPropagation();
+                          setConfirmTarget({
+                            accountId: account.id,
+                            accountLabel: account.label,
+                            provider: account.provider,
+                            month: String((event as any).contribution_month || String(event.contribution_date || "").slice(0, 7)),
+                            expectedTotal: row.amount,
+                            expectedDate: String(row.date || "").slice(0, 10),
+                            fundCount: row.events.length,
+                          });
+                        }}
+                        className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[10px] font-black text-white hover:bg-emerald-700"
+                      >
+                        <span aria-hidden="true">✓</span> Confirm
+                      </button>
+                    ) : null}
                   </div>
                   <p className="mt-1 truncate text-xs font-bold text-slate-600 sm:text-sm">
                     {fund ? rowFund?.fund_name || account.label : `${row.events.length} fund purchases`}
                   </p>
                   <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
-                    {units > 0 ? `${units.toFixed(4)} units recorded` : providerConfirmed ? "Contribution confirmed; purchase units not supplied" : String(event.event_status || "invested").replace(/_/g, " ")}
+                    {units > 0 ? `${units.toFixed(4)} units ${confirmedByYou ? "(estimated)" : "recorded"}` : providerConfirmed ? "Contribution confirmed; purchase units not supplied" : String(event.event_status || "invested").replace(/_/g, " ")}
                   </p>
                 </div>
                 <p className="shrink-0 text-lg font-black text-slate-950">{formatMoney(row.amount)}</p>
@@ -10307,7 +10336,7 @@ function PensionContributionThread({
                       <summary className="grid cursor-pointer list-none gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center">
                         <div className="min-w-0"><p className="truncate text-xs font-black text-slate-950">{purchaseFund?.fund_name || "Pension fund"}</p><p className="text-[11px] font-semibold text-slate-500">{exact ? "Recorded purchase" : "Expected allocation"} · {Number(purchase.allocation_percent || 0).toFixed(2)}%</p></div>
                         <span className="text-xs font-black text-slate-700">{formatMoney(Number(purchase.contribution_amount || 0))}</span>
-                        <span className="text-xs font-bold text-slate-500">{purchase.unit_price ? `${exact ? "Price" : "Indicative"} ${gbpPriceLabel(Number(purchase.unit_price))}` : "Price not supplied"}</span>
+                        <span className="text-xs font-bold text-slate-500">{purchase.unit_price ? `${purchase.source === "user_confirmed" ? "Estimated" : exact ? "Price" : "Indicative"} ${gbpPriceLabel(Number(purchase.unit_price))}` : "Price not supplied"}</span>
                         <span className="text-xs font-bold text-slate-500">{purchase.units_bought ? `${Number(purchase.units_bought).toFixed(4)} units` : "Units not supplied"}</span>
                       </summary>
                       <form action={updatePensionContributionEvent} className="mt-4 grid gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -10335,6 +10364,7 @@ function PensionContributionThread({
             </details>
           );
         })}
+        {confirmTarget ? <ConfirmPaymentModal payment={confirmTarget} onClose={() => setConfirmTarget(null)} /> : null}
         {threadRows.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-4 text-sm font-bold text-slate-500">
             No contribution events have been stored yet. The daily pension job

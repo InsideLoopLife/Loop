@@ -520,6 +520,7 @@ export async function runPensionContributionProjection(
     }
 
     let matchedAnyPay = false;
+    const expectedTxIds = new Set<string>();
     for (const contributionDate of dates) {
       if (confirmedMonths.has(`${account.id}:${monthKey(contributionDate)}`)) {
         await supabase.from("pension_contribution_events").delete()
@@ -534,6 +535,13 @@ export async function runPensionContributionProjection(
       const breakdown = contributionBreakdown(account, pay);
       if (breakdown.total <= 0) continue;
       const investmentDate = investmentDateForContribution(account, contributionDate);
+      // A payment belongs to the month it actually lands in the provider account.
+      // If the investment day is earlier than the contribution day the date rolls
+      // into the following month, so the list shows (say) September's payment under
+      // October. That is almost always a settings mistake, so say so in the job log.
+      if (monthKey(investmentDate) !== monthKey(contributionDate)) {
+        result.notes.push(`${account.label || account.provider || account.id}: the contribution on ${isoDate(contributionDate)} is set to be invested on ${isoDate(investmentDate)}, which is in a later month. If your provider pays in during the same month, set the contribution day to the day it is actually paid in (contribution day ${n(account.contribution_day, 0) || "not set"}, investment day ${n(account.pension_investment_day, 0) || "not set"}).`);
+      }
       // Projection rows describe expected cash and purchases. They do not become
       // provider-confirmed holdings merely because their expected date passed.
       const status = investmentDate <= now ? "awaiting_provider_confirmation" : "pending_investment";
@@ -544,6 +552,7 @@ export async function runPensionContributionProjection(
         const contributionAmount = breakdown.total * (allocationPercent / 100);
         if (contributionAmount <= 0) continue;
         const txId = `pension:auto:${account.id}:${fund.id}:${isoDate(contributionDate)}:${isoDate(investmentDate)}`;
+        expectedTxIds.add(txId);
 
         const existing = existingEventByTx.get(txId) || null;
         if (
@@ -602,6 +611,30 @@ export async function runPensionContributionProjection(
         result.contribution_events_existing += existing?.id ? 1 : 0;
         result.pending_investments += 1;
       }
+    }
+
+    // If the contribution day, investment day or timing changed, earlier runs left
+    // projected rows under dates that are no longer produced. Retire only rows that
+    // are still unconfirmed projections; confirmed or provider-supplied rows are
+    // never touched.
+    const accountPrefix = `pension:auto:${account.id}:`;
+    const staleIds: string[] = [];
+    for (const [txId, event] of existingEventByTx) {
+      if (!txId.startsWith(accountPrefix) || expectedTxIds.has(txId)) continue;
+      if (!String(event.source || "").startsWith("salary_contribution_projection")) continue;
+      if (event.event_status !== "pending_investment" && event.event_status !== "awaiting_provider_confirmation") continue;
+      staleIds.push(event.id);
+    }
+    if (staleIds.length) {
+      const { error: retireError } = await supabase
+        .from("pension_contribution_events")
+        .update({ event_status: "removed", updated_at: new Date().toISOString() } as any)
+        .in("id", staleIds);
+      result.notes.push(
+        retireError
+          ? `${account.label || account.id}: could not retire ${staleIds.length} outdated projected row(s) — ${retireError.message}`
+          : `${account.label || account.id}: retired ${staleIds.length} outdated projected row(s) after a date change.`,
+      );
     }
 
     if (!matchedAnyPay) {

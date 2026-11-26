@@ -2533,6 +2533,58 @@ async function rollUpPensionAccount(supabase: any, userId: string, accountId: st
   }
 }
 
+export type PensionPaymentPreview =
+  | {
+      ok: true;
+      total: number;
+      expectedTotal: number;
+      dateWarning: string | null;
+      funds: Array<{ fundId: string; fundName: string; amount: number; price: number | null; priceDate: string | null; priceDaysOld: number | null; units: number | null }>;
+    }
+  | { ok: false; error: string };
+
+/**
+ * Read-only check shown before "Confirm": the date, the amount per fund, and
+ * which logged price each fund's units would be worked out from. Nothing is saved.
+ */
+export async function previewPensionPayment(input: { accountId: string; month: string; investedOn: string; amount?: number | null }): Promise<PensionPaymentPreview> {
+  const { supabase, user } = await currentUser();
+  const investedOn = String(input.investedOn || "").slice(0, 10);
+  if (!input.accountId || !/^\d{4}-\d{2}$/.test(input.month || "") || !/^\d{4}-\d{2}-\d{2}$/.test(investedOn)) return { ok: false, error: "Choose the payment and the date it went in." };
+  if (investedOn > new Date().toISOString().slice(0, 10)) return { ok: false, error: "That date is in the future. Confirm it once the money has gone in." };
+
+  const { data: events, error } = await supabase
+    .from("pension_contribution_events")
+    .select("id, pension_fund_id, contribution_amount, investment_date, contribution_date")
+    .eq("user_id", user.id)
+    .eq("pension_account_id", input.accountId)
+    .eq("contribution_month", input.month)
+    .in("event_status", ["awaiting_provider_confirmation", "pending_investment"]);
+  if (error) return { ok: false, error: error.message };
+  if (!events?.length) return { ok: false, error: "There's nothing waiting to confirm for that month." };
+
+  const expectedTotal = events.reduce((sum, event) => sum + Number(event.contribution_amount || 0), 0);
+  const entered = Number(input.amount);
+  const total = Number.isFinite(entered) && entered > 0 ? entered : expectedTotal;
+  const scale = expectedTotal > 0 ? total / expectedTotal : 1;
+
+  const dueDate = String(events[0].investment_date || events[0].contribution_date || "").slice(0, 10);
+  const dayGap = dueDate ? Math.round(Math.abs(new Date(`${investedOn}T12:00:00Z`).getTime() - new Date(`${dueDate}T12:00:00Z`).getTime()) / 86400000) : 0;
+  const dateWarning = dayGap > 14 ? `That is ${dayGap} days from when this payment was due (${dueDate}). Check the date in your provider app.` : null;
+
+  const funds: Array<{ fundId: string; fundName: string; amount: number; price: number | null; priceDate: string | null; priceDaysOld: number | null; units: number | null }> = [];
+  for (const event of events) {
+    if (!event.pension_fund_id) continue;
+    const { data: fund } = await supabase.from("pension_funds").select("id, fund_name, unit_price").eq("id", event.pension_fund_id).eq("user_id", user.id).maybeSingle();
+    if (!fund) continue;
+    const amount = Math.round(Number(event.contribution_amount || 0) * scale * 100) / 100;
+    const { price, date: priceDate } = await loggedUnitPrice(supabase, user.id, fund.id, investedOn, Number(fund.unit_price || 0));
+    const priceDaysOld = priceDate ? Math.round((new Date(`${investedOn}T12:00:00Z`).getTime() - new Date(`${priceDate}T12:00:00Z`).getTime()) / 86400000) : null;
+    funds.push({ fundId: fund.id, fundName: fund.fund_name || "Fund", amount, price: price > 0 ? price : null, priceDate, priceDaysOld, units: price > 0 ? amount / price : null });
+  }
+  return { ok: true, total: Math.round(total * 100) / 100, expectedTotal: Math.round(expectedTotal * 100) / 100, dateWarning, funds };
+}
+
 /** "Yes, that payment went in": amount (optional change) and the date it was invested. */
 export async function confirmPensionPayment(formData: FormData) {
   const { supabase, user } = await currentUser();
