@@ -331,6 +331,29 @@ export function chooseListing(
     };
   }
 
+  // No ticker read from the app: take the best name match from the search, whatever its price.
+  let byName: ListingQuote | null = null;
+  let byNameScore = 0;
+  for (const quote of quotes) {
+    const score = matchScore(row, { asset_name: quote.assetName || null, ticker: quote.rawSymbol });
+    if (score >= 0.7 && score > byNameScore) { byName = quote; byNameScore = score; }
+  }
+  if (byName) {
+    return {
+      mode: "listed",
+      ticker: byName.rawSymbol,
+      exchange: byName.exchange || null,
+      assetName: byName.assetName || row.name,
+      assetKind: "share",
+      currency: byName.currency || null,
+      quoteGbpPrice: byName.gbpPrice > 0 ? round(byName.gbpPrice, 6) : null,
+      source: byName.source || null,
+      isin: byName.isin || null,
+      verified: false,
+      note: `Found ${byName.rawSymbol} by name. The price is checked after adding.`,
+    };
+  }
+
   return {
     mode: "manual",
     ticker: null,

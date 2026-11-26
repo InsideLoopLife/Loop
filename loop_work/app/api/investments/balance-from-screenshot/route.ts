@@ -178,7 +178,8 @@ export async function POST(request: Request) {
     const looked = toAdd.slice(0, lookups);
     for (let start = 0; start < looked.length; start += 4) {
       await Promise.all(looked.slice(start, start + 4).map(async (row) => {
-        const quotes = await toQuotes(row.ticker || row.name);
+        let quotes = await toQuotes(row.ticker || row.name);
+        if (!quotes.length && row.ticker && row.name) quotes = await toQuotes(row.name);
         row.addCandidate = chooseListing(row, quotes);
       }));
     }

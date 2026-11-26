@@ -36,7 +36,7 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
 
   const editable = useMemo(() => (data?.rows || []).filter((row) => row.match && !row.locked && row.averageBuyPrice !== null), [data]);
   const unmatched = useMemo(() => (data?.rows || []).filter((row) => !row.match), [data]);
-  const addable = useMemo(() => unmatched.filter((row) => row.addCandidate && row.averageBuyPrice !== null), [unmatched]);
+  const addable = useMemo(() => unmatched.filter((row) => row.addCandidate), [unmatched]);
   const locked = useMemo(() => (data?.rows || []).filter((row) => row.match && row.locked), [data]);
 
   function addFiles(list: FileList | null) {
@@ -112,7 +112,7 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
             exchange: row.addCandidate!.exchange,
             assetKind: row.addCandidate!.assetKind,
             units: row.quantity,
-            averageBuyPrice: row.averageBuyPrice!,
+            averageBuyPrice: row.averageBuyPrice,
             latestPrice: row.impliedPrice,
           }));
         const result = await addHoldingsFromScreenshot({ accountId, rows });
@@ -225,7 +225,7 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
               {unmatched.map((row) => {
                 const key = addKey(row);
                 const candidate = row.addCandidate;
-                const canAdd = Boolean(candidate) && row.averageBuyPrice !== null;
+                const canAdd = Boolean(candidate);
                 const checked = pickedAdds.has(key);
                 return (
                   <label key={key} className={`block rounded-2xl p-3 ring-1 ${canAdd ? "cursor-pointer" : ""} ${checked ? "bg-emerald-50 ring-emerald-200" : "bg-white ring-slate-200"}`}>
@@ -237,7 +237,7 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
                           <p className="shrink-0 text-sm font-black text-slate-950">{money(row.value)}</p>
                         </div>
                         <p className="mt-1 text-xs font-semibold text-slate-600">
-                          {quantity(row.quantity)} units{row.averageBuyPrice !== null ? <> · average buy price <strong className="text-slate-900">{unitPrice(row.averageBuyPrice)}</strong> · total cost {money(row.cost!)}</> : null} · <span className={row.pnl < 0 ? "text-red-600" : "text-emerald-700"}>{signedMoney(row.pnl)}</span>
+                          {quantity(row.quantity)} units{row.averageBuyPrice === null ? <> · no average buy price (cost not worked out)</> : null}{row.averageBuyPrice !== null ? <> · average buy price <strong className="text-slate-900">{unitPrice(row.averageBuyPrice)}</strong> · total cost {money(row.cost!)}</> : null} · <span className={row.pnl < 0 ? "text-red-600" : "text-emerald-700"}>{signedMoney(row.pnl)}</span>
                         </p>
                         {candidate ? (
                           <p className="mt-1 text-xs font-semibold text-slate-600">

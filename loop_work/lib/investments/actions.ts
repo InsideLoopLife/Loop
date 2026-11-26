@@ -1752,7 +1752,8 @@ export async function addHoldingsFromScreenshot(input: {
     exchange: string | null;
     assetKind: string | null;
     units: number;
-    averageBuyPrice: number;
+    /** Null when the cost couldn't be worked out: the holding is still added and tracked. */
+    averageBuyPrice: number | null;
     /** Pounds per unit, used only for manual holdings that have no live price. */
     latestPrice: number | null;
   }>;
@@ -1778,8 +1779,9 @@ export async function addHoldingsFromScreenshot(input: {
   for (const row of requested) {
     const name = String(row.name || "").trim().slice(0, 160);
     const units = Number(row.units);
-    const averageBuyPrice = Number(row.averageBuyPrice);
-    if (!name || !(units > 0) || !(averageBuyPrice > 0) || !Number.isFinite(units) || !Number.isFinite(averageBuyPrice)) {
+    const hasCost = row.averageBuyPrice !== null && Number(row.averageBuyPrice) > 0 && Number.isFinite(Number(row.averageBuyPrice));
+    const averageBuyPrice = hasCost ? Number(row.averageBuyPrice) : 0;
+    if (!name || !(units > 0) || !Number.isFinite(units)) {
       failed.push({ name: name || "Holding", reason: "The quantity or average price wasn't valid." });
       continue;
     }
@@ -1787,7 +1789,7 @@ export async function addHoldingsFromScreenshot(input: {
     fd.set("investment_account_id", accountId);
     fd.set("asset_name", name);
     fd.set("units", String(units));
-    fd.set("average_buy_price", String(averageBuyPrice));
+    if (hasCost) fd.set("average_buy_price", String(averageBuyPrice));
     fd.set("price_input_unit", "gbp");
     fd.set("currency", "GBP");
     fd.set("notes", `Added from a screenshot of ${account.provider || "your trading app"}. Average buy price worked out from value and profit/loss.`);
@@ -1811,7 +1813,8 @@ export async function addHoldingsFromScreenshot(input: {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (created?.id) newIds.push({ id: String(created.id), averageBuyPrice });
+      if (created?.id && hasCost) newIds.push({ id: String(created.id), averageBuyPrice });
+      if (!hasCost) warnings.push(`${name}: added without an average buy price, so set it from the cost basis drawer.`);
       added.push(name);
       if (row.mode === "listed" && created?.id) {
         const implied = Number(row.latestPrice) || 0;
