@@ -312,6 +312,25 @@ export function chooseListing(
     };
   }
 
+  // Nothing matched on name and price, but a ticker was read from the app: track that ticker
+  // anyway and let the normal add path fetch its price. The price is checked after adding.
+  const fallbackTicker = baseTicker(row.ticker || "");
+  if (fallbackTicker) {
+    return {
+      mode: "listed",
+      ticker: fallbackTicker,
+      exchange: null,
+      assetName: row.name,
+      assetKind: "share",
+      currency: null,
+      quoteGbpPrice: implied,
+      source: null,
+      isin: null,
+      verified: false,
+      note: `Couldn't confirm the listing from the price, so it will track ${fallbackTicker} and check the price after adding.`,
+    };
+  }
+
   return {
     mode: "manual",
     ticker: null,
@@ -324,7 +343,7 @@ export function chooseListing(
     isin: null,
     verified: false,
     note: quotes.length
-      ? "No listing matched both the name and the price shown in the app, so this can only be added as a manual holding. Its price won't update by itself."
-      : "No listing was found, so this can only be added as a manual holding. Its price won't update by itself.",
+      ? "No listing matched both the name and the price shown in the app and the app showed no ticker, so this can only be added as a manual holding."
+      : "No listing was found and the app showed no ticker, so this can only be added as a manual holding.",
   };
 }

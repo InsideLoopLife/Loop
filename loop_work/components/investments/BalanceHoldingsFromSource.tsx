@@ -61,8 +61,8 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
       const result = json as ReadResponse;
       setData(result);
       setPicked(new Set(result.rows.filter((row) => row.match && !row.locked && row.averageBuyPrice !== null && row.confidence === "high").map((row) => row.match!.holdingId)));
-      // Only listings whose name and price both agree with the app are pre-ticked.
-      setPickedAdds(new Set(result.rows.filter((row) => !row.match && row.averageBuyPrice !== null && row.addCandidate?.mode === "listed" && row.addCandidate.verified).map(addKey)));
+      // Anything with a listing or ticker is tracked for price, so it is pre-ticked.
+      setPickedAdds(new Set(result.rows.filter((row) => !row.match && row.averageBuyPrice !== null && row.addCandidate?.mode === "listed").map(addKey)));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "That screenshot couldn't be read.");
     } finally {
@@ -117,6 +117,7 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
           }));
         const result = await addHoldingsFromScreenshot({ accountId, rows });
         messages.push(result.message);
+        if (result.warnings?.length) messages.push(result.warnings.join(" "));
         if (result.failed.length) messages.push(result.failed.map((item) => `${item.name}: ${item.reason}`).join(" "));
       }
       setDone(messages.join(" "));
@@ -242,7 +243,7 @@ export function BalanceHoldingsFromSource({ accountId, accountLabel, provider, o
                           <p className="mt-1 text-xs font-semibold text-slate-600">
                             {candidate.mode === "listed"
                               ? <>Add as <strong className="text-slate-900">{candidate.assetName}</strong> ({candidate.ticker}{candidate.exchange ? `, ${candidate.exchange}` : ""}){candidate.verified ? " · name and price match the app" : ""}</>
-                              : <>Add as a <strong className="text-slate-900">manual holding</strong> (no live price)</>}
+                              : <>Add as a <strong className="text-slate-900">manual holding</strong> (no ticker, so no live price)</>}
                           </p>
                         ) : null}
                         {candidate?.note ? <p className="mt-1 flex items-start gap-1.5 text-xs font-semibold text-amber-800"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{candidate.note}</p> : null}

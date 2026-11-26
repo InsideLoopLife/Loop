@@ -1772,6 +1772,7 @@ export async function addHoldingsFromScreenshot(input: {
 
   const added: string[] = [];
   const failed: Array<{ name: string; reason: string }> = [];
+  const warnings: string[] = [];
   const newIds: Array<{ id: string; averageBuyPrice: number }> = [];
 
   for (const row of requested) {
@@ -1798,13 +1799,12 @@ export async function addHoldingsFromScreenshot(input: {
       // No live price source: record the price seen in the app and don't poll for one.
       fd.set("asset_kind", "share");
       fd.set("latest_price", String(Math.max(0, Number(row.latestPrice) || 0)));
-      fd.set("price_polling_enabled", "off");
     }
     try {
       await addInvestmentHolding(fd);
       const { data: created } = await supabase
         .from("investment_holdings")
-        .select("id")
+        .select("id,latest_price")
         .eq("user_id", user.id)
         .eq("investment_account_id", accountId)
         .eq("asset_name", name)
@@ -1813,6 +1813,17 @@ export async function addHoldingsFromScreenshot(input: {
         .maybeSingle();
       if (created?.id) newIds.push({ id: String(created.id), averageBuyPrice });
       added.push(name);
+      if (row.mode === "listed" && created?.id) {
+        const implied = Number(row.latestPrice) || 0;
+        const fetched = Number(created.latest_price) || 0;
+        if (fetched <= 0 && implied > 0) {
+          // No quote came back: keep tracking switched on but start from the app's price.
+          await supabase.from("investment_holdings").update({ latest_price: implied, latest_price_date: new Date().toISOString().slice(0, 10) }).eq("id", created.id).eq("user_id", user.id);
+          warnings.push(`${name}: no live price came back yet, so it starts at the app's price and will update on the next refresh.`);
+        } else if (implied > 0 && Math.abs(fetched / implied - 1) > 0.25) {
+          warnings.push(`${name}: the tracked price (£${fetched.toFixed(2)}) is far from the app's (£${implied.toFixed(2)}). Check it's the right listing.`);
+        }
+      }
     } catch (error) {
       failed.push({ name, reason: error instanceof Error ? error.message : "It couldn't be added." });
     }
@@ -1838,6 +1849,7 @@ export async function addHoldingsFromScreenshot(input: {
   return {
     added,
     failed,
+    warnings,
     message: added.length
       ? `Added ${added.length} holding${added.length === 1 ? "" : "s"}${failed.length ? `, ${failed.length} couldn't be added` : ""}.`
       : "Nothing was added.",
